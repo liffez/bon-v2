@@ -677,10 +677,13 @@ function fetchDashboardStats(daysBack, daysForward) {
     return apiFetch('/dashboard/stats' + qs);
 }
 
-function fetchDashboardTopProducts(from, to) {
+// bucket: 'food' (default — kun varer der tæller som solgte enheder)
+//         'other' (emballage, drikke, kager, tilbehør)
+function fetchDashboardTopProducts(from, to, bucket) {
     var params = [];
     if (from) params.push('from=' + from);
     if (to) params.push('to=' + to);
+    if (bucket) params.push('bucket=' + encodeURIComponent(bucket));
     var qs = params.length ? '?' + params.join('&') : '';
     return apiFetch('/dashboard/top-products' + qs);
 }

@@ -2558,6 +2558,44 @@ til Grocy's kanoniske navne, så whitelisten kan være ren (`["01 Sandwich","02 
   `04 Slider` (3.238) + bare-varianter `Slider` (253), `Salat` (31), `Emballage` (210),
   `Drikke` (64), `Kager` (63).
 
+#### Top produkter: emballage ud af konkurrencen (11. august 2026)
+
+Dashboardets "Top produkter" havde **RR Boks (emballage)** som nr. 1. Den følger
+med næsten hver bon, så på antal slår den enhver sandwich — uden at være noget
+man sælger.
+
+`/top-products` prøvede at filtrere tilbehør fra med `bl.is_accessory = 0`, men
+**flaget er aldrig sat**: 0 af 20.781 linjer i drift. Filteret var dødt, og
+emballage, drikke og kager konkurrerede på lige fod med maden.
+
+- **`db/helpers.js`** — boolean-delen af `bonUnitsExpr` udskilt som
+  `unitCountablePredicate()` ("tæller denne linje som en solgt enhed?").
+  `bonUnitsExpr` bruger den nu selv, så listen og `bons.total_units` ikke kan
+  drive fra hinanden. **COALESCE på begge kolonner** er ikke kosmetik: uden den
+  giver `NULL IN (...)` et NULL-prædikat, og 642 linjer uden kategori ville
+  falde ud af BÅDE `sql` og `NOT sql`. I `bonUnitsExpr` er semantikken uændret
+  (NULL ramte allerede ELSE-grenen).
+- **`GET /api/dashboard/top-products?bucket=food|other`** — `food` (default) er
+  kun tællende varer, `other` er resten. Samme svar-form begge veje, så det er
+  et filter og ikke et formskift. Tallet er fortsat rå `SUM(quantity)`: en
+  slider-boks tæller 3 enheder i `total_units`, men står som 1 stk her, fordi
+  det er dét man spørger om i en produktliste. `is_accessory = 0` beholdes som
+  sikkerhedssnor.
+- **`office/views/dashboard.js`** — foldet "Øvrigt · emballage, drikke, kager"
+  under tabellen, som henter `?bucket=other` først ved udfoldning. Overlever
+  Kr/Enheder-skift og genindlæsning (hentes igen hvis den står åben).
+- **Rapporter → Top kategorier** — emballage lå dér på førstepladsen med 30 %.
+  Kategorien hører legitimt hjemme i en kategori-nedbrydning, så den fjernes
+  ikke: rækker der ikke tæller dæmpes (opacity .55) med forklaring i tooltip og
+  en note under listen. `counts_as_unit` pr. række fra `/top-categories`.
+  Begrænsning: kun kategori-reglen kan bruges her — `unit_count_extra_recipes`
+  er pr. opskrift, så "Tilbehør & Bokse" dæmpes selvom Børne Bokse i den tæller.
+- **Test**: `run_T_DASHBOARD` fik TPR_09/TPR_10 (bucket-opdeling + komplement).
+  Seedens Frikadeller-linje flyttet fra `Hovedret` til `01 Sandwich` — ellers
+  var TPR_06 + TPR_08 degraderet lydløst til SKIP i stedet for at fejle.
+  58 PASS mod baseline 56, samme 15 FAIL (alle #133's UTC-natte-bug i runneren,
+  som regner "i dag" i UTC — verificeret ved at køre baseline uden ændringerne).
+
 ### Menu-grupper persisteres (20. maj 2026)
 
 Gruppering af menu-linjer på køkken-bon-kortet (select-mode → vælg → Gruppér → titel + note)

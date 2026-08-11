@@ -825,16 +825,26 @@ function _rapRenderTopCategories(data) {
 
   const maxVal = Math.max(...items.map(i => i.units || 0), 1);
 
+  // Kategorier der ikke tæller som solgte enheder (emballage, drikke, kager)
+  // dæmpes — de hører til i nedbrydningen, men er ikke salgstal. Samme greb
+  // som sammentællingen på bon-kortet bruger.
+  const hasDimmed = items.some(i => i.counts_as_unit === false);
+
   el.innerHTML = '<div class="rap-bar-list">' + items.map((item, idx) => {
     const pct = ((item.units || 0) / maxVal * 100).toFixed(1);
     const pctLabel = item.pct != null ? item.pct.toFixed(1) + '%' : '';
-    return `<div class="rap-bar-row">
+    const dim = item.counts_as_unit === false;
+    const name = item.name || item.category || '?';
+    const title = dim ? `${name} — tæller ikke som salgsenhed` : name;
+    return `<div class="rap-bar-row"${dim ? ' style="opacity:.55"' : ''}>
       <span class="rap-rank">${idx + 1}.</span>
-      <span class="rap-name" title="${item.name || item.category || '?'}">${item.name || item.category || '?'}</span>
+      <span class="rap-name" title="${title}">${name}</span>
       <div class="rap-bar"><div class="rap-bar-fill" style="width:${pct}%;background:${CAT_COLORS[item.code] || '#8e631f'}"></div></div>
       <span class="rap-value">${_rapFmt(item.units)} ${pctLabel ? '(' + pctLabel + ')' : ''}</span>
     </div>`;
-  }).join('') + '</div>';
+  }).join('') + '</div>' + (hasDimmed
+    ? '<div style="padding:6px 10px 2px;font-size:10px;color:#a09890">Dæmpede kategorier tæller ikke som salgsenheder</div>'
+    : '');
 }
 
 // ─── Monthly table ──────────────────────────────────────────────────
