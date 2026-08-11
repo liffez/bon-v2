@@ -710,6 +710,11 @@ function refreezeDriftDay(date) {
 function fetchDriftPeriod(from, to, mode) {
     return apiFetch('/drift/period?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
 }
+// Produktions-sammentælling. Dagsvisningen kalder med from = to = dagen.
+function fetchDriftItems(from, to, mode) {
+    return apiFetch('/drift/items?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to || from) +
+                    '&mode=' + encodeURIComponent(mode || 'realiseret'));
+}
 
 /* ── CRM ──────────────────────────────────────────────────── */
 

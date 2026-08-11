@@ -2912,7 +2912,8 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
 > migrations op til 119). 6 GitHub-issues lukket som færdige (#64, #70, #71, #77, #85, #132).
 
 #### Driftsregnskab (dagsbaseret resultatanalyse) — #132 ✅
-- [x] `routes/drift.js` — `GET /api/drift/day?date=&mode=` (dagsresultat, live/frosset), `GET /api/drift/day/bons` (per-bon nedbrydning, altid live), `POST /api/drift/refreeze` (admin), `GET /api/drift/period?from=&to=` (trend)
+- [x] `routes/drift.js` — `GET /api/drift/day?date=&mode=` (dagsresultat, live/frosset), `GET /api/drift/day/bons` (per-bon nedbrydning, altid live), `POST /api/drift/refreeze` (admin), `GET /api/drift/period?from=&to=` (trend), `GET /api/drift/items?from=&to=` (produktions-sammentælling pr. kategori, altid live)
+- [x] **Løn% + råvare% (branchens nøgletal)** på KPI-pillerne og som kolonner i dag-for-dag, plus procent-trend-kurve i uge/periode. Farvekodes mod måltal (migration 145: `target_labor_pct`, `target_food_cost_pct`, `target_pct_tolerance` — **tomme som default = ingen farve**, sættes i Settings → Løn & jobtyper). Måltal fryses aldrig ind i `labor_day_snapshot`; de lægges på svaret uden om `data_json`, så et ændret mål også gælder historiske dage. Detaljer i `docs/CLAUDE_DRIFTSREGNSKAB.md` §6 + §6b
 - [x] `services/laborAdapter.js` — Smartplan-timer × lokale `wage_rates` (tidsversioneret timeløn) + `smartplan_role_map` (jobtype → production|delivery|other)
 - [x] Migrations 088 (`wage_rates` + `smartplan_role_map`), 091 (`labor_day_snapshot` — fryser afsluttede dage ved første visning), 093 (`settings.labor_overhead_pct`)
 - [x] `computeDay()`: revenue incl→ex, cost ex, delivery ex, løn ex m. overhead, enheder, kapacitetsrate, løn-andel %. Alt ex moms. Office-view `office/views/driftsregnskab.js` (ØKONOMI-sektionen)

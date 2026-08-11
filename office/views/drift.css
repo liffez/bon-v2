@@ -24,7 +24,7 @@
 .dr-kpi-sub { color: #aaa; font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; line-height: 1.5; }
 /* Løn% / råvare% — branche-nøgletallet skal kunne læses uden at kigge efter,
    så selve procenten står mørkere og større end resten af sub-linjen. */
-.dr-kpi-sub .dr-share { color: #6f5c3e; font-size: 13px; font-weight: 700; }
+.dr-kpi-sub .dr-share { color: var(--dr-t, #6f5c3e); font-size: 13px; font-weight: 700; }
 .dr-kpi.dr-pos .dr-kpi-val { color: #2e7d32; }
 .dr-kpi.dr-neg .dr-kpi-val { color: #b32020; }
 
@@ -57,7 +57,66 @@
 /* Vare% / Løn% i dag-for-dag: afledte kolonner — dæmpet, så kronetallene
    stadig er dem øjet lander på først. */
 .dr-labor th.dr-pct-cell { color: #a89b86; }
-.dr-labor td.dr-pct-cell { color: #8a7a63; font-size: 13px; font-variant-numeric: tabular-nums; }
+.dr-labor td.dr-pct-cell { color: var(--dr-t, #8a7a63); font-size: 13px; font-variant-numeric: tabular-nums; }
+.dr-labor td.dr-pct-cell[class*="dr-t-"] { font-weight: 600; }
+
+/* Farvekodning mod måltal (settings target_labor_pct / target_food_cost_pct).
+   Uden måltal sættes ingen af disse klasser — procenten står neutral.
+   Sætter kun en variabel, så farven vinder over grundtonen uden en
+   specificitets-kamp (grundreglerne er 0,2,0 — en løs klasse ville tabe).
+   Farven er ikke alene om at bære signalet: en overskridelse får også et ▲. */
+.dr-t-ok   { --dr-t: #2e7d32; }
+.dr-t-warn { --dr-t: #b06a12; }
+.dr-t-over { --dr-t: #b32020; }
+
+.dr-target-note { margin: -12px 0 22px; font-size: 13px; color: #7a6a52; }
+.dr-target-note .dr-sub { color: #a89b86; font-size: 12px; }
+
+/* Procent-trend (uge/periode): to kurver + måltal som stiplet linje.
+   vector-effect holder stregtykkelsen konstant trods non-uniform skalering
+   (preserveAspectRatio="none" strækker viewBox'en vandret). */
+.dr-pct-trend { background: #faf9f7; border: 1px solid #ece8e2; border-radius: 8px; padding: 10px 12px 6px; }
+.dr-pt-plot { position: relative; }
+.dr-pct-trend svg { width: 100%; height: 110px; display: block; }
+.dr-pct-trend polyline { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke;
+                         stroke-linejoin: round; stroke-linecap: round; }
+.dr-pt-food  { stroke: #8e631f; }
+.dr-pt-labor { stroke: #4a7ab0; }
+.dr-pt-target { stroke: #b9ab93; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+/* Prikker som HTML oven på svg'en — se kommentaren i _drPctTrend: de må ikke
+   arve viewBox'ens vandrette stræk, ellers bliver de til ovaler. */
+.dr-pt-dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+             border-radius: 50%; background: var(--dr-t, currentColor); box-shadow: 0 0 0 1.5px #faf9f7; }
+.dr-pt-dot-food  { color: #8e631f; }
+.dr-pt-dot-labor { color: #4a7ab0; }
+.dr-pt-legend { display: flex; gap: 14px; align-items: center; margin-top: 6px; font-size: 12px; color: #8a7a63; }
+.dr-pt-key { display: inline-flex; align-items: center; gap: 5px; }
+.dr-pt-sw { width: 14px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
+.dr-pt-sw-food   { color: #8e631f; }
+.dr-pt-sw-labor  { color: #4a7ab0; }
+.dr-pt-sw-target { color: #b9ab93; border-top-style: dashed; }
+.dr-pt-max { margin-left: auto; color: #a89b86; }
+
+/* Produktions-sammentælling: kategori-rækker der folder varerne ud. */
+.dr-items { display: flex; flex-direction: column; gap: 4px; }
+.dr-item-cat { border: 1px solid #ece8e2; border-radius: 8px; background: #faf9f7; overflow: hidden; }
+.dr-item-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+                background: none; border: none; cursor: pointer; font: inherit; text-align: left; }
+.dr-item-head:hover { background: #f2efe9; }
+.dr-item-caret { color: #8a7a63; font-size: 13px; width: 12px; line-height: 1; }
+.dr-item-name { flex: 1; font-weight: 600; }
+.dr-item-n { font-family: var(--font-heading, Georgia, serif); font-size: 19px; font-weight: 700;
+             font-variant-numeric: tabular-nums; }
+.dr-item-units { color: #8a7a63; font-size: 12px; min-width: 66px; text-align: right; }
+.dr-item-dim { opacity: .62; }          /* tæller ikke i Enheder — men blev stadig lavet */
+.dr-item-prods { padding: 2px 12px 10px 32px; display: grid;
+                 grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 16px; font-size: 13px; }
+/* `display:grid` på klassen slår browserens egen [hidden]-regel (display:none),
+   fordi klasse-selektoren vejer tungere. Uden denne linje står varelisten
+   permanent åben, og folde-ud-knappen gør ingenting. */
+.dr-item-prods[hidden] { display: none; }
+.dr-item-pq { font-variant-numeric: tabular-nums; color: #6f5c3e; font-weight: 600; }
+.dr-item-total { margin-top: 8px; font-size: 13px; color: #7a6a52; }
 
 .dr-role { font-size: .8em; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
 .dr-role-production { background: #e6f0e6; color: #2e6b2e; }
