@@ -709,12 +709,21 @@
 }
 .kitchen-cancel-btn:hover { background: var(--gray-light); }
 
-/* ── LEVERINGSINFO (én linje, gråtone) ────────────────────── */
+/* ── LEVERINGSINFO (etage, port, kode) ─────────────────────── */
+/* Ligger i .bon-header under leveringsindikatoren og arver dens padding.
+   Stod tidligere nederst på kortet UDEN padding — så startede teksten i
+   x=0, hvor .bon-card::before-statusstriben (6px, absolut positioneret og
+   derfor malet ovenpå) åd det første tegn: "Stueetagen" → "tueetagen". */
 .delivery-line {
-    margin-top: 6px;
+    margin-top: 5px;
     font-size: 12px;
     color: var(--color-text-dim, #6b6660);
     line-height: 1.4;
+}
+.delivery-line-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.6px; color: var(--brown);
+    margin-right: 6px; opacity: 0.75;
 }
 
 /* ── SAMMENTÆLLING PANEL ──────────────────────────────────── */

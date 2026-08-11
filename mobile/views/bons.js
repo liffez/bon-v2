@@ -983,6 +983,13 @@ async function _mbShowDetail(bonId, opts) {
         html += '<div class="m-detail-value"><a href="https://maps.google.com/?q=' + encodeURIComponent(addrStr) + '" target="_blank">' + _mbEsc(addrStr) + ' &#8599;</a></div>';
     }
 
+    // Leveringsinfo (etage, port, kode) — hører sammen med adressen.
+    // Courier-mobilen har den allerede på stop-detaljen (m-lv-notes).
+    if (bon.delivery_notes) {
+        html += '<div class="m-detail-label">Leveringsinfo</div>';
+        html += '<div class="m-detail-value">' + _mbEsc(bon.delivery_notes) + '</div>';
+    }
+
     html += '<div class="m-detail-label">Enheder / Pax</div>';
     html += '<div class="m-detail-value">' + (bon.total_units || '—') + ' enh. / ' + (bon.pax || '—') + ' pax</div>';
 
