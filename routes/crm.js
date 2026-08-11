@@ -1725,7 +1725,12 @@ router.get('/pipeline', handle((req, res) => {
     const db = getDb();
     const category = req.query.category;
 
-    let where = 'WHERE (b.is_offer = 1 OR sd.code IN (\'NY\',\'VENTER\'))';
+    // Et tabt eller udløbet tilbud hører ikke til på en tavle over igangværende
+    // salg. Uden dette filter ville det lande i "Lead"-kolonnen — kolonne-
+    // fordelingen nedenfor har ingen anden plads at gøre af det — og et tilbud
+    // man netop havde lukket, ville hoppe tilbage til starten af tavlen.
+    let where = `WHERE (b.is_offer = 1 OR sd.code IN ('NY','VENTER'))
+                   AND (b.is_offer = 0 OR COALESCE(b.offer_status, 'draft') NOT IN ('lost','expired'))`;
     const args = [];
     if (category) {
         where += ' AND b.price_category = ?';
@@ -1766,6 +1771,7 @@ router.get('/pipeline', handle((req, res) => {
             total_price: r.total_price,
             price_category: r.price_category,
             status: r.status,
+            is_offer: r.is_offer ? 1 : 0,
             offer_status: r.offer_status,
         };
 

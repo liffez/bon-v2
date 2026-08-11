@@ -740,6 +740,41 @@
   z-index: 2000; animation: tilbud-fi .3s ease;
 }
 
+/* Arten skal kunne ses på afstand — en grøn kvittering er hele beviset på at
+   mailen gik ud. */
+.tilbud-toast-success { background: #3f7d3a; }
+.tilbud-toast-warning { background: #a8641a; }
+
+/* ── Status-stribe (trin 5) ──────────────────────────── */
+
+.tilbud-status-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.tilbud-status-label {
+  font-size: .72rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--color-text-dim);
+}
+
+.tilbud-status-btn {
+  padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--color-border, #d7d1ca);
+  background: transparent; color: var(--color-text);
+  font-size: .78rem; font-weight: 600; font-family: inherit;
+}
+.tilbud-status-btn:hover { border-color: var(--brand-primary, #8e631f); }
+.tilbud-status-btn.active { color: #fff; }
+
+.tilbud-status-badge {
+  padding: 4px 12px; border-radius: 999px;
+  color: #fff; font-size: .78rem; font-weight: 600;
+}
+
+.tilbud-status-hint {
+  font-size: .75rem; color: var(--color-text-dim);
+}
+
 /* ── Fler-dags (#425) ────────────────────────────────── */
 
 .tilbud-days-intro {

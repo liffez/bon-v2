@@ -3448,6 +3448,57 @@ led selv har et niveau under sig — det er dér undertællingen sad. Mutations-
 uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
 giver testen "Maximum call stack size exceeded".
 
+### Tilbud: sendt er nu en status man kan se og sætte (#452, 11. august 2026)
+
+T-21 og T-22 blev sendt til kunden og blev alligevel liggende som **KLADDE**. Kontoret
+sendte derfor samme tilbud afsted flere gange — mail-historikken på T-22 har to udgående
+mails med PDF, tre minutter fra hinanden.
+
+Tre fejl gav samme oplevelse: *der skete ingenting.*
+
+1. **Kvitteringen slettede sig selv.** `_tToast(msg, ms)` tager en varighed i millisekunder,
+   men tre kaldesteder sendte en **art** i stedet: `_tToast('Tilbud sendt til …', 'success')`.
+   `setTimeout` gør en streng til `NaN` → 0 ms, så netop de vigtigste kvitteringer blev
+   fjernet i samme øjeblik de blev oprettet og nåede aldrig at blive tegnet. Andet argument
+   accepterer nu **begge** — tal = varighed, streng = art (grøn `success` / ravgul `warning`).
+   Den kan ikke længere sætte sin egen levetid til nul ved et uheld.
+2. **Afsendelse ændrede ikke status.** `_tDoSendMail` sendte mailen og rørte aldrig
+   `offer_status`. Skiftet ligger nu **efter** afsendelsen og kan aldrig vælte den — mailen
+   er den uigenkaldelige del. Slår skiftet fejl, siges det højt frem for at fejle stille.
+3. **Ingen manuel vej ud af Kladde.** `PATCH /api/quotes/:id/status` har eksisteret hele
+   tiden, og `patchQuoteStatus()` lå i `shared/api.js` — **uden ét eneste kaldested**.
+   Eneste virkende vej var CRM-tavlens pipeline (`tilbud_sendt`-kolonnen). `'lost'` kunne
+   slet ikke sættes: filteret "Tabt" på tilbudslisten kunne aldrig blive fyldt.
+   Trin 5 har nu en status-stribe `Kladde · Sendt · Tabt`. **"Vundet" står bevidst ikke der**
+   — den sættes af "Opret som bon", og serveren afviser `'won'` på status-endpointet af
+   præcis den grund (Patch I, F68), så en knap ville kun kunne fejle.
+
+**Luk et tilbud fra pipelinen** uden en femte kolonne: hvert *tilbudskort* har et ✕ der
+først dukker op ved hover (kun `is_offer=1` — en rigtig bon aflyses via sin egen status).
+Det kalder tilbuddets status-endpoint, ikke pipeline-flytningen: "tabt" er en tilstand på
+tilbuddet, ikke en kolonne på en tavle.
+
+> Det krævede én ting på serveren: pipelinen hentede **alle** tilbud uanset status, og
+> kolonne-fordelingen har kun fire kasser — alt der ikke er sendt/forhandling/vundet ryger
+> i **Lead**. Et netop lukket tilbud ville altså hoppe tilbage til starten af tavlen.
+> `GET /pipeline` filtrerer nu `lost`/`expired` fra. Ændrer intet for eksisterende data:
+> indtil nu kunne intet tilbud overhovedet *blive* tabt.
+
+**Hvorfor det ikke bare er kosmetik:** et tilbud der bliver liggende som åbent tæller med i
+sidebarens tilbudstal, og når gyldigheden udløber, dukker det op på
+**Ringeliste → Kolde tilbud** som et tilbud ingen har fulgt op på — også når kunden for
+længst har valgt noget andet.
+
+Desuden: manglende mailadresse blokerer ikke længere. Send-panelet åbner med tomt Til-felt
+og en synlig gul note, så adressen kan skrives ind på stedet. Før afviste knappen sig selv
+med en toast, der (jf. fejl 1) var usynlig — så knappen så ud til slet ikke at gøre noget.
+
+Browser-verificeret ende-til-ende mod en kopi af driftsdata: status gemmes (`offer_status`,
+`offer_sent_at`), listen skifter til SENDT, kvitteringen bliver stående, ✕ vises kun på
+tilbud (2 af 26 kort), det lukkede tilbud forsvinder fra tavlen og kan findes under
+Tilbud → Tabt. Selve afsendelsen blev testet med et stub'et mail-kald, så der gik ingen
+post ud. Testdata rullet tilbage.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
