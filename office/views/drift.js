@@ -38,18 +38,138 @@ function _drShareOf(part, revenue) {
     if (part == null || !(revenue > 0)) return null;
     return part / revenue * 100;
 }
+
+// Måltal + farvekodning. Måltallene kommer fra settings via `targets` på svaret
+// (uden om det frosne snapshot, så et ændret mål også gælder historiske dage).
+// Er der intet måltal, farves der IKKE — procenten står neutral. Lavere er
+// bedre for begge: på/under mål = grøn, lige over = gul, klart over = rød.
+function _drTargetFor(kind) {
+    var t = _driftState.targets || {};
+    var tol = (t.tolerance_pct == null) ? 2 : t.tolerance_pct;
+    return { target: kind === 'labor' ? t.labor_pct : t.food_cost_pct, tol: tol };
+}
+function _drTargetState(pct, kind) {
+    var c = _drTargetFor(kind);
+    if (pct == null || !(c.target > 0)) return null;
+    if (pct <= c.target) return 'ok';
+    if (pct <= c.target + c.tol) return 'warn';
+    return 'over';
+}
+// Farve alene er ikke et signal (farveblindhed, print, skærm i sollys), så en
+// overskridelse får også et ▲. Titel-teksten siger hvad målet er.
+function _drTargetMark(state) { return (state === 'warn' || state === 'over') ? ' ▲' : ''; }
+function _drTargetTitle(state, kind) {
+    var c = _drTargetFor(kind);
+    if (!state) return '';
+    var word = state === 'ok' ? 'på/under mål' : (state === 'warn' ? 'over mål' : 'klart over mål');
+    return ' title="Mål ' + _drPct(c.target) + ' · ' + word + ' (gult indtil ' + _drPct(c.target + c.tol) + ')"';
+}
+
 // Sub-linje til en KPI-pille: "28,4 % af omsætning" (tom hvis omsætning = 0).
-function _drShareSub(part, revenue) {
+function _drShareSub(part, revenue, kind) {
     var p = _drShareOf(part, revenue);
     if (p == null) return '';
-    return '<span class="dr-share">' + _drPct(p) + '</span> af omsætning';
+    var st = _drTargetState(p, kind);
+    return '<span class="dr-share' + (st ? ' dr-t-' + st : '') + '"' + _drTargetTitle(st, kind) + '>' +
+        _drPct(p) + _drTargetMark(st) + '</span> af omsætning';
 }
 // Procent-celle til dag-for-dag-tabellen. Dæmpet, fordi den er afledt af
 // kronekolonnen ved siden af — beløbet er stadig det primære.
-function _drShareCell(part, revenue) {
+function _drShareCell(part, revenue, kind) {
     var p = _drShareOf(part, revenue);
-    return '<td class="dr-r dr-pct-cell">' + (p == null ? '—' : _drPct(p)) + '</td>';
+    if (p == null) return '<td class="dr-r dr-pct-cell">—</td>';
+    var st = _drTargetState(p, kind);
+    return '<td class="dr-r dr-pct-cell' + (st ? ' dr-t-' + st : '') + '"' + _drTargetTitle(st, kind) + '>' +
+        _drPct(p) + _drTargetMark(st) + '</td>';
 }
+// Lille note under pillerne: hvad der måles imod — ellers er farverne uforklarede.
+function _drTargetNote() {
+    var t = _driftState.targets || {};
+    var parts = [];
+    if (t.food_cost_pct > 0) parts.push('råvare ≤ ' + _drPct(t.food_cost_pct));
+    if (t.labor_pct > 0)     parts.push('løn ≤ ' + _drPct(t.labor_pct));
+    if (!parts.length) return '';
+    return '<div class="dr-target-note">🎯 Måltal: ' + parts.join(' · ') +
+        ' <span class="dr-sub">(gul indtil +' + _drNum((t.tolerance_pct == null ? 2 : t.tolerance_pct), 1) +
+        ' point over · sættes i Settings → Løn & jobtyper)</span></div>';
+}
+// ── Procent-trend (uge/periode) ────────────────────────────
+// Løn% og råvare% dag for dag som to kurver, med måltallet som stiplet linje.
+// Søjlediagrammet ovenfor viser kroner; det her viser om forholdet skred —
+// en dag kan sagtens give overskud og alligevel have løbet løbsk på lønnen.
+// Inline SVG: ingen chart-bibliotek, ingen build-step (jf. stack-reglerne).
+function _drPctTrend(days) {
+    var pts = days.map(function (d) {
+        return {
+            date: d.date,
+            food: _drShareOf(d.cost_ex_moms, d.revenue_ex_moms),
+            labor: _drShareOf(d.labor_ex_moms, d.revenue_ex_moms),
+        };
+    });
+    // Dage uden omsætning har ingen procent — de efterlader et hul i kurven
+    // frem for at blive tegnet som 0, der ville ligne en fantastisk dag.
+    if (!pts.some(function (p) { return p.food != null || p.labor != null; })) return '';
+
+    var t = _driftState.targets || {};
+    var W = 100, H = 34, PAD = 2;                       // viewBox-enheder, skaleres af CSS
+    var vals = [];
+    pts.forEach(function (p) { if (p.food != null) vals.push(p.food); if (p.labor != null) vals.push(p.labor); });
+    if (t.food_cost_pct > 0) vals.push(t.food_cost_pct);
+    if (t.labor_pct > 0)     vals.push(t.labor_pct);
+    var max = Math.max.apply(null, vals.concat([10])) * 1.15;
+    var x = function (i) { return PAD + (pts.length < 2 ? (W - 2 * PAD) / 2 : i * (W - 2 * PAD) / (pts.length - 1)); };
+    var y = function (v) { return H - PAD - (v / max) * (H - 2 * PAD); };
+
+    var line = function (key, cls) {
+        // Sammenhængende segmenter, så et hul (dag uden omsætning) ikke bliver
+        // til en streg tværs over feltet.
+        var segs = [], cur = [];
+        pts.forEach(function (p, i) {
+            if (p[key] == null) { if (cur.length) segs.push(cur); cur = []; return; }
+            cur.push(x(i).toFixed(2) + ',' + y(p[key]).toFixed(2));
+        });
+        if (cur.length) segs.push(cur);
+        return segs.filter(function (s) { return s.length > 1; })
+                   .map(function (s) { return '<polyline class="' + cls + '" points="' + s.join(' ') + '"/>'; })
+                   .join('');
+    };
+    var targetLine = function (val, cls) {
+        if (!(val > 0) || val > max) return '';
+        return '<line class="' + cls + '" x1="' + PAD + '" x2="' + (W - PAD) + '" y1="' + y(val).toFixed(2) + '" y2="' + y(val).toFixed(2) + '"/>';
+    };
+
+    // Prikkerne ligger som et HTML-lag OVEN PÅ svg'en, ikke som <circle>.
+    // Grunden: preserveAspectRatio="none" strækker viewBox'en vandret for at
+    // fylde bredden, og det ville trække cirkler ud til ovaler. Procent-position
+    // i CSS rammer samme punkt uden at arve strækket. De bærer samtidig
+    // tooltip og farven fra måltals-tilstanden — en enkelt dag over målet kan
+    // altså ses direkte i kurven.
+    var dots = pts.map(function (p, i) {
+        return ['food', 'labor'].map(function (k) {
+            if (p[k] == null) return '';
+            var st = _drTargetState(p[k], k === 'food' ? 'food' : 'labor');
+            return '<span class="dr-pt-dot dr-pt-dot-' + k + (st ? ' dr-t-' + st : '') + '"' +
+                   ' style="left:' + (x(i) / W * 100).toFixed(2) + '%;top:' + (y(p[k]) / H * 100).toFixed(2) + '%"' +
+                   ' title="' + p.date + ' · ' + (k === 'food' ? 'råvare' : 'løn') + ' ' + _drPct(p[k]) + '"></span>';
+        }).join('');
+    }).join('');
+
+    var legend = '<span class="dr-pt-key"><i class="dr-pt-sw dr-pt-sw-food"></i> råvare%</span>' +
+                 '<span class="dr-pt-key"><i class="dr-pt-sw dr-pt-sw-labor"></i> løn%</span>' +
+                 ((t.food_cost_pct > 0 || t.labor_pct > 0) ? '<span class="dr-pt-key"><i class="dr-pt-sw dr-pt-sw-target"></i> måltal</span>' : '');
+
+    return '<div class="dr-section-title">Løn% og råvare% pr. dag <span class="dr-sub">(af dagens omsætning)</span></div>' +
+        '<div class="dr-pct-trend">' +
+            '<div class="dr-pt-plot">' +
+                '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Løn- og råvareprocent pr. dag">' +
+                    targetLine(t.food_cost_pct, 'dr-pt-target') + targetLine(t.labor_pct, 'dr-pt-target') +
+                    line('food', 'dr-pt-food') + line('labor', 'dr-pt-labor') +
+                '</svg>' + dots +
+            '</div>' +
+            '<div class="dr-pt-legend">' + legend + '<span class="dr-pt-max">0–' + _drPct(max) + '</span></div>' +
+        '</div>';
+}
+
 function _drEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -245,6 +365,7 @@ function _drRenderPeriod(p) {
     if (!body) return;
     var t = p.totals || {};
     var days = p.days || [];
+    _driftState.targets = p.targets || {};   // måltal til farvekodning
     var resultCls = (t.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg';
 
     var kpi = function (label, val, cls, sub) {
@@ -269,10 +390,10 @@ function _drRenderPeriod(p) {
             '<td>' + d.date + (d.frozen ? ' <span class="dr-flag">🔒</span>' : '') + '</td>' +
             '<td class="dr-r">' + _drMoney(d.revenue_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drMoney(d.cost_ex_moms) + '</td>' +
-            _drShareCell(d.cost_ex_moms, d.revenue_ex_moms) +
+            _drShareCell(d.cost_ex_moms, d.revenue_ex_moms, 'food') +
             '<td class="dr-r">' + _drMoney(d.delivery_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + '</td>' +
-            _drShareCell(d.labor_ex_moms, d.revenue_ex_moms) +
+            _drShareCell(d.labor_ex_moms, d.revenue_ex_moms, 'labor') +
             '<td class="dr-r ' + ((d.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg') + '">' + _drMoney(d.driftsresultat_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drPct(d.db_pct) + '</td>' +
             '<td class="dr-r">' + _drNum(d.units, 0) + '</td>' +
@@ -281,21 +402,23 @@ function _drRenderPeriod(p) {
 
     var pRaw = (t.labor_raw_ex_moms != null && t.labor_raw_ex_moms !== t.labor_ex_moms)
         ? 'rå −' + _drMoney(t.labor_raw_ex_moms) + ' + tillæg' : '';
-    var pLoenSub = [_drShareSub(t.labor_ex_moms, t.revenue_ex_moms), pRaw].filter(Boolean).join('<br>');
+    var pLoenSub = [_drShareSub(t.labor_ex_moms, t.revenue_ex_moms, 'labor'), pRaw].filter(Boolean).join('<br>');
 
     body.innerHTML = '' +
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(t.revenue_ex_moms)) +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms), '',
-                _drShareSub(t.cost_ex_moms, t.revenue_ex_moms)) +
+                _drShareSub(t.cost_ex_moms, t.revenue_ex_moms, 'food')) +
             kpi('Levering (ex moms)', '−' + _drMoney(t.delivery_ex_moms)) +
             kpi('Løn', '−' + _drMoney(t.labor_ex_moms), '', pLoenSub) +
             kpi('Driftsresultat (ex moms)', _drMoney(t.driftsresultat_ex_moms), resultCls) +
             kpi('DB%', _drPct(t.db_pct), resultCls) +
             kpi('Enheder', _drNum(t.units, 0)) +
         '</div>' +
+        _drTargetNote() +
         '<div class="dr-section-title">Driftsresultat pr. dag <span class="dr-sub">(' + (t.day_count || 0) + ' dage · ex moms)</span></div>' +
         '<div class="dr-trend">' + (days.length ? bars : '<div class="dr-empty">Ingen dage.</div>') + '</div>' +
+        _drPctTrend(days) +
         '<div class="dr-section-title">Dag-for-dag</div>' +
         '<table class="dr-labor"><thead><tr><th>Dato</th><th class="dr-r">Omsætning</th><th class="dr-r">Vareforbrug</th>' +
             '<th class="dr-r dr-pct-cell">Vare%</th>' +
@@ -307,7 +430,88 @@ function _drRenderPeriod(p) {
         // procent er IKKE gennemsnittet af dagenes procenter (den skal regnes på
         // periodens samlede omsætning). To tal der ligner hinanden men afviger,
         // ville invitere til fejllæsning.
-        '<div class="dr-sub" style="margin-top:8px">Vare% og Løn% er dagens andel af dagens omsætning · periodens samlede procenter står i pillerne øverst.</div>';
+        '<div class="dr-sub" style="margin-top:8px">Vare% og Løn% er dagens andel af dagens omsætning · periodens samlede procenter står i pillerne øverst.</div>' +
+        _drItemsPlaceholder();
+
+    // Perioden kan spænde over mange dage — optællingen hentes for hele
+    // intervallet i ét kald, ikke pr. dag.
+    _drLoadItems(p.totals && p.totals.from ? p.totals.from : _driftState.from,
+                 p.totals && p.totals.to   ? p.totals.to   : _driftState.to);
+}
+
+/* ── Produktions-sammentælling ─────────────────────────────
+ * "Hvor mange sandwich, salater og slidere lavede vi?" — pr. kategori, med
+ * varerne bag hver kategori bag et klik. Hentes SEPARAT fra dagsresultatet
+ * (eget endpoint), så en tung optælling aldrig forsinker de tal folk kommer
+ * efter — og så en fejl her ikke kan vælte hele regnskabet.
+ */
+function _drItemsPlaceholder() {
+    return '<div class="dr-section-title">Hvad blev der lavet <span class="dr-sub">(pr. kategori · klik for varerne)</span></div>' +
+           '<div id="drItems" class="dr-items"><div class="dr-loading">Tæller op…</div></div>';
+}
+
+function _drLoadItems(from, to) {
+    var s = _driftState;
+    var host = s.el && s.el.querySelector('#drItems');
+    if (!host) return;
+    var reqKey = from + '|' + to + '|' + s.mode;
+    s.itemsKey = reqKey;
+    fetchDriftItems(from, to, s.mode).then(function (r) {
+        if (s.itemsKey !== reqKey) return;                       // forældet svar
+        var h = s.el && s.el.querySelector('#drItems');
+        if (h) _drRenderItems(h, r);
+    }).catch(function (err) {
+        if (s.itemsKey !== reqKey) return;
+        var h = s.el && s.el.querySelector('#drItems');
+        // Egen fejlbesked, ikke en tom sektion: så ved man at der ER noget her.
+        if (h) h.innerHTML = '<div class="dr-error">Kunne ikke tælle op: ' + _drEsc(err.message) + '</div>';
+    });
+}
+
+function _drRenderItems(host, r) {
+    var cats = (r && r.categories) || [];
+    if (!cats.length) {
+        host.innerHTML = '<div class="dr-empty">Ingen varer på bonnerne i perioden.</div>';
+        return;
+    }
+    var qty = function (n) { return _drNum(n, n % 1 === 0 ? 0 : 1); };
+
+    var rows = cats.map(function (c, i) {
+        // Kategorier der ikke tæller i Enheder (emballage, levering …) vises
+        // dæmpet frem for at blive skjult — køkkenet har stadig pakket dem.
+        // Samme greb som bon-kortets sammentælling.
+        var dim = c.counts_as_unit ? '' : ' dr-item-dim';
+        var enh = (c.counts_as_unit && Math.abs(c.units - c.quantity) > 0.001)
+            ? '<span class="dr-item-units">' + qty(c.units) + ' enh.</span>' : '';
+        var prods = c.products.map(function (p) {
+            return '<div class="dr-item-prod"><span class="dr-item-pq">' + qty(p.quantity) + '×</span> ' +
+                   _drEsc(p.name) + (p.unit ? ' <span class="dr-sub">' + _drEsc(p.unit) + '</span>' : '') + '</div>';
+        }).join('');
+        return '<div class="dr-item-cat' + dim + '">' +
+            '<button type="button" class="dr-item-head" data-item-cat="' + i + '" aria-expanded="false">' +
+                '<span class="dr-item-caret">▸</span>' +
+                '<span class="dr-item-name">' + _drEsc(c.category) + '</span>' +
+                '<span class="dr-item-n">' + qty(c.quantity) + '</span>' + enh +
+            '</button>' +
+            '<div class="dr-item-prods" hidden>' + prods + '</div>' +
+        '</div>';
+    }).join('');
+
+    var tot = r.totals || {};
+    host.innerHTML = rows +
+        '<div class="dr-item-total">I alt <strong>' + qty(tot.quantity) + '</strong> varer' +
+            (tot.units ? ' · <strong>' + qty(tot.units) + '</strong> enheder' : '') +
+        ' <span class="dr-sub">(enheder = det der tæller i Enheder-tallet — en boks med 3 slidere tæller 3)</span></div>';
+
+    host.querySelectorAll('.dr-item-head').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var list = btn.parentElement.querySelector('.dr-item-prods');
+            var open = !list.hidden;
+            list.hidden = open;
+            btn.setAttribute('aria-expanded', String(!open));
+            btn.querySelector('.dr-item-caret').textContent = open ? '▸' : '▾';
+        });
+    });
 }
 
 function _drLoad() {
@@ -328,12 +532,13 @@ function _drRender(d) {
     var body = _driftState.el.querySelector('#drBody');
     if (!body) return;
     _driftState.day = d;   // drill-down (bon-modal) læser herfra
+    _driftState.targets = d.targets || {};   // måltal til farvekodning
 
     var resultClass = d.driftsresultat_ex_moms >= 0 ? 'dr-pos' : 'dr-neg';
 
     var warnings = [];
     if (d.labor_error) warnings.push('Løn kunne ikke hentes (' + _drEsc(d.labor_error) + ') — løn vises som 0.');
-    if (d.rate_missing_count) warnings.push('⚠ ' + d.rate_missing_count + ' medarbejder(e) mangler timeløn → driftsresultatet er for højt. Udfyld satser i Settings → Løn.');
+    if (d.rate_missing_count) warnings.push('⚠ ' + d.rate_missing_count + ' medarbejder(e) mangler timeløn → driftsresultatet er for højt. Udfyld satser i Settings → Løn & jobtyper.');
     if (d.role_unmapped_count) warnings.push('⚠ ' + d.role_unmapped_count + ' jobtype(r) er ikke kategoriseret (tæller som "other"). Kategorisér i Settings.');
     var warnHtml = warnings.length
         ? '<div class="dr-warn">' + warnings.map(function (w) { return '<div>' + w + '</div>'; }).join('') + '</div>'
@@ -390,7 +595,7 @@ function _drRender(d) {
     // Procenten måler dét tal pillen selv viser — drifts-løn ekskl. bud, altså
     // inkl. "other"-roller. Nøgletallet "Lønandel (kun produktionsroller)"
     // nedenfor er snævrere (§6 pkt. 4); de to må derfor gerne afvige.
-    var loenSub = [_drShareSub(d.labor_ex_moms, d.revenue_ex_moms), _drLoenSub(d)].filter(Boolean).join('<br>');
+    var loenSub = [_drShareSub(d.labor_ex_moms, d.revenue_ex_moms, 'labor'), _drLoenSub(d)].filter(Boolean).join('<br>');
 
     var frozenHtml = '';
     if (d.frozen) {
@@ -408,12 +613,13 @@ function _drRender(d) {
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(d.revenue_ex_moms), '', '', 'bons') +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(d.cost_ex_moms), '',
-                _drShareSub(d.cost_ex_moms, d.revenue_ex_moms), 'bons') +
+                _drShareSub(d.cost_ex_moms, d.revenue_ex_moms, 'food'), 'bons') +
             kpi('Levering (ex moms)', '−' + _drMoney(d.delivery_ex_moms), '', '', 'logistik') +
             kpi('Løn', '−' + _drMoney(d.labor_ex_moms), '', loenSub) +
             kpi('Driftsresultat (ex moms)', _drMoney(d.driftsresultat_ex_moms), resultClass) +
             kpi('DB%', _drPct(d.db_pct), resultClass) +
         '</div>' +
+        _drTargetNote() +
         '<div class="dr-section-title">Nøgletal</div>' +
         '<div class="dr-metrics">' +
             '<div class="dr-metric"><span>Kapacitetsrate</span><strong>' + _drNum(d.kapacitetsrate, 1) + ' enh/mandetime</strong></div>' +
@@ -423,12 +629,15 @@ function _drRender(d) {
             '<div class="dr-metric dr-kpi-drill" data-drill="bons" title="Se bonnerne bag tallet" role="button" tabindex="0"><span>Bonner <span class="dr-drill-arrow">›</span></span><strong>' + _drNum(d.bon_count, 0) + '</strong></div>' +
             '<div class="dr-metric"><span>Produktionstimer</span><strong>' + _drNum(d.hours_production, 1) + '</strong></div>' +
         '</div>' +
+        _drItemsPlaceholder() +
         _drTimelineHtml(d.timeline) +
         '<div class="dr-section-title">Bemanding <span class="dr-sub">(bud ekskluderet fra driftens løn + rate)</span></div>' +
         laborTable;
 
     var rf = body.querySelector('#drRefreeze');
     if (rf) rf.addEventListener('click', _drRefreeze);
+
+    _drLoadItems(_driftState.date, _driftState.date);
 
     body.querySelectorAll('[data-drill]').forEach(function (el) {
         var go = function () {

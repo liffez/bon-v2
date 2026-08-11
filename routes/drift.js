@@ -7,6 +7,8 @@
  * GET  /api/drift/day?date=&mode=  Dagsresultat (live el. frosset snapshot)
  * GET  /api/drift/day/bons?date=&mode=  Per-bon nedbrydning, altid live
  *                                  (fallback for snapshots fra før bons-feltet)
+ * GET  /api/drift/items?from=&to=&mode=  Produktions-sammentælling pr. kategori
+ *                                  (dag = from/to samme dato), altid live
  * POST /api/drift/refreeze {date}  Admin: genberegn frosset dag fra live data
  *
  * MOMS (§3): ALT ex moms. line_total er INCL → Moms.inclToExcl; cost_price +
@@ -75,6 +77,89 @@ function computeDayBons(db, date, mode) {
         delivery_ex_moms: r2(r.delivery_ex),
         units: Number(r.units) || 0,
     }));
+}
+
+/* ── Produktions-sammentælling (hvad blev der lavet) ─────── */
+// "Hvor mange sandwich, salater og slidere lavede vi den dag?" — pr. kategori,
+// med varerne bag hver kategori. Samme filtre som computeDay, så tallene
+// tilhører de samme bonner som resten af regnskabet.
+//
+// To tal pr. række, fordi de svarer på hver sit spørgsmål:
+//   quantity = antal linjer-stk        → "hvor mange lavede vi"
+//   units    = boks-aware enheds-bidrag → "hvad tæller det som" (samme udtryk
+//              som Enheder-KPI'en, så en boks med 3 slidere tæller 3)
+// De to er ens for almindelige varer og afviger kun hvor en vare tæller som
+// flere enheder, eller hvor kategorien ikke tæller med i enheder (emballage,
+// levering) — dem viser vi stadig, bare dæmpet. Ellers ville sammentællingen
+// mangle noget køkkenet faktisk har pakket.
+//
+// Beregnes LIVE (ikke i snapshot): det er en optælling af bon-linjer, som
+// ligger i basen i forvejen, og som ikke skrider når Smartplan ændrer sig.
+function computeItems(db, from, to, mode) {
+    const statusClause = mode === 'realiseret'
+        ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
+        : `AND sd.code <> 'AFLYST'`;
+    const statusArgs = mode === 'realiseret' ? REALISERET_STATUS : [];
+    const u = bonUnitsExpr();
+    const notAccessory = `(bl.is_accessory = 0 OR bl.is_accessory IS NULL)`;
+
+    // Slår ens varer sammen på tværs af bonner (og ignorerer special_request —
+    // "Grisen uden tomat" er stadig en Gris når køkkenet tæller). Samme
+    // sammenlægning som bon-kortets VARE-visning.
+    const rows = db.prepare(`
+        SELECT COALESCE(NULLIF(TRIM(bl.category), ''), '(uden kategori)') AS category,
+               bl.product_name AS product,
+               COALESCE(bl.unit, '')                        AS unit,
+               SUM(bl.quantity)                             AS quantity,
+               SUM(CASE WHEN ${notAccessory} THEN ${u.contrib} ELSE 0 END) AS units
+          FROM bons b
+          JOIN bon_lines bl ON bl.bon_id = b.id
+          JOIN status_definitions sd ON sd.id = b.status_id
+          ${u.join}
+         WHERE b.delivery_date BETWEEN ? AND ?
+           AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+         GROUP BY bl.category, bl.product_name, bl.unit
+    `).all(...u.args, from, to, ...statusArgs);
+    // GROUP BY på de RÅ kolonner, ikke på output-aliasset: `category` findes
+    // både som alias og som kolonne, og SQLite kalder det tvetydigt. Det
+    // betyder at NULL og '' bliver hver sin række — de samles i JS nedenfor,
+    // hvor de begge lander under "(uden kategori)".
+
+    const byCat = new Map();
+    for (const r of rows) {
+        if (!byCat.has(r.category)) byCat.set(r.category, { category: r.category, quantity: 0, units: 0, prod: new Map() });
+        const c = byCat.get(r.category);
+        const qty = Number(r.quantity) || 0;
+        const un  = Number(r.units) || 0;
+        c.quantity += qty;
+        c.units    += un;
+        const pkey = r.product + '|' + (r.unit || '');
+        if (!c.prod.has(pkey)) c.prod.set(pkey, { name: r.product, unit: r.unit || null, quantity: 0, units: 0 });
+        const p = c.prod.get(pkey);
+        p.quantity += qty;
+        p.units    += un;
+    }
+
+    const categories = [...byCat.values()].map(c => ({
+        category: c.category,
+        quantity: r2(c.quantity),
+        units: r2(c.units),
+        counts_as_unit: c.units > 0,
+        products: [...c.prod.values()]
+            .map(p => ({ ...p, quantity: r2(p.quantity), units: r2(p.units) }))
+            .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, 'da')),
+    })).sort((a, b) =>
+        (b.counts_as_unit ? 1 : 0) - (a.counts_as_unit ? 1 : 0) ||   // tællende kategorier først
+        b.units - a.units || b.quantity - a.quantity ||
+        a.category.localeCompare(b.category, 'da'));
+
+    return {
+        categories,
+        totals: {
+            quantity: r2(categories.reduce((s, c) => s + c.quantity, 0)),
+            units:    r2(categories.reduce((s, c) => s + c.units, 0)),
+        },
+    };
 }
 
 /* ── Kerne-beregning (genbruges af /day + /refreeze) ─────── */
@@ -201,6 +286,29 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
     };
 }
 
+/* ── Måltal til farvekodning (§6 pkt. 6+7) ────────────────── */
+// Læses HVER gang og lægges på svaret UDEN OM data_json. Måltallet må ikke
+// fryses ind i en dagsopgørelse: det er en målestok, ikke et regnskabstal, og
+// et ændret måltal skal kunne bruges til at se på historiske dage. Tom værdi
+// → null → frontenden farver ikke (ingen default — huset sætter selv sit mål).
+function readTargets(db) {
+    // `min` skiller de to slags tal ad: et MÅLTAL på 0 giver ingen mening (0 %
+    // løn er ikke et mål) og betyder derfor "intet mål". En TOLERANCE på 0 er
+    // derimod et gyldigt valg: "alt over målet er rødt, ingen gul zone". Uden
+    // den skelnen ville tolerance 0 tavst blive lavet om til default 2.
+    const num = (key, fallback, min) => {
+        const raw = db.prepare('SELECT value FROM settings WHERE key=?').get(key)?.value;
+        if (raw == null || String(raw).trim() === '') return fallback;
+        const n = parseFloat(String(raw).replace(',', '.'));
+        return Number.isFinite(n) && n >= min ? n : fallback;
+    };
+    return {
+        labor_pct:     num('target_labor_pct', null, Number.MIN_VALUE),
+        food_cost_pct: num('target_food_cost_pct', null, Number.MIN_VALUE),
+        tolerance_pct: num('target_pct_tolerance', 2, 0),
+    };
+}
+
 function saveSnapshot(db, date, mode, data, userId) {
     db.prepare(`
         INSERT INTO labor_day_snapshot (location_id, snapshot_date, mode, data_json, frozen_by_user_id)
@@ -214,6 +322,20 @@ function saveSnapshot(db, date, mode, data, userId) {
 // Fallback for frosne snapshots fra før `bons` kom med i computeDay-outputtet.
 // Beregner live og kan derfor afvige fra et frosset aggregat — frontenden
 // flager det. (Registreres FØR /day så Express ikke matcher den som /day.)
+
+/* ── GET /items — produktions-sammentælling ──────────────── */
+// Ét endpoint til både dag og periode: dagsvisningen kalder med from=to=dato.
+// (Registreres FØR /day så Express ikke matcher den som noget andet.)
+
+router.get('/items', ALL, handle(async (req, res) => {
+    const iso = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+    const from = iso(req.query.from) || iso(req.query.date);
+    const to   = iso(req.query.to)   || from;
+    if (!from || !to) return res.status(400).json({ error: 'from + to (eller date) i formatet YYYY-MM-DD kræves' });
+    if (from > to)    return res.status(400).json({ error: 'from skal være ≤ to' });
+    const mode = req.query.mode === 'forecast' ? 'forecast' : 'realiseret';
+    res.json({ from, to, mode, ...computeItems(getDb(), from, to, mode) });
+}));
 
 router.get('/day/bons', ALL, handle(async (req, res) => {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
@@ -239,13 +361,13 @@ router.get('/day', ALL, handle(async (req, res) => {
             const data = await computeDay(db, date, mode);
             saveSnapshot(db, date, mode, data, req.session.userId);
             snap = db.prepare('SELECT frozen_at FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
-            return res.json({ ...data, frozen: true, frozen_at: snap.frozen_at, can_refreeze: isAdmin });
+            return res.json({ ...data, targets: readTargets(db), frozen: true, frozen_at: snap.frozen_at, can_refreeze: isAdmin });
         }
-        return res.json({ ...JSON.parse(snap.data_json), frozen: true, frozen_at: snap.frozen_at, can_refreeze: isAdmin });
+        return res.json({ ...JSON.parse(snap.data_json), targets: readTargets(db), frozen: true, frozen_at: snap.frozen_at, can_refreeze: isAdmin });
     }
 
     const data = await computeDay(db, date, mode);
-    res.json({ ...data, frozen: false, can_refreeze: false });
+    res.json({ ...data, targets: readTargets(db), frozen: false, can_refreeze: false });
 }));
 
 /* ── POST /refreeze — admin: genberegn frosset dag fra live ─ */
@@ -259,7 +381,7 @@ router.post('/refreeze', ADMIN, handle(async (req, res) => {
     const snap = db.prepare('SELECT frozen_at FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, 'realiseret');
     logChange({ entityType: 'labor_day_snapshot', entityId: 0, action: 'refreeze',
         fieldName: date, newValue: String(data.driftsresultat_ex_moms), userId: req.session.userId });
-    res.json({ ...data, frozen: true, frozen_at: snap.frozen_at, can_refreeze: true, refrozen: true });
+    res.json({ ...data, targets: readTargets(db), frozen: true, frozen_at: snap.frozen_at, can_refreeze: true, refrozen: true });
 }));
 
 /* ── GET /period — trend over flere dage ─────────────────── */
@@ -327,7 +449,7 @@ router.get('/period', ALL, handle(async (req, res) => {
         units: days.reduce((s, x) => s + (x.units || 0), 0),
         bon_count: days.reduce((s, x) => s + (x.bon_count || 0), 0),
     };
-    res.json({ days, totals });
+    res.json({ days, totals, targets: readTargets(db) });
 }));
 
 module.exports = router;

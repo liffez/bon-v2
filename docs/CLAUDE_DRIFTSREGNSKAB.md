@@ -52,7 +52,7 @@ er allerede inde i satsen — de lægges IKKE til.)
   brutto-løn. `computeDay()` i `routes/drift.js` summerer rå brutto pr. medarbejder (`timer × sats`),
   ganger summen med `(1 + pct/100)`, og bruger det tillagte tal i `labor_ex_moms`, `driftsresultat`
   og `loenandel_pct`. Den rå sum returneres som `labor_raw_ex_moms`.
-- Redigeres i **Settings → Løn → Løntillæg** (admin-only). `0` = vis rå bruttoløn uændret.
+- Redigeres i **Settings → Løn & jobtyper → Løntillæg** (admin-only). `0` = vis rå bruttoløn uændret.
 - Bemandings-tabellens "Kostpris"-kolonne viser rå `timer × sats` pr. medarbejder; tabel-footeren
   afstemmer rå løn → tillæg → total.
 - **Frosne dage** (§7) bevarer datidens opgørelse (uden `labor_raw_ex_moms`/tillæg) indtil de
@@ -191,6 +191,88 @@ Driftsregnskabet eksponerer disse som genbrugelige tal (ikke kun visning):
 > som `data_json` i `labor_day_snapshot`, og et nyt server-felt ville mangle i alle
 > eksisterende snapshots. Det er et rent forhold mellem to tal der begge allerede er
 > ex moms — ingen momsregning i frontenden (jf. `BON_V2_PRINCIPPER.md` §6b).
+
+### Måltal og farvekodning (migration 145)
+
+Procenterne farves mod et måltal. Lavere er bedre for begge:
+
+| Tilstand | Betingelse | Visning |
+|---|---|---|
+| På/under mål | `pct ≤ mål` | grøn |
+| Lige over | `mål < pct ≤ mål + tolerance` | gul + ▲ |
+| Klart over | `pct > mål + tolerance` | rød + ▲ |
+
+| Setting | Default | Betyder |
+|---|---|---|
+| `target_labor_pct` | **tom** | Måltal for lønprocent |
+| `target_food_cost_pct` | **tom** | Måltal for råvareprocent |
+| `target_pct_tolerance` | `2` | Procentpoint over målet der stadig er gult |
+
+**Tom værdi = ingen farvekodning.** Det er med vilje: et måltal er husets eget (det
+afhænger af koncept, priser og bemanding), og en default ville være et gæt der lignede
+en anbefaling. Procenterne vises stadig — de er bare neutrale indtil nogen har taget
+stilling. Sættes i **Settings → Løn & jobtyper → Måltal** (admin).
+
+**▲ ved overskridelse.** Farve alene bærer ikke signalet (farveblindhed, print, skærm i
+sollys), så gul og rød får også et mærke. Titel-teksten på tallet siger hvad målet er.
+
+**Måltal fryses ALDRIG ind i en dagsopgørelse.** `readTargets()` i `routes/drift.js`
+læser dem ved hvert kald og lægger dem på svaret *uden om* `data_json`. Et måltal er en
+målestok, ikke et regnskabstal: fryses det, kan man ikke se gamle dage i lyset af det man
+styrer efter i dag. Til sammenligning fryses `labor_overhead_pct` netop fordi det ER et
+regnskabstal (§3) — de to må ikke behandles ens.
+
+**Tolerance `0` er et gyldigt valg** ("ingen gul zone — alt over målet er rødt), mens et
+*måltal* på `0` betyder "intet mål". Derfor har de to hver sin nedre grænse i
+`readTargets()`; ellers ville tolerance 0 tavst blive til default 2.
+
+### Procent-trend i uge/periode (`_drPctTrend`)
+
+Under søjlediagrammet over driftsresultat ligger en kurve med løn% og råvare% pr. dag +
+måltallet som stiplet linje. Søjlerne viser kroner; kurven viser om *forholdet* skred —
+en dag kan give overskud og alligevel have løbet løbsk på lønnen.
+
+- Inline SVG, intet chart-bibliotek (stack-reglen: ingen build-step).
+- **Dage uden omsætning bliver et hul i kurven**, ikke et 0-punkt — 0 % råvareforbrug
+  ville ligne en fantastisk dag i stedet for en lukkedag.
+- **Y-aksen starter i 0.** Et afkortet nulpunkt ville forstørre små udsving til drama.
+  Det gør kurven fladere, men tallene bag står i tabellen lige under.
+- **Prikkerne er HTML oven på svg'en**, ikke `<circle>`: `preserveAspectRatio="none"`
+  strækker viewBox'en vandret for at fylde bredden, og det ville trække cirkler ud til
+  ovaler. De bærer samtidig måltals-farven, så en enkelt skæv dag ses i kurven.
+
+---
+
+## 6b. Produktions-sammentælling ("hvad blev der lavet")
+
+`GET /api/drift/items?from=&to=&mode=` — antal pr. **varekategori** for dagen eller
+perioden, med varerne bag hver kategori bag et klik. Dagsvisningen kalder med
+`from = to = dagen`. Vises både i dag- og uge-/periodevisning.
+
+To tal pr. række, fordi de svarer på hver sit spørgsmål:
+
+| Felt | Betyder |
+|---|---|
+| `quantity` | antal stk på bon-linjerne — "hvor mange lavede vi" |
+| `units` | boks-aware enheds-bidrag (`bonUnitsExpr`) — "hvad tæller det som" |
+
+De er ens for almindelige varer og afviger kun hvor en vare tæller som flere enheder (en
+boks med 3 slidere tæller 3), eller hvor kategorien slet ikke tæller med i Enheder.
+**Kategorier der ikke tæller (emballage, levering …) vises dæmpet frem for at blive
+skjult** — køkkenet har stadig pakket dem. Samme greb som bon-kortets sammentælling.
+
+Ens varer slås sammen på tværs af bonner, og `special_request` ignoreres: "Grisen uden
+tomat" er stadig en Gris når køkkenet tæller. Samme regel som bon-kortets VARE-visning.
+
+**Beregnes live, ikke i snapshot.** Det er en optælling af bon-linjer, som ligger i basen
+i forvejen og ikke skrider når Smartplan ændrer sig. Hentes i et **separat kald** efter
+dagsresultatet, så en tung optælling aldrig forsinker de tal folk kommer efter — og så en
+fejl i optællingen ikke kan vælte hele regnskabet.
+
+> **SQL-fælde:** `GROUP BY` skal stå på de rå kolonner (`bl.category`), ikke på
+> output-aliasset — `category` findes begge steder, og SQLite kalder det tvetydigt.
+> Konsekvensen er at NULL og `''` bliver hver sin række; de samles i JS, hvor de begge
+> lander under "(uden kategori)".
 
 ---
 

@@ -325,7 +325,11 @@
 
     <div class="st-nav-label st-group">Team &amp; løn</div>
     <button class="st-nav-item" data-section="staff">Medarbejdere</button>
-    <button class="st-nav-item st-admin-only" data-section="jobtype">Jobtype</button>
+    <!-- Sektionen rummer rolle-mapping, timeløn, løntillæg og måltal — ikke kun
+         jobtyper. Resten af systemet (drift.js' advarsler, specen) henviser
+         allerede til "Settings → Løn", så etiketten var det eneste sted der
+         hed noget andet. data-section er uændret. -->
+    <button class="st-nav-item st-admin-only" data-section="jobtype">Løn &amp; jobtyper</button>
 
     <div class="st-nav-label st-group">Bon &amp; salg</div>
     <button class="st-nav-item" data-section="price-cats">Priskategorier</button>
@@ -1435,6 +1439,46 @@
         <input class="st-input" id="labor-overhead" type="number" min="0" step="0.5" style="width:90px"
                onchange="saveLaborOverhead(this.value)">
         <span style="font-size:13px;color:#888">% tillæg oveni bruttoløn</span>
+      </div>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Måltal (farvekodning i Driftsregnskabet)</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        Driftsregnskabet viser <strong>lønprocent</strong> og <strong>råvareprocent</strong> af omsætningen
+        på pillerne og i dag-for-dag-tabellen. Sætter du et måltal her, farves procenten:
+        <span style="color:#2e7d32;font-weight:600">grøn</span> på eller under målet,
+        <span style="color:#b06a12;font-weight:600">gul ▲</span> lige over,
+        <span style="color:#b32020;font-weight:600">rød ▲</span> klart over.
+        <strong>Tomt felt = ingen farve</strong> — tallet vises stadig, men uden dom.
+        Måltallet er husets eget (det afhænger af koncept, priser og bemanding), så der er
+        bevidst ingen default-værdi. Ændrer du målet, slår det igennem med det samme —
+        også på historiske dage, så gamle uger kan ses i lyset af det I styrer efter i dag.
+      </p>
+      <div style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-bottom:24px">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Lønprocent, mål
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="target-labor-pct" type="number" min="0" max="100" step="0.5"
+                   style="width:90px" placeholder="—" onchange="saveDriftTarget('target_labor_pct', this.value)">
+            <span>%</span>
+          </span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Råvareprocent, mål
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="target-food-pct" type="number" min="0" max="100" step="0.5"
+                   style="width:90px" placeholder="—" onchange="saveDriftTarget('target_food_cost_pct', this.value)">
+            <span>%</span>
+          </span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Tolerance før rød
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="target-tolerance" type="number" min="0" max="20" step="0.5"
+                   style="width:90px" onchange="saveDriftTarget('target_pct_tolerance', this.value)">
+            <span>point</span>
+          </span>
+        </label>
+        <span id="drift-target-saved" style="font-size:13px;color:#2e7d32;padding-bottom:8px"></span>
       </div>
 
       <h3 style="font-size:15px;margin:0 0 8px">Nuværende satser</h3>
@@ -4267,9 +4311,35 @@ async function saveLaborOverhead(val) {
     await saveSetting('labor_overhead_pct', String(n));
 }
 
+// Måltal til driftsregnskabets farvekodning. Tom værdi gemmes som tom streng
+// (= slå farven fra igen) — derfor ikke samme "|| 0"-mønster som løntillægget,
+// hvor 0 er en meningsfuld værdi.
+async function saveDriftTarget(key, val) {
+    const raw = String(val == null ? '' : val).trim().replace(',', '.');
+    let out = '';
+    if (raw !== '') {
+        const n = parseFloat(raw);
+        if (!isFinite(n) || n < 0) return;
+        out = String(Math.min(n, key === 'target_pct_tolerance' ? 20 : 100));
+    }
+    await saveSetting(key, out);
+    allSettings[key] = out;
+    const note = document.getElementById('drift-target-saved');
+    if (note) {
+        note.textContent = '✓ gemt';
+        setTimeout(function() { note.textContent = ''; }, 1800);
+    }
+}
+
 async function loadWageRates() {
     const ov = document.getElementById('labor-overhead');
     if (ov) ov.value = allSettings['labor_overhead_pct'] || '0';
+    const tl = document.getElementById('target-labor-pct');
+    if (tl) tl.value = allSettings['target_labor_pct'] || '';
+    const tf = document.getElementById('target-food-pct');
+    if (tf) tf.value = allSettings['target_food_cost_pct'] || '';
+    const tt = document.getElementById('target-tolerance');
+    if (tt) tt.value = allSettings['target_pct_tolerance'] || '2';
     const tb = document.getElementById('wage-roster');
     if (!tb) return;
     tb.innerHTML = '<tr><td colspan="4" style="padding:10px 8px;color:#888">Henter…</td></tr>';
