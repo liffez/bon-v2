@@ -561,16 +561,43 @@ function nonRevenueBonExcludeSQL(bonAlias = 'b') {
  * WHERE af kald-stedet.
  */
 function bonUnitsExpr() {
-    const cats = getUnitCountCategories();
-    const extra = getUnitCountExtraRecipes();
-    const catClause = cats.length ? `bl.category IN (${cats.map(() => '?').join(',')})` : '0';
-    const extraClause = extra.length ? `bl.grocy_recipe_id IN (${extra.map(() => '?').join(',')})` : '0';
+    const p = unitCountablePredicate();
     const contrib = `bl.quantity * CASE
-        WHEN ${catClause} OR ${extraClause} OR COALESCE(ruc.unit_count, 0) >= 1
+        WHEN ${p.sql}
         THEN CASE WHEN COALESCE(ruc.unit_count, 0) >= 2 THEN ruc.unit_count ELSE 1 END
         ELSE 0 END`;
-    const join = `LEFT JOIN recipe_unit_counts ruc ON ruc.grocy_recipe_id = bl.grocy_recipe_id`;
-    return { contrib, join, args: [...cats, ...extra] };
+    return { contrib, join: p.join, args: p.args };
+}
+
+/**
+ * BOOLEAN-delen af bonUnitsExpr: "tæller denne linje som en solgt enhed?"
+ * (uden boks-multiplikatoren). Samme tre kriterier, samme arkiv-robusthed.
+ *
+ * Udskilt fordi produktlister skal kunne SKILLE mad fra emballage/drikke/kager
+ * uden at ændre selve tællingen — fx dashboardets "Top produkter", hvor
+ * RR Boks ellers lægger sig øverst fordi den ligger på næsten hver bon.
+ * Ét sted at ændre reglen, så listen og `bons.total_units` ikke driver fra
+ * hinanden.
+ *
+ * COALESCE på begge kolonner er bevidst: uden den giver `NULL IN (...)` et
+ * NULL-prædikat, og så ville en linje uden kategori falde ud af BÅDE `sql`
+ * og `NOT sql` — altså forsvinde helt fra en opdelt visning. I bonUnitsExpr
+ * er semantikken uændret (NULL ramte allerede ELSE-grenen).
+ *
+ * Returnerer { sql, join, args } — forudsætter alias `bl` på bon_lines.
+ */
+function unitCountablePredicate() {
+    const cats = getUnitCountCategories();
+    const extra = getUnitCountExtraRecipes();
+    const catClause = cats.length
+        ? `COALESCE(bl.category, '') IN (${cats.map(() => '?').join(',')})` : '0';
+    const extraClause = extra.length
+        ? `COALESCE(bl.grocy_recipe_id, 0) IN (${extra.map(() => '?').join(',')})` : '0';
+    return {
+        sql: `(${catClause} OR ${extraClause} OR COALESCE(ruc.unit_count, 0) >= 1)`,
+        join: `LEFT JOIN recipe_unit_counts ruc ON ruc.grocy_recipe_id = bl.grocy_recipe_id`,
+        args: [...cats, ...extra],
+    };
 }
 
 /**
@@ -739,7 +766,8 @@ module.exports = {
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
-    bonUnitsExpr, recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal,
+    bonUnitsExpr, unitCountablePredicate,
+    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
     countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
