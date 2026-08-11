@@ -494,6 +494,61 @@ function getEconomicProductMap() {
 }
 
 /**
+ * Map: recipe_id → [{ recipe_id, product_number, servings, name }] for "bundter" —
+ * opskrifter der IKKE selv har et e-conomic-varenr, men hvis indhold alle har et.
+ * I dag rammer det slider-bokserne (77 + 78): ét styk i bon_lines, tre varer på
+ * fakturaen. Sammensætningen læses af recipes_nestings, så en ændret boks slår
+ * igennem uden manuel kobling — samme kilde som recipe_unit_counts (migration 113).
+ *
+ * Tre betingelser, alle nødvendige:
+ *   1. Opskriften har intet eget varenr — eget nummer vinder ALTID over udfoldning.
+ *   2. Den har mindst én nesting.
+ *   3. ALLE børn har et varenr. Ét barn uden ⇒ intet bundt, og linjen blokerer som før
+ *      (hellere en synlig blokering end en faktura hvor en tredjedel mangler).
+ *
+ * Almindelige retter rammes ikke: de har eget nummer (1), og deres underopskrifter
+ * er produktionsopskrifter uden varenr (3).
+ */
+function getEconomicBundleMap(recipesArg, nestingsArg) {
+    const source = (recipesArg && nestingsArg)      // testsøm — produktionen kalder uden argumenter
+        ? Promise.resolve([recipesArg, nestingsArg])
+        : Promise.all([getRecipesRaw(), getRecipeNestings()]);
+    return source.then(([recipes, nestings]) => {
+        const byId = new Map(recipes.map(r => [Number(r.id), r]));
+        const ownNumber = (r) => {
+            const n = r?.userfields?.economic_product_number;
+            return n != null && String(n).trim() !== '' ? String(n).trim() : null;
+        };
+
+        const childrenOf = new Map();
+        for (const n of nestings) {
+            const pid = Number(n.recipe_id);
+            if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+            childrenOf.get(pid).push(n);
+        }
+
+        const out = new Map();
+        for (const [pid, list] of childrenOf) {
+            const parent = byId.get(pid);
+            if (!parent || ownNumber(parent)) continue;
+
+            const parts = [];
+            let complete = true;
+            for (const n of list) {
+                const childId = Number(n.includes_recipe_id);
+                const child = byId.get(childId);
+                const num = ownNumber(child);
+                if (!num) { complete = false; break; }
+                const servings = Number(n.servings) > 0 ? Number(n.servings) : 1;
+                parts.push({ recipe_id: childId, product_number: num, servings, name: child.name });
+            }
+            if (complete && parts.length) out.set(pid, parts);
+        }
+        return out;
+    });
+}
+
+/**
  * Tilføj varer til Grocy indkøbsliste.
  * @param {Array<{product_id: number, amount: number, note?: string}>} items
  */
@@ -1123,6 +1178,7 @@ module.exports = {
     getRecipesRaw,
     getRecipesRawMap,
     getEconomicProductMap,
+    getEconomicBundleMap,
     getRecipeFulfillment,
     getRecipeIngredients,
     getRecipeNestings,

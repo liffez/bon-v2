@@ -2213,6 +2213,88 @@ Verificeret ved at genskabe situationen: Morgenmad omdøbt til "Eftermiddagssnac
 → begge felter markeres, gem afvises med besked. Tomt navn og dublet-nøgle
 afvises hver for sig; gyldig opsætning gemmes. Driftsdata urørt.
 
+### E-conomic: slider-bokse foldes ud til de tre sliders de består af (#438, 10. august 2026)
+
+`economicInvoice` kunne kun lave én fakturalinje pr. bonlinje. Slider-bokserne er
+ét styk i `bon_lines`, men indeholder tre forskellige sliders med hver sit varenummer
+i e-conomic. Boksene har derfor intet eget nummer og blokerede faktureringen.
+
+- **Ingen ny stamdata.** Sammensætningen står allerede i Grocys `recipes_nestings`,
+  og alle seks børn har varenummer. Samme kilde som `recipe_unit_counts` (migration
+  113) bruger til at tælle en boks som 3 enheder. En ændret boks slår igennem af sig selv.
+- **`grocyAdapter.getEconomicBundleMap()`** → `Map(recipe_id → [{recipe_id,
+  product_number, servings, name}])`. Tre betingelser, alle nødvendige: opskriften
+  har **intet** eget varenr, den har mindst én nesting, og **alle** børn har et varenr.
+  Ét barn uden ⇒ intet bundt, og linjen blokerer som før — hellere en synlig
+  blokering end en faktura hvor en tredjedel mangler. Rammer mod grocy-hq præcis
+  77 + 78. Tager valgfrit `(recipes, nestings)` som testsøm; produktionen kalder uden.
+- **`enrichBonForEconomic`** hænger `economic_bundle` på linjer uden eget varenr;
+  `buildDraftInvoice` folder dem ud; `checkReadiness` regner dem som dækket.
+- **Prisen fordeles fra BONENS linjepris**, ikke fra børnenes listepriser — boks 78
+  koster 160 kr mens delene står til 176. `splitOre()` fordeler i ører med største
+  rest, så fakturasummen er præcis den samme som uden udfoldning (128 ex moms delt
+  på tre = 42,67 + 42,67 + 42,66). Med `servings > 1` kan afrundingen pr. enhed
+  flytte totalen et par ører; de lægges tilbage på den linje hvor det går præcist op.
+- **Beskrivelsen er kun varens eget navn** — boksnavnet ("Alm slider Boks - fisken,
+  Frikadellen, kartoflen") ville støje på hver eneste linje.
+
+> ⚠️ **"Eget varenr vinder" er en sikkerhedsvagt, ikke en optimering.** 24 opskrifter
+> med eget varenummer HAR nestings. Ingen rammes i dag (deres underopskrifter er
+> produktionsopskrifter uden numre), men får én af dem et nummer, er vagten det eneste
+> der forhindrer at fx `Fisken` faktureres som sine ingredienser. Det er en **forkert
+> faktura**, ikke en blokering. Første udgave af testen bestod af den forkerte grund —
+> fixturen har nu en ret hvis underopskrift OGSÅ har varenr, så vagten reelt testes.
+
+**Tests**: `scripts/test-economic-invoice.js` 57/1 (den ene fejl, `#12 kaster uden
+nummer (strict)`, er **pre-eksisterende** — bekræftet mod `HEAD`; koden springer
+linjen stille over i stedet for at kaste) + `tests/scripts/run_T_ECONOMIC.js` 30/0
+(bundtet hele vejen gennem routeren). Mutations-testet: alle fire kerneregler fanges.
+
+**Baggrund — hvorfor koblingerne manglede.** `data/economic-match-review.csv` (25. juni)
+har 28 rækker markeret `OK`/`ok` i **status**-kolonnen mens `godkendt_nr` står tom.
+`scripts/economic-product-match.js --apply` skriver kun rækker med et tal i
+`godkendt_nr`, så alle 28 godkendelser blev sprunget over uden en lyd. 7 opskrifter
+er koblet i hånden 10. august (61→78, 35→30, 39+42→105, 99+101+102→104). Resten er
+issues: [#439](https://github.com/liffez/bon-v2/issues/439) (rabat/engangsbeløb),
+[#440](https://github.com/liffez/bon-v2/issues/440) (koblings-side der afløser CSV'en),
+[#441](https://github.com/liffez/bon-v2/issues/441) (5 slettede opskrifter der blokerer
+gamle bons permanent).
+
+> **Kan ikke ses lokalt.** Den lokale dev-DB peger på **grocytest**, hvor userfeltet
+> `economic_product_number` ikke findes — koblingslisten er tom dér. Verificér mod
+> grocy-hq-data, ikke i browseren.
+
+### E-conomic: Rabat og Engangsbeløb som beløbslinjer (#439, 11. august 2026)
+
+De tre `x- Service`-opskrifter er tastet med **kronerne i antal-feltet** og ±1 som pris
+(`recipe 135 · quantity 11600 · unit_price -1,00`). Sendt råt bliver det til
+**"11.600 stk à -0,80 kr"** på kundens faktura — beløbet er rigtigt, linjen kan ikke
+sendes ud.
+
+- **Migration 144**: `settings.economic_amount_line_recipes` = `[7,8,135]`. Opskrifterne
+  **udpeges**, de gættes ikke ud fra pris eller kategori — en ægte vare til 1 kr ville
+  også ramme sådan et gæt. Samme mønster som `unit_count_extra_recipes` (113).
+- `buildDraftInvoice` folder dem til **antal 1 med linjesummen som pris** og bruger
+  `special_request` som beskrivelse ("bil", "løn", "Prisjustering") når den findes.
+  **Ingen `discountPercentage`** — en rabat skal ikke rabatteres igen.
+- Samme migration sætter `economic_oneoff_product_number` = **111**
+  (`Engangsbeløb / Diverse`, oprettet i e-conomic 11. august) — kun hvis feltet stadig
+  er tomt, så en håndsat værdi ikke overskrives. Feltet har været tomt siden 110, hvilket
+  betød at engangsvare-fallbacken aldrig kunne fyre.
+
+> ⚠️ **Rækkefølgen er ikke ligegyldig.** Feature'en er inert indtil recipe 7/8/135 kobles
+> til varenr 110/111 i Grocy — og koblingen må først ske **efter** deploy. Gøres den før,
+> fjernes den blokering der i dag er det eneste der forhindrer at en rabatlinje sendes i
+> den gamle form. Her er den manglende kobling et værn, ikke en fejl.
+
+**Nye e-conomic-varer 11. august**: 106 Øl · 107 Fadøl · 108 Vand m. brus · 109 Cava
+(gruppe 2 Catering) · 110 Rabat · 111 Engangsbeløb / Diverse (gruppe 3). 12 opskrifter
+koblet samme dag — alle **levende** opskrifter er nu dækket på nær de tre beløbslinjer.
+Alt andet der blokerer er slettede opskrifter, se #441 (16 stk: udgåede + dubletter).
+
+**Tests**: `scripts/test-economic-invoice.js` 75/1 (den ene = #444) +
+`run_T_ECONOMIC.js` 34/0, hvor route-testen samtidig beviser at migrationen er seedet.
+
 ### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
 
 `_tCopyBon` ("📋 Kopiér" i wizardens trin 1) tog priserne fra den kopierede bons
