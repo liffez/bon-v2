@@ -1,4 +1,4 @@
--- 143_booking_confirmed_by.sql
+-- 147_booking_confirmed_by.sql
 -- ════════════════════════════════════════════════════════════
 -- Skeln mellem "sendt til leverandøren" og "bekræftet af leverandøren" (#365).
 --
