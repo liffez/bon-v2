@@ -509,11 +509,19 @@ function _cfUnmatchedRowHtml(tx) {
     const ev = tx.event_hint
         ? `<span class="cf-ev-hint" title="Faldt i ${_cfEsc(tx.event_hint.name)}s periode — kan være indtægt derfra">🎪 ${_cfEsc(tx.event_hint.name)}</span>`
         : '';
+    // Posteringen forklarer overførslen selv om teksten ikke gør. Samlebetaling
+    // navngiver fakturaerne, så de kan fordeles i split-allokeringen nedenfor.
+    const lh = tx.ledger_hint;
+    const led = lh?.kind === 'aggregate'
+        ? `<span class="cf-led-hint" title="e-conomic: én kundes ${lh.invoices.length} fakturaer bogført samme dag rammer beløbet — fordel den nedenfor">📚 ${lh.invoices.length} fakturaer: ${_cfEsc(lh.invoices.join(', '))}</span>`
+        : lh?.kind === 'settled'
+        ? `<span class="cf-led-hint" title="e-conomic har bogført betalingen på faktura ${_cfEsc(lh.invoices.join(', '))}, som ikke findes i Bon">📚 afregnet: faktura ${_cfEsc(lh.invoices.join(', '))}</span>`
+        : '';
     return `<div class="cf-unmatched-item${cat ? ' ' + cat.cls + '-row' : ''}" data-tx-id="${tx.id}">
         <div class="cf-unmatched-row" data-tx-row="${tx.id}">
             <div>
                 <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}${tag}</div>
-                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>${ev}
+                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? " · 📝" : ""}</span>${ev}${led}
             </div>
             <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
         </div>
