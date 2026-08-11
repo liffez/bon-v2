@@ -21,7 +21,10 @@
 .dr-kpi { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 10px; padding: 14px 16px; }
 .dr-kpi-val { font-family: var(--font-heading, Georgia, serif); font-size: 26px; font-weight: 700; line-height: 1.1; }
 .dr-kpi-label { color: #888; font-size: 13px; margin-top: 4px; }
-.dr-kpi-sub { color: #aaa; font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.dr-kpi-sub { color: #aaa; font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; line-height: 1.5; }
+/* Løn% / råvare% — branche-nøgletallet skal kunne læses uden at kigge efter,
+   så selve procenten står mørkere og større end resten af sub-linjen. */
+.dr-kpi-sub .dr-share { color: #6f5c3e; font-size: 13px; font-weight: 700; }
 .dr-kpi.dr-pos .dr-kpi-val { color: #2e7d32; }
 .dr-kpi.dr-neg .dr-kpi-val { color: #b32020; }
 
@@ -50,6 +53,11 @@
 .dr-labor tfoot .dr-foot:first-child td { border-top: 2px solid var(--color-border, #d7d1ca); padding-top: 10px; }
 .dr-labor tfoot .dr-foot-total td { color: #333; padding-top: 6px; padding-bottom: 8px; }
 .dr-labor tfoot .dr-foot .dr-sub { font-size: 12px; color: #aaa; }
+
+/* Vare% / Løn% i dag-for-dag: afledte kolonner — dæmpet, så kronetallene
+   stadig er dem øjet lander på først. */
+.dr-labor th.dr-pct-cell { color: #a89b86; }
+.dr-labor td.dr-pct-cell { color: #8a7a63; font-size: 13px; font-variant-numeric: tabular-nums; }
 
 .dr-role { font-size: .8em; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
 .dr-role-production { background: #e6f0e6; color: #2e6b2e; }
