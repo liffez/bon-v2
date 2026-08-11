@@ -2264,6 +2264,37 @@ gamle bons permanent).
 > `economic_product_number` ikke findes — koblingslisten er tom dér. Verificér mod
 > grocy-hq-data, ikke i browseren.
 
+### E-conomic: Rabat og Engangsbeløb som beløbslinjer (#439, 11. august 2026)
+
+De tre `x- Service`-opskrifter er tastet med **kronerne i antal-feltet** og ±1 som pris
+(`recipe 135 · quantity 11600 · unit_price -1,00`). Sendt råt bliver det til
+**"11.600 stk à -0,80 kr"** på kundens faktura — beløbet er rigtigt, linjen kan ikke
+sendes ud.
+
+- **Migration 144**: `settings.economic_amount_line_recipes` = `[7,8,135]`. Opskrifterne
+  **udpeges**, de gættes ikke ud fra pris eller kategori — en ægte vare til 1 kr ville
+  også ramme sådan et gæt. Samme mønster som `unit_count_extra_recipes` (113).
+- `buildDraftInvoice` folder dem til **antal 1 med linjesummen som pris** og bruger
+  `special_request` som beskrivelse ("bil", "løn", "Prisjustering") når den findes.
+  **Ingen `discountPercentage`** — en rabat skal ikke rabatteres igen.
+- Samme migration sætter `economic_oneoff_product_number` = **111**
+  (`Engangsbeløb / Diverse`, oprettet i e-conomic 11. august) — kun hvis feltet stadig
+  er tomt, så en håndsat værdi ikke overskrives. Feltet har været tomt siden 110, hvilket
+  betød at engangsvare-fallbacken aldrig kunne fyre.
+
+> ⚠️ **Rækkefølgen er ikke ligegyldig.** Feature'en er inert indtil recipe 7/8/135 kobles
+> til varenr 110/111 i Grocy — og koblingen må først ske **efter** deploy. Gøres den før,
+> fjernes den blokering der i dag er det eneste der forhindrer at en rabatlinje sendes i
+> den gamle form. Her er den manglende kobling et værn, ikke en fejl.
+
+**Nye e-conomic-varer 11. august**: 106 Øl · 107 Fadøl · 108 Vand m. brus · 109 Cava
+(gruppe 2 Catering) · 110 Rabat · 111 Engangsbeløb / Diverse (gruppe 3). 12 opskrifter
+koblet samme dag — alle **levende** opskrifter er nu dækket på nær de tre beløbslinjer.
+Alt andet der blokerer er slettede opskrifter, se #441 (16 stk: udgåede + dubletter).
+
+**Tests**: `scripts/test-economic-invoice.js` 75/1 (den ene = #444) +
+`run_T_ECONOMIC.js` 34/0, hvor route-testen samtidig beviser at migrationen er seedet.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 

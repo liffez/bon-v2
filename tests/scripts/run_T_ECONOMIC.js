@@ -31,7 +31,7 @@ process.env.ECONOMIC_AGREEMENT_GRANT = 'test-grant';
 const eco = require('../../services/economicAdapter');
 const grocyAdapter = require('../../services/grocyAdapter');
 
-let PRODUCT_MAP = new Map([[100, '65'], [101, '77']]);     // recipe_id → varenr
+let PRODUCT_MAP = new Map([[100, '65'], [101, '77'], [8, '110']]);   // recipe_id → varenr (8 = Rabat)
 grocyAdapter.getEconomicProductMap = async () => PRODUCT_MAP;
 
 // Bundter (slider-bokse): recipe uden eget varenr → indholdets varenumre.
@@ -82,7 +82,12 @@ function seed() {
     const bundle = insBon.get('T_ECO_BUNDLE', LEVERET, locId, coId, cuId, adId, pcId).id;
     insLine.run(bundle, 'Vegetar slider Boks', 5, 160, 800, 300, '04 Slider', 0);   // 160 kr incl pr. boks
 
-    return { ready, missing, bundle };
+    // Beløbslinje: 2.000 kr rabat tastet som 2.000 stk à -1 (recipe 8, jf. migration 144).
+    const amount = insBon.get('T_ECO_BELOEB', LEVERET, locId, coId, cuId, adId, pcId).id;
+    insLine.run(amount, 'Kartoflen', 1, 9400, 9400, 100, '01 Sandwich', 0);
+    insLine.run(amount, 'Rabat', 2000, -1, -2000, 8, 'x- Service', 1);
+
+    return { ready, missing, bundle, amount };
 }
 
 // ── http helper ─────────────────────────────────────────────
@@ -145,6 +150,16 @@ function req(server, method, url, { auth = true, body } = {}) {
         ok('boks m. bundt → sum 640 ex moms',
            Math.abs(bl.reduce((s, l) => s + l.unitNetPrice * l.quantity, 0) - 640) < 0.0001);
         BUNDLE_MAP = new Map();
+
+        console.log('\n── Beløbslinje (Rabat) ──');
+        // Settingen kommer fra migration 144 — dette tester også at den er seedet.
+        res = await req(server, 'GET', `/api/invoices/${ids.amount}/economic-preview`);
+        ok('beløbslinje → payload bygget', !!res.body?.payload);
+        const rabat = (res.body?.payload?.lines || []).find(l => l.product.productNumber === '110');
+        ok('beløbslinje → foldet til antal 1', rabat?.quantity === 1);
+        ok('beløbslinje → pris = -1.600 ex moms', rabat?.unitNetPrice === -1600);
+        const vare = (res.body?.payload?.lines || []).find(l => l.product.productNumber === '65');
+        ok('beløbslinje → almindelig vare uberørt', vare?.quantity === 1 && vare?.unitNetPrice === 7520);
 
         console.log('\n── Readiness (pre-flight) ──');
         res = await req(server, 'GET', '/api/invoices/economic-readiness');

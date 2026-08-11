@@ -33,7 +33,19 @@ function getEconomicSettings(db = getDb()) {
         layoutNumber:                num(get('economic_layout_number')),
         deliveryFallbackProductNumber: num(get('economic_delivery_fallback_product_number')),
         oneoffProductNumber:         num(get('economic_oneoff_product_number')),
+        amountLineRecipes:           parseIdList(get('economic_amount_line_recipes')),
     };
+}
+
+/** JSON-array af recipe-id → Set. Ugyldig/tom værdi må ikke vælte en fakturering. */
+function parseIdList(raw) {
+    try {
+        const arr = JSON.parse(raw || '[]');
+        // Kun positive heltal — ellers bliver null til recipe-id 0 (Number(null) === 0).
+        return new Set((Array.isArray(arr) ? arr : []).map(Number).filter(n => Number.isInteger(n) && n > 0));
+    } catch {
+        return new Set();
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -109,6 +121,15 @@ function hasProductNumber(line) {
         && String(line.economic_product_number).trim() !== '';
 }
 
+/**
+ * Beløbslinje: kronerne står i quantity, prisen er ±1 (Rabat, Engangsbeløb).
+ * Hvilke opskrifter det gælder står i settings — vi gætter ikke ud fra pris eller
+ * kategori, for en ægte vare til 1 kr ville også ramme sådan et gæt.
+ */
+function isAmountLine(line, amountRecipes) {
+    return line.grocy_recipe_id != null && amountRecipes.has(Number(line.grocy_recipe_id));
+}
+
 /** Bundt-linje: én bonlinje (slider-boks) der skal blive til flere fakturalinjer. */
 function hasBundle(line) {
     return Array.isArray(line.economic_bundle) && line.economic_bundle.length > 0;
@@ -149,6 +170,7 @@ function buildDraftInvoice(bon, settings, opts = {}) {
     const invoiceDate = opts.invoiceDate || todayISO();
     const lineDiscount = Number(bon.offer_discount_percent) || 0;
     const oneoff = settings.oneoffProductNumber;
+    const amountRecipes = settings.amountLineRecipes || new Set();
 
     const lines = [];
     let ln = 0;
@@ -204,6 +226,26 @@ function buildDraftInvoice(bon, settings, opts = {}) {
                 continue;
             }
         }
+        // Beløbslinje (Rabat / Engangsbeløb): kronerne står i quantity og prisen er
+        // ±1, så "11.600 stk à -0,80" ville stå på kundens faktura. Foldes sammen
+        // til antal 1 med linjesummen som pris — samme beløb, læsbar linje.
+        // Ingen discountPercentage: en rabat skal ikke rabatteres igen.
+        if (isAmountLine(line, amountRecipes)) {
+            const totalIncl = line.line_total != null
+                ? Number(line.line_total)
+                : Number(line.quantity || 0) * Number(line.unit_price || 0);
+            lines.push({
+                lineNumber:   ++ln,
+                product:      { productNumber },
+                // special_request bærer forklaringen ("bil", "løn", "Prisjustering")
+                // og er mere sigende end opskriftsnavnet.
+                description:  String(line.special_request || '').trim() || line.product_name,
+                quantity:     1,
+                unitNetPrice: round2(inclToExcl(totalIncl)),
+            });
+            continue;
+        }
+
         const lineObj = {
             lineNumber:   ++ln,
             product:      { productNumber },
@@ -314,6 +356,8 @@ module.exports = {
     buildReference,
     checkReadiness,
     hasBundle,
+    isAmountLine,
+    parseIdList,
     splitOre,
     buildDraftInvoice,
     createDraftInvoice,

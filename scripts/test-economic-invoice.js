@@ -170,6 +170,63 @@ console.log('\n── Bundt-udfoldning (slider-bokse) ──');
     ok('#B8 splitOre uden vægt → nuller', inv.splitOre(500, [0, 0]).join(',') === '0,0');
 }
 
+console.log('\n── Beløbslinjer (Rabat / Engangsbeløb) ──');
+{
+    const S = { ...SETTINGS, amountLineRecipes: new Set([7, 8, 135]) };
+    const mk = (lineOver) => ({
+        id: 30, bon_number: 'T_ECON_BELOEB', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'Rabat', quantity: 11600, unit: 'stk', unit_price: -1,
+                  line_total: -11600, grocy_recipe_id: 135, economic_product_number: '110', ...lineOver }],
+    });
+
+    // Drifts-tilfældet: 11.600 kr rabat tastet som 11.600 stk à -1.
+    const p = inv.buildDraftInvoice(mk(), S);
+    ok('#A1 antal foldet til 1', p.lines[0].quantity === 1);
+    ok('#A1 pris = hele linjesummen ex moms', p.lines[0].unitNetPrice === -9280);
+    ok('#A1 beløbet er uændret', Math.abs(p.lines[0].unitNetPrice * p.lines[0].quantity - inv.round2(-11600 / 1.25)) < 0.005);
+    ok('#A1 varenr bevaret', p.lines[0].product.productNumber === '110');
+    ok('#A1 beskrivelse = opskriftsnavn når intet særønske', p.lines[0].description === 'Rabat');
+
+    // special_request er forklaringen ("bil", "løn") og er mere sigende end navnet.
+    const p2 = inv.buildDraftInvoice(mk({ special_request: 'køletrailer' }), S);
+    ok('#A2 særønske bliver beskrivelsen', p2.lines[0].description === 'køletrailer');
+
+    // Positivt engangsbeløb.
+    const p3 = inv.buildDraftInvoice(mk({ product_name: 'Engangsbeløb', quantity: 823, unit_price: 1,
+                                          line_total: 823, grocy_recipe_id: 7, economic_product_number: '111',
+                                          special_request: 'Prisjustering' }), S);
+    ok('#A3 positivt beløb', p3.lines[0].quantity === 1 && p3.lines[0].unitNetPrice === 658.4);
+    ok('#A3 beskrivelse = Prisjustering', p3.lines[0].description === 'Prisjustering');
+
+    // En rabat må ikke rabatteres igen.
+    const p4 = inv.buildDraftInvoice({ ...mk(), offer_discount_percent: 10 }, S);
+    ok('#A4 ingen discountPercentage på beløbslinje', p4.lines[0].discountPercentage === undefined);
+
+    // Fallback når line_total mangler.
+    const p5 = inv.buildDraftInvoice(mk({ line_total: null }), S);
+    ok('#A5 falder tilbage til quantity × unit_price', p5.lines[0].unitNetPrice === -9280);
+
+    // Almindelige varer røres ikke — heller ikke en ægte vare til 1 kr.
+    const normal = { id: 31, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'Ægte vare til en krone', quantity: 40, unit_price: 1, line_total: 40,
+                  grocy_recipe_id: 999, economic_product_number: '30' }] };
+    const p6 = inv.buildDraftInvoice(normal, S);
+    ok('#A6 almindelig linje uberørt (40 stk, ikke 1)', p6.lines[0].quantity === 40 && p6.lines[0].unitNetPrice === 0.8);
+
+    // Uden settingen opfører alt sig som før — feature'en er inert.
+    const p7 = inv.buildDraftInvoice(mk(), SETTINGS);
+    ok('#A7 tom liste → ingen foldning', p7.lines[0].quantity === 11600);
+
+    ok('#A8 isAmountLine kræver recipe-id', inv.isAmountLine({ grocy_recipe_id: null }, new Set([7])) === false);
+
+    // Settings-parseren må aldrig vælte en fakturering på skrald i et settings-felt.
+    ok('#A9 gyldig JSON → sæt', inv.parseIdList('[7,8,135]').has(135));
+    ok('#A9 ugyldig JSON → tomt sæt', inv.parseIdList('{ikke json').size === 0);
+    ok('#A9 tom/null → tomt sæt', inv.parseIdList('').size === 0 && inv.parseIdList(null).size === 0);
+    ok('#A9 ikke-array → tomt sæt', inv.parseIdList('{"a":1}').size === 0);
+    ok('#A9 skrald i array frasorteres', inv.parseIdList('[7,"x",null,8]').size === 2);
+}
+
 console.log('\n── Forhåndstjek (blokering) ──');
 {
     const good = { id: 7, bon_number: 'x', company: { economic_customer_id: 1 }, lines: [{ id: 1, product_name: 'A', economic_product_number: '30' }] };
