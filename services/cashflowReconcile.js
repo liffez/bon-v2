@@ -4,8 +4,22 @@
  * e-conomic → Bon: afstem BETALT-status på fakturaer (Pengestrøm delta B).
  * Spec: docs/economics/CLAUDE_PENGESTROEM.md §2.B.
  *
- * Læser e-conomics bogførte fakturaer via REST /invoices/booked (samme auth som
- * resten af adapteren — INGEN OpenAPI nødvendig). `remainder === 0` = betalt.
+ * Læser e-conomics bogførte fakturaer via REST (samme auth som resten af
+ * adapteren — INGEN OpenAPI nødvendig).
+ *
+ * TO AKSER, TO KILDER (#320 — rettet 10. august 2026):
+ *   BETALT-status  ← REST `/invoices/unpaid`. FULD TILSTAND, intet vandmærke.
+ *                    Listen er e-conomics egen debitorbog: alt bogført der IKKE
+ *                    står på den, er betalt. Ét kald, ~14 rækker.
+ *   Nummer + spejl ← REST `/invoices/booked` filtreret på vandmærket. Ægte delta:
+ *                    en NY faktura ses kun én gang, og det er nok.
+ *
+ * Hvorfor: betalt-status blev tidligere også udledt af det vandmærke-filtrerede
+ * booked-scan. Men vandmærket filtrerer på fakturaens EGEN dato, så en faktura
+ * blev set én gang — omkring udstedelsen, hvor den per definition er ubetalt — og
+ * aldrig igen. Betaling sker bagefter. Målt 10. august: 18 af 21 "forfaldne"
+ * (107.669 kr) var for længst betalt hos e-conomic. Fuld tilstand kan ikke ramme
+ * den fælde: der er intet vindue at falde uden for.
  *
  * MATCH-NØGLE: bon-nummeret i fakturaens OVERSKRIFT (`notes.heading`), IKKE
  * e-conomics eget fakturanummer (de er forskellige serier — et nummer-match er
@@ -21,6 +35,7 @@
  */
 'use strict';
 const eco = require('./economicAdapter');
+const { todayISO } = require('../db/helpers');
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 
@@ -38,17 +53,50 @@ async function fetchBookedSince(since) {
 }
 
 /**
+ * Hent HELE den ubetalte liste — e-conomics egen debitorbog, uden dato-filter.
+ * Bevidst ufiltreret: det er præcis fuldstændigheden der gør "står ikke på listen
+ * ⇒ betalt" til en gyldig slutning.
+ */
+async function fetchUnpaid() {
+    let out = [], skip = 0, reported = null;
+    while (true) {
+        const r = await eco.rest(`/invoices/unpaid?pagesize=100&skippages=${skip}`);
+        if (reported === null) reported = r.pagination?.results ?? null;
+        out = out.concat(r.collection || []);
+        if (!r.pagination?.nextPage || ++skip > 200) break;
+    }
+    // En tom liste er en legitim tilstand (alt betalt). En tom liste hvor e-conomic
+    // SELV melder rækker er derimod brudt paginering — og ville her markere hele
+    // debitorbogen betalt. Fejl hellere højlydt.
+    if (reported != null && reported > 0 && out.length === 0) {
+        throw new Error(`e-conomic meldte ${reported} ubetalte fakturaer men leverede 0 rækker — afbryder afstemningen`);
+    }
+    return out;
+}
+
+/**
  * Afstem cf_invoices mod e-conomics betalt-status.
  * @param {DatabaseSync} db
  * @param {{ dryRun?: boolean, since?: string }} opts
  *   dryRun (default true) — beregn ændringer uden at skrive.
- *   since — overstyr startdato; ellers cf_meta.economic_booked_until.
- * @returns {Promise<{scanned,matched,flipped,since,newWatermark,dryRun,changes}>}
+ *   since — overstyr startdato for NUMMER-koblingen; betalt-aksen er altid fuld
+ *           tilstand og påvirkes ikke.
+ * @returns {Promise<{scanned,matched,flipped,conflicts,unknownNumbers,openInEconomic,
+ *                    since,newWatermark,dryRun,changes,conflictRows}>}
  */
 async function reconcile(db, { dryRun = true, since } = {}) {
     const getMeta = (k) => db.prepare('SELECT value FROM cf_meta WHERE key = ?').get(k)?.value || null;
     const sinceDate = since || getMeta('economic_booked_until') || null;
 
+    // ── AKSE 1: fuld tilstand — hvem skylder os penge lige nu? ──────────────
+    const unpaidList = await fetchUnpaid();
+    const unpaidByNo = new Map();
+    for (const inv of unpaidList) {
+        const no = digits(inv.bookedInvoiceNumber);
+        if (no) unpaidByNo.set(no, inv);
+    }
+
+    // ── AKSE 2: delta — nye bogførte fakturaer siden vandmærket ─────────────
     const booked = await fetchBookedSince(sinceDate);
 
     // cf_invoices indekseret på digit-strippet fakturanummer
@@ -57,12 +105,11 @@ async function reconcile(db, { dryRun = true, since } = {}) {
         cfByNum.set(digits(r.id), r);
     }
 
-    let scanned = 0, matched = 0, flipped = 0, noHeading = 0, numbered = 0, newWatermark = sinceDate;
-    const changes = [];
+    let scanned = 0, matched = 0, noHeading = 0, numbered = 0, newWatermark = sinceDate;
     const numberChanges = [];                      // {cf_id, economic_number} — gem bogført fakturanr
     const mirror = [];                             // spejl af ALLE bogførte fakturaer (cf_economic_invoices)
-    const seenCf = new Set();                      // undgå dobbelt-flip hvis to fakturaer peger på samme bon
     const seenNum = new Set();
+    const bookedNos = new Set();                   // numre set i dette scan
     for (const inv of booked) {
         scanned++;
         if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
@@ -70,14 +117,16 @@ async function reconcile(db, { dryRun = true, since } = {}) {
         const ecoNo = inv.bookedInvoiceNumber != null ? String(inv.bookedInvoiceNumber) : null;
         // Spejl ENHVER bogført faktura (også uden bon-nr i overskrift) — grundlaget for
         // at genkende bank-indbetalinger som afregnede fakturaer uden bon-kobling.
-        if (ecoNo) mirror.push({
-            booked_no: ecoNo, date: inv.date || null,
-            gross_amount: inv.grossAmount ?? inv.netAmount ?? null,
-            remainder: inv.remainder ?? null, heading,
-        });
+        if (ecoNo) {
+            bookedNos.add(digits(ecoNo));
+            mirror.push({
+                booked_no: ecoNo, date: inv.date || null,
+                gross_amount: inv.grossAmount ?? inv.netAmount ?? null,
+                remainder: inv.remainder ?? null, heading,
+            });
+        }
         const bonNums = heading.match(/\d{3,5}/g) || [];   // ét eller flere bon-numre i overskriften
         if (!bonNums.length) { noHeading++; continue; }     // tom/beskrivende overskrift (fx "Michelin")
-        const paid = inv.remainder === 0;
         for (const num of bonNums) {
             const cf = cfByNum.get(num);
             if (!cf) continue;                              // bon-nr uden cf_invoice (ikke Bon-v2-bon)
@@ -89,17 +138,74 @@ async function reconcile(db, { dryRun = true, since } = {}) {
                 numbered++;
                 numberChanges.push({ cf_id: cf.id, economic_number: ecoNo });
             }
-            if (paid && cf.betalt !== 1 && !seenCf.has(cf.id)) {
-                seenCf.add(cf.id);
+        }
+    }
+
+    /* ── BETALT-AKSEN på fuld tilstand ──────────────────────────────────────
+       For hver cf_invoice med et e-conomic-nummer: står nummeret på den ubetalte
+       liste, skylder kunden stadig; gør det ikke, er fakturaen afregnet.
+
+       "Kendt" er et værn mod et forkert/forældet nummer: vi konkluderer kun
+       "betalt" når nummeret rent faktisk findes hos e-conomic (spejlet eller
+       dette scan). Ellers ville et vilkårligt ciffer-rod markere en faktura
+       betalt — den dyreste af de to fejlretninger.                            */
+    const numbersToApply = new Map();              // digits(nr) → [cf-rækker]
+    for (const cf of db.prepare(`SELECT id, betalt, bon_id, economic_number FROM cf_invoices
+                                 WHERE economic_number IS NOT NULL AND economic_number != ''`).all()) {
+        const no = digits(cf.economic_number);
+        if (!no) continue;
+        if (!numbersToApply.has(no)) numbersToApply.set(no, []);
+        numbersToApply.get(no).push(cf);
+    }
+    // Numre vi netop er ved at skrive på (nye koblinger i denne kørsel) tæller med
+    for (const c of numberChanges) {
+        const no = digits(c.economic_number);
+        if (!no) continue;
+        if (!numbersToApply.has(no)) numbersToApply.set(no, []);
+        const row = cfByNum.get(digits(c.cf_id));
+        if (row && !numbersToApply.get(no).some(r => r.id === c.cf_id)) numbersToApply.get(no).push(row);
+    }
+
+    const knownInMirror = new Set(
+        db.prepare(`SELECT booked_no FROM cf_economic_invoices`).all().map(r => digits(r.booked_no))
+    );
+    // Bedste kendte betalingsdato = datoen på den bankpostering fakturaen er koblet
+    // til. Findes ingen, bruger vi dags dato: e-conomics REST oplyser ikke hvornår
+    // en faktura blev betalt, kun AT den er det. Datoen er "konstateret", ikke bogført.
+    const txDate = new Map(
+        db.prepare(`SELECT matched_invoice_id AS inv, MIN(dato) AS d FROM cf_transactions
+                    WHERE matched_invoice_id IS NOT NULL GROUP BY matched_invoice_id`)
+          .all().map(r => [r.inv, r.d])
+    );
+    const today = todayISO();
+
+    let flipped = 0, unknownNumbers = 0;
+    const changes = [];                            // 0 → 1 (afregnet hos e-conomic)
+    const conflictRows = [];                       // vi siger betalt, e-conomic siger ubetalt
+    const seenCf = new Set();
+    for (const [no, rows] of numbersToApply) {
+        const openInv = unpaidByNo.get(no);
+        for (const cf of rows) {
+            if (seenCf.has(cf.id)) continue;
+            seenCf.add(cf.id);
+            if (openInv) {
+                if (cf.betalt === 1) conflictRows.push({
+                    cf_id: cf.id, bon_id: cf.bon_id, booked_no: no,
+                    remainder: openInv.remainder ?? null, due_date: openInv.dueDate || null,
+                });
+                continue;                          // stadig åben hos e-conomic — lad stå
+            }
+            if (!knownInMirror.has(no) && !bookedNos.has(no)) { unknownNumbers++; continue; }
+            if (cf.betalt !== 1) {
                 flipped++;
-                changes.push({ cf_id: cf.id, bon_id: cf.bon_id, booked_no: ecoNo, heading, date: inv.date });
+                changes.push({ cf_id: cf.id, bon_id: cf.bon_id, booked_no: no, date: txDate.get(cf.id) || today });
             }
         }
     }
 
     if (!dryRun && changes.length) {
         const upd = db.prepare(`UPDATE cf_invoices
-            SET betalt = 1, betalt_dato = ?, betalingstype = COALESCE(betalingstype, 'bank')
+            SET betalt = 1, betalt_dato = COALESCE(betalt_dato, ?), betalingstype = COALESCE(betalingstype, 'bank')
             WHERE id = ?`);
         for (const c of changes) upd.run(c.date, c.cf_id);
     }
@@ -115,13 +221,67 @@ async function reconcile(db, { dryRun = true, since } = {}) {
                 remainder = excluded.remainder, heading = excluded.heading, updated_at = datetime('now')`);
         for (const m of mirror) upM.run(m.booked_no, m.date, m.gross_amount, m.remainder, m.heading);
     }
-    if (!dryRun && newWatermark) {
-        db.prepare(`INSERT INTO cf_meta (key, value) VALUES ('economic_booked_until', ?)
-                    ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(newWatermark);
+    // Spejlets `remainder` var indtil nu et fastfrosset øjebliksbillede fra den ene
+    // gang fakturaen blev scannet — det er samme fælde som betalt-status havde.
+    // Den ubetalte liste er fuld tilstand, så alt uden for den er afregnet.
+    let mirrorCleared = 0;
+    if (!dryRun) {
+        const openNos = [...unpaidByNo.keys()];
+        const stale = db.prepare(`SELECT booked_no FROM cf_economic_invoices WHERE remainder IS NOT NULL AND remainder != 0`)
+            .all().map(r => r.booked_no).filter(n => !unpaidByNo.has(digits(n)));
+        if (stale.length) {
+            const clr = db.prepare(`UPDATE cf_economic_invoices SET remainder = 0, updated_at = datetime('now') WHERE booked_no = ?`);
+            for (const n of stale) clr.run(n);
+            mirrorCleared = stale.length;
+        }
+        // …og omvendt: de reelt åbne skal bære deres aktuelle restbeløb.
+        if (openNos.length) {
+            const setOpen = db.prepare(`UPDATE cf_economic_invoices SET remainder = ?, updated_at = datetime('now') WHERE booked_no = ?`);
+            for (const [no, inv] of unpaidByNo) {
+                if (inv.remainder != null) setOpen.run(inv.remainder, String(inv.bookedInvoiceNumber));
+            }
+        }
+    }
+    const setMeta = db.prepare(`INSERT INTO cf_meta (key, value) VALUES (?, ?)
+                                ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+    if (!dryRun && newWatermark) setMeta.run('economic_booked_until', newWatermark);
+    // Betalt-status er fuld tilstand og har derfor ingen "ajour til"-dato — kun et
+    // tidspunkt for hvornår vi sidst spurgte. Vandmærket ovenfor dækker nu alene
+    // nummer-koblingen; de to må ikke forveksles i UI'et.
+    if (!dryRun) setMeta.run('economic_synced_at', new Date().toISOString()); // utc-ok: tidsstempel, ikke kalenderdato
+    // Gem e-conomics egen åbne total, så badgen kan vise den uden at spørge API'et
+    // ved hvert sideskift — og uden at udlede den af spejlet, som kun kender de
+    // fakturaer vi har scannet.
+    if (!dryRun) {
+        setMeta.run('economic_open_count', String(unpaidByNo.size));
+        setMeta.run('economic_open_total', String(r2([...unpaidByNo.values()].reduce((s, i) => s + (i.remainder || 0), 0))));
     }
 
-    return { scanned, matched, flipped, numbered, mirrored: mirror.length, since: sinceDate, newWatermark, dryRun, changes };
+    // Åbne fakturaer hos e-conomic som INGEN cf_invoice peger på. Typisk fordi
+    // overskriften ikke bærer et bon-nummer ("DCU Rødovre", tom) — eller fordi
+    // fakturaen slet ikke stammer fra en bon. De forklarer hvorfor e-conomics tal
+    // og "Forfaldne" ikke er ens, og er derfor værd at vise frem for at skjule.
+    const unlinkedOpen = [];
+    for (const [no, inv] of unpaidByNo) {
+        if (numbersToApply.has(no)) continue;
+        unlinkedOpen.push({
+            booked_no: no, remainder: r2(inv.remainder), due_date: inv.dueDate || null,
+            heading: inv.notes?.heading || '', customer: inv.customer?.name || null,
+        });
+    }
+
+    return {
+        scanned, matched, flipped, numbered, mirrored: mirror.length, mirrorCleared,
+        conflicts: conflictRows.length, unknownNumbers,
+        openInEconomic: unpaidByNo.size,
+        openInEconomicTotal: r2([...unpaidByNo.values()].reduce((s, i) => s + (i.remainder || 0), 0)),
+        unlinkedOpen,
+        since: sinceDate, newWatermark, dryRun, changes, conflictRows,
+    };
 }
+
+/** Afrund til 2 decimaler. */
+function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
 
 /** Læs match-tolerance fra settings (samme defaults som routes/cashflow.js). */
 function getTolerance(db) {
@@ -182,4 +342,4 @@ function matchByEconomicNumber(db, { dryRun = false } = {}) {
     return { linked: changes.length, changes };
 }
 
-module.exports = { reconcile, fetchBookedSince, matchByEconomicNumber };
+module.exports = { reconcile, fetchBookedSince, fetchUnpaid, matchByEconomicNumber };

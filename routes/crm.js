@@ -10,6 +10,7 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 const { handle, getUserId, logChange, transaction, revenueFactorSQL } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+const { mergeLines } = require('../shared/bon_lines');
 const { broadcast } = require('../shared/sse');
 const {
     findCustomerByEmail: _liFindCustomerByEmail,
@@ -1316,7 +1317,9 @@ router.get('/customer-orders/:id', handle((req, res) => {
               AND COALESCE(category,'') NOT IN ('06 Emballage','x-Levering','Emballage','x- Service')
             ORDER BY sort_order
         `).all(o.id);
-        return { ...o, lines };
+        // Ens linjer slås sammen — kundekortet (office + mobil) skal vise
+        // "3× Kartoflen slider", ikke tre gange "1×" (se shared/bon_lines.js).
+        return { ...o, lines: mergeLines(lines) };
     });
 
     res.json(result);
@@ -1722,7 +1725,12 @@ router.get('/pipeline', handle((req, res) => {
     const db = getDb();
     const category = req.query.category;
 
-    let where = 'WHERE (b.is_offer = 1 OR sd.code IN (\'NY\',\'VENTER\'))';
+    // Et tabt eller udløbet tilbud hører ikke til på en tavle over igangværende
+    // salg. Uden dette filter ville det lande i "Lead"-kolonnen — kolonne-
+    // fordelingen nedenfor har ingen anden plads at gøre af det — og et tilbud
+    // man netop havde lukket, ville hoppe tilbage til starten af tavlen.
+    let where = `WHERE (b.is_offer = 1 OR sd.code IN ('NY','VENTER'))
+                   AND (b.is_offer = 0 OR COALESCE(b.offer_status, 'draft') NOT IN ('lost','expired'))`;
     const args = [];
     if (category) {
         where += ' AND b.price_category = ?';
@@ -1763,6 +1771,7 @@ router.get('/pipeline', handle((req, res) => {
             total_price: r.total_price,
             price_category: r.price_category,
             status: r.status,
+            is_offer: r.is_offer ? 1 : 0,
             offer_status: r.offer_status,
         };
 

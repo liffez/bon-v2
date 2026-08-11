@@ -23,6 +23,7 @@
      MailThread.fmtDate(iso)        // ét fælles datoformat
      MailThread.normalize(opts)     // tråde/beskeder → sorteret flad liste
      MailThread.buildVars(bon)      // skabelon-variabler fra en bon ({{kundeNavn}}…)
+     MailThread.renderSignatureHint(container)  // "signaturen tilføjes automatisk"
    ══════════════════════════════════════════════════════════════ */
 (function () {
     'use strict';
@@ -83,11 +84,7 @@
         return !!(m && m.body_html && String(m.body_html).trim());
     }
 
-    // Skal matche INLINE_VIEWABLE i routes/attachments.js (SVG udeladt her —
-    // den vises kun sandboxed inde i mail-kroppen, ikke som klik-og-åbn).
-    var VIEWABLE_MIME = /^(image\/(png|jpe?g|gif|webp|bmp|avif)|application\/pdf|text\/plain)$/i;
-
-    function attachmentsHtml(atts, hideInline, extraClass) {
+    function attachmentsHtml(atts, hideInline) {
         var ok = (atts || []).filter(function (a) {
             if (!a || !a.id) return false;
             // Inline billeder vises inde i HTML-kroppen — ikke som 📎-link.
@@ -95,22 +92,11 @@
             return true;
         });
         if (!ok.length) return '';
-        return '<div class="mt-msg-atts' + (extraClass ? ' ' + extraClass : '') + '">' + ok.map(function (a) {
+        return '<div class="mt-msg-atts">' + ok.map(function (a) {
             var kb = Math.round((a.size_bytes || 0) / 1024);
-            var dl = (typeof mailAttachmentUrl === 'function') ? mailAttachmentUrl(a.id) : '#';
-            // PDF'er og billeder åbnes i browserens egen fremviser i stedet for at
-            // lande i Overførsler. Resten kan kun hentes. Serveren håndhæver det
-            // samme — linket her er bekvemmelighed, ikke sikkerhedsgrænsen.
-            var canView = VIEWABLE_MIME.test(a.mime_type || '') && typeof mailInlineUrl === 'function';
-            var href = canView ? mailInlineUrl(a.id) : dl;
-            var label = '📎 ' + esc(a.filename || 'fil') + (kb ? ' (' + kb + ' KB)' : '');
-            var main = '<a class="mt-msg-att" target="_blank" rel="noopener" href="' + esc(href) + '"'
-                + (canView ? ' title="Åbn i fremviser"' : ' title="Hent fil"') + '>' + label + '</a>';
-            // Hentning skal stadig være ét klik væk når filen kan vises.
-            return canView
-                ? '<span class="mt-att-pair">' + main
-                    + '<a class="mt-msg-att mt-att-dl" href="' + esc(dl) + '" title="Hent">⬇</a></span>'
-                : main;
+            var url = (typeof mailAttachmentUrl === 'function') ? mailAttachmentUrl(a.id) : '#';
+            return '<a class="mt-msg-att" target="_blank" rel="noopener" href="' + esc(url) + '">'
+                + '📎 ' + esc(a.filename || 'fil') + (kb ? ' (' + kb + ' KB)' : '') + '</a>';
         }).join('') + '</div>';
     }
 
@@ -281,23 +267,16 @@
     function renderBody(container, m) {
         if (!container) return;
         m = m || {};
-        var isHtml = hasHtmlBody(m);
-        // Vedhæftninger vises også i enkelt-mail-visningen (fx CRM-indbakken) —
-        // ikke kun i tråd-historikken. Inline CID-billeder skjules kun når vi
-        // rent faktisk har en HTML-krop at vise dem inde i.
-        var atts = attachmentsHtml(m.attachments, isHtml, 'mt-atts-standalone');
-        if (isHtml) {
+        if (hasHtmlBody(m)) {
             container.innerHTML = '<div class="mt-msg mt-html mt-standalone">'
                 + '<div class="mt-msg-html" data-mt-html="0">'
-                + '<div class="mt-html-loading">Indlæser mail…</div></div></div>'
-                + atts;
+                + '<div class="mt-html-loading">Indlæser mail…</div></div></div>';
             mountHtmlFrames(container, [m]);
         } else {
             var body = (m.body_text || '').replace(/\r\n/g, '\n').trim();
             container.innerHTML = '<div class="mt-msg-body mt-standalone-body">'
                 + (body ? esc(body) : '<span class="mt-msg-nobody">(ingen tekst)</span>')
-                + '</div>'
-                + atts;
+                + '</div>';
         }
     }
 
@@ -367,7 +346,9 @@
        hvis Moms ikke er loadet udelades pris-felterne i stedet for at gætte. */
     function buildVars(bon) {
         bon = bon || {};
-        var lines = bon.lines || [];
+        // Ens linjer slås sammen — se shared/bon_lines.js. Uden det får kunden
+        // "1× Kartoflen slider" tre gange i stedet for "3×".
+        var lines = BonLines.mergeLines(bon.lines || []);
         var groups = bon.menu_groups || [];
         var menuLines = lines.filter(function (l) {
             var c = (l.category || '').toLowerCase();
@@ -452,8 +433,53 @@
         return vars;
     }
 
+    /* ── Signatur-varsel under skrivefelter ──────────────────────
+       Serveren sætter signaturen på i sendMail(), så den er der uanset
+       hvad. Uden at vise det, skriver folk deres egen hilsen i feltet og
+       mailen får to. Hentes én gang pr. sideindlæsning og caches. */
+
+    var _sigPromise = null;
+
+    function getSignature() {
+        if (!_sigPromise) {
+            // /api/settings svarer med et ARRAY af {key, value, description} —
+            // ikke et key→value-objekt. (Settings-siden mapper det selv.)
+            _sigPromise = fetch('/api/settings', { credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : []; })
+                .then(function (rows) {
+                    if (Array.isArray(rows)) {
+                        var hit = rows.find(function (r) { return r.key === 'mail_signature'; });
+                        return (hit && hit.value) || '';
+                    }
+                    return (rows && rows.mail_signature) || '';
+                })
+                .catch(function () { return ''; });
+        }
+        return _sigPromise;
+    }
+
+    function renderSignatureHint(container) {
+        if (!container) return;
+        getSignature().then(function (sig) {
+            if (!sig) return;   // ingen signatur sat — intet at love
+            container.innerHTML =
+                '<div class="mt-sig-hint">' +
+                    '<button type="button" class="mt-sig-toggle">' +
+                        'Signaturen tilføjes automatisk <span class="mt-sig-caret">▾</span>' +
+                    '</button>' +
+                    '<pre class="mt-sig-body">' + esc(sig) + '</pre>' +
+                '</div>';
+            var box = container.querySelector('.mt-sig-hint');
+            container.querySelector('.mt-sig-toggle').addEventListener('click', function () {
+                box.classList.toggle('open');
+            });
+        });
+    }
+
     window.MailThread = {
         renderHistory: renderHistory,
+        renderSignatureHint: renderSignatureHint,
+        getSignature: getSignature,
         renderBody: renderBody,
         fmtDate: fmtDate,
         normalize: normalize,

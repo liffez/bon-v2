@@ -59,19 +59,28 @@ cf_meta['economic_booked_until'] = 'YYYY-MM-DD'   -- seneste dato e-conomic har 
 > **Bruger REST `/invoices/booked` — IKKE OpenAPI.** (Verificeret 26. juni: REST-fakturaen har
 > `remainder`, `grossAmount`, `netAmount`, `vatAmount`, `dueDate`, `paymentTerms`, `references`.)
 > Samme REST-API + auth som resten af adapteren — ingen OpenAPI-cursor-pagination nødvendig.
-1. Hent `/invoices/booked` (paginer; filtrér helst på dato **efter** `economic_booked_until` for at
+1. Hent `/invoices/booked` (paginer; filtrér på dato **efter** `economic_booked_until` for at
    undgå at gennemgå hele bagkataloget hver gang).
-   > ⚠️ **Fælde (#320 — denne formulering forårsagede fejlen).** Implementeringen filtrerer på
-   > `date$gte:<vandmærke>`, hvor `date` er **fakturadatoen**. Vandmærket rykkes til seneste sete
+   > ⚠️ **Vandmærket dækker KUN nummer-koblingen — aldrig betalt-status (#320).**
+   > `date$gte:<vandmærke>` filtrerer på **fakturadatoen**, og vandmærket rykkes til seneste sete
    > fakturadato → en faktura hentes kun ÉN gang, omkring sin udstedelse, hvor den per definition
-   > er ubetalt. Men `remainder` ændrer sig **bagudrettet**, når betalingen falder. Resultatet er at
-   > afstemningen aldrig kan flippe `betalt` efter den første fulde kørsel.
-   > Vandmærket er rigtigt til at *opdage nye fakturaer*, forkert til at *spore betalingsstatus*.
-   > Vinduet skal altid dække de stadig-åbne fakturaer, fx
-   > `since = min(vandmærke, ældste ubetalte cf_invoice)` — så rykker vandmærket først forbi en
-   > periode når alt i den er afregnet.
-2. Pr. bogført salgsfaktura: **`remainder === 0` → betalt** (`remainder` = restbeløb/dueAmount, incl moms).
-   `dueDate` + `grossAmount` (incl moms) med.
+   > er ubetalt. Men `remainder` ændrer sig **bagudrettet**, når betalingen falder. Målt 10. august
+   > 2026: 18 af 21 "forfaldne" (107.669 kr) var for længst betalt hos e-conomic.
+   > Et bredere vindue (fx `since = min(vandmærke, ældste ubetalte)`) er en lappeløsning — brug
+   > fuld tilstand i stedet, se punkt 2.
+2. **Betalt-status kommer fra REST `/invoices/unpaid` — fuld tilstand, intet vandmærke.**
+   Listen ER e-conomics debitorbog: alt bogført der ikke står på den, er afregnet. Ét kald,
+   14 rækker (10. august 2026) — billigere end det delta den erstatter, og der er intet vindue at
+   falde uden for. `remainder` (restbeløb, incl moms), `dueDate` og `grossAmount` følger med.
+   > **Guard:** melder `pagination.results > 0` men leverer 0 rækker (brudt paginering), afbrydes
+   > afstemningen. Ellers ville hele debitorbogen blive markeret betalt.
+   > **Værn mod forkerte numre:** vi konkluderer kun "betalt" når nummeret faktisk kendes hos
+   > e-conomic (spejlet eller dette scan). Et ciffer-rod må ikke kunne afskrive en fordring.
+   > **Én vej automatisk:** ubetalt → betalt flippes; betalt → ubetalt gør vi ikke af os selv
+   > (det ville genoplive fakturaer kontoret bevidst har afskrevet). Uenigheden rapporteres i
+   > stedet som `conflicts`.
+   > **`unlinkedOpen`:** åbne fakturaer hos e-conomic uden modsvarende `cf_invoice` — forklarer
+   > hvorfor e-conomics tal og "Forfaldne" ikke er ens, i stedet for at skjule forskellen.
 3. **Match tilbage til bon via `references.other` = bon-nummeret** (vores Spor 2-payload sætter det
    allerede, jf. ADAPTER `buildReference`) — robust for nye fakturaer. **Fallback for eksisterende
    (gamle) fakturaer:** `bookedInvoiceNumber` → `cf_invoices.id` (fakturanr) → `cf_invoices.bon_id`.
@@ -396,7 +405,7 @@ opret-bon-fra-indbetaling, per-event-indtægtsoverblik) bygges oven på `cf_allo
 | Punkt | Hvem | Status |
 |-------|------|--------|
 | **Prioritet:** auto-afstemning (B) ønskes — fjerner manuel betalt-markering | Leif | ✅ besluttet (B prioriteret) |
-| Kilde til betalt-status: REST `/invoices/booked.remainder` (ikke OpenAPI) | — | ✅ verificeret 26. juni |
+| Kilde til betalt-status: REST `/invoices/unpaid` som **fuld tilstand** (ikke OpenAPI, ikke det vandmærkede `/invoices/booked`) | #320 | ✅ verificeret 10. august |
 | `invoice_number`+`faktureret_at` ejes af e-conomic Spor 2 (anbefalet) — bekræft rækkefølge | Simon | åben |
 | Bekræft at booked-faktura eksponerer `references.other` (til bon-nr-match) på de NYE fakturaer | Simon | åben (gamle matches via fakturanr) |
 | "Bankdata for gammel"-tærskel (dage) → `cf_meta` eller settings | Leif | åben |

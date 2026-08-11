@@ -13,6 +13,7 @@ process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/bon.d
 
 const { getDb } = require('../db/database');
 const mail = require('../services/mailService');
+const internal = require('../services/internalIdentity');
 
 let pass = 0, fail = 0;
 function assert(cond, msg) {
@@ -118,6 +119,87 @@ function parsedMail({ from, to, subject, text, messageId, inReplyTo = null }) {
         assert(umAfter === umBefore + 1, 'ukendt → mail_unmatched');
         assert(ghostThread === 0, 'ukendt → ingen tråd oprettet');
 
+        // ── Test 7–10: intern videresendelse (migration 142) ──
+        //
+        // Regressionen der udløste det hele: huset står selv som kunde
+        // (info@ristetrug.dk), så en videresendt kundemail matchede OS og
+        // landede i en tråd på Ristet Rug — kunden inde i beskeden blev
+        // aldrig set.
+        console.log('\n[7] intern afsender uden videresendt afsender → ufordelt');
+        const internalFrom = 'info@ristetrug.dk';
+        assert(internal.isInternalEmail(db, internalFrom), 'eget domæne genkendes som internt');
+        assert(!internal.isInternalEmail(db, email), 'kundens adresse er IKKE intern');
+
+        const plainSubject = 'T_FWD_PLAIN_' + Date.now();
+        await mail.processInboundMail(parsedMail({
+            from: internalFrom, to: 'kontakt@ristetrug.dk', subject: plainSubject,
+            text: 'Husk lige at ringe til dem.', messageId: '<int1@x>',
+        }), 9101, 'kontakt@ristetrug.dk');
+        const plainUm = db.prepare(`SELECT * FROM mail_unmatched WHERE subject=?`).get(plainSubject);
+        const plainThread = db.prepare(`SELECT COUNT(*) c FROM mail_threads WHERE subject=?`).get(plainSubject).c;
+        assert(!!plainUm, 'intern mail uden forward → mail_unmatched');
+        assert(plainThread === 0, 'ingen tråd oprettet på os selv');
+
+        console.log('\n[8] intern videresendelse af UKENDT afsender → ufordelt + parsed_*');
+        const strangerEmail = `laerke${Date.now()}@cap-partner-test.eu`;
+        const fwdSubject = 'T_FWD_NEW_' + Date.now();
+        await mail.processInboundMail(parsedMail({
+            from: internalFrom, to: 'kontakt@ristetrug.dk', subject: fwdSubject,
+            messageId: '<int2@x>',
+            text: [
+                'Kan vi ikke løse den her?',
+                '',
+                '---------- Videresendt besked ----------',
+                `Fra: Lærke Haumann Andersen <${strangerEmail}>`,
+                'Emne: Catering d. 18-20 august',
+                '',
+                'Hej — jeg vil gerne have et tilbud.',
+            ].join('\n'),
+        }), 9102, 'kontakt@ristetrug.dk');
+        const fwdUm = db.prepare(`SELECT * FROM mail_unmatched WHERE subject=?`).get(fwdSubject);
+        assert(!!fwdUm, 'videresendt ukendt afsender → mail_unmatched');
+        assert(fwdUm && fwdUm.parsed_email === strangerEmail, 'parsed_email = den reelle afsender');
+        assert(fwdUm && /Lærke/.test(fwdUm.parsed_name || ''), 'parsed_name udfyldt');
+        assert(fwdUm && fwdUm.parsed_company === 'Cap Partner Test', 'firma-gæt splitter på bindestreg');
+
+        console.log('\n[9] intern videresendelse af KENDT kunde → kundens tråd');
+        const knownFwdSubject = 'T_FWD_KNOWN_' + Date.now();
+        // Tråden fra test 1–5 er 'afsluttet'; en videresendelse skal genåbne den
+        // præcis som en direkte mail fra kunden ville.
+        await mail.processInboundMail(parsedMail({
+            from: internalFrom, to: 'kontakt@ristetrug.dk', subject: knownFwdSubject,
+            messageId: '<int3@x>',
+            text: [
+                'Se lige nedenstående.',
+                '',
+                '---------- Videresendt besked ----------',
+                `Fra: Test Kunde <${email}>`,
+                '',
+                'Kan I levere på fredag?',
+            ].join('\n'),
+        }), 9103, 'kontakt@ristetrug.dk');
+        const knownUm = db.prepare(`SELECT COUNT(*) c FROM mail_unmatched WHERE subject=?`).get(knownFwdSubject).c;
+        const t5 = db.prepare('SELECT * FROM mail_threads WHERE id=?').get(threadId);
+        assert(knownUm === 0, 'kendt videresendt afsender → IKKE ufordelt');
+        assert(t5.handling_status === 'aaben', 'kundens tråd genåbnet');
+        const fwdMsg = db.prepare(
+            `SELECT * FROM mail_messages WHERE thread_id=? AND direction='in' ORDER BY id DESC LIMIT 1`
+        ).get(threadId);
+        assert(fwdMsg && fwdMsg.subject === knownFwdSubject, 'beskeden bogført på kundens tråd');
+        assert(fwdMsg && fwdMsg.from_email === internalFrom, 'afsenderfeltet bevarer hvem der videresendte');
+
+        console.log('\n[10] svar på tråden går til kunden — ikke til os selv');
+        // Seneste indgående besked er nu videresendelsen fra info@ristetrug.dk.
+        // Uden filteret ville /threads/:id/reply sende svaret til os selv.
+        const inboundRows = db.prepare(
+            `SELECT from_email FROM mail_messages
+              WHERE thread_id = ? AND direction = 'in' AND from_email IS NOT NULL
+              ORDER BY id DESC LIMIT 20`
+        ).all(threadId);
+        const replyTo = (inboundRows.find(r => !internal.isInternalEmail(db, r.from_email)) || {}).from_email;
+        assert(inboundRows[0].from_email === internalFrom, 'seneste indgående ER den interne videresendelse');
+        assert(replyTo === email, 'modtager-valget springer den interne over → kunden');
+
     } finally {
         // Oprydning
         if (threadId) {
@@ -129,6 +211,10 @@ function parsedMail({ from, to, subject, text, messageId, inReplyTo = null }) {
             db.prepare('DELETE FROM customers WHERE id=?').run(customerId);
         }
         db.prepare(`DELETE FROM mail_unmatched WHERE subject='Hej' AND from_email LIKE 'ukendt%@nowhere-xyz.dk'`).run();
+        // Videresendelses-testene (7–9) — både de ufordelte og et evt. lead
+        // oprettet på den syntetiske cap-partner-test-adresse.
+        db.prepare(`DELETE FROM mail_unmatched WHERE subject LIKE 'T_FWD_%'`).run();
+        db.prepare(`DELETE FROM mail_threads WHERE subject LIKE 'T_FWD_%'`).run();
         if (prevEnabled === undefined) db.prepare("DELETE FROM settings WHERE key='smtp_enabled'").run();
         else db.prepare("UPDATE settings SET value=? WHERE key='smtp_enabled'").run(prevEnabled);
         mail._clearMockTransport();

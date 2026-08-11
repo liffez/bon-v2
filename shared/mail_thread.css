@@ -234,3 +234,40 @@
     color: #c0392b;
     line-height: 1.35;
 }
+
+/* ── Signatur-varsel under skrivefelter ──────────────────────────
+   Vises hvor man skriver en mail, så man ikke selv taster en hilsen
+   oveni den serveren sætter på. Lukket som standard — én linje. */
+.mt-sig-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-text-dim, #7a736b);
+}
+.mt-sig-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.mt-sig-toggle:hover { color: var(--brand-primary, #8e631f); }
+.mt-sig-caret { transition: transform 0.15s ease; display: inline-block; }
+.mt-sig-hint.open .mt-sig-caret { transform: rotate(180deg); }
+.mt-sig-body {
+    display: none;
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    border-left: 2px solid var(--color-border, #d7d1ca);
+    background: var(--color-background, #f5f4f2);
+    border-radius: 0 6px 6px 0;
+    white-space: pre-wrap;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--color-text-dim, #7a736b);
+}
+.mt-sig-hint.open .mt-sig-body { display: block; }
