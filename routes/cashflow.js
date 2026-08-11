@@ -2039,6 +2039,7 @@ router.get('/upcoming', handle(async (req, res) => {
 // fakturaens overskrift. Skriver kun til vores egen cf_invoices + vandmærke.
 const economicAdapter = require('../services/economicAdapter');
 const { reconcile, matchByEconomicNumber } = require('../services/cashflowReconcile');
+const economicLedger = require('../services/economicLedger');
 
 router.post('/reconcile', handle(async (req, res) => {
     if (!economicAdapter.isConfigured()) {
@@ -2054,6 +2055,12 @@ router.post('/reconcile', handle(async (req, res) => {
         // fakturanummeret i bankteksten (verificeret link, ikke dato-fold).
         const m = matchByEconomicNumber(db, { dryRun });
         result.linked = m.linked;
+        // Betalingsposteringer i samme greb — én knap, alt ajour. Kræver
+        // Bookkeeping-rollen; mangler den, melder synken bare `available: false`
+        // og resten af afstemningen er upåvirket.
+        const led = await economicLedger.syncPayments(db, { dryRun, full: req.body?.full === true });
+        result.ledger = led;
+        if (led.written) paymentRhythm.invalidate();   // rytmen har nyt at lære af
     } catch (e) {
         if (e instanceof economicAdapter.EconomicAuthError) return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
         if (e instanceof economicAdapter.EconomicRateError) return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere' });

@@ -426,6 +426,9 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
             if (r.conflicts) linjer.push(`\n⚠ ${r.conflicts} står som betalt hos os, men er stadig åbne hos e-conomic:\n   ` +
                 r.conflictRows.slice(0, 8).map(c => `${c.cf_id} (faktura ${c.booked_no})`).join(', '));
             if (r.unknownNumbers) linjer.push(`${r.unknownNumbers} fakturanr kendes ikke hos e-conomic — urørt`);
+            // Betalingsposteringerne er det der giver rytmen ægte datoer at lære af.
+            if (r.ledger?.available === false) linjer.push(`\nBetalingsposteringer hentes ikke — app-rollen mangler «Bookkeeping»`);
+            else if (r.ledger) linjer.push(`${r.ledger.payments} betalingsposteringer hentet (${r.ledger.years.length} regnskabsår)`);
             // Forklarer forskellen mellem e-conomics tal og "Forfaldne" nedenfor:
             // åbne fakturaer der ikke har en modsvarende række i Bon (fx overskrift
             // uden bon-nr, eller en faktura der aldrig er udsprunget af en bon).
