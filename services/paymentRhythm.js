@@ -24,12 +24,20 @@
  * aldrig registreret. Netop de langsomme betalere ville altså være usynlige, og
  * gennemsnittet ville pænt fortælle os at alle betaler til tiden.
  *
- * ── HVOR TYNDT GRUNDLAGET ER (målt 10. august 2026) ────────────────────────
- * 2.842 betalte fakturaer, men kun 303 har en ægte betalingsdato. Resten fik
- * `betalt_dato = delivery_date` af `cashflowSync` da bonnen blev sat til BETALT
- * — det er en leveringsdato, ikke en betalingsdato, og den må ALDRIG bruges her.
- * Rytmen slår derfor kun til for en håndfuld kunder i dag. Det er med vilje: et
- * gæt på to observationer er værre end ingen justering.
+ * ── GRUNDLAGET (målt 11. august 2026) ──────────────────────────────────────
+ * `betalt_dato` må ALDRIG bruges: for 2.539 af 2.842 betalte fakturaer er den
+ * lig LEVERINGSDATOEN (sat af `cashflowSync` ved BETALT).
+ *
+ * Med kun bankmatch havde vi 303 observationer, og udvalget var skævt på præcis
+ * den måde der betyder noget her. Efter at e-conomics betalingsposteringer kom
+ * til (migration 145) er tallet 1.693 fakturaer og 119 kunder med nok historik.
+ *
+ * Det ændrede konklusionen: på bankmatchene alene så de offentlige kunder ud til
+ * at betale nogenlunde til tiden (KU +5,8 dage). Med posteringerne ligger
+ * Rigshospitalet på +20 dage over 38 målinger og Bispebjerg på +20 over 16 —
+ * altså ~34 dage efter levering. De langsomme var ikke fraværende, de var
+ * usynlige. Vær varsom med at drage konklusioner om timing af en kilde der selv
+ * er udvalgt efter timing.
  * ════════════════════════════════════════════════════════════════════════
  */
 'use strict';
@@ -55,19 +63,43 @@ function median(xs) {
  * @returns {Map<string, {days:number, n:number}>} kundenavn → rytme
  */
 function learnDelays(db) {
+    // Tre kilder, alle tidsuafhængige — men ÉN observation pr. faktura.
+    //
+    // Samme faktura kan optræde i flere kilder med datoer der ligger et par dage
+    // fra hinanden (bogføringsdag vs. bankdag). `UNION` ville IKKE fange det: den
+    // fjerner kun helt ens rækker, så fakturaen ville tælle to gange med hver sin
+    // værdi og få dobbelt vægt i medianen. Derfor rangeres kilderne, og kun den
+    // bedste række pr. faktura overlever.
+    //
+    // Rækkefølgen: e-conomics egen betalingspostering først (bogholderen har
+    // afstemt den, og den dækker hele historikken), så et bankmatch på fakturanr,
+    // så en kobling lavet i hånden.
     const rows = db.prepare(`
         SELECT kunde, dage FROM (
-            SELECT i.kunde AS kunde, JULIANDAY(t.dato) - JULIANDAY(i.forfald) AS dage, i.id AS iid
-            FROM cf_invoices i
-            JOIN cf_transactions t ON t.matched_invoice_id = i.id AND t.match_confidence >= 95
-            WHERE i.betalt = 1
-            UNION
-            SELECT i.kunde, JULIANDAY(t.dato) - JULIANDAY(i.forfald), i.id
-            FROM cf_invoices i
-            JOIN cf_allocations a ON a.target_type = 'invoice' AND a.target_id = i.id
-            JOIN cf_transactions t ON t.id = a.transaction_id
-            WHERE i.betalt = 1
-        )
+            SELECT kunde, dage, ROW_NUMBER() OVER (PARTITION BY iid ORDER BY src) AS rn
+            FROM (
+                SELECT 1 AS src, i.kunde AS kunde, i.id AS iid,
+                       JULIANDAY(p.last_date) - JULIANDAY(i.forfald) AS dage
+                FROM cf_invoices i
+                JOIN (SELECT invoice_number, MAX(entry_date) AS last_date
+                      FROM cf_economic_payments
+                      WHERE invoice_number IS NOT NULL AND invoice_number != ''
+                      GROUP BY invoice_number) p
+                  ON p.invoice_number = i.economic_number
+                WHERE i.economic_number IS NOT NULL AND i.economic_number != ''
+                UNION ALL
+                SELECT 2, i.kunde, i.id, JULIANDAY(t.dato) - JULIANDAY(i.forfald)
+                FROM cf_invoices i
+                JOIN cf_transactions t ON t.matched_invoice_id = i.id AND t.match_confidence >= 95
+                WHERE i.betalt = 1
+                UNION ALL
+                SELECT 3, i.kunde, i.id, JULIANDAY(t.dato) - JULIANDAY(i.forfald)
+                FROM cf_invoices i
+                JOIN cf_allocations a ON a.target_type = 'invoice' AND a.target_id = i.id
+                JOIN cf_transactions t ON t.id = a.transaction_id
+                WHERE i.betalt = 1
+            )
+        ) WHERE rn = 1
     `).all();
 
     const byCustomer = new Map();
