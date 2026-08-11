@@ -25,44 +25,64 @@ HTTP-headers på hvert kald. Query-string-auth understøttes IKKE (kun til demo)
 agreement (apps) og det almindelige Ristet Rug-regnskab (grant). Det er den
 hyppigste kilde til forvirring.
 
-### Rolle — hvad vi faktisk har adgang til (verificeret 10. august 2026)
+### Hvilken app er den rigtige (vigtigt — der er fire)
+
+Developer-portalen indeholder `bon-v2-regnskab`, `bon-faktura`,
+`Bon-v2->economis` og `Bon-faktura2`. **Kun én er i brug:**
+
+| | |
+|---|---|
+| **App** | `bon-v2-regnskab`, appNumber **29856** |
+| **Roller** | `Sales` + **`Bookkeeping`** |
+| **Tokens** | `ECONOMIC_APP_SECRET` + `ECONOMIC_AGREEMENT_GRANT` i `.env` |
+
+De øvrige tre er historiske. `bon-faktura` (25423) havde kun `Sales` og var i
+brug indtil 11. august 2026.
+
+`GET /self` fortæller altid hvilken app et tokenpar hører til:
+`application.name`, `.appNumber` og `.requiredRoles`. Er du i tvivl, så spørg
+den — gæt ikke ud fra portalen.
+
+### Rolle — hvad der er åbent (verificeret 11. august 2026)
 
 Rollen er en egenskab ved **app-registreringen i developer agreementet** — ikke
-en indstilling i Ristet Rugs regnskab. `GET /self` fortæller den:
+en indstilling i Ristet Rugs regnskab.
 
-```json
-"application": {
-  "appNumber": 25423,
-  "name": "bon-faktura",
-  "appPublicToken": "XdO22BUn4kjTFvMlP6grSkl2VMBcfjKQNyaZTtUvRjg",
-  "requiredRoles": [{ "roleNumber": 1, "name": "Sales" }]
-}
-```
+| Endpoint | Rolle | Status |
+|---|---|---|
+| `/customers`, `/invoices/*` (drafts, booked, paid, unpaid, overdue, notDue, sent) | Sales | ✅ |
+| `/accounts` (240), `/journals` (7), `/suppliers` (59) | Bookkeeping | ✅ |
+| `/accounting-years` (12 år tilbage til 2015/16) + `/{år}/entries`, `/{år}/periods` | Bookkeeping | ✅ |
+| `/supplier-invoices` | — | 404 (findes ikke i REST) |
+| `/accounting-years/{år}/entries/booked` | — | 404 (kun `/entries`) |
 
-App'en beder kun om **Sales**. Derfor:
-
-| Endpoint | Status |
-|---|---|
-| `/customers`, `/invoices/*` (drafts, booked, paid, unpaid, overdue, notDue, sent) | ✅ 200 |
-| `/accounts`, `/accounting-years` (posteringer), `/journals`, `/suppliers` | ⛔ **403** |
-
-**403 er altså ikke en fejl at fejlsøge — det er rollen.** Vil vi have
-finansposteringer (e-conomics egen bank-afstemning, leverandørfakturaer,
-betalingsdatoer, kreditnotaer), kræver det to skridt:
-
-1. **Udvid app'ens `requiredRoles`** i developer agreementet (app 25423
-   "bon-faktura"), ikke i RR-regnskabet.
-2. **Ny grant.** Det eksisterende `ECONOMIC_AGREEMENT_GRANT` er udstedt mod de
-   GAMLE roller. Installations-URL'en køres igen mens man er logget ind på
-   Ristet Rugs regnskab → nyt token → opdatér `.env` på Hetzner.
-   `appPublicToken` ovenfor er den offentlige del af den URL.
+**En 403 er ikke en fejl at fejlsøge — det er rollen.** Mangler et endpoint,
+så tjek `requiredRoles` i `/self` før du leder i koden.
 
 > `/roles` svarer **501 "Endpoint not implemented"**, så rollelisten kan ikke
 > hentes via API — den vælges i developer-portalen.
->
-> **Probe før du bygger.** Kør et GET mod `/accounts` og
-> `/accounting-years/{år}/entries` FØR der skrives kode på posteringer; vi ved
-> ikke hvad en bredere rolle rent faktisk åbner, kun hvad den nuværende lukker.
+
+### Sådan udvides rollen (og hvorfor det gik galt første gang)
+
+1. **Udvid `requiredRoles`** på app'en i developer agreementet — eller opret en
+   ny app, som her.
+2. **Sæt en RedirectURL på app'en.** Uden den er der ingen vej tilbage med
+   tokenet: installations-URL'en godkender adgangen og sender grant-tokenet som
+   `?token=…` til RedirectURL. Er feltet tomt, får man adgang uden nogensinde at
+   se tokenet — og tror at flowet fejlede. Enhver side man kan læse
+   adresselinjen på duer (fx `https://bon.ristetrug.dk/login.html`).
+3. **Kør installations-URL'en** logget ind på Ristet Rugs regnskab (ikke
+   developer-kontoen) → kopiér `token=`-værdien → `.env` lokalt OG på Hetzner.
+
+> ⚠️ **Secret og grant hører sammen parvis.** Et grant-token er udstedt til ÉN
+> app. Blandes en ny apps secret med en gammel apps grant, svarer ALT 401 med
+> `"The given AppSecretToken does not correspond to the one connected to token."`
+> Det er ikke et udløbet token — det er to apps der taler forbi hinanden.
+> Skiftes app, skal BEGGE værdier udskiftes samtidig.
+
+> **Probe efter hver ændring.** `GET /self` (app + roller) og et GET mod det
+> endpoint du regner med er åbnet. Vi ved hvad den nuværende rolle giver, ikke
+> hvad den næste gør.
 
 ---
 
