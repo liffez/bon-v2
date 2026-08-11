@@ -103,6 +103,13 @@ function getBonLines(bonId) {
                -- "kopiér ordre" ikke kunne lægge varerne tilbage i deres
                -- oprindelige blokke og smed alt i én (#427).
                block_type,
+               -- offer_day_id: hvilken dag på et fler-dags-tilbud linjen hører
+               -- til. NULL = alle dage (#425, migration 145).
+               offer_day_id,
+               -- moms_included: 0 = linjen ligger EX moms (migration 104,
+               -- event-udgifter). Manglede her, så enhver kalder der kopierede
+               -- linjer videre tavst gjorde dem til INCL-moms-linjer.
+               moms_included,
                menu_group_id
         FROM bon_lines
         WHERE bon_id = ?
@@ -369,34 +376,60 @@ function createBon(input = {}) {
         priceCategoryId = cat?.id || null;
     }
 
+    // Felterne nedenfor er tilføjet additivt for tilbuds-konvertering (#425):
+    // pickup_time, delivery_method, delivery_price, price_category (kode-teksten),
+    // kitchen_info, internal_notes, total_price, created_by_user_id og
+    // source_quote_id. Alle defaulter til det de var før, så web-orders og
+    // webhooks opfører sig præcis som hidtil.
     const res = db.prepare(`
         INSERT INTO bons (
             bon_number, status_id, location_id,
-            customer_id, company_id, price_category_id,
-            order_date, delivery_date, delivery_time,
-            delivery_type, delivery_address_id,
+            customer_id, company_id, price_category_id, price_category,
+            order_date, delivery_date, delivery_time, pickup_time,
+            delivery_type, delivery_method, delivery_address_id,
             pax, customer_wishes, invoice_info,
             day_contact_name, day_contact_phone,
-            delivery_notes,
+            delivery_notes, delivery_price,
+            kitchen_info, internal_notes,
+            total_price, source_quote_id, created_by_user_id,
             payment_type, created_at, updated_at
         ) VALUES (
             ?, ?, ?,
+            ?, ?, ?, ?,
+            date('now'), ?, ?, ?,
             ?, ?, ?,
-            date('now'), ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?, ?,
             ?, ?,
             ?, ?, ?,
-            ?, ?,
-            ?,
             ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
     `).run(
         bonNumber, statusId, locationId,
         input.customer_id ?? null, input.company_id ?? null, priceCategoryId,
-        input.delivery_date ?? null, input.delivery_time ?? null,
-        input.delivery_type ?? null, input.delivery_address_id ?? null,
+        // Også NOT NULL. Kolonnen var ikke i INSERT'en før, så skemaets default
+        // ('store') gjaldt — og den default beholdes bevidst her, så web-orders
+        // og webhooks opfører sig præcis som før.
+        //
+        // ⚠️ Det efterlader en kendt uoverensstemmelse: `price_category_id`
+        // defaulter til CATERING få linjer længere oppe, mens tekstfeltet bliver
+        // 'store'. Tre bons i drift står sådan. At rette den her ville ændre
+        // priskategorien på web-ordrer som en stille bivirkning af en helt anden
+        // opgave — den fortjener sit eget issue.
+        input.price_category ?? input.price_category_code ?? 'store',
+        input.delivery_date ?? null, input.delivery_time ?? null, input.pickup_time ?? null,
+        // `bons.delivery_type` er NOT NULL med DEFAULT 'delivery' i skemaet, men
+        // et eksplicit null fra koden overskriver defaulten og giver en rå
+        // constraint-fejl. Begge nuværende kaldere sender altid feltet, så det
+        // har aldrig ramt drift — men en ny kalder der udelader det, skal ikke
+        // møde "NOT NULL constraint failed".
+        input.delivery_type ?? 'delivery', input.delivery_method ?? null, input.delivery_address_id ?? null,
         input.pax ?? null, input.customer_wishes ?? null, input.invoice_info ?? null,
         input.day_contact_name ?? null, input.day_contact_phone ?? null,
-        input.delivery_notes ?? null,
+        input.delivery_notes ?? null, input.delivery_price ?? 0,
+        input.kitchen_info ?? null, input.internal_notes ?? null,
+        input.total_price ?? 0, input.source_quote_id ?? null, input.user_id ?? null,
         input.payment_type ?? 'invoice'
     );
 
@@ -412,10 +445,16 @@ function createBon(input = {}) {
         userId: input.user_id ?? null,
     });
 
-    // Lazy-require for at undgå cirkulær afhængighed (samme mønster som
-    // autoConsumeBonInventory's grocyAdapter-require ovenfor).
-    const { broadcast } = require('../shared/sse');
-    broadcast('bon_created', { id: bonId, bon_number: bonNumber, ...(input.broadcast_extra || {}) });
+    // `broadcast: false` for kaldere der opretter FLERE bons i én transaktion
+    // (fler-dags-tilbud, #425). SSE kan ikke rulles tilbage: fejler bon nr. 3,
+    // er nr. 1 og 2 allerede annonceret ud i huset selvom de aldrig kom til at
+    // findes. De kaldere annoncerer selv, efter commit.
+    if (input.broadcast !== false) {
+        // Lazy-require for at undgå cirkulær afhængighed (samme mønster som
+        // autoConsumeBonInventory's grocyAdapter-require ovenfor).
+        const { broadcast } = require('../shared/sse');
+        broadcast('bon_created', { id: bonId, bon_number: bonNumber, ...(input.broadcast_extra || {}) });
+    }
 
     return { bonId, bonNumber };
 }
