@@ -32,6 +32,7 @@ const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { transaction } = require('../db/compat');
 const { notInvoicedSQL } = require('../services/invoiceGuard');
+const paymentRhythm = require('../services/paymentRhythm');
 
 // "Kunden har aldrig fået en regning" — ét udtryk, så tab-filter, tællere og
 // forfaldne-eksklusionen ikke kan komme til at måle hver sin ting (#319).
@@ -326,6 +327,32 @@ const EVENT_CASH_SQL = `(LOWER(t.tekst) LIKE '%zettle%' OR LOWER(t.tekst) LIKE '
 //   minor        — lille beløb, ingen reference → støj (typisk leverings-±)            → FOLD
 // Lukket år + stor-grænse er settings (cf_accounts_closed_year, cf_check_large_threshold).
 const FAKTURA_RE = /faktur|fakt|fak[\s.\-]|fa\.?nr|faknr|invoice/i;
+
+// Festival-/stadeafregning kommer som en ALMINDELIG bankoverførsel — ingen Zettle,
+// ingen MobilePay, intet fakturanr ("AFREGN. VIG FESTIVAL", "SLUTAFREGNING RF25").
+// Uden disse ord landede 110.854 kr fra Vig i bunken af 32 "store ukoblede", og
+// 🎪-chippen stod på 0 selv om pengene var der.
+// Bevidst SNÆVER, og først EFTER fakturanr-tjekket: bærer teksten et fakturanummer,
+// er det en faktura-indbetaling — også selvom den nævner et festivalnavn.
+const CF_FESTIVAL_RE = /afregn|festival|stade/i;
+
+// Intern flytning mellem egne konti ("Mellemregning LZ") er ikke omsætning og
+// skal aldrig stå på triagelisten. Beløbet er stort (12–15 kkr), så uden denne
+// regel ville en indgående mellemregning lande i "store ukoblede".
+const CF_INTERNAL_RE = /mellemregn|egen konto|eget udlæg/i;
+
+// Vindue omkring et event hvor en indbetaling kan stamme derfra. Bagud er kort
+// (forudbetaling er sjælden), fremad rummeligt: arrangøren afregner bagefter —
+// Vig 2026 betalte 4 dage efter sidste dag.
+const CF_EVENT_WINDOW_BEFORE = 2;
+const CF_EVENT_WINDOW_AFTER  = 21;
+
+/** Dato-forskydning i ISO (rent kalender-regnestykke, ingen tidszone involveret). */
+function offsetDays(iso, days) {
+    const [y, m, d] = String(iso).split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + days));      // utc-ok: ren kalender-aritmetik
+    return dt.toISOString().slice(0, 10);                   // utc-ok: samme
+}
 /** Set af e-conomics bogførte fakturanumre (cf_economic_invoices) til genkendelse. */
 function cfBookedSet(db) {
     try {
@@ -337,6 +364,11 @@ function cfCategorize(tx, closedYear, largeThreshold, bookedSet) {
     if (/zettle|mobilepay|vipps|kontant/i.test(t)) return 'event_cash';   // 🎪 alle år (historik-bon)
     const year = parseInt(String(tx.dato).slice(0, 4), 10) || 9999;
     const hasFaktura = FAKTURA_RE.test(t) || /^\s*\d{3,6}\s*$/.test(t);   // "FAKTURA 3957" / "Fa.nr. 3865" / bare "3898"
+    if (!hasFaktura && CF_FESTIVAL_RE.test(t)) return 'event_cash';
+    // Intern flytning mellem egne konti er ikke en indbetaling — den skal aldrig
+    // koste kontoret et blik, uanset beløb. Foldes derfor som støj (findbar via
+    // søgning/Foldede) i stedet for at fylde i "store ukoblede".
+    if (!hasFaktura && CF_INTERNAL_RE.test(t)) return 'minor';
     if (hasFaktura) {
         // Findes nummeret som et RIGTIGT bogført e-conomic-fakturanr? → afregnet faktura → fold.
         // (Indbetalingen = fakturaens beløb, der kan dække flere bons — derfor genkender vi
@@ -349,10 +381,10 @@ function cfCategorize(tx, closedYear, largeThreshold, bookedSet) {
         // (nummer der ikke matcher nogen bogført faktura — fejl, kreditnota, fremtidig).
         return year <= closedYear ? 'invoice_paid' : 'invoice_check';
     }
-    // INGEN fakturanr — inkl. "Overførsel"/kundenavn/"Leverandør". En sådan postering kan
-    // godt VÆRE en faktura (overførsel uden nr), men også et event uden bon. Store beløb
-    // løftes derfor til tjek UANSET år — også lukket 2025 ("SLUTAFREGNING RF25" = festival
-    // der mangler en historik-bon). Småt foldes som støj (typisk leverings-±).
+    // INGEN fakturanr og intet festivalord — inkl. "Overførsel"/kundenavn/"Leverandør".
+    // En sådan postering kan godt VÆRE en faktura (overførsel uden nr), men også et event
+    // uden bon. Store beløb løftes derfor til tjek UANSET år — også lukket 2025. Småt
+    // foldes som støj (typisk leverings-±).
     if (Math.abs(tx.beloeb) >= largeThreshold) return 'large_check';
     return 'minor';
 }
@@ -398,9 +430,20 @@ router.get('/transactions', handle(async (req, res) => {
             LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
             WHERE ${UNMATCHED_WHERE}
         `).all();
+        // Falder posteringen inden for et events periode, hænger et 🎪-vink på den.
+        // Bevidst et VINK og ikke en kategori: datooverlap alene over-fortolker — en
+        // kommune-faktura og en samlefaktura lå også inde i Vig Festivals vindue.
+        // Ordlisten afgør kategorien; datoen hjælper kun øjet med at finde resten.
+        const evWindows = db.prepare(`SELECT id, name, start_date, COALESCE(end_date, start_date) AS end_date
+                                      FROM events WHERE status != 'cancelled'`).all();
+        const eventHint = (dato) => evWindows.find(e =>
+            dato >= offsetDays(e.start_date, -CF_EVENT_WINDOW_BEFORE) &&
+            dato <= offsetDays(e.end_date, CF_EVENT_WINDOW_AFTER)) || null;
         for (const tx of cands) {
             tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
             tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+            const ev = eventHint(String(tx.dato));
+            tx.event_hint = ev ? { id: ev.id, name: ev.name } : null;
         }
         // Tællere over ALLE kandidater — så chip-tallene er faste uafhængigt af aktivt filter.
         const cntCat = (c) => cands.filter(t => t.category === c).length;
@@ -567,6 +610,11 @@ router.get('/invoices', handle(async (req, res) => {
         }
     }
 
+    // Forventet betalingsdag oven på forfaldsdatoen — lært af kundens egen historik.
+    // `forfald` er urørt: den er fakturaens juridiske frist. Dette er kun til triage,
+    // så en langsom betaler ikke råber på dag 15 og drukner den der faktisk er sen.
+    paymentRhythm.annotate(db, rows, today);
+
     // Tab-summaries i ét kald, så frontenden kan vise count + sum
     // på hver tab-knap og som footer på den aktive liste.
     // Forfaldne-tælleren ekskluderer de ikke-fakturerede, præcis som fanen gør —
@@ -712,6 +760,17 @@ router.get('/stats', handle(async (req, res) => {
         FROM cf_invoices i WHERE i.betalt = 0 AND i.forfald < ? AND NOT ${NOT_INVOICED}
     `).get(today);
 
+    // Deltal: hvor mange af de forfaldne er sene selv efter KUNDENS egen rytme.
+    // Hovedtallet bliver stående som det er — "forfalden" er en juridisk kendsgerning,
+    // ikke en fornemmelse. Deltallet siger hvor mange der er værd at reagere på.
+    const overdueRows = db.prepare(`
+        SELECT id, kunde, beloeb, forfald, betalt
+        FROM cf_invoices i WHERE i.betalt = 0 AND i.forfald < ? AND NOT ${NOT_INVOICED}
+    `).all(today);
+    paymentRhythm.annotate(db, overdueRows, today);
+    const reallyLate = overdueRows.filter(r => r.late_for_customer);
+    const rhythmAdjusted = overdueRows.filter(r => r.rhythm_days > 0 && !r.late_for_customer);
+
     // Aldrig faktureret — arbejde, ikke gæld. Egen tæller så den ikke gemmer sig.
     const notInvoiced = db.prepare(`
         SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
@@ -759,6 +818,11 @@ router.get('/stats', handle(async (req, res) => {
         overdue_total_incl_moms: overdue.total,
         overdue_total_excl_moms: r2(inclToExcl(overdue.total)),
         overdue_count: overdue.count,
+        // Heraf sene efter kundens EGEN rytme (lært, ikke indtastet — se
+        // services/paymentRhythm.js). `overdue_*` ovenfor er uændret.
+        overdue_late_count: reallyLate.length,
+        overdue_late_total: r2(reallyLate.reduce((s, r) => s + r.beloeb, 0)),
+        overdue_within_rhythm_count: rhythmAdjusted.length,
         // Aldrig faktureret (#319) — holdt UDE af overdue_* ovenfor
         not_invoiced_total: notInvoiced.total,
         not_invoiced_total_incl_moms: notInvoiced.total,
@@ -1995,20 +2059,35 @@ router.post('/reconcile', handle(async (req, res) => {
         if (e instanceof economicAdapter.EconomicRateError) return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere' });
         return res.status(502).json({ error: 'e-conomic-afstemning fejlede', detail: e.message });
     }
-    if (!dryRun && (result.flipped > 0 || result.linked > 0)) {
+    if (!dryRun && (result.flipped > 0 || result.linked > 0 || result.mirrorCleared > 0)) {
         logChange({ entityType: 'cashflow', entityId: 0, action: 'economic_reconcile',
             fieldName: 'betalt', oldValue: null, newValue: String(result.flipped),
-            userId: req.session?.userId ?? null, notes: `vandmærke → ${result.newWatermark} · ${result.numbered} nr · ${result.linked} koblet` });
-        broadcast('cashflow_reconciled', { flipped: result.flipped, linked: result.linked, watermark: result.newWatermark });
+            userId: req.session?.userId ?? null,
+            notes: `${result.openInEconomic} åbne hos e-conomic · vandmærke → ${result.newWatermark} · `
+                 + `${result.numbered} nr · ${result.linked} koblet · ${result.conflicts} uenige` });
+        broadcast('cashflow_reconciled', {
+            flipped: result.flipped, linked: result.linked,
+            conflicts: result.conflicts, open: result.openInEconomic, watermark: result.newWatermark,
+        });
     }
     res.json(result);
 }));
 
-// GET /api/cashflow/reconcile/status — vandmærke + om e-conomic er konfigureret
+// GET /api/cashflow/reconcile/status — sidste synk + åbne fakturaer hos e-conomic
+// Vandmærket dækker KUN nummer-koblingen (delta). Betalt-status er fuld tilstand,
+// så den har ingen "ajour til"-dato — kun et tidspunkt for sidste opslag.
 router.get('/reconcile/status', handle((req, res) => {
     const db = getDb();
-    const watermark = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value || null;
-    res.json({ economic_booked_until: watermark || null, configured: economicAdapter.isConfigured() });
+    const meta = (k) => db.prepare(`SELECT value FROM cf_meta WHERE key = ?`).get(k)?.value || null;
+    res.json({
+        economic_booked_until: meta('economic_booked_until'),
+        economic_synced_at: meta('economic_synced_at'),
+        // e-conomics egen optælling fra sidste synk — ikke udledt af spejlet, som
+        // kun kender de fakturaer vi har nået at scanne.
+        open_in_economic: Number(meta('economic_open_count') ?? 0),
+        open_in_economic_total: Number(meta('economic_open_total') ?? 0),
+        configured: economicAdapter.isConfigured(),
+    });
 }));
 
 // Eksportér kategoriserings-helperen til test (regressionssikring af triage-reglerne)
