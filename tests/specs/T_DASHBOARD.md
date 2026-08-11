@@ -59,9 +59,21 @@ For `T_DASH_TOMORROW` + `T_DASH_TOMORROW_PREP`: én med begge prep-flag=1, én u
 ### 2.3 Test-lines
 
 For top-products: T_DASH_TODAY_LEV har 3 lines:
-- Line A: "Frikadeller", qty=30, unit_price=25 (incl moms), is_accessory=0
-- Line B: "Brød Rug", qty=20, unit_price=15, is_accessory=0
+- Line A: "Frikadeller", qty=30, unit_price=25 (incl moms), is_accessory=0, category=**`01 Sandwich`** ← tællende
+- Line B: "Brød Rug", qty=20, unit_price=15, is_accessory=0, category=`Brød` ← ikke-tællende
 - Line C: "Engangsservice", qty=10, unit_price=5, is_accessory=**1** ← skal ekskluderes
+
+**Kategorierne er ikke tilfældige.** `/top-products` deler varerne i to buckets
+efter `unitCountablePredicate()` (samme regel som `bons.total_units`): default
+`?bucket=food` viser kun varer der tæller som solgte enheder, `?bucket=other`
+resten — emballage, drikke, kager. Opdelingen findes fordi RR Boks lå
+øverst hver måned uden at være et salgstal; `is_accessory` fangede den ikke,
+da flaget aldrig er sat i praksis (0 af 20.781 linjer i drift).
+
+Line A skal derfor ligge i en kategori fra `settings.unit_count_categories`,
+ellers falder den ud af default-bucket'en og TPR_06 + TPR_08 degraderer
+lydløst til SKIP. Line B er bevidst ikke-tællende og bruges som positiv
+kontrol i TPR_10.
 
 ### 2.4 Smartplan mock
 

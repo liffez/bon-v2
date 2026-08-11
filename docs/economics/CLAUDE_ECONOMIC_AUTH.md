@@ -25,9 +25,64 @@ HTTP-headers på hvert kald. Query-string-auth understøttes IKKE (kun til demo)
 agreement (apps) og det almindelige Ristet Rug-regnskab (grant). Det er den
 hyppigste kilde til forvirring.
 
-**Rolle:** Sæt app'ens rolle til **SuperUser** i e-conomic (Indstillinger →
-Udvidelser → Apps → app → Rolle) for fuld læseadgang til fakturaer og
-bogførte poster.
+### Hvilken app er den rigtige (vigtigt — der er fire)
+
+Developer-portalen indeholder `bon-v2-regnskab`, `bon-faktura`,
+`Bon-v2->economis` og `Bon-faktura2`. **Kun én er i brug:**
+
+| | |
+|---|---|
+| **App** | `bon-v2-regnskab`, appNumber **29856** |
+| **Roller** | `Sales` + **`Bookkeeping`** |
+| **Tokens** | `ECONOMIC_APP_SECRET` + `ECONOMIC_AGREEMENT_GRANT` i `.env` |
+
+De øvrige tre er historiske. `bon-faktura` (25423) havde kun `Sales` og var i
+brug indtil 11. august 2026.
+
+`GET /self` fortæller altid hvilken app et tokenpar hører til:
+`application.name`, `.appNumber` og `.requiredRoles`. Er du i tvivl, så spørg
+den — gæt ikke ud fra portalen.
+
+### Rolle — hvad der er åbent (verificeret 11. august 2026)
+
+Rollen er en egenskab ved **app-registreringen i developer agreementet** — ikke
+en indstilling i Ristet Rugs regnskab.
+
+| Endpoint | Rolle | Status |
+|---|---|---|
+| `/customers`, `/invoices/*` (drafts, booked, paid, unpaid, overdue, notDue, sent) | Sales | ✅ |
+| `/accounts` (240), `/journals` (7), `/suppliers` (59) | Bookkeeping | ✅ |
+| `/accounting-years` (12 år tilbage til 2015/16) + `/{år}/entries`, `/{år}/periods` | Bookkeeping | ✅ |
+| `/supplier-invoices` | — | 404 (findes ikke i REST) |
+| `/accounting-years/{år}/entries/booked` | — | 404 (kun `/entries`) |
+
+**En 403 er ikke en fejl at fejlsøge — det er rollen.** Mangler et endpoint,
+så tjek `requiredRoles` i `/self` før du leder i koden.
+
+> `/roles` svarer **501 "Endpoint not implemented"**, så rollelisten kan ikke
+> hentes via API — den vælges i developer-portalen.
+
+### Sådan udvides rollen (og hvorfor det gik galt første gang)
+
+1. **Udvid `requiredRoles`** på app'en i developer agreementet — eller opret en
+   ny app, som her.
+2. **Sæt en RedirectURL på app'en.** Uden den er der ingen vej tilbage med
+   tokenet: installations-URL'en godkender adgangen og sender grant-tokenet som
+   `?token=…` til RedirectURL. Er feltet tomt, får man adgang uden nogensinde at
+   se tokenet — og tror at flowet fejlede. Enhver side man kan læse
+   adresselinjen på duer (fx `https://bon.ristetrug.dk/login.html`).
+3. **Kør installations-URL'en** logget ind på Ristet Rugs regnskab (ikke
+   developer-kontoen) → kopiér `token=`-værdien → `.env` lokalt OG på Hetzner.
+
+> ⚠️ **Secret og grant hører sammen parvis.** Et grant-token er udstedt til ÉN
+> app. Blandes en ny apps secret med en gammel apps grant, svarer ALT 401 med
+> `"The given AppSecretToken does not correspond to the one connected to token."`
+> Det er ikke et udløbet token — det er to apps der taler forbi hinanden.
+> Skiftes app, skal BEGGE værdier udskiftes samtidig.
+
+> **Probe efter hver ændring.** `GET /self` (app + roller) og et GET mod det
+> endpoint du regner med er åbnet. Vi ved hvad den nuværende rolle giver, ikke
+> hvad den næste gør.
 
 ---
 
@@ -126,7 +181,7 @@ ikke GET.
 | HTTP | Betydning | Adapterens reaktion |
 |------|-----------|---------------------|
 | `401` | Grant token tilbagekaldt / ugyldig | Stop, vis "e-conomic skal genforbindes" i office. Tokens er ikke selvfornyende — kræver manuel ny grant |
-| `403` | Authentificeret, men rolle mangler adgang | Log + besked: tjek app-rolle (SuperUser) |
+| `403` | Authentificeret, men app-rollen rækker ikke | Forventet på ledger-endpoints med `Sales`-rollen (§1). Log + besked: rollen skal udvides i developer agreementet + ny grant |
 | `429` | Over rate limit | Backoff + retry. Fair use = 50.000 kald/24t pr. agreement |
 | `500` | e-conomic-fejl | Log `X-...`-id + agreement-nr (kræves ved support til api@e-conomic.com) |
 
@@ -167,7 +222,7 @@ ikke her — dette dokument leverer kun `openapi()`-forbindelsen de skal bruge.
 
 1. **Leif:** Skaf de to tokens (developer agreement → AppSecretToken;
    Installation URL fra RR-regnskab → AgreementGrantToken). Sæt app-rolle =
-   SuperUser. Verificér med `/self`-kaldet i §6.
+   den ønskede rolle (i dag kun `Sales` — se §1). Verificér med `/self`-kaldet i §6.
 2. **Simon:** Tilføj `.env`-variabler (§3) + `services/economicAdapter.js`
    auth-wrapper (§4) med fejlklasser (§5).
 3. Bekræft `/self` returnerer "Ristet Rug" fra serveren — *gate inden

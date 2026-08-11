@@ -220,7 +220,16 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                     stats.not_invoiced_count > 0
                         ? ` · ${stats.not_invoiced_count} aldrig faktureret holdt ude`
                         : ''
-                }</div>
+                }</div>${
+                    // Hovedtallet er den juridiske kendsgerning. Denne linje siger hvor
+                    // mange der er værd at reagere på — resten betaler bare som de plejer.
+                    stats.overdue_within_rhythm_count > 0
+                        ? `<div class="cf-metric-sub cf-rhythm-sub" title="Beregnet ud fra hvad hver kunde plejer at gøre — intet at vedligeholde">
+                             <strong>${stats.overdue_late_count}</strong> er sene ift. hvad kunden plejer (${_cfFmt(stats.overdue_late_total)}) ·
+                             ${stats.overdue_within_rhythm_count} betaler som normalt
+                           </div>`
+                        : ''
+                }
             </div>
             <div class="cf-metric neutral">
                 <div class="cf-metric-label">Forventet ind — 30 dage (incl moms)</div>
@@ -307,6 +316,13 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                     <div class="cf-last-upload">${stats.last_upload ? 'Sidst uploadet: ' + new Date(stats.last_upload).toLocaleString('da-DK') : 'Ingen upload endnu'}</div>
                 </div>
 
+                <!-- Event-indtægten står FØR den ukoblede liste: den er et kort,
+                     færdigt facit, mens listen nedenfor er et arbejdsbord der kan
+                     være hundredvis af rækker langt. Lå kortet efter, skulle man
+                     scrolle forbi hele arbejdsbordet for at se om festivalpengene
+                     var kommet ind — og så tror man de mangler. -->
+                ${_cfEventIncomeCard(eventIncome)}
+
                 <div class="cf-unmatched-card" id="cfUnmatchedCard">
                     <input class="cf-um-list-search" id="cfUmSearch" type="text" autocomplete="off"
                         placeholder="🔎 Søg postering (event, beløb, tekst) — også afregnede…">
@@ -320,8 +336,6 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                     </div>
                     <div id="cfUnmatchedArea">${_cfUnmatchedAreaHtml(unmatched.rows, unmatched.total, false)}</div>
                 </div>
-
-                ${_cfEventIncomeCard(eventIncome)}
 
                 ${upcoming.rows.length > 0 ? `
                 <div class="cf-upcoming-card">
@@ -382,16 +396,47 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
     // e-conomic-afstemning: badge (vandmærke) + "Synk e-conomic"-knap
     const econBadge = el.querySelector('#cfEconBadge');
     const reconBtn = el.querySelector('#cfReconcileBtn');
+    const _cfEconBadgeText = (s) => {
+        if (!s.economic_synced_at) return s.economic_booked_until ? 'Ikke synket siden opdateringen' : 'Ikke afstemt endnu';
+        const d = new Date(s.economic_synced_at);
+        const naar = d.toLocaleString('da-DK', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        // Åbne = e-conomics egen debitorbog, ikke vores gæt. Det er tallet der skal
+        // stemme med "Forfaldne" nedenfor; gør de ikke, mangler der en synk.
+        return `e-conomic: ${s.open_in_economic} ubetalte · synket ${naar}`;
+    };
     fetchReconcileStatus().then(s => {
         if (!econBadge) return;
         if (!s.configured) { econBadge.textContent = 'e-conomic ikke konfigureret'; reconBtn.disabled = true; }
-        else econBadge.textContent = s.economic_booked_until ? `Fakturastatus ajour til ${s.economic_booked_until}` : 'Ikke afstemt endnu';
+        else econBadge.textContent = _cfEconBadgeText(s);
     }).catch(() => {});
     if (reconBtn) reconBtn.onclick = async () => {
         try {
             reconBtn.textContent = 'Synker...'; reconBtn.disabled = true;
             const r = await reconcileCashflow({});
-            alert(`Afstemning færdig!\n\n${r.scanned} fakturaer scannet\n${r.matched} koblet til bons\n${r.flipped} markeret betalt\n${r.numbered ?? 0} fakturanr gemt\n${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`);
+            const kr = (n) => Math.round(n || 0).toLocaleString('da-DK') + ' kr';
+            const linjer = [
+                `${r.openInEconomic} fakturaer er ubetalte hos e-conomic (${kr(r.openInEconomicTotal)})`,
+                `${r.flipped} rettet fra forfalden til betalt`,
+                `${r.scanned} ${r.scanned === 1 ? 'ny faktura' : 'nye fakturaer'} scannet · ${r.numbered ?? 0} fakturanr gemt`,
+                `${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`,
+            ];
+            // Uenighed = vi siger betalt, e-conomic siger stadig åben. Vi flipper
+            // ikke tilbage af os selv (det ville genoplive fakturaer kontoret har
+            // afskrevet med vilje) — men det skal siges højt.
+            if (r.conflicts) linjer.push(`\n⚠ ${r.conflicts} står som betalt hos os, men er stadig åbne hos e-conomic:\n   ` +
+                r.conflictRows.slice(0, 8).map(c => `${c.cf_id} (faktura ${c.booked_no})`).join(', '));
+            if (r.unknownNumbers) linjer.push(`${r.unknownNumbers} fakturanr kendes ikke hos e-conomic — urørt`);
+            // Betalingsposteringerne er det der giver rytmen ægte datoer at lære af.
+            if (r.ledger?.available === false) linjer.push(`\nBetalingsposteringer hentes ikke — app-rollen mangler «Bookkeeping»`);
+            else if (r.ledger) linjer.push(`${r.ledger.payments} betalingsposteringer hentet (${r.ledger.years.length} regnskabsår)`);
+            // Forklarer forskellen mellem e-conomics tal og "Forfaldne" nedenfor:
+            // åbne fakturaer der ikke har en modsvarende række i Bon (fx overskrift
+            // uden bon-nr, eller en faktura der aldrig er udsprunget af en bon).
+            if (r.unlinkedOpen?.length) linjer.push(`\n${r.unlinkedOpen.length} åbne fakturaer hos e-conomic har ingen kobling i Bon:\n   `
+                + r.unlinkedOpen.slice(0, 8).map(u => `${u.booked_no} ${Math.round(u.remainder)} kr${u.heading ? ` "${u.heading}"` : ' (ingen overskrift)'}`).join('\n   ')
+                + (r.unlinkedOpen.length > 8 ? `\n   … og ${r.unlinkedOpen.length - 8} mere` : ''));
+            alert('Afstemning færdig!\n\n' + linjer.join('\n'));
+            fetchReconcileStatus().then(s => { if (econBadge) econBadge.textContent = _cfEconBadgeText(s); }).catch(() => {});
             _cfRenderOverblik();
         } catch (err) {
             alert('Afstemning fejlede: ' + err.message);
@@ -458,11 +503,25 @@ const _CF_CAT_TAG = {
 function _cfUnmatchedRowHtml(tx) {
     const cat = _CF_CAT_TAG[tx.category];
     const tag = cat ? `<span class="cf-cat-tag ${cat.cls}" title="${cat.tip}">${cat.txt}</span>` : '';
+    // Vink, ikke kategori: posteringen faldt i et events periode. Bankteksten kan
+    // sagtens være uskyldig (en kommune-faktura lå også inde i Vig-vinduet), så
+    // vinket peger — det påstår ikke.
+    const ev = tx.event_hint
+        ? `<span class="cf-ev-hint" title="Faldt i ${_cfEsc(tx.event_hint.name)}s periode — kan være indtægt derfra">🎪 ${_cfEsc(tx.event_hint.name)}</span>`
+        : '';
+    // Posteringen forklarer overførslen selv om teksten ikke gør. Samlebetaling
+    // navngiver fakturaerne, så de kan fordeles i split-allokeringen nedenfor.
+    const lh = tx.ledger_hint;
+    const led = lh?.kind === 'aggregate'
+        ? `<span class="cf-led-hint" title="e-conomic: én kundes ${lh.invoices.length} fakturaer bogført samme dag rammer beløbet — fordel den nedenfor">📚 ${lh.invoices.length} fakturaer: ${_cfEsc(lh.invoices.join(', '))}</span>`
+        : lh?.kind === 'settled'
+        ? `<span class="cf-led-hint" title="e-conomic har bogført betalingen på faktura ${_cfEsc(lh.invoices.join(', '))}, som ikke findes i Bon">📚 afregnet: faktura ${_cfEsc(lh.invoices.join(', '))}</span>`
+        : '';
     return `<div class="cf-unmatched-item${cat ? ' ' + cat.cls + '-row' : ''}" data-tx-id="${tx.id}">
         <div class="cf-unmatched-row" data-tx-row="${tx.id}">
             <div>
                 <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}${tag}</div>
-                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
+                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? " · 📝" : ""}</span>${ev}${led}
             </div>
             <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
         </div>
@@ -1255,6 +1314,11 @@ function _cfBuildInvoiceRows(rows, tab) {
             // Går FORAN forfalden-tjekket: "Forfalden" antyder en kunde der ikke
             // har betalt. Her er der ingen regning at betale.
             pillClass = 'cf-pill-ikkefakt'; pillText = 'Ingen faktura';
+        } else if (days < 0 && inv.rhythm_days > 0 && !inv.late_for_customer) {
+            // Forfalden på papiret, men kunden er ikke længere ude end den plejer.
+            // Stadig synlig og stadig i tallet — bare uden alarmfarven, så den der
+            // FAKTISK er sen ikke drukner i kommuner der altid betaler lidt sent.
+            pillClass = 'cf-pill-rytme'; pillText = `Som normalt (+${inv.rhythm_days}d)`;
         } else if (days < 0) {
             pillClass = 'cf-pill-forfalden'; pillText = 'Forfalden';
         } else if (days <= 7) {
@@ -1263,7 +1327,10 @@ function _cfBuildInvoiceRows(rows, tab) {
             pillClass = 'cf-pill-udestaaende'; pillText = 'Udestående';
         }
 
-        const dueClass = days < 0 && !inv.betalt ? 'overdue' : days <= 7 && !inv.betalt ? 'soon' : '';
+        // Rød dato kun når den er sen efter kundens EGEN rytme — ellers "soon".
+        const dueClass = !inv.betalt && days < 0
+            ? (inv.rhythm_days > 0 && !inv.late_for_customer ? 'soon' : 'overdue')
+            : (days <= 7 && !inv.betalt ? 'soon' : '');
 
         const classList = [
             'cf-inv-row',

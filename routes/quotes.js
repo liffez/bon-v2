@@ -11,8 +11,290 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }    = require('../db/database');
-const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits, todayISO } = require('../db/helpers');
+const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits, todayISO, createBon } = require('../db/helpers');
+const { transaction } = require('../db/compat');
 const { broadcast } = require('../shared/sse');
+
+// ─── DAGE (#425) ───────────────────────────────────────────────────────────
+//
+// Et tilbud kan dække flere dage — tre dages konference med levering hver dag.
+// Dagene ligger i `offer_days` (migration 145); kun datoen er påkrævet, resten
+// er NULL = "arv fra tilbuddet".
+//
+// Ét tilbud UDEN dage er det normale og opfører sig præcis som før.
+
+function getOfferDays(bonId) {
+    return getDb().prepare(`
+        SELECT id, sort_order, delivery_date, delivery_time, pickup_time, pax,
+               delivery_address_id, label, note
+          FROM offer_days WHERE bon_id = ?
+         ORDER BY sort_order, delivery_date, id
+    `).all(bonId);
+}
+
+/**
+ * Dag-tilknytning på linjer — validering af `offer_day_id` i et linje-payload.
+ *
+ * `NULL` betyder **"alle dage"**, ikke "ingen dag", så en tom værdi er altid
+ * lovlig og er den normale tilstand for et ét-dags-tilbud. Et id skal derimod
+ * pege på en dag der hører til DETTE tilbud — ellers kan en linje enten blive
+ * usynlig (den hænger på en dag der aldrig konverteres) eller havne på et andet
+ * tilbuds dag.
+ *
+ * Hele listen valideres før der skrives noget, af samme grund som i `PUT /days`:
+ * linjerne indsættes replace-all, så et halvt gyldigt payload ville efterlade
+ * tilbuddet med færre varer end kunden ser i sit bilag.
+ *
+ * Returnerer `{ ids: [...] }` (parallelt med `lines`) eller `{ error }`.
+ */
+function resolveLineDayIds(bonId, lines) {
+    const valid = new Set(getOfferDays(bonId).map(d => d.id));
+    const ids = [];
+
+    for (const [i, l] of lines.entries()) {
+        const raw = l.offer_day_id;
+        if (raw === '' || raw == null) { ids.push(null); continue; }
+
+        const dayId = parseInt(raw);
+        if (!Number.isInteger(dayId) || !valid.has(dayId)) {
+            return {
+                error: valid.size === 0
+                    // Den typiske rækkefølgefejl: linjerne gemmes før dagene
+                    // findes. Sig hvad der mangler frem for bare "ugyldig".
+                    ? `Linje ${i + 1} peger på dag ${raw}, men tilbuddet har ingen dage endnu — gem dagene (PUT /days) først`
+                    : `Linje ${i + 1}: dag ${raw} hører ikke til dette tilbud`,
+            };
+        }
+        ids.push(dayId);
+    }
+    return { ids };
+}
+
+/**
+ * PUT /:id/days — reconcile af tilbuddets dage.
+ *
+ * Klienten sender altid den fulde liste (samme mønster som `/forecast` og
+ * event-modulets `/menu`): rækker med `id` opdateres, nye oprettes, og dem der
+ * ikke er med, slettes.
+ *
+ * Hvorfor ikke bare slette alt og indsætte forfra: `bon_lines.offer_day_id`
+ * peger på dagene. En sletning ville rive linjernes dag-tilknytning væk
+ * (`ON DELETE SET NULL`), så alle dagens varer stille blev til fælles-varer og
+ * dukkede op på hver eneste dag. Derfor bevares id'erne.
+ *
+ * Valideres FULDT ud før der skrives, så et halvt gyldigt payload ikke kan
+ * efterlade dagene delvist opdaterede.
+ */
+router.put('/:id/days', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const q = db.prepare('SELECT id, bon_number, is_offer FROM bons WHERE id = ? AND is_offer = 1').get(id);
+    if (!q) return res.status(404).json({ error: 'Tilbud ikke fundet' });
+
+    const items = Array.isArray(req.body?.days) ? req.body.days : null;
+    if (!items) return res.status(400).json({ error: 'days (array) er påkrævet' });
+
+    const existing = new Map(getOfferDays(id).map(d => [d.id, d]));
+    const clean = [];
+    const seenDates = new Set();
+
+    for (const [i, d] of items.entries()) {
+        const date = (d.delivery_date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            return res.status(400).json({ error: `Dag ${i + 1}: delivery_date skal være YYYY-MM-DD` });
+        }
+        // To dage med samme dato ville give to bons samme dag uden nogen måde at
+        // skelne dem — næsten altid en fejlindtastning.
+        if (seenDates.has(date)) {
+            return res.status(400).json({ error: `Datoen ${date} står to gange` });
+        }
+        seenDates.add(date);
+
+        const dayId = d.id ? parseInt(d.id) : null;
+        if (dayId && !existing.has(dayId)) {
+            return res.status(400).json({ error: `Dag ${dayId} hører ikke til dette tilbud` });
+        }
+
+        const pax = d.pax === '' || d.pax == null ? null : parseInt(d.pax);
+        if (pax != null && (!Number.isInteger(pax) || pax < 0)) {
+            return res.status(400).json({ error: `Dag ${i + 1}: pax skal være et positivt tal` });
+        }
+
+        clean.push({
+            id: dayId,
+            sort_order: i,
+            delivery_date: date,
+            delivery_time: d.delivery_time || null,
+            pickup_time: d.pickup_time || null,
+            pax,
+            delivery_address_id: d.delivery_address_id ?? null,
+            label: (d.label || '').trim() || null,
+            note: (d.note || '').trim() || null,
+        });
+    }
+
+    transaction(db, () => {
+        const keep = new Set(clean.map(c => c.id).filter(Boolean));
+        for (const oldId of existing.keys()) {
+            if (!keep.has(oldId)) db.prepare('DELETE FROM offer_days WHERE id = ?').run(oldId);
+        }
+
+        const upd = db.prepare(`
+            UPDATE offer_days SET sort_order=?, delivery_date=?, delivery_time=?, pickup_time=?,
+                   pax=?, delivery_address_id=?, label=?, note=?, updated_at=CURRENT_TIMESTAMP
+             WHERE id = ? AND bon_id = ?
+        `);
+        const ins = db.prepare(`
+            INSERT INTO offer_days (bon_id, sort_order, delivery_date, delivery_time, pickup_time,
+                                    pax, delivery_address_id, label, note)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        `);
+        for (const c of clean) {
+            if (c.id) {
+                upd.run(c.sort_order, c.delivery_date, c.delivery_time, c.pickup_time,
+                        c.pax, c.delivery_address_id, c.label, c.note, c.id, id);
+            } else {
+                ins.run(id, c.sort_order, c.delivery_date, c.delivery_time, c.pickup_time,
+                        c.pax, c.delivery_address_id, c.label, c.note);
+            }
+        }
+
+        // Tilbuddets egen delivery_date holdes på den første dag, så lister,
+        // kalender og kitchen-views viser noget der giver mening.
+        if (clean.length) {
+            db.prepare('UPDATE bons SET delivery_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+              .run(clean[0].delivery_date, id);
+        }
+    });
+
+    broadcast('bon_updated', { id, bon_number: q.bon_number, is_offer: true });
+    res.json({ days: getOfferDays(id) });
+}));
+
+/**
+ * Konvertér et fler-dags-tilbud til én bon pr. dag.
+ *
+ * Tilbuddet BLIVER liggende som tilbud (`is_offer` røres ikke) og markeres blot
+ * 'won'. Det er bilaget kunden har sagt ja til — den aftalte pris, rabatten og
+ * gyldigheden står der, og de skal kunne slås op bagefter. Bonnerne peger
+ * tilbage via `source_quote_id`.
+ *
+ * Hver dagsbon arver alt fra tilbuddet med mindre dagen selv siger noget andet
+ * (`?? q.…`-mønstret nedenfor). Linjer med `offer_day_id = NULL` er fælles og
+ * kopieres til hver dag — kaffe og emballage skal ikke tastes tre gange for at
+ * komme med tre gange.
+ *
+ * Alt sker i én transaktion: enten står alle dagene, eller ingen. Halvt
+ * konverterede tilbud ville være værre end en fejlbesked.
+ */
+function convertMultiDay(req, res, q, days) {
+    const db = getDb();
+    const userId = req.session?.userId ?? null;
+    const statusId = getStatusId('GODKENDT') || getStatusId('NY');
+
+    const allLines = getBonLines(q.id);
+    const shared = allLines.filter(l => !l.offer_day_id);
+
+    const created = transaction(db, () => {
+        const out = [];
+
+        for (const day of days) {
+            const lines = allLines.filter(l => l.offer_day_id === day.id).concat(shared);
+
+            const { bonId, bonNumber } = createBon({
+                status_id: statusId,
+                location_id: q.location_id,
+                customer_id: q.customer_id,
+                company_id: q.company_id,
+                price_category_id: q.price_category_id,
+                price_category: q.price_category,
+
+                // Dagens egne værdier vinder; NULL betyder "brug tilbuddets".
+                delivery_date: day.delivery_date,
+                delivery_time: day.delivery_time ?? q.delivery_time,
+                pickup_time: day.pickup_time ?? q.pickup_time,
+                pax: day.pax ?? q.pax,
+                delivery_address_id: day.delivery_address_id ?? q.delivery_address_id,
+
+                delivery_type: q.delivery_type,
+                delivery_method: q.delivery_method,
+                delivery_notes: q.delivery_notes,
+                // Leveringsprisen hører til ÉN kørsel. Lægges den på hver dag,
+                // ganges den op uden at nogen har aftalt det — så den følger
+                // kun den første dag, og office kan flytte den hvis turen er delt.
+                delivery_price: out.length === 0 ? (q.delivery_price ?? 0) : 0,
+
+                payment_type: q.payment_type,
+                customer_wishes: q.customer_wishes,
+                invoice_info: q.invoice_info,
+                kitchen_info: [day.label, q.kitchen_info].filter(Boolean).join(' · ') || null,
+                internal_notes: q.internal_notes,
+                day_contact_name: q.day_contact_name,
+                day_contact_phone: q.day_contact_phone,
+
+                source_quote_id: q.id,
+                user_id: userId,
+                changelog_field: 'create',
+                changelog_message: `Oprettet fra tilbud ${q.bon_number} (${day.delivery_date})`,
+                // Annonceres efter commit — se broadcast-løkken nedenfor.
+                broadcast: false,
+            });
+
+            // `moms_included` skal med: uden den falder linjen tilbage på
+            // skemaets default, og en linje der bevidst lå EX moms (migration
+            // 104) ville blive læst som INCL i dagsbonnen. Ét-dags-stien flipper
+            // bare et flag og beholder alt, så de to veje skal ligne hinanden.
+            //
+            // `menu_group_id` kopieres derimod bevidst IKKE: grupperne ligger i
+            // `bon_menu_groups` med `bon_id` på TILBUDDET, så et kopieret id
+            // ville pege på en gruppe der hører til en anden bon.
+            const ins = db.prepare(`
+                INSERT INTO bon_lines
+                    (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit,
+                     unit_price, cost_price, line_total, sort_order, notes, special_request,
+                     is_accessory, moms_included)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            `);
+            lines.forEach((l, i) => {
+                ins.run(bonId, l.block_type ?? null, l.grocy_recipe_id ?? null, l.product_name,
+                        l.category ?? null, l.quantity, l.unit ?? 'stk',
+                        l.unit_price ?? null, l.cost_price ?? null, l.line_total ?? null,
+                        l.sort_order ?? i, l.notes ?? null, l.special_request ?? null,
+                        l.is_accessory ?? 0, l.moms_included ?? 1);
+            });
+
+            recalcBonTotalUnits(db, bonId);
+            recalcTotal(db, bonId);
+            out.push({ bon_id: bonId, bon_number: bonNumber, delivery_date: day.delivery_date, lines: lines.length });
+        }
+
+        db.prepare(`UPDATE bons SET offer_status = 'won', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(q.id);
+        return out;
+    });
+
+    logChange({
+        entityType: 'bon', entityId: q.id,
+        action: 'update', fieldName: 'offer_status',
+        oldValue: q.offer_status || 'draft', newValue: 'won',
+        notes: `Konverteret til ${created.length} bons: ${created.map(c => c.bon_number).join(', ')}`,
+        userId,
+    });
+
+    // Først her — efter commit — findes bonnerne. Havde `createBon` annonceret
+    // dem undervejs, ville en fejl på sidste dag efterlade huset med besked om
+    // bons der blev rullet tilbage.
+    for (const c of created) {
+        broadcast('bon_created', {
+            id: c.bon_id, bon_number: c.bon_number,
+            source: 'quote_convert', source_quote_id: q.id,
+        });
+    }
+
+    // Tilbuddet skifter status (tilbudslisten), og der er kommet nye bons.
+    broadcast('bon_updated', { id: q.id, bon_number: q.bon_number, is_offer: true });
+
+    res.json({ multi_day: true, quote_id: q.id, bons: created });
+}
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
 
@@ -38,7 +320,13 @@ function formatOffer(row) {
         company_name: row.company_name,
         customer_id: row.customer_id,
         company_id: row.company_id,
-        converted_to_bon: row.is_offer === 0 && row.offer_status === 'won',
+        day_count: row.day_count ?? 0,
+        // Ét-dags-tilbud konverteres ved at flippe `is_offer`; fler-dags beholder
+        // det (bilaget skal kunne slås op) og kendes i stedet på at det er vundet
+        // og har dage. Uden det andet led ville listen kalde et konverteret
+        // fler-dags-tilbud for uafklaret.
+        converted_to_bon: row.offer_status === 'won'
+            && (row.is_offer === 0 || (row.day_count ?? 0) > 1),
     };
 }
 
@@ -124,7 +412,10 @@ router.get('/', handle((req, res) => {
                b.offer_price_mode, b.offer_discount_percent,
                b.customer_id, b.company_id,
                c.first_name || ' ' || COALESCE(c.last_name,'') AS customer_name,
-               co.name AS company_name
+               co.name AS company_name,
+               -- Så listen kan sige "3 dage" uden et opslag pr. række. 0 = et
+               -- almindeligt ét-dags-tilbud, som langt de fleste er.
+               (SELECT COUNT(*) FROM offer_days od WHERE od.bon_id = b.id) AS day_count
         FROM bons b
         LEFT JOIN customers c  ON b.customer_id = c.id
         LEFT JOIN companies co ON b.company_id  = co.id
@@ -166,11 +457,13 @@ router.get('/:id', handle((req, res) => {
 
     const lines = db.prepare(`
         SELECT id, bon_id, block_type, grocy_recipe_id, product_name, category,
-               quantity, unit, unit_price, cost_price, line_total, sort_order, notes
+               quantity, unit, unit_price, cost_price, line_total, sort_order, notes,
+               offer_day_id
         FROM bon_lines WHERE bon_id = ? ORDER BY sort_order, id
     `).all(id);
 
     res.json({
+        days: getOfferDays(id),
         id: bon.id,
         quote_number: bon.bon_number,
         bon_number: bon.bon_number,
@@ -219,6 +512,15 @@ router.post('/', handle((req, res) => {
     const db = getDb();
     const b  = req.body;
 
+    // Dag-tilknytning kan ikke findes på et tilbud der ikke er oprettet endnu.
+    // Afvis FØR nummerserien trækkes og rækken skrives — ellers efterlader en
+    // afvist oprettelse et tomt tilbud og et brugt T-nummer.
+    if (Array.isArray(b.lines) && b.lines.some(l => l.offer_day_id != null && l.offer_day_id !== '')) {
+        return res.status(400).json({
+            error: 'offer_day_id kan først sættes når tilbuddet har dage — opret tilbuddet, gem dagene (PUT /days), og tildel derefter linjerne',
+        });
+    }
+
     const bonNumber = nextQuoteNumber();  // T-prefix, separat nummerserie
     const statusId  = getStatusId('TILBUD') || getStatusId('NY');
     const locationId = getDefaultLocationId();
@@ -265,11 +567,16 @@ router.post('/', handle((req, res) => {
 
     const bonId = result.lastInsertRowid;
 
-    // Indsæt linjer
+    // Indsæt linjer. Et nyt tilbud har endnu ingen dage, så `offer_day_id` kan
+    // kun være NULL her — men det valideres frem for at blive ignoreret, så en
+    // klient der sender en dag får det at vide i stedet for tavst at miste den.
     if (Array.isArray(b.lines)) {
+        const days = resolveLineDayIds(bonId, b.lines);
+        if (days.error) return res.status(400).json({ error: days.error });
+
         const insertLine = db.prepare(`
-            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory, offer_day_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `);
         b.lines.forEach((l, i) => {
             const qty = l.quantity ?? 1;
@@ -282,7 +589,8 @@ router.post('/', handle((req, res) => {
                 l.unit_price ?? null, l.cost_price ?? null,
                 lineTotal, l.sort_order ?? i,
                 l.notes ?? null,
-                l.is_accessory ? 1 : 0
+                l.is_accessory ? 1 : 0,
+                days.ids[i]
             );
         });
     }
@@ -368,12 +676,21 @@ router.patch('/:id', handle((req, res) => {
         }
     }
 
-    // Replace-all linjer
+    // Replace-all linjer.
+    //
+    // Fordi linjerne slettes og indsættes forfra, ejer payloadet dag-tilknytningen:
+    // en linje uden `offer_day_id` bliver en fælles-linje ("alle dage"). Det er
+    // korrekt for ét-dags-tilbud — de har ingen dage — men det betyder at en
+    // klient der HAR dage skal sende feltet med hver gang, ellers falder alle
+    // varer tilbage til at gælde alle dage. Dagene selv (`PUT /days`) er upåvirket.
     if (Array.isArray(b.lines)) {
+        const days = resolveLineDayIds(id, b.lines);
+        if (days.error) return res.status(400).json({ error: days.error });
+
         db.prepare('DELETE FROM bon_lines WHERE bon_id = ?').run(id);
         const insertLine = db.prepare(`
-            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory, offer_day_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `);
         b.lines.forEach((l, i) => {
             const qty = l.quantity ?? 1;
@@ -386,7 +703,8 @@ router.patch('/:id', handle((req, res) => {
                 l.unit_price ?? null, l.cost_price ?? null,
                 lineTotal, l.sort_order ?? i,
                 l.notes ?? null,
-                l.is_accessory ? 1 : 0
+                l.is_accessory ? 1 : 0,
+                days.ids[i]
             );
         });
 
@@ -464,10 +782,21 @@ router.post('/:id/convert', handle((req, res) => {
     const db = getDb();
     const id = parseInt(req.params.id);
 
-    const q = db.prepare('SELECT id, is_offer, offer_status, bon_number FROM bons WHERE id = ?').get(id);
+    // Hele rækken: et fler-dags-tilbud skal arve alt fra tilbuddet ned i
+    // dagsbonnerne (kunde, tider, betaling, noter), ikke bare de fire felter
+    // det gamle flag-flip havde brug for.
+    const q = db.prepare('SELECT * FROM bons WHERE id = ?').get(id);
     if (!q) return res.status(404).json({ error: 'Tilbud ikke fundet' });
     if (!q.is_offer) return res.status(400).json({ error: 'Denne bon er ikke et tilbud' });
     if (q.offer_status === 'won') return res.status(400).json({ error: 'Tilbud er allerede konverteret' });
+
+    // ── Fler-dags: én bon pr. dag (#425) ───────────────────────────────────
+    //
+    // Uden dage er der intet at fordele, og tilbuddet konverterer som hidtil ved
+    // at flippe `is_offer` på sin egen række. Det er langt den almindeligste vej
+    // og skal blive ved med at opføre sig præcis som før.
+    const days = getOfferDays(id);
+    if (days.length > 1) return convertMultiDay(req, res, q, days);
 
     // Konvertér: sæt is_offer=0, offer_status='won', status → GODKENDT
     const godkendtId = getStatusId('GODKENDT') || getStatusId('NY');

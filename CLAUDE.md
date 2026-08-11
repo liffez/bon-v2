@@ -197,6 +197,7 @@ bon-v2/
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
 │   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
+│   ├── bon_lines.js  ← mergeLines() — slår ens bon-linjer sammen til visning/eksport, eksponeres som window.BonLines
 │   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
 │   ├── auth.js       ← requireAuth() middleware (server-side)
 │   └── login.html    ← Fælles login-side (PIN + email auto-detect)
@@ -273,6 +274,39 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - E-conomic kræver linje-priser EX moms — `inclToExcl()` ved konvertering (jf. `CLAUDE_ECONOMIC_ADAPTER.md`)
   - Test-bonen T-5: 23.650 incl → 18.920 ex + 4.730 moms (i `tests/moms_audit_e2e.test.js`)
   - 7 visningsregler for labels (`Total inkl. moms`, `(ex moms)` osv.) i sektion 6c
+- **Ens bon-linjer slås sammen — `shared/bon_lines.js` (`mergeLines`)**
+  - `POST /api/bons/:id/lines` lagde historisk én række pr. "Tilføj"-klik, så samme vare
+    kunne ligge som fx 6 × "1× Kartoflen slider". Kortet skjulte det med sin egen
+    visnings-merge (`_sortAndMergeMenu` i `shared/utils.js`), mens mail, info-modal,
+    pakkeliste og fakturaudkast viste de rå rækker — kunden fik 18 linjer à 1 stk.
+  - Ruten slår nu sammen ved indsættelse (samme vare, pris, kategori, enhed, ingen
+    gruppe, intet særønske). Gamle bons har stadig dublet-rækker i DB.
+  - **Derfor: enhver flade der viser linjer for et menneske kører gennem
+    `mergeLines()`** — mail (3 kopier af `_buildMailVars`/`buildVars`),
+    info-modal, pakkeliste, flyver, fakturerings-tabel, e-conomic-udkast, mobil.
+    To endpoints merger server-side, fordi flere frontends spiser samme svar:
+    `GET /api/crm/customer-orders/:id` (kundekort i office + mobil) og
+    chauffør-rutens `stops[].items` i `routes/delivery.js`.
+    Editorer (bon-drawer) viser bevidst rå rækker — man skal kunne slette den enkelte.
+  - **Særønsker slås ALDRIG sammen** — også to identiske. Et særønske er en
+    selvstændig besked til køkkenet.
+  - Dækket af `tests/bon_lines.test.js` (`node --test tests/bon_lines.test.js`)
+  - **Oprydning af gamle dublet-rækker**: `scripts/merge-duplicate-bon-lines.js`
+    (dry-run som standard, `--apply` skriver). Tager backup via `VACUUM INTO`,
+    kører i én transaktion og ruller alt tilbage hvis antal stk eller linjesum
+    flytter sig på blot én bon. Fakturerede bons fredes medmindre
+    `--include-invoiced` — deres linjer skal matche den sendte faktura.
+- **Historikken må aldrig dumpe maskin-payloads** (`_buildChangelogEntry` i `shared/modal.js`)
+  - `changelog` bærer både menneske-ændringer og revisionsspor for maskiner.
+    `grocy_consume` skriver hele results-arrayet (30+ produkter) i `new_value`, og den
+    generiske gren viste det råt — én entry fyldte modalen og skjulte al anden historik.
+  - `grocy_consume` har nu sin egen renderer (`_buildConsumeDetail`): tællende
+    opsummering + produktlisten i en foldet `<details>`. Håndterer rå array,
+    `{state,results}`-indpakning og sentinel'en `event_prep_owns_stock`.
+  - Den generiske gren afkorter værdier ved 300 tegn (`_clipChangelogValue`), så den
+    næste maskin-payload ikke gentager problemet.
+  - `notes` vises under ændringen — booking- og leverings-entries lægger forklaringen
+    der og kun rå id'er i `new_value` ("Køretøj: 7").
 
 ---
 
@@ -322,22 +356,11 @@ Standard-arbejdsgang ved slutningen af en Claude Code-session der har lavet ænd
 > kopier-klar med det rigtige branch-navn indsat, så brugeren ikke selv skal regne
 > git-flowet ud.
 
-> **⛔ HÅRD REGEL — hver PR-body SKAL have en `Closes #N` / `Refs #N`-linje.**
-> `gh pr create` uden en af dem er ufuldstændig — skriv den ikke, og kør ikke kommandoen
-> før linjen står i bodyen. Regnestykket der tvang reglen frem: **0 af 80 merged PR'er** brugte
-> `Closes #N`, så boardet driver konstant bagud og issues må lukkes manuelt bagefter i
-> oprydningsrunder. Vælg bevidst:
-> - **`Closes #N`** — issuet er FULDT løst af denne PR (lukker automatisk ved squash-merge).
-> - **`Refs #N`** — PR'en rører kun en del af issuet (delopgave/epic) og afslutter det ikke.
-> - **Intet issue?** Skriv `Ingen issue — <hvorfor>` i bodyen, så fraværet er et bevidst valg og
->   ikke en forglemmelse. (Deploy-/ops-/sikkerheds-issues lukkes ALTID manuelt efter den fysiske
->   handling — se nedenfor — så dér er `Refs #N` det rigtige, aldrig `Closes`.)
-
 **Claude gør — KUN efter brugerens go:**
 ```bash
 git commit -m "..."                                    # commit-besked beskriver hvad + hvorfor
 git push -u origin <branch>                            # branch er typisk claude/<navn>
-gh pr create --base main --title "..." --body "..."    # PR-body = changelog + OBLIGATORISK Closes/Refs #N (se hård regel ovenfor)
+gh pr create --base main --title "..." --body "..."    # PR-body fungerer som changelog
 # ── STOP: vent på at brugeren har testet fra branchen og godkendt i drift ──
 gh pr merge --squash                                   # SIDSTE skridt — UDEN --delete-branch (sessionen overlever)
 ```
@@ -1563,29 +1586,6 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `public/embed/test-harness.html` — lokal WordPress-mock til iframe-test
 - [x] End-to-end verificeret: form → webhook → bon med korrekt sandwichvalg + chips + valgte retter + form-meta + menu_items i raw_data
 
-### Web-bestilling: menu_items[] → bon-linjer (#382, august 2026)
-> As-is-fund (`docs/formbuilder/CLAUDE_PREORDER_ASIS.md` §6): kundens ret-valg blev sendt
-> struktureret (`menu_items:[{id,count}]`) men lå kun inert i `web_orders.raw_data` — office
-> tastede linjerne i hånden. Nu auto-genereres bon-linjer ved bestilling.
-
-- [x] `services/menuItemsToLines.js` — **ny**, ren/testbar `resolveMenuItemLines()`: id `r<recipe_id>`
-  → Grocy-opskrift → snapshot af pris/kostpris/CO₂. Pris = **bonens priskategori** (festival-events
-  rammer festival-pris; catering default). Uset/0-pris → prisløs linje (office prissætter, ikke 0 kr).
-  Slug-id uden Grocy-kobling → navn-only linje via menu-JSON. Aldrig magic-moms (pris tages råt fra Grocy)
-- [x] `routes/web-orders.js` — `generateLinesFromMenuItems()` kaldes efter `createBon`, **best-effort**
-  i try/catch: en Grocy-fejl vælter aldrig selve bestillingen (bonen er allerede oprettet). Læser bonens
-  priskategori, snapshotter linjer, `recalcBonTotalUnits` + `recalcBonTotal`, changelog + SSE `bon_updated`
-- [x] `recalcBonTotal` flyttet `routes/bons.js` → `db/helpers.js` (eksporteret) så webhooken bruger
-  **nøjagtig samme** server-autoritative total-beregning (rabat + levering). `bons.js` importerer den nu
-- [x] Eksponeret `_generateLinesFromMenuItems` til integrationstest
-- [x] Tests: `scripts/test-menu-items-lines.js` (24 unit — mapping, festival vs catering, prisløs fallback,
-  unmatched, defensivt) + `scripts/test-web-order-lines-e2e.js` (12 integration mod isoleret `.backup`-kopi:
-  linjer indsat, `total_price` + boks-aware `total_units` recalc, changelog). Verificeret mod ægte grocytest:
-  `r91` → festival-pris 115 snapshottet, slug-menu → graceful navn-only fallback
-- **Drifts-note:** værdien afhænger af menu-id-format. Produktionsmenuen er importeret fra Grocy (`r<id>`)
-  → prissatte linjer. En håndlavet slug-menu → navn-only. `menu_items` ligger allerede i `raw_data` for
-  ~25 historiske ordrer → backfill mulig hvis ønsket (ikke bygget)
-
 ### Mail-skabelon management (april 2026)
 - [x] `routes/mail.js` — 2 nye endpoints:
   - `POST /api/mail/templates` — opret ny skabelon (admin, key-validering, duplikat-check)
@@ -1944,6 +1944,465 @@ Fase 3 — Office:
 - SSE-test-helper `tests/scripts/helpers/sse_listener.js` genbruges på alle office-tracks
 - Findings dokumenteres som F-numre i specens §11; observations som #NNN i `docs/TEST_OBSERVATIONS.md`
 
+### Videresendt mail: intern afsender + reel afsender (10. august 2026)
+
+Anne videresendte en kundemail til kontakt@ for at få kunden oprettet. Mailen
+landede som en tråd på **os selv** (`#k-3005 Ristet Rug`), og kunden inde i
+beskeden blev aldrig set.
+
+Årsag: `info@ristetrug.dk` står i `customers` som kunde 3005 under firmaet Ristet
+Rug — huset er sin egen kunde. `processInboundMail` trin 3a matchede derfor
+afsenderen mod os, og forward-parseren (`parseForwardedSender`, som har eksisteret
+siden migration 018) kører kun på den ufordelte gren mailen aldrig nåede. Kolonnerne
+`mail_unmatched.parsed_email/_name/_company` blev skrevet, men **læst ingen steder**.
+
+- **Migration 142**: `settings.internal_mail_domains` (CSV, seedet fra `mail_domain`).
+  Entries er enten et helt domæne (`ristetrug.dk`) eller én adresse
+  (`bogholder@partner.dk`).
+- **`services/internalIdentity.js`** — `isInternalEmail(db, email)`. To uafhængige
+  signaler: settingens liste **og** `companies.is_internal = 1` (kunder under et
+  internt firma). 60s cache, ryddes af `PATCH /api/settings/:key`.
+- **`mailService.resolveEffectiveSender`** — er afsenderen intern, slås kunden op på
+  den **videresendte** afsender i stedet. Kendt kunde ⇒ kundens tråd (genåbnes som
+  ved en direkte mail). Ukendt eller ingen forward-blok ⇒ ufordelt indbakke med
+  `parsed_*` udfyldt. Vi gætter aldrig på os selv.
+- **`/api/mail/threads/:id/reply` fik et filter**: modtageren er seneste indgående
+  **ikke-interne** afsender. Uden det ville et svar på en videresendt kundemail gå
+  til kollegaen — bogført afsender er jo den der videresendte.
+- **`create-lead` + `reply` tager `use_parsed`** → opretter/svarer den reelle
+  afsender. Domæne-gættet på firmanavnet lægges som note på leadet (det er et spor,
+  ikke en sandhed). Serveren afviser `use_parsed` mod en intern adresse.
+- **Indbakke-UI**: gult panel "↪ Videresendt af X — reel afsender Y ⟨mail⟩ · Firma"
+  med *Opret som lead* / *Svar til Y* / *Findes allerede — søg kunde* (forudfylder
+  søgningen med navnet). De gamle knapper hedder nu "…af afsender", så de to ikke
+  forveksles. Listevisningen viser `↪ fra <navn> · <firma>`.
+- **`parsed_is_internal`** sættes server-side på ufordelte rækker: peger forward-blokken
+  tilbage på os selv (fx en videresendt ordrebekræftelse fra bon@), vises panelet ikke.
+  Fundet ved at kigge på ægte data — frontenden kender ikke domænelisten.
+- **Settings → Mail → "Interne afsendere"**: feltet + en liste over de kunderækker
+  reglen faktisk rammer, med begrundelse. Reglen er usynlig i sig selv; den viser sig
+  først som en mail der ikke havnede hvor man ventede.
+- `_guessCompany` splitter nu på bindestreg: `cap-partner.eu` → "Cap Partner".
+
+**Tests**: `tests/inbox_handling.test.js` udvidet 19 → **29 asserts** (intern uden
+forward → ufordelt · intern forward af ukendt → `parsed_*` · intern forward af kendt
+kunde → kundens tråd · modtager-valg springer den interne over). Mutations-testet:
+rulles `resolveEffectiveSender` tilbage til den gamle adfærd, falder 10 asserts.
+
+**Ikke løst her**: en tråd der ALLEREDE er fejlkoblet kan stadig ikke flyttes —
+`PATCH /api/mail/threads/:id` tager ikke `customer_id`, og tråd-visningen har ingen
+"Flyt til kunde"-knap. Det er den generelle retteventil (gælder enhver fejlrouting,
+ikke kun videresendelser) og bør bygges som sin egen opgave.
+
+### Kunde-oprettelse: find firma uden CVR-nummer + gem tilbudskladde (10. august 2026)
+
+To driftsfriktioner fundet mens Lærke skulle oprettes:
+
+**1. Firma kunne kun slås op på CVR-nummer.** `KundeSoeg`s opret-firma-formular havde
+ét felt: 8 cifre + "Slå op" (`cvrLookup` returnerer uden videre ved `length !== 8`).
+CAP Partner havde ikke skrevet deres CVR nogen steder — hverken i mailen eller på
+hjemmesiden — så man stod af. `GET /api/cvr/search?q=` (navn) og `/api/cvr/virk-search`
+har eksisteret hele tiden; de var bare ikke wiret ind her, kun på CRM-Kunder-siden.
+
+- `cvrSearchByName()` i [shared/kunde_soeg.js](shared/kunde_soeg.js): søger på navn,
+  **cvrapi først** (præcis på korte entydige navne), **Virk ES som fallback** (fuzzy,
+  bedre til fulde firmanavne). Resultater vises som klikbare rækker
+  (navn · CVR · postnr/by · status); klik udfylder felterne via `applyCvrResult()`.
+- **Link til `datacvr.virk.dk`** forudfyldt med søgeteksten, altid synligt under
+  resultaterne. cvrapi kan returnere et plausibelt men forkert match på et ukendt navn
+  (verificeret: nonsens-navn gav "IKR A/S"), så udvejen skal stå der.
+- Hjælpelinje: *"CVR er ikke påkrævet — firmaet kan oprettes med navnet alene"*.
+  Det var allerede sandt (kun `name` er påkrævet), men ikke synligt.
+- `_guessCompany` deler nu på bindestreg: `cap-partner.eu` → "Cap Partner".
+- **Ikke løst**: adressen fra CVR-opslaget gemmes stadig ikke. `companies.address_id`
+  er FK til `addresses`, så det kræver at der først oprettes en adresse-række.
+  Gælder også det eksisterende nummer-opslag — ikke en regression.
+
+**2. Et halvfærdigt tilbud kunne ikke gemmes.** "Gem tilbud" fandtes kun på trin 3 og 4
+i wizarden, så et tilbud man blev afbrudt i på trin 1 var tabt. `_tSaveBtn()` lægger nu
+en **"Gem kladde"** (→ "Gem" når tilbuddet har et nummer) på trin 1, 2 og 3. Trin 0 er
+kun skabelonvalg og har intet at gemme.
+
+> ⚠️ **`bons.delivery_date` er `NOT NULL`.** Derfor kan et tilbud ikke gemmes helt uden
+> dato. Det ramte også "Gem tilbud" på sidste trin i dag — med en rå
+> `NOT NULL constraint failed: bons.delivery_date` i en toast. `_tSaveQuote()` fanger
+> det nu, siger det på dansk og hopper til datofeltet. **Det er en workaround.** Den
+> rigtige løsning er at lempe kolonnen (kræver 12-trins table-rebuild af `bons` med
+> 3 triggers + 11 views hængende på sig — egen opgave, ikke en sidebemærkning).
+
+Verificeret i browser mod kopi af driftsdata: CAP Partner fundet på navnet alene
+(CVR 34599963, samme adresse som i mailsignaturen), felterne udfyldt ved klik, og en
+kladde gemt fra trin 1 helt uden kunde og varer (T-14, findbar i listen). Testdata ryddet.
+
+### Tilbud: fritekst-linjer fik antal — og fire fejl der lå bagved (10. august 2026)
+
+Driften bad om et **antal-felt ved fritekst** i tilbuds-wizardens sammensæt-trin
+(`qty` var hardkodet til 1). Undervejs viste det sig at fritekst var halvbygget i
+fire lag:
+
+1. **Fritekst-linjer var usynlige på trin 2.** Rendering-loopet går gennem
+   `_tMenu`-kategorierne og slår op i det valgte, så alt uden for Grocy-menuen faldt
+   ud af billedet. En fritekst-vare blev talt med i blok-headeren og dukkede op i
+   pristabellen på trin 3, men kunne hverken ses, tælles op eller slettes dér hvor man
+   sammensætter. Ny `_tBuildExtraItems()` renderer dem som **"Fritekst og øvrige"** med
+   samme antals-kontrol som menuvarer. Sektionen fanger også en gemt vare hvis
+   opskriften siden er fjernet i Grocy — den forsvandt lydløst før.
+   `_tTogMI()` prøver nu fravalg FØR menu-opslaget; ellers kunne en fritekst-vare ikke
+   fjernes igen (opslaget returnerede tidligt).
+2. **To parallelle fritekst-modeller.** Enkeltbestilling brugte `_tCxItems`
+   (`{name, price}`, ingen `qty`) med egen kode i pristabel, preview, PDF og
+   `_tCollectLines`. Men ved genindlæsning havner linjer uden `block_type` i
+   `_tSiItems` — så *samme linje* blev vist og talt forskelligt før og efter gem.
+   `_tCxItems` er fjernet; `_tAddCx()` lægger nu i `_tSiItems` via `_tFreeItem()`,
+   som giver fritekst samme form som en menuvare. Fire specialgrene væk.
+3. **`category` blev aldrig sendt med ved gem.** Backenden faldt tilbage på
+   `block_type` (tidsblokken, fx `morning`) eller NULL — og `bon_lines.category` er
+   præcis hvad enheds-tællingen matcher mod `unit_count_categories`. Et konverteret
+   tilbud ville have talt **nul enheder** på dashboard, ugeoversigt og kapacitet.
+   Latent i dag: 0 konverterede tilbud i drift (kontrolleret).
+4. **Menuvarerne bar ikke deres egen kategori.** `_tLoadMenu` brugte kategorien som
+   nøgle i `_tMenu`, men kopierede den ikke ind i varen — så `item.category` var
+   `undefined`, og rettelsen i punkt 3 ville have gemt tom streng. Nu sættes
+   `category: cat` ved indlæsning af menuen.
+   Samme sted: indlæsning af et gemt tilbud brugte `l.block_type` som kategori, så
+   hver vare i en enkeltbestilling blev til "Ukendt" i preview og PDF. Bruger nu
+   `l.category` (API'et har altid returneret feltet).
+
+Verificeret ende-til-ende i browser på begge skabeloner: antal tastet ved oprettelse,
+−/+ justerer, header og pristabel regner med det (4 × 250 = 1.000 kr), gem → DB
+(`quantity: 4`, `category: '01 Sandwich'` / `'Fritekst'`) → genindlæsning viser
+linjen igen med antal. Preview viser `5× Service på stedet`, PDF genereres uden fejl.
+Testdata ryddet.
+
+**Slukket tidsblok beholder sit indhold (samme dag).** `_tTogBlk` kørte
+`delete _tEvBlk[id]`, så ét klik på "Frokost" smed hele blokken væk — uden varsel og
+uden fortrydelse. Det er sikkert at lade indholdet ligge: alt der læser blokke
+(stat-stribe, pristabel, preview, `_tCollectLines`, PDF) springer allerede inaktive
+blokke over, så en slukket blok tæller stadig ikke med i tilbuddet. Chippen får en
+stiplet kant + antal-badge når der ligger noget bag den, så det er synligt at der er
+noget at hente tilbage. `_tBuildStats` filtrerede som det eneste sted IKKE på
+`_tActBlk` — den talte den slukkede bloks varer med og modsagde dermed pristabellen
+(rettet samtidig: 7 varer/700 kr → 1 vare/100 kr når Frokost slukkes).
+**Og indholdet overlever et gem.** En slukket bloks varer lægges i
+`offer_block_metadata[blok].stash` — den frie JSON-kolonne fra migration 024, der
+allerede bærer pax pr. blok. **Ingen skemaændring.**
+
+Hvorfor ikke bare lade linjerne ligge i `bon_lines` med et inaktiv-flag: så ville de
+tælle med i priser, enheder og pakkeliste, og de ville følge med over i en rigtig bon
+ved konvertering — medmindre hver eneste forbruger af `bon_lines` lærte at filtrere.
+Med stash ser `bon_lines` ud præcis som før, så alt nedstrøms er uberørt, og
+"en slukket blok er ikke en del af tilbuddet" forbliver sandt i databasen.
+
+- `_tSyncBlockStash()` (kaldes i `_tSaveQuote`): slukket blok med indhold → `stash`;
+  tændt blok → `stash` slettes, for så ejer `bon_lines` indholdet. Ingen dobbelt-registrering.
+- `_tRestoreBlockStash()` (kaldes i `_tOpenQuote` EFTER linjerne er indlæst, så en
+  tændt bloks rigtige indhold ikke overskrives).
+- Fælde undervejs: `_tSaveStepFields` gjorde `_tBlockMeta = {}` og byggede den forfra
+  fra pax-felterne. Det ville have smidt stash væk hver gang man forlod trin 1.
+  Nøglerne opdateres nu i stedet for at blive nulstillet.
+
+Verificeret: fyld Frokost (6 + 2 varer) → sluk → gem → `bon_lines` har KUN morgenmad,
+`offer_block_metadata.lunch.stash` har de to varer → genindlæs → Frokost stadig slukket
+med "8" på chippen og indholdet intakt → tænd → gem → varerne er tilbage i `bon_lines`
+med rigtig blok, antal og kategori, og metadata er `null`. Pax pr. blok (40/80) og stash
+lever side om side gennem hele turen. Testdata ryddet.
+
+### Tilbud: varekategorier kan skjules eller flyttes nederst (10. august 2026)
+
+Emballagelinjer — "2× Transportkasse m låg", "15× Receptions Skinner" — stod midt
+imellem maden på kundens tilbud og virkede umotiverede. På bon-kortet ligger
+emballagen allerede dæmpet nederst; tilbuddet manglede den samme adskillelse.
+
+- **Migration 143**: `settings.offer_category_display`, JSON fra kategorinavn til
+  `show` | `last` | `hidden`. Default flytter kun emballage nederst
+  (`{"06 Emballage":"last"}`). At **skjule** noget kunden betaler for skal være et
+  bevidst valg. Kun det kanoniske Grocy-navn — den historiske variant "Emballage"
+  hører ikke til som valgmulighed; den mappes væk af
+  `scripts/normalize-bon-line-categories.js`. (Migrationen retter sig selv hvis den
+  første udgave nåede at seede begge, men kun hvis værdien er urørt.)
+- **Reglen er ren visning.** `_tOfferItems()` / `_tOfferCategories()` bruges de fire
+  steder der renderer for kunden (preview + PDF × event + enkeltbestilling).
+  Beløbene summeres fortsat over ALLE varer — i single-mode blev `sub` tidligere
+  akkumuleret inde i render-loopet, så det er hejst ud, ellers ville en skjult
+  kategori have ændret totalen. `_tCollectLines` er urørt: linjerne gemmes uændret
+  på bonen, så køkkenet ser emballagen.
+- **Settings → Tilbud — opbygning → "Varekategorier på tilbuddet"**: Vis/Nederst/Skjul
+  pr. kategori. Kategorier der allerede har en regel tages med selvom de ikke længere
+  findes i Grocy — ellers ville en gammel regel være usynlig og umulig at fjerne.
+  Grocy nede ⇒ de gemte regler vises stadig.
+- **Grocys kategoriliste ét sted**: `getGrocyRecipesCached()` + `getGrocyCategories()`
+  i `settings/index.html`. Fire sektioner udledte listen hver for sig; den nye blev
+  først en femte kopi. Nu deles den, og opskrifterne hentes én gang pr. sideindlæsning.
+  **Grocy er eneste kilde** — historiske stavemåder (`Salat`, `Emballage`) er ikke
+  valgmuligheder, de normaliseres væk. `Tilbehør & Bokse`, `Frugt`, `x-Levering`,
+  `RR Produktion` m.fl. ER derimod rigtige Grocy-kategorier og skal med.
+- Sidegevinst: preview og PDF grupperede event-blokke forskelligt (preview efter
+  kategori, PDF fladt). Begge er nu flade med samme sortering.
+
+Verificeret: emballage tilføjet FØRST i en blok → vises alligevel sidst i preview og
+PDF; total 2.060 kr uændret. Sat til `hidden` → linjen forsvinder for kunden, totalen
+er stadig 2.060 kr, og `_tCollectLines` returnerer den fortsat. Settings gemmer og
+listen viser alle Grocy-kategorier. Testdata rullet tilbage.
+
+**Reglerne gælder også eksisterende tilbud — uden at gemme dem.** De anvendes ved
+visning, ikke ved gem. Men `_tLoadBlockTypes()` (som henter både blok-typer og
+kategori-reglerne) lå bag et `_tBlocksLoaded`-flag og blev kaldt **fire-and-forget**.
+To fejl i én:
+
+1. En ændring i Settings slog først igennem efter en **hård genindlæsning af hele
+   office** — så det lignede at indstillingen ikke virkede.
+2. Et deep-link til et tilbud (`?quote=ID`) kunne nå at rendere med default-blokkene
+   før svaret var hjemme.
+
+`initTilbud` er nu `async` og **awaiter** hentningen, og flaget er væk: indstillingerne
+hentes hver gang viewet åbnes. Ét lille `/api/settings`-kald pr. view-skift — samme
+kald der allerede hentede firmaoplysningerne til PDF'en.
+
+Verificeret på et gemt tilbud med emballage spredt mellem maden: regel sat i Settings →
+væk fra Tilbud-viewet og tilbage (ingen reload, intet gem) → begge emballagelinjer
+står nederst, total 2.285 kr uændret. Samme mekanisme får en ændret blok-rækkefølge
+til at slå igennem.
+
+**Gamle tilbud havde ingen kategori at sortere efter.** Reglen virkede på nye tilbud,
+men emballagen fløj stadig rundt på de eksisterende. Årsagen var ikke reglen, men
+dataene: `bon_lines.category` blev aldrig gemt fra tilbudsmodulet (se punkt 3 ovenfor),
+så alle gamle linjer har NULL eller tidsblokken (`lunch`) i feltet — aldrig
+`06 Emballage`. Kontrolleret i driftskopien: T-4 har 7 af 7 linjer uden kategori.
+
+Linjen kender sin opskrift, og Grocy kender opskriftens kategori, så den kan **udledes**
+i stedet for at kræve en backfill i databasen: `_tApplyMenuCategories()` kobler
+`grocy_recipe_id` → `_tMenu`-kategorien, hver gang menuen er hentet. Grocy er kilden,
+så feltet overskrives også når det HAR en værdi (den er i praksis blok-navnet).
+Fritekst har ingen opskrift og røres ikke. Gemmes tilbuddet igen, skrives den rigtige
+kategori nu med til `bon_lines`, og så retter dataene sig selv efterhånden.
+
+Verificeret på de to tilbud i driftskopien: T-4 (enkeltbestilling, 7/7 linjer uden
+kategori) → begge "(emballage)"-varer flytter nederst; T-5 (event, kategori =
+`lunch`) → kategorierne bliver til `01 Sandwich`/`x- Service`/`06 Emballage`, og en
+emballagevare tvunget **først** i blokken vises **sidst**. Databasen er urørt af testen.
+
+**Leveringen fulgte ikke prismoden.** I `total`-mode ("kun samlet pris") stod
+leveringen som **eneste** linje på hele tilbuddet med et beløb ud for sig, mens alle
+varerne var uden. Prisen optrådte to steder — i varelisten og i leverings-info-boksen
+— og ingen af dem så på `_tPriceMode`. Preview og PDF var oven i købet uenige:
+preview skrev beløbet i varelisten men PDF'en gjorde aldrig, så i `line`-mode fik
+kunden alle varepriser undtagen leveringens.
+
+Nu gælder samme regel begge steder og i begge visninger: **linjen** vises altid (den
+bærer hvor og hvordan der leveres), **beløbet** kun når tilbuddet i øvrigt viser beløb
+(`line` eller `block`). Totalen er uændret — leveringen tælles med uanset hvad der vises
+(verificeret: 3.000 kr i alle tre modes).
+
+**Blok-typer kan ikke længere få samme navn.** På et tilbud fra drift stod
+"Eftermiddagssnack" som blok-overskrift **to gange** med hver sit indhold — og
+"Morgenmad" var væk. Forklaringen var ikke en kodefejl i tilbuddet: en blok var
+blevet omdøbt i Settings til et navn en anden allerede havde. `saveOfferBlocks`
+gemte det uden at sige noget.
+
+- **Gem afviser nu** dublet-label (med begge nøgler nævnt: *"To blokke hedder
+  'Eftermiddagssnack' (morning og pmsnack)"*), dublet-nøgle og tomt navn.
+- Feltet markeres rødt **mens man skriver**, ikke først ved gem.
+- `_tLoadBlockTypes` filtrerer defensivt dublet-nøgler fra: nøglen er blokkens
+  identitet (`bon_lines.block_type`), så to ens ville dele `_tEvBlk[id]` og
+  rendere samme indhold to gange. Data der allerede ligger sådan må ikke vælte
+  et tilbud.
+- `addOfferBlock` tager første ledige `customN` i stedet for højeste + 1. Den
+  gamle var også unik, men efterlod huller efter en sletning.
+
+Verificeret ved at genskabe situationen: Morgenmad omdøbt til "Eftermiddagssnack"
+→ begge felter markeres, gem afvises med besked. Tomt navn og dublet-nøgle
+afvises hver for sig; gyldig opsætning gemmes. Driftsdata urørt.
+
+### E-conomic: slider-bokse foldes ud til de tre sliders de består af (#438, 10. august 2026)
+
+`economicInvoice` kunne kun lave én fakturalinje pr. bonlinje. Slider-bokserne er
+ét styk i `bon_lines`, men indeholder tre forskellige sliders med hver sit varenummer
+i e-conomic. Boksene har derfor intet eget nummer og blokerede faktureringen.
+
+- **Ingen ny stamdata.** Sammensætningen står allerede i Grocys `recipes_nestings`,
+  og alle seks børn har varenummer. Samme kilde som `recipe_unit_counts` (migration
+  113) bruger til at tælle en boks som 3 enheder. En ændret boks slår igennem af sig selv.
+- **`grocyAdapter.getEconomicBundleMap()`** → `Map(recipe_id → [{recipe_id,
+  product_number, servings, name}])`. Tre betingelser, alle nødvendige: opskriften
+  har **intet** eget varenr, den har mindst én nesting, og **alle** børn har et varenr.
+  Ét barn uden ⇒ intet bundt, og linjen blokerer som før — hellere en synlig
+  blokering end en faktura hvor en tredjedel mangler. Rammer mod grocy-hq præcis
+  77 + 78. Tager valgfrit `(recipes, nestings)` som testsøm; produktionen kalder uden.
+- **`enrichBonForEconomic`** hænger `economic_bundle` på linjer uden eget varenr;
+  `buildDraftInvoice` folder dem ud; `checkReadiness` regner dem som dækket.
+- **Prisen fordeles fra BONENS linjepris**, ikke fra børnenes listepriser — boks 78
+  koster 160 kr mens delene står til 176. `splitOre()` fordeler i ører med største
+  rest, så fakturasummen er præcis den samme som uden udfoldning (128 ex moms delt
+  på tre = 42,67 + 42,67 + 42,66). Med `servings > 1` kan afrundingen pr. enhed
+  flytte totalen et par ører; de lægges tilbage på den linje hvor det går præcist op.
+- **Beskrivelsen er kun varens eget navn** — boksnavnet ("Alm slider Boks - fisken,
+  Frikadellen, kartoflen") ville støje på hver eneste linje.
+
+> ⚠️ **"Eget varenr vinder" er en sikkerhedsvagt, ikke en optimering.** 24 opskrifter
+> med eget varenummer HAR nestings. Ingen rammes i dag (deres underopskrifter er
+> produktionsopskrifter uden numre), men får én af dem et nummer, er vagten det eneste
+> der forhindrer at fx `Fisken` faktureres som sine ingredienser. Det er en **forkert
+> faktura**, ikke en blokering. Første udgave af testen bestod af den forkerte grund —
+> fixturen har nu en ret hvis underopskrift OGSÅ har varenr, så vagten reelt testes.
+
+**Tests**: `scripts/test-economic-invoice.js` 57/1 (den ene fejl, `#12 kaster uden
+nummer (strict)`, er **pre-eksisterende** — bekræftet mod `HEAD`; koden springer
+linjen stille over i stedet for at kaste) + `tests/scripts/run_T_ECONOMIC.js` 30/0
+(bundtet hele vejen gennem routeren). Mutations-testet: alle fire kerneregler fanges.
+
+**Baggrund — hvorfor koblingerne manglede.** `data/economic-match-review.csv` (25. juni)
+har 28 rækker markeret `OK`/`ok` i **status**-kolonnen mens `godkendt_nr` står tom.
+`scripts/economic-product-match.js --apply` skriver kun rækker med et tal i
+`godkendt_nr`, så alle 28 godkendelser blev sprunget over uden en lyd. 7 opskrifter
+er koblet i hånden 10. august (61→78, 35→30, 39+42→105, 99+101+102→104). Resten er
+issues: [#439](https://github.com/liffez/bon-v2/issues/439) (rabat/engangsbeløb),
+[#440](https://github.com/liffez/bon-v2/issues/440) (koblings-side der afløser CSV'en),
+[#441](https://github.com/liffez/bon-v2/issues/441) (5 slettede opskrifter der blokerer
+gamle bons permanent).
+
+> **Kan ikke ses lokalt.** Den lokale dev-DB peger på **grocytest**, hvor userfeltet
+> `economic_product_number` ikke findes — koblingslisten er tom dér. Verificér mod
+> grocy-hq-data, ikke i browseren.
+
+### E-conomic: Rabat og Engangsbeløb som beløbslinjer (#439, 11. august 2026)
+
+De tre `x- Service`-opskrifter er tastet med **kronerne i antal-feltet** og ±1 som pris
+(`recipe 135 · quantity 11600 · unit_price -1,00`). Sendt råt bliver det til
+**"11.600 stk à -0,80 kr"** på kundens faktura — beløbet er rigtigt, linjen kan ikke
+sendes ud.
+
+- **Migration 144**: `settings.economic_amount_line_recipes` = `[7,8,135]`. Opskrifterne
+  **udpeges**, de gættes ikke ud fra pris eller kategori — en ægte vare til 1 kr ville
+  også ramme sådan et gæt. Samme mønster som `unit_count_extra_recipes` (113).
+- `buildDraftInvoice` folder dem til **antal 1 med linjesummen som pris** og bruger
+  `special_request` som beskrivelse ("bil", "løn", "Prisjustering") når den findes.
+  **Ingen `discountPercentage`** — en rabat skal ikke rabatteres igen.
+- Samme migration sætter `economic_oneoff_product_number` = **111**
+  (`Engangsbeløb / Diverse`, oprettet i e-conomic 11. august) — kun hvis feltet stadig
+  er tomt, så en håndsat værdi ikke overskrives. Feltet har været tomt siden 110, hvilket
+  betød at engangsvare-fallbacken aldrig kunne fyre.
+
+> ⚠️ **Rækkefølgen er ikke ligegyldig.** Feature'en er inert indtil recipe 7/8/135 kobles
+> til varenr 110/111 i Grocy — og koblingen må først ske **efter** deploy. Gøres den før,
+> fjernes den blokering der i dag er det eneste der forhindrer at en rabatlinje sendes i
+> den gamle form. Her er den manglende kobling et værn, ikke en fejl.
+
+**Nye e-conomic-varer 11. august**: 106 Øl · 107 Fadøl · 108 Vand m. brus · 109 Cava
+(gruppe 2 Catering) · 110 Rabat · 111 Engangsbeløb / Diverse (gruppe 3). 12 opskrifter
+koblet samme dag — alle **levende** opskrifter er nu dækket på nær de tre beløbslinjer.
+Alt andet der blokerer er slettede opskrifter, se #441 (16 stk: udgåede + dubletter).
+
+**Tests**: `scripts/test-economic-invoice.js` 75/1 (den ene = #444) +
+`run_T_ECONOMIC.js` 34/0, hvor route-testen samtidig beviser at migrationen er seedet.
+
+### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
+
+`_tCopyBon` ("📋 Kopiér" i wizardens trin 1) tog priserne fra den kopierede bons
+linjer. `bon_lines.unit_price` er et **snapshot** fra da den bon blev oprettet —
+rigtigt for den gamle bon, forkert som udgangspunkt for et nyt tilbud.
+
+To fejl, og den anden var værst:
+
+1. **Gamle priser.** En ordre fra sidste år sendte sidste års priser til kunden.
+2. **Forkert prisliste.** Funktionen så slet ikke på `_tPriceCat`. En butiks-bon
+   kopieret ind i et catering-tilbud gav butikspriser — også når ordren var helt frisk.
+
+Priser, kostpriser og kategori hentes nu fra `_tMenu`, som er bygget for tilbuddets
+gældende priskategori og genindlæses når kategorien skiftes. **Kun mængderne** kommer
+fra den gamle ordre.
+
+- **`_tMenuIndex()`** — `Map<grocy_recipe_id, menuvare>`, ét opslag delt af
+  kategori-berigelsen (`_tApplyMenuCategories`) og kopieringen. Samme princip som
+  Grocy-kategorihentningen i Settings: én kilde, ikke en kopi pr. kaldested.
+- **Fritekst og udgåede opskrifter er ikke det samme.** Begge beholder den gamle pris,
+  men kun den ene er et problem:
+  - **Fritekst** (ingen `grocy_recipe_id`) har aldrig haft en Grocy-pris. Den er
+    skrevet i hånden og kopieres som den er — **ingen markering**. Der er intet at
+    hente, så et forbehold ville være ren støj.
+  - **Opskrift der er udgået i Grocy** bar sin pris derfra, og det tal vi nu slæber
+    med er et gammelt snapshot. Den markeres `stalePrice`: toasten navngiver den
+    (*"4 varer kopieret fra bon cafe-3472 — priser fra catering · 1 findes ikke i
+    Grocy længere (RR Boks)"*) og pristabellen på trin 3 sætter ⚠ på linjen.
+
+  **Kundens preview og PDF er urørt** — dér skal der ikke stå forbehold om vores
+  egne priser.
+
+Verificeret mod driftsdata: bon `cafe-3472` (priskategori **store**, Kyllingen 104 kr)
+kopieret ind i et **catering**-tilbud → Kyllingen **130 kr**, Transportkasse 12,50 →
+**20 kr**, mængderne (11 og 1) bevaret. Testen kørte med en fritekst-linje og en udgået
+opskrift i samme ordre: fritekst kom med til 350 kr **uden** markering, den udgåede fik
+⚠ og blev navngivet i toasten. Fritekstens egen livscyklus efterprøvet separat —
+oprettes, vises på trin 2 og 3, står i kundens preview, gemmes som `category: 'Fritekst'`
+og overlever genindlæsning uden markering. Databasen ryddet.
+
+**Om genbruget:** `_tOpenQuote` og `_tCopyBon` bygger næsten samme item-objekt fra en
+bon-linje, og det er fristende at samle dem. Lad være — eller gør det med åbne øjne.
+De har modsat semantik: at **åbne** et tilbud skal bruge de gemte priser (det er
+tilbuddets egne, aftalte tal), at **kopiere** skal hente friske. En naiv sammenlægning
+ville genskabe præcis #428.
+
+### Tilbud: hent menu fra ordre, tilbud eller event (#427, 10. august 2026)
+
+"Vi laver det samme som til Novo i marts" er nu to klik. Knappen **"⤵ Hent menu fra…"**
+ligger på trin 2 (Sammensæt), hvor menuen faktisk bygges — ikke ovre ved
+ordrehistorikken på trin 1, hvor man ikke kan se resultatet.
+
+Tre kilder i én dialog med faner og søgning **på tværs af kunder**:
+
+| Kilde | Endpoint | Bemærkning |
+|---|---|---|
+| Tilbud | `GET /api/quotes?q=` | søger bon_number, kunde- og firmanavn |
+| Ordre | `GET /api/bons?q=` | do. |
+| Event | `GET /api/events` + `/:id/menu` | menuen er en **prisliste uden mængder** → 1 stk. pr. vare |
+
+**Tilføjer altid** — den gamle `_tCopyBon` ryddede alt først, så et fejlklik kostede
+det man havde bygget. Ikke-destruktivt: man kan slette det man ikke vil have.
+
+- **Én kerne, tre indgange.** `_tItemFromSource()` + `_tAddSourceLines()` bruges af både
+  "Kopiér ordre" og den nye import. De gør nemlig det samme: tager **mængderne** med og
+  henter **prisen** på ny (jf. #428). Var de to skrevet hver for sig, ville de drive fra
+  hinanden — det var præcis sådan #428 opstod.
+- **Blokke bevares.** `_tTargetBlock()` bruger kildens `block_type` når vi kender blokken,
+  så en menu hentet fra et andet event-tilbud beholder morgenmad/frokost/snack hver for
+  sig i stedet for at smelte sammen. Ellers første tændte blok.
+  Forudsatte at **`getBonLines` fik `block_type` med** ([db/helpers.js:97](db/helpers.js:97))
+  — kolonnen manglede, og det var derfor `_tCopyBon` hardkodede `'lunch'`.
+- **Ens varer slås sammen.** Findes varen allerede i målblokken, lægges mængderne sammen
+  i stedet for at give to rækker med samme navn — samme regel som
+  `POST /api/bons/:id/lines` bruger server-side. Fritekst slås aldrig sammen: to
+  fritekst-linjer kan sagtens være to forskellige ting.
+- **Søgefeltet beholder fokus.** Hver søgning re-renderer hele trinnet, så markøren
+  sættes tilbage — ellers skulle man klikke i feltet igen for hvert bogstav. (Samme
+  fælde som indkøbslistens søgefelt havde.)
+
+Verificeret mod driftsdata, alle tre kilder i samme tilbud: **tilbud T-5** → de fire
+varer landede i `lunch` (deres egen blok, ikke hardkodet) med friske catering-priser,
+mens Morgenmad blev bevaret; **event-menu** → priser 85/90 erstattet af Grocys 99/130,
+fritekst 75 kr med uden markering, alle 1 stk.; **ordre cafe-3472** → fundet på tværs af
+kunder (Stromma Danmark A/S), Kyllingen slået sammen til 6 + 11 = **17**, to varer uden
+for menuen fik ⚠ og blev navngivet. Syntetisk event oprettet via de rigtige endpoints og
+ryddet igen; databasen urørt. Regression grøn: moms 18, indbakke 29, bon_lines 10,
+event-menu 42, topup 35.
+
+**Kategorier starter foldet sammen.** En blok viste elleve kategori-overskrifter med
+alle varer under sig — en skærmfuld scroll før man var i gang.
+`_tSeedCollapsedCategories()` folder **alle** sammen, også dem med valgte varer:
+antals-badgen på overskriften viser allerede hvor der er indhold, så linjerne behøver
+ikke være fremme for at man ved det. (Første udgave holdt de valgte åbne — unødigt,
+netop fordi badgen findes.)
+
+Foldningen er brugerens så snart hun rører den (`_tColCatSeeded`) — et almindeligt
+re-render (antalsændring, prisskift) må ikke folde om bag ryggen på hende. Flaget
+nulstilles kun ved wizard-reset og **efter en import/kopiering**, så det man netop har
+hentet kan ses.
+
+Verificeret: en blok med varer i to kategorier fylder nu fem linjer i stedet for en
+skærmfuld, med badges på de to. Klik på en kategori overlever et efterfølgende
+re-render. Import folder om, så det hentede kan findes.
+
+**Stadig åbent i #427:** man kan ikke vælge *hvilken* dag der hentes fra i et
+fler-dags-tilbud — det afventer #425.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 
@@ -2180,6 +2639,44 @@ til Grocy's kanoniske navne, så whitelisten kan være ren (`["01 Sandwich","02 
 - Data ved analysen: bon_lines havde bl.a. `01 Sandwich` (6.661), `06 Emballage` (4.415),
   `04 Slider` (3.238) + bare-varianter `Slider` (253), `Salat` (31), `Emballage` (210),
   `Drikke` (64), `Kager` (63).
+
+#### Top produkter: emballage ud af konkurrencen (11. august 2026)
+
+Dashboardets "Top produkter" havde **RR Boks (emballage)** som nr. 1. Den følger
+med næsten hver bon, så på antal slår den enhver sandwich — uden at være noget
+man sælger.
+
+`/top-products` prøvede at filtrere tilbehør fra med `bl.is_accessory = 0`, men
+**flaget er aldrig sat**: 0 af 20.781 linjer i drift. Filteret var dødt, og
+emballage, drikke og kager konkurrerede på lige fod med maden.
+
+- **`db/helpers.js`** — boolean-delen af `bonUnitsExpr` udskilt som
+  `unitCountablePredicate()` ("tæller denne linje som en solgt enhed?").
+  `bonUnitsExpr` bruger den nu selv, så listen og `bons.total_units` ikke kan
+  drive fra hinanden. **COALESCE på begge kolonner** er ikke kosmetik: uden den
+  giver `NULL IN (...)` et NULL-prædikat, og 642 linjer uden kategori ville
+  falde ud af BÅDE `sql` og `NOT sql`. I `bonUnitsExpr` er semantikken uændret
+  (NULL ramte allerede ELSE-grenen).
+- **`GET /api/dashboard/top-products?bucket=food|other`** — `food` (default) er
+  kun tællende varer, `other` er resten. Samme svar-form begge veje, så det er
+  et filter og ikke et formskift. Tallet er fortsat rå `SUM(quantity)`: en
+  slider-boks tæller 3 enheder i `total_units`, men står som 1 stk her, fordi
+  det er dét man spørger om i en produktliste. `is_accessory = 0` beholdes som
+  sikkerhedssnor.
+- **`office/views/dashboard.js`** — foldet "Øvrigt · emballage, drikke, kager"
+  under tabellen, som henter `?bucket=other` først ved udfoldning. Overlever
+  Kr/Enheder-skift og genindlæsning (hentes igen hvis den står åben).
+- **Rapporter → Top kategorier** — emballage lå dér på førstepladsen med 30 %.
+  Kategorien hører legitimt hjemme i en kategori-nedbrydning, så den fjernes
+  ikke: rækker der ikke tæller dæmpes (opacity .55) med forklaring i tooltip og
+  en note under listen. `counts_as_unit` pr. række fra `/top-categories`.
+  Begrænsning: kun kategori-reglen kan bruges her — `unit_count_extra_recipes`
+  er pr. opskrift, så "Tilbehør & Bokse" dæmpes selvom Børne Bokse i den tæller.
+- **Test**: `run_T_DASHBOARD` fik TPR_09/TPR_10 (bucket-opdeling + komplement).
+  Seedens Frikadeller-linje flyttet fra `Hovedret` til `01 Sandwich` — ellers
+  var TPR_06 + TPR_08 degraderet lydløst til SKIP i stedet for at fejle.
+  58 PASS mod baseline 56, samme 15 FAIL (alle #133's UTC-natte-bug i runneren,
+  som regner "i dag" i UTC — verificeret ved at køre baseline uden ændringerne).
 
 ### Menu-grupper persisteres (20. maj 2026)
 
@@ -2497,7 +2994,8 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
 > migrations op til 119). 6 GitHub-issues lukket som færdige (#64, #70, #71, #77, #85, #132).
 
 #### Driftsregnskab (dagsbaseret resultatanalyse) — #132 ✅
-- [x] `routes/drift.js` — `GET /api/drift/day?date=&mode=` (dagsresultat, live/frosset), `GET /api/drift/day/bons` (per-bon nedbrydning, altid live), `POST /api/drift/refreeze` (admin), `GET /api/drift/period?from=&to=` (trend)
+- [x] `routes/drift.js` — `GET /api/drift/day?date=&mode=` (dagsresultat, live/frosset), `GET /api/drift/day/bons` (per-bon nedbrydning, altid live), `POST /api/drift/refreeze` (admin), `GET /api/drift/period?from=&to=` (trend), `GET /api/drift/items?from=&to=` (produktions-sammentælling pr. kategori, altid live)
+- [x] **Løn% + råvare% (branchens nøgletal)** på KPI-pillerne og som kolonner i dag-for-dag, plus procent-trend-kurve i uge/periode. Farvekodes mod måltal (migration 145: `target_labor_pct`, `target_food_cost_pct`, `target_pct_tolerance` — **tomme som default = ingen farve**, sættes i Settings → Løn & jobtyper). Måltal fryses aldrig ind i `labor_day_snapshot`; de lægges på svaret uden om `data_json`, så et ændret mål også gælder historiske dage. Detaljer i `docs/CLAUDE_DRIFTSREGNSKAB.md` §6 + §6b
 - [x] `services/laborAdapter.js` — Smartplan-timer × lokale `wage_rates` (tidsversioneret timeløn) + `smartplan_role_map` (jobtype → production|delivery|other)
 - [x] Migrations 088 (`wage_rates` + `smartplan_role_map`), 091 (`labor_day_snapshot` — fryser afsluttede dage ved første visning), 093 (`settings.labor_overhead_pct`)
 - [x] `computeDay()`: revenue incl→ex, cost ex, delivery ex, løn ex m. overhead, enheder, kapacitetsrate, løn-andel %. Alt ex moms. Office-view `office/views/driftsregnskab.js` (ØKONOMI-sektionen)
@@ -2621,25 +3119,80 @@ er incl moms.
 - Desuden: event-oversigtens status-badges havde to næsten ens gråtoner (planlægning
   `#f0f0f0` / afsluttet `#e8e8e8`). Fire adskilte kulører nu — blå/grøn/lilla/rød.
 
-**Fund fra samme gennemgang (ikke løst — egne issues):**
-- **#319** — faktureringskøen er *status*-drevet (`GET /api/invoices/queue` viser kun LEVERET).
-  Sættes en bon til FAKTURERET/AFSLUTTET i hånden uden at der findes en kladde eller bogført
-  faktura, forlader den køen, men `cf_invoices`-rækken bliver liggende med en forfaldsdato
-  beregnet ud fra bonnen → den dukker op under "Forfaldne" og ligner en dårlig betaler.
-  Intet sted mødes de to sandheder. **Bemærk:** manglende `economic_number` er kun et signal
-  for v2-bons — v1-æra (`cafe-*`) er betalt uden i over tusind tilfælde.
-- **#320** — `cashflowReconcile` filtrerer på `date$gte:<vandmærke>`, altså *fakturadatoen*.
-  En faktura ses derfor én gang, omkring udstedelsen hvor den per definition er ubetalt, og
-  aldrig igen — men betaling sker bagefter. E-conomic-aksen kan reelt ikke længere flippe
-  `betalt`; kun bank-matchet (conf ≥ 70) fanger betalinger. Gør ingen skade i dag, men
-  bliver farligere efterhånden som e-conomic-integrationen tages i brug.
-- **Byttehandel har intet felt.** En bon der leveres men afregnes i en modydelse (ikke penge)
-  kan kun udtrykkes ved at lyve om `payment_type` eller nulstille priserne. Begge dele er
-  forkerte: prisen er ægte, kun afregningsformen er en anden. Rette sted er en ny række i
-  `payment_types` (fx `barter`/"Modregning") — CRUD findes i Settings, ingen migration, og al
-  logik hænger allerede på `payment_type = 'invoice'`. En ny *priskategori* ville derimod
-  kræve et nyt `Salesprice*`-userfield i Grocy på alle opskrifter + kodeændring i
-  `grocyAdapter`, og 0-priser ville slette omsætningen ud af rapporter og margin-analyse.
+**Fund fra samme gennemgang (egne issues — status pr. 10. august 2026): alle tre er løst.**
+- **#319 — LØST** (lukket 6. august, migration 130 + `services/invoiceGuard.js`).
+  Faktureringskøen er *status*-drevet, så en bon sat til FAKTURERET/AFSLUTTET i hånden forlod
+  køen selv om der hverken fandtes kladde eller bogført faktura — mens `cf_invoices`-rækken blev
+  liggende og lignede en dårlig betaler. Vagten samler nu de to sandheder og viser dem som
+  "N fakturaer er aldrig sendt" (holdt UDE af "Forfaldne"). Fire filtre mod falske alarmer:
+  kun `payment_type = 'invoice'`, aldrig tilbud/interne, skæringsdato
+  (`settings.invoice_guard_from_date`), og en eksisterende kladde/bogført faktura frikender.
+  **Bemærk:** manglende `economic_number` er kun et signal for v2-bons — v1-æra (`cafe-*`) er
+  betalt uden i over tusind tilfælde.
+- **#320 — LØST** (PR #445, se "Pengestrøm — betalt-status som fuld tilstand" nedenfor).
+  Advarslen "gør ingen skade i dag" holdt ikke: da tallet blev målt 10. august, stod
+  107.669 kr som forfaldne uden at være det.
+- **Byttehandel — LØST** (#324 + migration 129). `payment_types` har nu `barter`/"Modregning"
+  og `sponsorship`/"Sponsorat", begge med `counts_as_revenue = 0`. En ny "gratis"-type koster
+  én række i Settings + et flueben — ingen kodeændring.
+  De to greb der gør det til at leve med:
+  **(a)** betalingstype ≠ `invoice` ⇒ bonnen kommer aldrig i `cf_invoices`, så den kan hverken
+  stå som forfalden eller udløse vagten på "aldrig sendt" (`invoiceGuard.js`);
+  **(b)** `counts_as_revenue = 0` ⇒ krone-summer bidrager 0 i rapporter, dashboard,
+  driftsregnskab, CRM-omsætning og margin — mens **enheder og pax er urørte**, for maden blev
+  jo lavet og skal tælle i produktion og kapacitet. Bonnens ægte pris bliver stående, så man
+  kan se hvad sponsoratet var værd.
+  > At lægge det på `payment_types` frem for en ny *priskategori* var det afgørende valg:
+  > en priskategori ville kræve et nyt `Salesprice*`-userfield i Grocy på alle opskrifter +
+  > kodeændring i `grocyAdapter`, og 0-priser ville slette omsætningen ud af rapporter og
+  > margin-analyse i stedet for at markere den som ikke-omsætning.
+
+### Pengestrøm — betalt-status som fuld tilstand (#320, 10. august 2026)
+
+"Forfaldne" viste 21 fakturaer / 122.420 kr. E-conomic sagde samtidig 14 ubetalte i alt /
+33.859 kr. Kørt op mod deres debitorbog: **18 af de 21 var for længst betalt — 107.669 kr
+stod forkert som forfalden.**
+
+Ikke et data-problem. `cashflowReconcile` udledte betalt-status af `/invoices/booked` filtreret
+på `date$gte:<vandmærke>`, hvor `date` er fakturaens **egen** dato. Vandmærket rykkes til seneste
+sete fakturadato, så en faktura hentes præcis én gang — omkring udstedelsen, hvor den per
+definition er ubetalt — og aldrig igen. Men `remainder` ændrer sig bagudrettet, når betalingen
+falder. Efter første fulde kørsel kunne `betalt` reelt ikke flippe mere, og en ny synk hjalp
+ikke: den kiggede bare længere fremme.
+
+- **Betalt-status kommer nu fra REST `/invoices/unpaid` — fuld tilstand, intet vandmærke.**
+  Listen ER e-conomics debitorbog: alt bogført der ikke står på den, er afregnet. Ét kald,
+  14 rækker mod 4.133 bogførte — **billigere end det delta den erstattede**, og der er intet
+  vindue at falde uden for. Vandmærket bruges fortsat til at opdage NYE fakturaer og koble
+  fakturanummeret på; der er det rigtigt.
+  > REST har hele familien (`GET /invoices` lister dem): `drafts`, `booked`, `paid`, `unpaid`,
+  > `overdue`, `notDue`, `sent`. Ingen OpenAPI nødvendig. **Spørg efter tilstand, ikke delta,
+  > når API'et tilbyder det** — det var hele fejlen.
+- **Værn:** vi konkluderer kun "betalt" når nummeret faktisk kendes hos e-conomic (spejl eller
+  scan), så et ciffer-rod ikke kan afskrive en fordring · kun ÉN vej automatisk (ubetalt →
+  betalt; det modsatte ville genoplive fakturaer kontoret bevidst har afskrevet — rapporteres
+  som `conflicts`) · melder e-conomic rækker men leverer nul (brudt paginering), afbrydes
+  synken frem for at markere hele debitorbogen betalt.
+- **Spejlet holdt op med at lyve.** `cf_economic_invoices.remainder` var også et fastfrosset
+  øjebliksbillede fra den ene gang fakturaen blev scannet — samme fælde. Det følger nu den
+  fulde tilstand.
+- **Synligt for kontoret:** badgen viser e-conomics eget antal ubetalte + tidspunkt for sidste
+  synk (`cf_meta.economic_synced_at` / `_open_count` / `_open_total` — ingen migration).
+  Vandmærket er ikke længere en "ajour til"-dato; betalt-status har ingen, den er altid nu.
+  Kvitteringen lister uenigheder og `unlinkedOpen` — åbne fakturaer hos e-conomic uden
+  modsvarende `cf_invoice` — så forskellen mellem de to tal er synlig i stedet for skjult.
+- **Tests:** `scripts/test-cashflow-reconcile.js` (35 asserts, attrap-adapter + isoleret DB;
+  regressionen er en faktura udstedt FØR vandmærket og betalt siden, med tomt booked-scan).
+  Mutations-testet: gammel adfærd → 6 falder. `npm run test:cashflow` kører den + sync-suiten.
+- **Tilbage bagefter:** 12 ubetalte UDEN e-conomic-nummer (41.235 kr) — 6 Brightside Pictures,
+  3 Silvan. De har ingen faktura i e-conomic overhovedet. Det er #319's område, ikke dette:
+  vagten fanger dem der opfylder dens fire filtre (4 stk. / 18.781 kr i drift) og holder dem
+  ude af "Forfaldne"; resten falder for skæringsdatoen eller betalingstypen.
+- **Ledger-endpoints er spærret af app-rollen.** `/accounts`, `/accounting-years`, `/journals`
+  og `/suppliers` svarer **403** med vores nuværende grant (kun `/customers` + `/invoices/*`
+  virker). Vil vi bruge e-conomics egen bank-afstemning til de ukoblede indbetalinger, er det
+  en rolle-ændring hos e-conomic — ikke kode. Verificér med et nyt probe-kald FØR der bygges
+  noget på posteringer.
 
 ### CRM-triks — Ringeliste + fælles worklist-komponent (#229 + #230 + #228, 6. juli 2026)
 > Epic #232. Spec: `docs/CLAUDE_CRM_TRIKS.md`. Lav-friktions "top-of-mind"-ringekøer oven på
@@ -2977,363 +3530,56 @@ led selv har et niveau under sig — det er dér undertællingen sad. Mutations-
 uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
 giver testen "Maximum call stack size exceeded".
 
-### Hærdning af consume-/varemodtagelses-stien (#358 + #359 + #361, 6. august 2026)
-> Migration 141. Tre fejl der delte rod — enheds-forveksling og manglende idempotens —
-> og som først blev til aktiv skade da auto-deduct blev tændt i drift 17. juli (#305).
+### Tilbud: sendt er nu en status man kan se og sætte (#452, 11. august 2026)
 
-**#358 — varemodtagelsen skrev indkøbs-enhed som lager-enhed.** Tallet kommer fra
-indkøbslisten i INDKØBS-enhed ("994 Kasse"), men `addToStock` sendte det uden enhed, og
-Grocy læser altid lager-enhed. **69 af 215 produkter** i grocy-hq har forskellig købs- og
-lager-enhed. Sket to gange i drift (spidskål fordoblet, rødkål for lavt) og først fundet i
-Grocys `stock_log` — en fysisk optælling havde imens rettet tallet og dermed skjult årsagen.
-- Klienten sender nu `qu_id` (den kendte den allerede fra indkøbsliste-rækken);
-  serveren omregner via ny **`resolveToStockAmount()`** i [services/quConvert.js](services/quConvert.js).
-- **Nægter at gætte:** manglende omregning → `grocy_error` på linjen + receipt
-  `partially_approved`. Lageret røres ikke. Fødevarekontrollen (temperaturer, FVST, foto)
-  gemmes uanset — den er lovpligtig og må ikke afhænge af Grocys tilstand.
-- Sender klienten slet ingen `qu_id` (cachet browser), accepteres det KUN på produkter hvor
-  køb og lager er samme enhed — der er intet at forveksle. Ellers fejl.
-- `received_qu_id` + `received_quantity_stock` gemmes på linjen, så en fremtidig afvigelse
-  kan afgøres uden at gætte. Samme fix i legacy [routes/receiving.js](routes/receiving.js).
-- **Sagt FØR der tastes, ikke efter.** Serverens nægtelse kom først når man havde trykket
-  Godkend — stående med varerne, hvor løsningen lå i et andet system. Klienten tjekker nu
-  omregningen mens varelisten bygges (`_vmUnitIssue`), og siger det to steder: en gul
-  advarsel **uden for** varelisten (den er foldet sammen som default, så "Godkend alt" er
-  den normale vej igennem — en advarsel inde i listen ville ikke blive set) og på selve
-  varekortet.
-- **Og kan rettes på stedet.** Lager-enheden er i praksis altid kilo eller stk (grocy-hq:
-  136 Kilo, 59 Antal, 15 Liter, 1 Flaske ud af 211 aktive), så det manglende svar er ét tal:
-  *"Hvor meget er én Kasse i Kilo?"*. Feltet skriver omregningen til Grocy via det
-  eksisterende `POST /api/grocy/quantity-unit-conversions` — svaret kender den der står med
-  kassen, ikke kontoret. `pack_size_warning` fra routen vises, den betyder at tallet strider
-  mod pakkestørrelsen på stregkoden.
-- Kun **5 produkter** i grocy-hq mangler en omregning i dag (`npm run check:receipt-units`),
-  så advarslen er sjælden — men den rammer netop dem der ellers ville blive skrevet forkert.
-- `_vmFindFactor` **spejler** `findConversionFactor` i quConvert.js. Divergerede de to, ville
-  skærmen sige god for noget serveren bagefter nægter. Enigheden er testet direkte.
-- Kunne omregningerne ikke hentes, advares der **ikke** (`_vmConversionsLoaded`). Tom liste
-  ville ellers markere hver vare med afvigende enhed — 22 falske alarmer ved et Grocy-hik.
-  Serverens nægtelse står stadig som sikkerhedsnet mod en cachet browser.
+T-21 og T-22 blev sendt til kunden og blev alligevel liggende som **KLADDE**. Kontoret
+sendte derfor samme tilbud afsted flere gange — mail-historikken på T-22 har to udgående
+mails med PDF, tre minutter fra hinanden.
 
-**#359 — `inventory_deducted` blev sat selvom hvert Grocy-træk fejlede.** `consumeRecipes`
-afviser aldrig (fejl pr. produkt returneres som `success:false`), så `UPDATE ... = 1` kørte
-ubetinget. En bon hvor alt fik 500 stod som "lager trukket" — og **vagthunden fra #305 leder
-efter bons UDEN flaget**, så den var blind for præcis den tilstand den blev bygget til at fange.
-- Flaget er en **idempotens-vagt, ikke en kvittering**: det sættes kun når en gentagelse ville
-  gøre skade. Ny `bons.inventory_deduct_status`: `ok` / `partial` (flag sat — ellers dobbelt-
-  trækkes dem der lykkedes) / `failed` (flag bliver 0, sikkert at gentage) / `empty` /
-  `event_prep_owns_stock`.
-- [scripts/check-inventory-deduct.js](scripts/check-inventory-deduct.js) fik `findPartial()` —
-  delvise træk har flaget sat og var helt usynlige. Både log og alarm-mail dækker nu begge.
-- **Vagthundens afgrænsning rettet (9. august 2026).** Første kørsel i drift meldte tre
-  "manglende træk" der ingen af dem var fejl. Vinduet havde **ingen øvre datogrænse** —
-  beskeden sagde "de seneste N dage", men forespørgslen fangede alt fra N dage siden og
-  *frem*, så en bon med leveringsdato i 2027 blev rapporteret hver eneste dag indtil datoen
-  indtraf. Og bons **uden opskriftskoblede linjer** blev talt med, selvom de aldrig kan
-  trække noget; nye bons får `empty` + flaget sat, men historiske rækker fra før #359 står
-  med flaget på 0 for evigt (migration 141 bagudfyldte bevidst ikke). Begge afgrænsninger
-  ligger nu i SQL'en. `failed` slipper igennem datogrænsen — et forsøgt og mislykket træk
-  skal frem uanset dato. Bons uden noget at trække **tælles og nævnes** frem for at
-  forsvinde, så man kan se forskel på "ingen problemer" og "kontrollen kigger forkert".
-  En alarm der melder det samme hver dag om noget der ikke er galt, bliver ikke læst —
-  samme svigt som #305 selv. `npm run test:deduct-watchdog` (15 asserts mod den ægte SQL
-  og et rigtigt skema, mutationstestet). Målt på en kopi af driftsdata over 400 dage:
-  787 → 773 rapporterede, heraf 13 flyttet til "intet at trække" og 1 fremtidsdateret.
-- [office/views/events.js](office/views/events.js) viste `✓ lager trukket` ud fra flaget alene
-  og bekræftede dermed løgnen for et menneske. Nu egne labels for delvis/fejlet.
+Tre fejl gav samme oplevelse: *der skete ingenting.*
 
-**#361 — consume-endpoints havde ingen idempotens.** To klik, dobbelt-submit eller
-netværks-retry = dobbelt træk, og trækket var usynligt bagefter, så det først dukkede op ved
-næste optælling som en uforklarlig difference.
-- Ny `grocy_consume_log` (nonce UNIQUE) — samme mønster som produktionsbatchens `batch_nonce`.
-  Rækken indsættes **før** trækket og virker dermed også som lock: to samtidige klik kappes om
-  constrainten, taberen får vinderens svar. Igangværende træk → 409, ikke et opdigtet resultat.
-- `consume_nonce` er **påkrævet** på begge endpoints. En cachet klient får en fejlbesked der
-  beder om genindlæsning — det er bedre end et tavst dobbelttræk.
-- [shared/recipe_viewer.js](shared/recipe_viewer.js) holder nonce'en indtil trækket er
-  kvitteret, så et gentaget klik efter en netværksfejl bliver en opslagning. Trækket kan
-  nemlig godt være gået igennem hos Grocy selvom svaret aldrig nåede tilbage.
+1. **Kvitteringen slettede sig selv.** `_tToast(msg, ms)` tager en varighed i millisekunder,
+   men tre kaldesteder sendte en **art** i stedet: `_tToast('Tilbud sendt til …', 'success')`.
+   `setTimeout` gør en streng til `NaN` → 0 ms, så netop de vigtigste kvitteringer blev
+   fjernet i samme øjeblik de blev oprettet og nåede aldrig at blive tegnet. Andet argument
+   accepterer nu **begge** — tal = varighed, streng = art (grøn `success` / ravgul `warning`).
+   Den kan ikke længere sætte sin egen levetid til nul ved et uheld.
+2. **Afsendelse ændrede ikke status.** `_tDoSendMail` sendte mailen og rørte aldrig
+   `offer_status`. Skiftet ligger nu **efter** afsendelsen og kan aldrig vælte den — mailen
+   er den uigenkaldelige del. Slår skiftet fejl, siges det højt frem for at fejle stille.
+3. **Ingen manuel vej ud af Kladde.** `PATCH /api/quotes/:id/status` har eksisteret hele
+   tiden, og `patchQuoteStatus()` lå i `shared/api.js` — **uden ét eneste kaldested**.
+   Eneste virkende vej var CRM-tavlens pipeline (`tilbud_sendt`-kolonnen). `'lost'` kunne
+   slet ikke sættes: filteret "Tabt" på tilbudslisten kunne aldrig blive fyldt.
+   Trin 5 har nu en status-stribe `Kladde · Sendt · Tabt`. **"Vundet" står bevidst ikke der**
+   — den sættes af "Opret som bon", og serveren afviser `'won'` på status-endpointet af
+   præcis den grund (Patch I, F68), så en knap ville kun kunne fejle.
 
-**Deploy-forudsætning:** `npm run check:receipt-units` (read-only) lister produkter med
-forskellig købs- og lager-enhed UDEN omregning i Grocy — dem nægter varemodtagelsen nu.
-På grocytest: 5 af 64 (2 på indkøbslisten). Ordn dem i Grocy før første modtagelse.
+**Luk et tilbud fra pipelinen** uden en femte kolonne: hvert *tilbudskort* har et ✕ der
+først dukker op ved hover (kun `is_offer=1` — en rigtig bon aflyses via sin egen status).
+Det kalder tilbuddets status-endpoint, ikke pipeline-flytningen: "tabt" er en tilstand på
+tilbuddet, ikke en kolonne på en tavle.
 
-**Tests:** `npm run test:consume-hardening` (40 + 9 asserts — stubbet Grocy, så "hvert kald
-fejler" og "kun ét fejler" kan fremprovokeres; vm-sandkasse for klientens payload).
-T_VAREMODTAGELSE_FULL udvidet med UNIT-gruppen der modtager i købs-enhed mod ægte grocytest
-og måler at lageret flyttede sig med qty × faktor (**79 PASS**, op fra 76). Alle fire
-kerne-rettelser er **mutations-testet**. Regression grøn: VAREMOD_PATCH 26, T_STOCK 31,
-T_GROCY 14/2skip, T_RECIPES 20, deduct-check 10, prep-packing 12, packing-units 18,
-subrecipe-status 16, resolver-graph 8, recipe-viewer-nested 12, moms-audit 18.
+> Det krævede én ting på serveren: pipelinen hentede **alle** tilbud uanset status, og
+> kolonne-fordelingen har kun fire kasser — alt der ikke er sendt/forhandling/vundet ryger
+> i **Lead**. Et netop lukket tilbud ville altså hoppe tilbage til starten af tavlen.
+> `GET /pipeline` filtrerer nu `lost`/`expired` fra. Ændrer intet for eksisterende data:
+> indtil nu kunne intet tilbud overhovedet *blive* tabt.
 
-### Rettens beskrivelse vises bag ⓘ (6. august 2026)
+**Hvorfor det ikke bare er kosmetik:** et tilbud der bliver liggende som åbent tæller med i
+sidebarens tilbudstal, og når gyldigheden udløber, dukker det op på
+**Ringeliste → Kolde tilbud** som et tilbud ingen har fulgt op på — også når kunden for
+længst har valgt noget andet.
 
-Kost-tags og allergener nåede frem til event-order-3's bestillingsside (broen, `#394`),
-men beskrivelsen gjorde ikke. Datavejen var der allerede — `buildEventMenu` har hele tiden
-læst `description` fra `bestilling.menu_standard` — men **ingen af retterne havde feltet
-udfyldt**, og bon-v2's egen bestillingsform viste det slet ikke, selvom Settings-feltet
-lover "vises på bestillingssiden".
+Desuden: manglende mailadresse blokerer ikke længere. Send-panelet åbner med tomt Til-felt
+og en synlig gul note, så adressen kan skrives ind på stedet. Før afviste knappen sig selv
+med en toast, der (jf. fejl 1) var usynlig — så knappen så ud til slet ikke at gøre noget.
 
-- `public/embed/bestilling.html` — ⓘ folder nu **beskrivelse + allergener** ud (før kun
-  allergener). Beskrivelsen står øverst, allergenerne dæmpet nedenunder. `max-height` på
-  `.allergen-row` hævet 100px → 260px så en to-linjers salgstekst ikke klippes.
-- `routes/embed.js` + `routes/event-bridge.js` — Grocy-mode/fallback læser nyt valgfrit
-  userfield **`bestil_beskrivelse`**. Grocys egen `description` på opskriften bruges
-  bevidst IKKE: den indeholder produktions-noter ("skæres med blad nr 2 på Robocut") og må
-  aldrig ud til kunden. 34 af 131 opskrifter i grocy-hq har sådan en note i dag.
-- `settings/index.html` — Grocy-mode-infoboksen dokumenterer feltet + advarslen.
-- Manuel mode er uændret: beskrivelsen skrives pr. ret i **Settings → Bestilling — Menu**
-  (feltet "Kort salgstekst" fandtes allerede) og følger med gennem broen uden kodeændring.
-- Info-rækken er skiftet fra mørkeblå (`#2c3e50`) til designmanualens **grå flade + brun
-  markering** (s. 5: grå `#d7d1ca`, brun `#8e631f`). Den sorte/mørke boks skar for hårdt i
-  en ellers lys menu. Samme greb i event-order-3's ⓘ-boks.
-- `scripts/import-menu-descriptions.js` — fylder de 32 retter med teksterne fra
-  ristetrug.dk/menu (hentet 6. august 2026). Matcher på menu-item-id med navne-fallback,
-  rører ikke retter der allerede har en tekst (`--force` overskriver), dry-run default,
-  tager backup af menuen ved `--apply`. Idempotent — anden kørsel siger "0 sættes".
-  Fire bevidste indgreb i teksterne er dokumenteret i scriptets hoved (fodnote-stjerner
-  fjernet, én tastefejl rettet, slidere arver standard-rettens tekst, bokse skrevet ud
-  pr. variant). Brownie + de tre drikkevarer har ingen tekst på hjemmesiden og springes over.
-
-**Drift:** feltet er tomt på alle retter i produktion. Kør scriptet på serveren
-(dry-run først) — eller skriv teksterne i Settings i hånden. Verificeret hele vejen:
-Settings → `/webhook/event-menu` → bro → event-order-siden, og mod en kopi af
-driftsdata: 32 af 36 retter matchede på id, 0 ikke fundet.
-
-### Leveringspris: tal i pillen + beregner for løs adresse (6. august 2026)
-
-To ting fra driften: pillen i logistik-rækken sagde bare "By-ex pris" uden et tal, og
-der var ingen vej til at svare på "hvad koster levering til X?" når en kunde ringer,
-uden først at oprette en bon.
-
-- **Pris i pillen uden klik** ([shared/logistik.js](shared/logistik.js) `_logFillByExPill`):
-  rækken henter allerede `/api/delivery/calculate`, og svarets `alternatives[]` indeholder
-  By-expressens standard **kundepris**. Pillen viser den nu direkte (`💰 By-ex 154 kr`) —
-  **nul ekstra API-kald**. Klik henter stadig By-expressens egen pris (vores KOSTpris) +
-  margin som før. Ligger turen uden for standardprisens rækkevidde (`max_distance_km`),
-  vises **intet tal** — pillen bliver stiplet med begrundelsen i tooltip. Et forkert tal
-  er værre end ingen. `_logFillRow` samler forslag-linje + pille, så de altid følges ad.
-- **Prisberegner for en løs adresse**: knappen `🧮 Beregn pris` i logistik-toolbaren
-  åbner et panel med DAWA-autocomplete + kuverter/kasser. Bruger **samme** `/calculate`
-  som bon-forslagene, så prisen kunden får i røret er den samme office senere ser på bonen.
-  Ingen bon oprettes, og der ringes ikke ud til By-expressen. Viser **både ex og inkl. moms**
-  (via `Moms.exclToIncl`) — `cost_formula` er ex moms, mens `bons.delivery_price` er incl,
-  så en privatkunde skal høre det andet tal end et firma. Uegnede vogne vises stadig, men
-  dæmpet med begrundelse (constraint-princippet: aldrig spærring). Egne vogne er mærket
-  "egen vogn" med en note om at det er vores omkostning, ikke et tal at give kunden.
-  Virker i begge zoner (delt `shared/logistik.js`).
-
-**Prisformlen rettet — `standard_inner_city` er et GULV, ikke et loft**
-([services/booking_template.js](services/booking_template.js) `estimateCost`): bytaksten tog
-hidtil forrang og **ignorerede afstanden helt**, så taxaens `base 136 + per_km 19` var reelt
-uendelig død kode — en tur til Roskilde (40 km) blev prissat til 250 kr i stedet for ~895 kr.
-Nu vinder km-taksten når turen er lang nok. Vogne uden km-takst (By-expressen) er uændret
-flade; dér er `max_distance_km = 8` værnet. Kasse-tillægget lægges oveni uanset hvilket
-prisled der vinder. Uden afstand står bytaksten alene → bagudkompatibelt.
-Rammer også margin-visningen i draweren, hvor lange taxature før så kunstigt rentable ud.
-
-**`POST /api/delivery/calculate`** ([routes/delivery.js](routes/delivery.js)): uden `bon_id`
-udledes kasser nu af `pax` efter **samme** regel som for en bon (`default_pax_per_box`), så
-beregneren og bon-forslaget ikke kan blive uenige — reglen lever ét sted, på serveren.
-Svaret returnerer additivt `boxes` + `pax_per_box`, så beregneren kan vise *hvilket*
-kasse-antal prisen er regnet på.
-
-**Falsk tabs-alarm på lange ture fjernet** (driftsfund): `GET /lobo/quote` regnede margin
-mod `estimateCost(vehicle, bon)` **uden afstand**, altså mod By-expressens **bypris** på
-154 kr — også når turen lå langt uden for de 8 km bytaksten gælder for. En levering til
-Høje Taastrup (21,9 km, kost 328,80) viste derfor rødt `margin −174,8 kr` + "I taber på
-leveringen", målt mod en pris vi aldrig ville have tilbudt derude. By-expressen har ingen
-`per_km`, så gulv-rettelsen ovenfor hjælper ikke her — formlen *kan* ikke udtrykke afstand
-for den vogn.
-- `quoteForBon` sammenligner nu Lobos **egen** målte `routedistance` mod vognens
-  `max_distance_km` (samme regel som `supply_warning` i `previewBooking`) → nyt felt
-  `standard_price_applies`. Er den falsk: `margin = null` (ingen margin mod en pris der
-  ikke gælder) og i stedet `suggested_customer_ex` + `suggested_margin` via den
-  eksisterende `suggestCustomerPrice` — som hidtil KUN blev brugt i booking-previewet.
-- **Vi foreslår IKKE selv en kundepris derude.** Driftsfeedback afdækkede hvorfor:
-  By-expressen *kører* gerne uden for zonen — bare på andre produkter
-  (Small/Medium/Large × Economy/Standard/VIP) plus et `outside zone`-tillæg på +30 %
-  af ordreværdien (dertil `volume surcharge` +50 % og `saturday delivery` +30 %; vi får
-  10 % rabat på basisprisen). **Food** — det produkt `cost_formula` beskriver, og det
-  vi altid spørger om i `bonToOrderInput` — er derimod kun tilgængeligt i
-  forsyningsområdet, og Lobos *kladde* afviser IKKE out-of-area (kun den rigtige
-  booking gør; det er præcis hvad `supply_warning` i `previewBooking` allerede advarer
-  om). Kostprisen for en fjern tur er altså **en Food-pris for noget vi ikke kan købe**,
-  og en markup ovenpå ville bygge en kundepris på et tal der ikke findes. Derfor
-  `suggested_customer_ex = null` ved out-of-area; office henter den rigtige pris i
-  By-ex booking-panelet, hvor produktet kan vælges og `previewBooking` regner forslaget
-  på rigtigt grundlag.
-- Logistik-rækken: `uden for Food-området — hent rigtig pris under By-ex booking`
-  (dæmpet gul) i stedet for rødt tab. Draweren: `Kundepris (std) → gælder ikke så langt
-  ude` + samme forklaring som booking-panelets `supply_warning`, i dæmpet gul
-  (`.lq-warn-soft`) — det er en anvisning, ikke et tab. Inden for området hvor
-  bytaksten ikke dækker (fx mange kasser) er kostprisen ægte, og dér beregnes forslaget
-  som før.
-- **Kendt upræcished:** grænsen testes som `routedistance > max_distance_km` (8 km),
-  men By-expressens rigtige grænse er **postnummer-zoner**, ikke en radius — primær zone
-  (1000–2450 Kbh, 1800–2000 Frb, 2150, 2500, 2900) + udvidet zone (2600 Glostrup …
-  2920 Charlottenlund). Fx 2750 Ballerup ligger ~14 km væk men *i* den udvidede zone.
-  Radius-testen er derfor konservativ i begge retninger. At kode zonelisterne ind kræver
-  bekræftelse på om Food dækker hele den udvidede zone — ikke afklaret.
-- Vogne uden `max_distance_km` → bytaksten gælder altid (bagudkompatibelt; test-fixturen
-  har ikke feltet, så de eksisterende margin-asserts er urørte).
-- **De to afstande skilles ad**: rækken/draweren viste `21,9 km` (vores ORS fra HQ) og
-  `18,9 km` (Lobos egen rute) lige over hinanden uden forklaring. Lobos er nu mærket
-  `(By-ex)`.
-
-**Tests:** +7 asserts i `scripts/test-delivery-spor2-unit.js` (bypris vs. km-takst i begge
-retninger, flad vogn uden km-takst, kasse-tillæg på begge grene) og +5 tests i
-`tests/lobo_booking.test.js` (drifts-tilfældet 18,9 km/8 km → margin null + `supply_warning`
-+ **intet** forslag, bynær tur hvor bytaksten dækker → margin bevaret og intet forslag,
-bynær tur hvor den ikke dækker → forslag beregnet, vogn uden `max_distance_km` → uændret).
-Mutationstestet: neutraliseres `outOfArea`, fejler drifts-testen.
-241 delivery-tests grønne (102+50 spor1, 31+24+29 spor2, 21 lobo) + moms-audit 18/0.
-Browser-verificeret i begge zoner mod live ORS: 5 km → taxa 250 kr, 21,9 km → 552 kr,
-40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr; pille med og uden tal;
-Lobo-svaret stubbet med driftens egne tal for at se renderingen. Testdata ryddet.
-
-### Leveringspris: afstandstrappe + "sidst taget" (6. august 2026)
-> Fortsættelse af sektionen ovenfor. Driften leverede tre oplysninger der ændrede designet:
-> Food dækker kun byområdet · til Høje Taastrup har vi taget 400 kr · en taxa koster 605 kr i dag.
-
-**Trappe-takst i `estimateCost`** (migration 139): ny formel-type
-`{tiers:[{max_km,price,label},…]}` — fast pris pr. afstandsinterval. Sidste trin uden
-`max_km` = "og derover". Vinder over `standard_inner_city`/`base`/`per_km` når afstanden
-kendes; uden afstand bruges trin 1, så kaldere uden distance er upåvirkede.
-
-**Trappen er ikke opfundet** — den lå i driftsdataene hele tiden
-(`bon_lines.category = 'x-Levering'`, 2.269 linjer):
-
-| Leveringslinje | Pris incl | Antal | Sidst brugt |
-|---|---|---|---|
-| By-ekspressen leverer | 180 kr | 1.067 | maj 2026 |
-| By-ekspressen – Langt væk | 300 kr | 47 | **apr. 2024** |
-| By-ekspressen – Meget Langt væk | 500 kr | 9 | **apr. 2024** |
-
-De to sidste holdt op med at blive brugt i april 2024 — dét var hullet. Bekræftet mod en
-faktura fra 11. juni 2025 til 2630 Taastrup: `Transport Taastrup 400,00` = 500 incl = **400 ex**,
-altså meget-langt-taksten. `bon_lines.unit_price` er incl moms, `cost_formula` er ex (§6b),
-så trappen er **144 / 240 / 400**. Km-grænserne (8 / 15) er derimod et **skøn** — de historiske
-takster blev valgt i hånden og er ikke konsistente (2800 Lyngby fik både 300 og 500;
-300-taksten blev også brugt på inderby-adresser). Justeres i Settings → Leveringsmetoder.
-
-**`quoteForBon` + `previewBooking` sender nu Lobos målte afstand ind i `estimateCost`,**
-så `customer_ex` rammer det rigtige trin. Dermed er kundeprisen pålidelig hele vejen ud —
-men `margin` er stadig `null` uden for Food-området, fordi **kostprisen** dér er en Food-pris
-for noget vi ikke kan købe (uændret fra sidste runde).
-
-**`GET /api/delivery/price-history?postal_code=&limit=`** — hvad har vi FAKTISK taget?
-Læser leveringslinjer (`category = 'x-Levering'`), ikke `bons.delivery_price` (udfyldt på
-4 af 3.125 bons) og ikke `bons.delivery_cost` (blandet v1/v2-semantik, #194). Returnerer
-`last` + `common` + `rows` med både incl og ex. Postnumrene i v1-data er rodede
-(`2630`, `DK-2620`, `1000 København K`) → delstrengs-match på de fire cifre.
-Vises i **prisberegneren** og i **bon-drawerens forslags-blok** ("Sidst taget til 2630:
-180 kr inkl. (144 kr ex) · Levering med El-Taxa · 2026-01-28 · oftest 180 kr (2/3)").
-
-**Tre kilder, bevidst adskilt i UI'et:** trappen = *hvad bør det koste*, historikken =
-*hvad plejer vi at tage*, live By-ex-opslag = *hvad koster det os*. Live-opslaget er
-uændret on-demand (klik) — det opretter og sletter en kladde hos Lobo pr. opslag, så det
-må ikke køre automatisk pr. række. Det er mest pålideligt netop inden for byområdet, hvor
-Food gælder.
-
-**Pillen viser nu trappens pris hele vejen ud** (400 kr på 21,9 km) — stiplet med forklaring
-når Food ikke dækker, i stedet for at skjule tallet. Beregnerens caveat blev rettet fra
-"prisen holder ikke her" til "kan vælges alligevel": efter trappen *gælder* prisen derude.
-
-**Tests:** +14 asserts i `scripts/test-delivery-spor1-unit.js` og `-spor2-unit.js`
-(trin-grænser inkl. ≤-kant, kasse-tillæg oveni trappen, tiers-forrang, tom/ugyldig trappe
-falder igennem), +14 i `scripts/test-delivery-spor1.js` (price-history: kun x-Levering,
-`DK-`-præfiks matcher, incl→ex, hyppigste pris, ukendt postnr → 200 tom, ugyldigt → 400).
-285 delivery-tests grønne (105+65 spor1, 42+24+29 spor2, 21 lobo) + moms-audit 18/0.
-Browser-verificeret i office: pille 144/400 kr, beregner 400 ex / 500 incl (= fakturaens tal),
-historik i både beregner og drawer. Testdata ryddet.
-
-**Beregnet adresse vises på kortet** (driftsønske): markør (🧮 i stiplet brun ring — bevidst
-anderledes end bon-pins, for det er et opslag og ikke en levering der findes) + stiplet linje
-fra HQ, så afstanden kan *ses* og ikke bare læses. Tooltip: adresse · km · billigste eksterne
-vogn. Ligger i sit **eget Leaflet-lag** (`_logPcLayer`), så `_logRenderMap`'s `clearLayers()`
-ikke fjerner den ved en SSE-drevet genindlæsning; punktet lægges desuden ind i `fitBounds`
-så kortet ikke panorerer det ud af syne. Ryddes når panelet lukkes, og så snart der tastes i
-adressefeltet igen (så markøren aldrig viser noget andet end det feltet siger).
-**Åbn/luk ejes af én funktion** (`_logPcSetOpen`) — første udgave lagde oprydningen i ✕-vejen
-men ikke i toolbar-knappen, så markøren blev hængende når man lukkede dér (fundet i drift).
-Escape lukker først adresse-listen, derefter panelet.
-
-**Åbent:** taxaens takst. Appen viser 605 kr for HQ → 2630 Taastrup; vores formel siger
-552 kr ex. Er appens tal **incl** moms (som forbrugerpriser typisk er), er den rigtige pris
-484 ex, og `per_km: 19` er ~14 % for høj (~15,8 ville ramme). Ikke rettet — moms-grundlaget
-er ikke bekræftet.
-### Kontaktperson på eventet (6. august 2026)
-> Spec: `docs/CLAUDE_EVENT.md §17`. Driftsfeedback: kontoret udfyldte kunden i hånden
-> på hver enkelt event-bon, og de øvrige stod som "Ukendt" på køkkenets kort.
-
-- **Migration 139**: `events.customer_id` + `company_id` + `day_contact_name`/`_phone`
-  (alle nullable → events uden kontakt opfører sig præcis som før).
-- **`eventContactFields(event)`** ([routes/events.js](routes/events.js)) er den ene regel:
-  kunden kopieres råt; dagskontakten falder tilbage til kundens navn/telefon når den ikke er
-  sat separat. **Både** event-generatoren (`POST /:id/bons`) og **event-broen**
-  ([routes/event-bridge.js](routes/event-bridge.js)) bruger den — broen importerer helperen
-  frem for at have sin egen kopi. Eksplicit `customer_id` i payloadet vinder (`??`, ikke `||`).
-- **Bons lavet før kontakten fandtes**: `GET /:id/overview` returnerer
-  `bons_missing_contact`, og `POST /:id/apply-contact` udfylder dem. Rører **kun tomme
-  felter** (`COALESCE`) — en bon hvor kontoret selv har sat noget står urørt. Eksplicit
-  handling med bekræftelse, ikke en bivirkning af at gemme eventet. Idempotent.
-- **UI** ([office/views/events.js](office/views/events.js)): kontaktpersonen vælges i
-  event-modalen med samme `KundeSoeg` som bon-draweren; kontaktlinje under event-headeren
-  med "Udfyld på N bons uden kunde" når der er noget at udfylde.
-- **Fælde (fundet ved browser-verifikation):** `KundeSoeg` må ikke stå i et `<label>` —
-  label-aktivering videresender klikket til labelens første formularkontrol, som efter
-  valget er ✕ ("skift kunde"), så valget blev ryddet i samme klik.
-- **Tests**: `scripts/test-event-contact.js` — 26 asserts mod de ægte endpoints over HTTP
-  (isoleret temp-DB, spawned server). Regression grøn: event-menu 42, event-bridge-prep 69,
-  topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
-  Browser-verificeret end-to-end; testdata ryddet.
-
-### Varemodtagelsen blev usynlig — modtagelseslog + Whiteboard-kobling (7. august 2026)
-> Driftsfund: varemodtagelserne dukkede ikke op i loggen, og køkkenet var gået tilbage til
-> Whiteboards egen formular (den uden lagerdelen). Koden fejlede aldrig — den var **aldrig
-> koblet til**.
-
-**Diagnosen** (bekræftet mod drift): `settings.whiteboard_webhook_url` har stået **tom siden
-den blev seedet** (migration 035, 11. april 2026). `send()` springer stille over ved tom URL
-(`bonv2_only`-mode, spec §"Tre driftsmodes"), så `webhook_log` var tom og
-`whiteboard_synced_at` NULL på **alle** registreringer. Samtidig havde `fetchGoodsReceipts()`
-**nul forbrugere** — listevisningen var aldrig bygget. En registrering var derfor usynlig fra
-det øjeblik succes-skærmen forsvandt. Fem registreringer (18. maj – 5. august) nåede aldrig
-frem. Feltet kunne kun sættes med SQL.
-
-Fejlklassen er den samme som #305/#319 (jf. memory `project_silent_sideeffect_failures`):
-**handlingen påstod at være sket, bivirkningen fyrede aldrig, og intet sted mødtes de to.**
-
-- **🗂 Modtagelseslog** i `shared/varemodtagelse.js` — liste (periode-chips 30 dage/3 mdr/1 år/alt)
-  + detalje med alle FVST-felter, varer, foto og synk-status. Ligger i **samme container** som
-  selve modtagelsen, så den følger med i køkkenfanen *og* mobilen uden separat montering.
-- **Loggen overlever at Grocy er nede**: `initVaremodtagelse`'s catch-gren renderer nu topbaren
-  i stedet for kun en fejltekst. Ny registrering kræver Grocy (varer, enheder, leverandører) —
-  FVST-dokumentationen gør ikke, og måtte ikke ryge med i faldet.
-- **Settings → Integrationer → Whiteboard**: URL-felt (validerer at den peger på `/api/events`),
-  koblet/ikke-koblet-mærke, antal usendte + "send de manglende", og de seneste 20 forsøg med
-  statuskode og fejl. `GET /api/goods-receipts/webhook-log` (admin).
-- **`whiteboard: { configured, dispatched }`** i POST-svaret. `webhook_sent`/`webhook_dispatched`
-  stod altid på `true` — også når intet blev sendt; de er bevaret som deprecated fordi
-  T_VAREMOD_HAPPY_03 pinner dem (F31).
-- **`POST /:id/resend-webhook`** (`requireAuth()`, ikke admin — den der står ved leverancen skal
-  kunne rette op). **Nægter når `whiteboard_synced_at` er sat**: Whiteboard afviser ikke dubletter,
-  så en gensendelse ville lægge samme leverance i FVST-loggen to gange.
-- **`scripts/resend-goods-receipt-webhooks.js`** — backfill af efterslæbet. Dry-run default,
-  `--apply`/`--id`/`--from`/`--to`. Sender kun hvor `whiteboard_synced_at IS NULL` ⇒ idempotent.
-- `send()` returnerer nu `{ok, skipped, reason, statusCode, error}` (additivt — POST-stien
-  er stadig fire-and-forget) + `isConfigured()`/`getWebhookUrl()`.
-- **Tests**: `scripts/test-goods-receipt-webhook.js` — 27 asserts mod isoleret temp-DB + stub-modtager:
-  at en sluttet kobling *rapporterer* sig selv, at payloaden matcher Whiteboards skema-felter
-  (FVST Skema 1, migration 020), og at `whiteboard_synced_at` kun sættes ved 2xx. Mutations-testet.
-- Verificeret end-to-end mod stub-modtager der validerer mod Whiteboards feltnavne: payload rent
-  igennem (ingen ukendte nøgler, gyldig `deviation`-værdi, frys udeladt når toggle er slået fra),
-  503 + netværksfejl logges uden at blokere brugeren, gensend + backfill + dublet-værn.
-  Browser-verificeret i køkken, mobil og Settings; testdata ryddet, dev-DB tilbage i udgangspunktet.
-
-**Deploy:** URL'en er sat i drift (7. august). Kør bagefter backfill'en mod prod —
-dry-run først, så `--apply` — for de fem registreringer der aldrig nåede frem.
+Browser-verificeret ende-til-ende mod en kopi af driftsdata: status gemmes (`offer_status`,
+`offer_sent_at`), listen skifter til SENDT, kvitteringen bliver stående, ✕ vises kun på
+tilbud (2 af 26 kort), det lukkede tilbud forsvinder fra tavlen og kan findes under
+Tilbud → Tabt. Selve afsendelsen blev testet med et stub'et mail-kald, så der gik ingen
+post ud. Testdata rullet tilbage.
 
 ### "✓ Booket" betød kun at et menneske trykkede (#365, 20. juli 2026)
 
@@ -3815,6 +4061,7 @@ GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js
+GET    /api/settings/internal-senders                    routes/settings.js (admin — interne mail-afsendere + ramte kunder)
 GET    /api/dashboard/today                              routes/dashboard.js
 GET    /api/dashboard/stats?days_back=&days_forward=     routes/dashboard.js
 GET    /api/dashboard/top-products?from=&to=             routes/dashboard.js
@@ -3890,8 +4137,6 @@ POST   /api/goods-receipts/photo                           routes/goods-receipts
 POST   /api/goods-receipts                                 routes/goods-receipts.js
 GET    /api/goods-receipts                                 routes/goods-receipts.js
 GET    /api/goods-receipts/:id                             routes/goods-receipts.js
-GET    /api/goods-receipts/webhook-log?limit=              routes/goods-receipts.js (admin — er Whiteboard-koblingen i live?)
-POST   /api/goods-receipts/:id/resend-webhook              routes/goods-receipts.js (nægter hvis allerede synket)
 GET    /api/staff                                          routes/staff.js
 POST   /api/staff                                          routes/staff.js (admin)
 PATCH  /api/staff/:id                                      routes/staff.js (admin)

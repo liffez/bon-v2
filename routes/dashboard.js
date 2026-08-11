@@ -12,7 +12,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql, salesPriceCategorySql, revenueFactorSQL, getNonRevenuePaymentCodes } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql, salesPriceCategorySql, revenueFactorSQL, getNonRevenuePaymentCodes, unitCountablePredicate } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
 
@@ -531,21 +531,44 @@ router.get('/stats', handle(async (req, res) => {
 
 // ─── GET /top-products ────────────────────────────────────────
 
+/**
+ * ?bucket=food (default) — kun varer der tæller som solgte enheder
+ *        (samme regel som `bons.total_units`, jf. unitCountablePredicate).
+ * ?bucket=other          — resten: emballage, drikke, kager, tilbehør.
+ *
+ * Opdelingen findes fordi RR Boks lå på førstepladsen hver måned: den følger
+ * med næsten hver bon, så på antal slår den enhver sandwich. Den skal stadig
+ * kunne tælles — bare ikke i konkurrence med maden.
+ *
+ * `is_accessory = 0` bevares som ekstra sikkerhedssnor. Flaget er i praksis
+ * aldrig sat (0 af 20.781 linjer i drift), så det var ALENE utilstrækkeligt —
+ * det var netop derfor emballagen slap igennem.
+ *
+ * Bemærk: tallet er rå `SUM(quantity)` — altså "hvor mange stk af denne vare",
+ * ikke enheds-bidraget. En slider-boks tæller 3 enheder i `total_units`, men
+ * står stadig som 1 stk her, fordi det er dét man spørger om i en produktliste.
+ */
 router.get('/top-products', handle(async (req, res) => {
     const db = getDb();
     const today = _today();
     const from = req.query.from || today.slice(0, 8) + '01'; // default: month start
     const to   = req.query.to   || today;
+    const bucket = req.query.bucket === 'other' ? 'other' : 'food';
+
+    const unit = unitCountablePredicate();
+    const bucketClause = bucket === 'other' ? `NOT ${unit.sql}` : unit.sql;
 
     const rows = db.prepare(`
         SELECT
             bl.product_name,
+            MAX(COALESCE(bl.category, '')) AS category,
             SUM(bl.quantity)               AS total_enh,
             SUM(bl.quantity * bl.unit_price) AS total_kr
         FROM bon_lines bl
         JOIN bons b ON bl.bon_id = b.id
         JOIN status_definitions sd ON b.status_id = sd.id
         LEFT JOIN price_categories pc ON pc.id = b.price_category_id
+        ${unit.join}
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code != 'AFLYST'
           AND COALESCE(b.is_offer, 0) = 0
@@ -553,10 +576,11 @@ router.get('/top-products', handle(async (req, res) => {
           AND ${salesPriceCategorySql('pc.code')}
           AND bl.product_name IS NOT NULL AND bl.product_name != ''
           AND bl.is_accessory = 0
+          AND ${bucketClause}
         GROUP BY bl.product_name
         ORDER BY total_enh DESC
         LIMIT 10
-    `).all(from, to);
+    `).all(from, to, ...unit.args);
 
     // Tilføj 3-felt mønster pr produkt (regnskabskonvention: ex moms primær)
     const decorated = rows.map(r => ({

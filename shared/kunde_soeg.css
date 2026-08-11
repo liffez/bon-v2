@@ -299,6 +299,84 @@
     cursor: not-allowed;
 }
 
+/* ── CVR-søgning på navn ───────────────────────────────── */
+
+.ks-cvr-search {
+    margin-bottom: 0.75rem;
+}
+
+.ks-cvr-search > label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-text-dim);
+    margin-bottom: 0.3rem;
+}
+
+.ks-cvr-results {
+    margin-top: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--color-surface, #fff);
+}
+
+.ks-cvr-result {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.ks-cvr-result:hover {
+    background: var(--brand-primary-light, #f1e6b2);
+}
+
+.ks-cvr-result-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.ks-cvr-result-sub {
+    font-size: 0.75rem;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+
+.ks-cvr-empty {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.8rem;
+    color: var(--color-text-dim);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.ks-cvr-help {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.78rem;
+}
+
+.ks-cvr-help a {
+    color: var(--brand-primary);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.ks-cvr-help a:hover {
+    text-decoration: underline;
+}
+
+.ks-cvr-hint {
+    font-size: 0.72rem;
+    color: var(--color-text-dim);
+    margin-top: 0.35rem;
+    line-height: 1.4;
+}
+
 /* ── Privatkunde ───────────────────────────────────────── */
 
 .ks-privat-label {

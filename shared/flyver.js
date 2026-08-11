@@ -212,7 +212,8 @@ async function _renderFlyverDetail() {
 }
 
 function _buildFlyverBonSummary(bon) {
-    var lines = (bon.lines || []).filter(function(l) { return !l.is_accessory; });
+    // Ens linjer slås sammen — se shared/bon_lines.js.
+    var lines = BonLines.mergeLines(bon.lines || []).filter(function(l) { return !l.is_accessory; });
     var linesHtml = lines.map(function(l) {
         return '<div class="flyver-bon-line">' + l.quantity + '\u00d7 ' + esc(l.product_name) + '</div>';
     }).join('');

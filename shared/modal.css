@@ -105,6 +105,8 @@
 .changelog-icon.action-update        { background: #fef3d6; color: #9a7020; }
 .changelog-icon.action-delete        { background: #fde8e8; color: #bc181b; }
 .changelog-icon.action-flyver        { background: #fde8e8; color: #bc181b; }
+.changelog-icon.action-grocy_consume { background: #ece7f5; color: #6a5a9e; }
+.changelog-icon.action-economic_draft_created { background: #e8f0f6; color: #4a7a9e; }
 
 /* Indhold */
 .changelog-content {
@@ -131,6 +133,47 @@
 .changelog-detail .arrow {
     margin: 0 4px;
     color: var(--color-text-dim, #8a8580);
+}
+.changelog-detail .changelog-warn {
+    color: #bc181b;
+    font-weight: 600;
+}
+
+/* Fri-tekst-note (booking, auto-satte tider) under selve ændringen */
+.changelog-note {
+    font-size: 12px;
+    color: var(--color-text-dim, #8a8580);
+    margin-top: 2px;
+    font-style: italic;
+    word-break: break-word;
+}
+
+/* Foldet maskin-payload (fx produktlisten bag et lagertræk) */
+.changelog-payload {
+    margin-top: 4px;
+}
+.changelog-payload > summary {
+    font-size: 12px;
+    color: var(--color-text-dim, #8a8580);
+    cursor: pointer;
+    user-select: none;
+}
+.changelog-payload > ul {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    max-height: 220px;
+    overflow-y: auto;
+    font-size: 12px;
+}
+.changelog-payload > ul > li {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 2px 0;
+    color: var(--color-text, #333);
+}
+.changelog-payload > ul > li > span:last-child {
+    color: var(--color-text-dim, #8a8580);
+    white-space: nowrap;
 }
 
 /* Meta: tid + bruger */
