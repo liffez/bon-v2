@@ -27,6 +27,29 @@ function _drLoenSub(d) {
     if (!(d.labor_overhead_pct > 0)) return 'rå løn · intet løntillæg sat';
     return 'rå −' + _drMoney(d.labor_raw_ex_moms) + ' + ' + _drNum(d.labor_overhead_pct, 1) + ' % tillæg';
 }
+// Branche-nøgletal: løn% og råvare% (vareforbrugsprocent) = andel af omsætningen.
+// Udledes HER i frontenden af tal der allerede ligger i svaret — ikke som nye
+// felter på API'et. Grunden: afsluttede dage fryses som `data_json`
+// (labor_day_snapshot), og et nyt server-felt ville mangle i alle eksisterende
+// snapshots. Udledningen virker på både live-svar, frosne snapshots og
+// periode-totaler. Det er et rent forhold mellem to tal der ALLEREDE er ex moms
+// — ingen moms-regning i frontenden (jf. §6b).
+function _drShareOf(part, revenue) {
+    if (part == null || !(revenue > 0)) return null;
+    return part / revenue * 100;
+}
+// Sub-linje til en KPI-pille: "28,4 % af omsætning" (tom hvis omsætning = 0).
+function _drShareSub(part, revenue) {
+    var p = _drShareOf(part, revenue);
+    if (p == null) return '';
+    return '<span class="dr-share">' + _drPct(p) + '</span> af omsætning';
+}
+// Procent-celle til dag-for-dag-tabellen. Dæmpet, fordi den er afledt af
+// kronekolonnen ved siden af — beløbet er stadig det primære.
+function _drShareCell(part, revenue) {
+    var p = _drShareOf(part, revenue);
+    return '<td class="dr-r dr-pct-cell">' + (p == null ? '—' : _drPct(p)) + '</td>';
+}
 function _drEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -246,22 +269,27 @@ function _drRenderPeriod(p) {
             '<td>' + d.date + (d.frozen ? ' <span class="dr-flag">🔒</span>' : '') + '</td>' +
             '<td class="dr-r">' + _drMoney(d.revenue_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drMoney(d.cost_ex_moms) + '</td>' +
+            _drShareCell(d.cost_ex_moms, d.revenue_ex_moms) +
             '<td class="dr-r">' + _drMoney(d.delivery_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + '</td>' +
+            _drShareCell(d.labor_ex_moms, d.revenue_ex_moms) +
             '<td class="dr-r ' + ((d.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg') + '">' + _drMoney(d.driftsresultat_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drPct(d.db_pct) + '</td>' +
             '<td class="dr-r">' + _drNum(d.units, 0) + '</td>' +
         '</tr>';
     }).join('');
 
+    var pRaw = (t.labor_raw_ex_moms != null && t.labor_raw_ex_moms !== t.labor_ex_moms)
+        ? 'rå −' + _drMoney(t.labor_raw_ex_moms) + ' + tillæg' : '';
+    var pLoenSub = [_drShareSub(t.labor_ex_moms, t.revenue_ex_moms), pRaw].filter(Boolean).join('<br>');
+
     body.innerHTML = '' +
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(t.revenue_ex_moms)) +
-            kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms)) +
+            kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms), '',
+                _drShareSub(t.cost_ex_moms, t.revenue_ex_moms)) +
             kpi('Levering (ex moms)', '−' + _drMoney(t.delivery_ex_moms)) +
-            kpi('Løn', '−' + _drMoney(t.labor_ex_moms), '',
-                (t.labor_raw_ex_moms != null && t.labor_raw_ex_moms !== t.labor_ex_moms)
-                    ? 'rå −' + _drMoney(t.labor_raw_ex_moms) + ' + tillæg' : '') +
+            kpi('Løn', '−' + _drMoney(t.labor_ex_moms), '', pLoenSub) +
             kpi('Driftsresultat (ex moms)', _drMoney(t.driftsresultat_ex_moms), resultCls) +
             kpi('DB%', _drPct(t.db_pct), resultCls) +
             kpi('Enheder', _drNum(t.units, 0)) +
@@ -270,8 +298,16 @@ function _drRenderPeriod(p) {
         '<div class="dr-trend">' + (days.length ? bars : '<div class="dr-empty">Ingen dage.</div>') + '</div>' +
         '<div class="dr-section-title">Dag-for-dag</div>' +
         '<table class="dr-labor"><thead><tr><th>Dato</th><th class="dr-r">Omsætning</th><th class="dr-r">Vareforbrug</th>' +
-            '<th class="dr-r">Levering</th><th class="dr-r">Løn</th><th class="dr-r">Driftsresultat</th><th class="dr-r">DB%</th><th class="dr-r">Enh.</th></tr></thead>' +
-            '<tbody>' + rows + '</tbody></table>';
+            '<th class="dr-r dr-pct-cell">Vare%</th>' +
+            '<th class="dr-r">Levering</th><th class="dr-r">Løn</th>' +
+            '<th class="dr-r dr-pct-cell">Løn%</th>' +
+            '<th class="dr-r">Driftsresultat</th><th class="dr-r">DB%</th><th class="dr-r">Enh.</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table>' +
+        // Ingen total-række: pillerne øverst ER periodens totaler, og en samlet
+        // procent er IKKE gennemsnittet af dagenes procenter (den skal regnes på
+        // periodens samlede omsætning). To tal der ligner hinanden men afviger,
+        // ville invitere til fejllæsning.
+        '<div class="dr-sub" style="margin-top:8px">Vare% og Løn% er dagens andel af dagens omsætning · periodens samlede procenter står i pillerne øverst.</div>';
 }
 
 function _drLoad() {
@@ -350,6 +386,12 @@ function _drRender(d) {
           (laborFoot ? '<tfoot>' + laborFoot + '</tfoot>' : '') + '</table>'
         : '<div class="dr-empty">Ingen vagter registreret for dagen.</div>';
 
+    // Løn-pillen: lønprocenten øverst (branche-nøgletallet), rå-løn/tillæg under.
+    // Procenten måler dét tal pillen selv viser — drifts-løn ekskl. bud, altså
+    // inkl. "other"-roller. Nøgletallet "Lønandel (kun produktionsroller)"
+    // nedenfor er snævrere (§6 pkt. 4); de to må derfor gerne afvige.
+    var loenSub = [_drShareSub(d.labor_ex_moms, d.revenue_ex_moms), _drLoenSub(d)].filter(Boolean).join('<br>');
+
     var frozenHtml = '';
     if (d.frozen) {
         frozenHtml = '<div class="dr-frozen">' +
@@ -365,16 +407,17 @@ function _drRender(d) {
         warnHtml +
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(d.revenue_ex_moms), '', '', 'bons') +
-            kpi('Vareforbrug (ex moms)', '−' + _drMoney(d.cost_ex_moms), '', '', 'bons') +
+            kpi('Vareforbrug (ex moms)', '−' + _drMoney(d.cost_ex_moms), '',
+                _drShareSub(d.cost_ex_moms, d.revenue_ex_moms), 'bons') +
             kpi('Levering (ex moms)', '−' + _drMoney(d.delivery_ex_moms), '', '', 'logistik') +
-            kpi('Løn', '−' + _drMoney(d.labor_ex_moms), '', _drLoenSub(d)) +
+            kpi('Løn', '−' + _drMoney(d.labor_ex_moms), '', loenSub) +
             kpi('Driftsresultat (ex moms)', _drMoney(d.driftsresultat_ex_moms), resultClass) +
             kpi('DB%', _drPct(d.db_pct), resultClass) +
         '</div>' +
         '<div class="dr-section-title">Nøgletal</div>' +
         '<div class="dr-metrics">' +
             '<div class="dr-metric"><span>Kapacitetsrate</span><strong>' + _drNum(d.kapacitetsrate, 1) + ' enh/mandetime</strong></div>' +
-            '<div class="dr-metric"><span>Lønandel (produktion)</span><strong>' + _drPct(d.loenandel_pct) + '</strong></div>' +
+            '<div class="dr-metric"><span>Lønandel (kun produktionsroller)</span><strong>' + _drPct(d.loenandel_pct) + '</strong></div>' +
             '<div class="dr-metric"><span>Vareforbrug pr. enhed</span><strong>' + (d.vareforbrug_pr_enhed == null ? '—' : _drMoney(d.vareforbrug_pr_enhed)) + '</strong></div>' +
             '<div class="dr-metric"><span>Enheder</span><strong>' + _drNum(d.units, 0) + '</strong></div>' +
             '<div class="dr-metric dr-kpi-drill" data-drill="bons" title="Se bonnerne bag tallet" role="button" tabindex="0"><span>Bonner <span class="dr-drill-arrow">›</span></span><strong>' + _drNum(d.bon_count, 0) + '</strong></div>' +

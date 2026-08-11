@@ -167,6 +167,30 @@ Driftsregnskabet eksponerer disse som genbrugelige tal (ikke kun visning):
    Flad total er det tal Leif allerede bruger og kan sanity-tjekke i hovedet — det er sandheden. Time-vægtet er en bonus systemet kan lave (fordi det ikke regner i hovedet); den viser *hvornår på dagen* belastningen lå, men erstatter aldrig den flade rate som primær. UI: vis flad som overskrift, time-vægtet bag en udfoldning.
 4. **Lønandel** = løn / omsætning (kun produktionsroller — se §6a)
 5. **Vareforbrug pr. enhed**
+6. **Lønprocent** = løn / omsætning — hele driftslønnen (ekskl. bud, **inkl.** `other`-roller og løntillæg)
+7. **Råvareprocent** (vareforbrugsprocent) = vareforbrug / omsætning
+
+> **6+7 er branchens to standard-nøgletal** og vises som en linje direkte på Løn- og
+> Vareforbrug-pillen i både dag-, uge- og periodevisning — dér hvor kronebeløbet står,
+> så man ikke skal regne selv. I uge-/periodevisningens **dag-for-dag-tabel** står de
+> som kolonnerne `Vare%` og `Løn%` umiddelbart efter hver sin kronekolonne (dæmpet:
+> beløbet er stadig det primære), så en skæv dag kan ses uden at regne.
+>
+> **Tabellen har bevidst ingen total-række.** Pillerne øverst ER periodens totaler, og
+> en samlet procent er IKKE gennemsnittet af dagenes procenter — den skal regnes på
+> periodens samlede omsætning. To tal der ligner hinanden, men afviger, ville invitere
+> til fejllæsning. Dage uden omsætning viser `—`, ikke `0 %`.
+>
+> **Forskellen på 4 og 6 er bevidst.** Lønandel (4) er snæver — kun produktionsroller —
+> og bruges til effektivitet. Lønprocenten (6) måler præcis det tal pillen selv viser,
+> så pille og procent altid stemmer. Derfor hedder nøgletallet nu
+> "Lønandel (kun produktionsroller)" i UI'et: de to må gerne afvige.
+>
+> **Begge udledes i frontenden** (`_drShareOf` i `office/views/drift.js`) af tal der
+> allerede ligger i svaret — ikke som nye API-felter. Grunden: afsluttede dage fryses
+> som `data_json` i `labor_day_snapshot`, og et nyt server-felt ville mangle i alle
+> eksisterende snapshots. Det er et rent forhold mellem to tal der begge allerede er
+> ex moms — ingen momsregning i frontenden (jf. `BON_V2_PRINCIPPER.md` §6b).
 
 ---
 
