@@ -119,14 +119,11 @@ const TEST_ROWS = [
     { customer_id: 3981, company_id: null, hvorfor: 'test@test.com · "test af"' },
     { customer_id: 3318, company_id: 4006, hvorfor: 'firma hedder "Test" · bekræftet af Leif' },
     { customer_id: 3676, company_id: 3066, hvorfor: 'firma hedder "test" · bekræftet af Leif' },
+    { customer_id: 2965, company_id: 3378, hvorfor: 'firma hedder "Testing" · bekræftet af Leif' },
 ];
 
-// #2965 Nils Meinhard (firma "Testing") er IKKE med. Den lignede testdata, men
-// navn og adresse ser ægte ud, og den blev ikke bekræftet. Tag den med i hånden
-// hvis den skal væk.
-//
-// #3314 PeakMonday er heller ikke med som firma: navnet ser ægte ud, selvom den
-// eneste kunde under det er en testrække. Kunden lukkes, firmaet bliver stående.
+// #3314 PeakMonday er ikke med som firma: navnet ser ægte ud, selvom den eneste
+// kunde under det er en testrække. Kunden lukkes, firmaet bliver stående.
 
 function backupDb(db) {
     const dir = path.join(path.dirname(path.resolve(process.env.DB_PATH)), 'backups');
@@ -157,7 +154,8 @@ function rettAdresse(db, fix, rapport) {
     const nuvaerende = String(c.email || '').trim();
     if (nuvaerende.toLowerCase() !== fix.fra.toLowerCase()) {
         rapport.sprunget.push(
-            `#${fix.customer_id} ${navnPaa(c)} — adressen er ikke længere "${fix.fra}" men "${nuvaerende}". Rettet i hånden? Springes over.`);
+            `#${fix.customer_id} ${navnPaa(c)} — adressen er allerede "${nuvaerende}", ikke "${fix.fra}". `
+          + 'Enten er scriptet kørt før, eller også er den rettet i CRM. Springes over.');
         return;
     }
 
