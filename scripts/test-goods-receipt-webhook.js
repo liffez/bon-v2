@@ -162,6 +162,37 @@ const server = http.createServer((req, res) => {
         ok(logCount() === 3, 'netværksfejlen logges så den kan ses i Settings');
     }
 
+    console.log('\n── Baguddateret bilag bærer sin egen dato ──');
+    // Whiteboard stempler datetime('now') på alt den modtager. Uden occurred_at
+    // ville syv følgesedler fra juli stå i FVST-loggen som den dag de blev
+    // tastet ind. Datoen på et egenkontrol-bilag er hele pointen med bilaget.
+    resetSynced();
+    replyStatus = 201;
+    setUrl(url);
+    {
+        const send = async (received_at, created_at) => {
+            resetSynced();
+            await webhook.send({ ...RECEIPT, received_at, created_at }, 'Tester');
+            return lastPayload.json;
+        };
+
+        let p = await send('2026-08-11 09:00:00', '2026-08-11 09:00:00');
+        ok(!('occurred_at' in p), 'almindelig modtagelse sender ingen occurred_at');
+
+        p = await send('2026-07-14 12:00:00', '2026-08-11 21:30:00');
+        ok(p.occurred_at === '2026-07-14', 'baguddateret bilag sender modtagedatoen, ikke indtastningsdagen');
+
+        // received_at og created_at skrives af samme sætning ved en normal
+        // modtagelse, så de er ens uanset tidszone. Sammenlignede vi i stedet
+        // med dagens danske dato, ville en modtagelse mellem midnat og kl. 2
+        // se baguddateret ud — kolonnerne står i UTC, hvor det stadig er i går.
+        p = await send('2026-08-10 22:30:00', '2026-08-10 22:30:00');
+        ok(!('occurred_at' in p), 'modtagelse efter midnat dansk tid regnes ikke som baguddateret');
+
+        p = await send('2026-07-14 12:00:00', null);
+        ok(!('occurred_at' in p), 'uden created_at gættes der ikke — den gamle adfærd beholdes');
+    }
+
     server.close();
     db.close();
     try { fs.unlinkSync(TMP_DB); } catch {}

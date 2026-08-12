@@ -116,6 +116,26 @@ async function send(receipt, userName) {
         data,
     };
 
+    // Efterregistrering: er bilaget modtaget en anden dag end i dag, skal
+    // Whiteboard bruge DEN dato i FVST-loggen. Uden feltet stempler tavlen
+    // datetime('now'), og en følgeseddel fra juli ville stå som august.
+    // Datoen på et egenkontrol-bilag er ikke pynt — det er hele pointen.
+    //
+    // Sendes KUN når bilaget rent faktisk er baguddateret. Ved en almindelig
+    // modtagelse er "nu" det rigtigste tidspunkt, og så skal klokkeslættet
+    // ikke rundes til middag.
+    //
+    // Testen går mod created_at og ikke mod dagens dato: de to kolonner
+    // skrives af samme sætning ved en normal modtagelse, så de er ens uanset
+    // tidszone. Sammenlignede vi med todayISO(), ville en modtagelse mellem
+    // midnat og kl. 2 se baguddateret ud — received_at står i UTC, hvor det
+    // stadig er i går.
+    const receivedDate = (receipt.received_at || '').slice(0, 10);
+    const createdDate  = (receipt.created_at  || '').slice(0, 10);
+    if (receivedDate && createdDate && receivedDate !== createdDate) {
+        payload.occurred_at = receivedDate;
+    }
+
     let statusCode = null;
     let error = null;
 
