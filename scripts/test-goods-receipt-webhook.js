@@ -193,6 +193,33 @@ const server = http.createServer((req, res) => {
         ok(!('occurred_at' in p), 'uden created_at gættes der ikke — den gamle adfærd beholdes');
     }
 
+    console.log('\n── En omdirigering er ikke en succes ──');
+    // Den fejl der kostede sytten registreringer: whiteboard.ristetrug.dk lå bag
+    // en login-gate i nginx, som svarede 302 → bon.ristetrug.dk/login.html.
+    // fetch() følger som standard en omdirigering og laver POST om til GET, så
+    // kaldet endte på vores egen login-side med 200. response.ok var true,
+    // receiptet blev stemplet som sendt, og webhook_log viste en pæn 200 — mens
+    // FVST-loggen aldrig så leverancen.
+    resetSynced();
+    {
+        const gate = http.createServer((req, res) => {
+            res.writeHead(302, { location: 'https://bon.ristetrug.dk/login.html' });
+            res.end();
+        });
+        await new Promise(r => gate.listen(0, r));
+        setUrl(`http://127.0.0.1:${gate.address().port}/api/events`);
+
+        const before = logCount();
+        const r = await webhook.send(RECEIPT, 'Tester');
+        ok(r && r.ok === false, 'send() melder fejl ved 302 — ikke tavs succes');
+        ok(r && r.statusCode === 302, 'omdirigeringens statuskode kan aflæses');
+        ok(/login\.html/.test(r.error || ''), 'fejlen navngiver hvor den blev sendt hen');
+        ok(syncedAt() === null, 'whiteboard_synced_at forbliver tom — gensend virker stadig');
+        ok(logCount() === before + 1, 'omdirigeringen logges så den kan ses i Settings');
+
+        gate.close();
+    }
+
     server.close();
     db.close();
     try { fs.unlinkSync(TMP_DB); } catch {}

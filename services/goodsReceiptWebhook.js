@@ -140,16 +140,35 @@ async function send(receipt, userName) {
     let error = null;
 
     try {
+        // redirect: 'manual' er ikke en detalje — det er hele forskellen på
+        // "sendt" og "det så ud som om".
+        //
+        // whiteboard.ristetrug.dk lå bag en login-gate i nginx, som svarede
+        // 302 → bon.ristetrug.dk/login.html. fetch() følger som standard en
+        // omdirigering og laver POST om til GET, så kaldet endte på vores egen
+        // login-side, der svarer 200. response.ok var true, receiptet blev
+        // stemplet som sendt, og loggen viste en pæn 200 — mens FVST-loggen
+        // aldrig så leverancen. Sytten registreringer stod som "alle sendt".
+        //
+        // En omdirigering er aldrig et gyldigt svar på en webhook: modtageren
+        // er en maskine uden session. Nu fejler den højlydt og siger hvorhen.
         const response = await fetch(webhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
+            redirect: 'manual',
             signal: AbortSignal.timeout(10000), // 10s timeout
         });
 
         statusCode = response.status;
 
-        if (response.ok) {
+        if (statusCode >= 300 && statusCode < 400) {
+            const target = response.headers.get('location') || 'ukendt mål';
+            error = `HTTP ${statusCode}: omdirigeret til ${target} — `
+                  + 'modtageren kræver login. Webhooken har ingen session og kan '
+                  + 'aldrig komme igennem en login-gate.';
+            console.warn(`[webhook] Whiteboard omdirigerede ${receipt.receipt_number}:`, error);
+        } else if (response.ok) {
             // Success — marker som synced
             db.prepare(`UPDATE goods_receipts SET whiteboard_synced_at = datetime('now') WHERE id = ?`)
                 .run(receipt.id);
