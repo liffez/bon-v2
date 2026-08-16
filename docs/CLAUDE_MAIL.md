@@ -71,13 +71,17 @@ Alle tre steder der bruger prefixes slår op i `settings`-tabellen:
 | `services/mailService.js` — `pollMailbox()` | Henter alle tre prefixes til parser-kald |
 
 ### Tilbud → bon konvertering
-Tilbud og bonner deler nummerserie (samme `bon_number` i `bons`-tabellen).
-Prefix i udgående mails følger tilstanden automatisk:
+Tilbud og bonner ligger i samme tabel (`bons`), men har hver sin nummerserie —
+`T-`-serien til tilbud, bon-serien til bons. Prefix i udgående mails følger tilstanden:
 ```
-Tilbud sendt:     #t-3001  → offer_status = 'sent'
-Kunde accepterer: #b-3001  → offer_status = 'won', is_offer = 0
+Tilbud sendt:     #t-22    → offer_status = 'sent'  (tilbudsrækken)
+Kunde accepterer: #b-3260  → ny bon med source_quote_id → tilbuddet
 ```
-Samme tråd i databasen — al historik bevares. Parseren kender begge prefix og peger på samme `bon_id`.
+Fra 13. august 2026 er tilbuddet og bonnen **to rækker**: konvertering opretter en ny bon
+og lader bilaget blive liggende som vundet og låst. `#t-22` peger derfor stadig på
+tilbuddet efter accept — `matchBonByTagNumber` matcher `#t-` mod `is_offer = 1` og `#b-`
+mod `is_offer = 0`, så de to tags ikke kan krydse. Før flippede konverteringen rækken, og
+et svar på tilbudsmailen kunne ikke længere matches.
 
 ### Bon v1-format — ignorer
 ```

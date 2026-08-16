@@ -1207,6 +1207,14 @@ function convertQuoteToBon(id) {
     return apiFetch('/quotes/' + id + '/convert', { method: 'POST' });
 }
 
+function unlockQuote(id) {
+    return apiFetch('/quotes/' + id + '/unlock', { method: 'POST' });
+}
+
+function lockQuote(id) {
+    return apiFetch('/quotes/' + id + '/lock', { method: 'POST' });
+}
+
 function fetchNextQuoteNumber() {
     return apiFetch('/quotes/next-number');
 }

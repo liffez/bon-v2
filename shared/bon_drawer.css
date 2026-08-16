@@ -65,6 +65,25 @@
     font-weight: 700;
 }
 
+/* "fra T-22" ved siden af bon-nummeret — dæmpet, men klikbar. */
+.drawer-title-quote {
+    margin-left: 8px;
+    padding: 2px 9px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-text-dim, #7a746c);
+    font-family: inherit;
+    font-size: .7rem;
+    font-weight: 600;
+    cursor: pointer;
+    vertical-align: middle;
+}
+.drawer-title-quote:hover {
+    border-color: var(--brand-primary, #8e631f);
+    color: var(--brand-primary, #8e631f);
+}
+
 .drawer-header-actions {
     display: flex;
     align-items: center;
