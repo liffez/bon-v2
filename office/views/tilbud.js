@@ -27,7 +27,9 @@ let _tShowDB = false;
 let _tPriceCat = 'catering';
 let _tMenu = null;       // { 'Kategori': [items] }
 let _tQuoteNumber = '';
-let _tQuoteStatus = null; // 'draft' | 'sent' | 'won' | 'lost' | 'expired'
+let _tQuoteStatus = null; // 'draft' | 'sent' | 'lost' | 'expired' | 'won'
+let _tLocked = false;    // vundet bilag — kan kun rettes efter bevidst oplåsning
+let _tConvertedBons = []; // [{ id, bon_number, delivery_date }] — hvor sagen blev af
 let _tKS = null;         // KundeSoeg instance
 let _tListFilter = 'all';
 let _tDeliveryAddressId = null;
@@ -243,8 +245,10 @@ function _tilbudHandleSSE(event, data) {
     // Backend sender bon_*-events efter Patch F (maj 2026).
     // Patch I (maj 2026) skifter frontend fra quote_* til bon_*.
     // Re-render altid i list-mode — _tRenderList henter /api/quotes som
-    // selv filtrerer på is_offer=1. Convert-flow sender is_offer=false,
-    // hvilket vi også vil re-rendere så bonen forsvinder fra listen.
+    // selv filtrerer på is_offer=1. Konvertering sender `bon_updated` for
+    // BILAGET (is_offer:true, ny status + lås) og `bon_created` for hver ny
+    // bon; begge skal ind i listen, den ene som ændret status, den anden som
+    // et bon-nummer i kolonnen ved siden af.
     if (event === 'bon_created' || event === 'bon_updated') {
         if (_tMode === 'list') _tRenderList();
     }
@@ -418,7 +422,11 @@ async function _tRenderList() {
                 }</td>
                 <td class="r">${q.pax || '\u2014'}</td>
                 <td class="r mono">${q.total_price != null ? _tFk(q.total_price) : '\u2014'}</td>
-                <td><span class="tilbud-status" style="background:${s.color}20;color:${s.color}">${s.label}</span></td>
+                <td><span class="tilbud-status" style="background:${s.color}20;color:${s.color}">${s.label}</span>${
+                    // Et vundet tilbud UDEN bon er ikke det samme som et med:
+                    // det første er en aftale ingen har oprettet endnu.
+                    q.bon_numbers ? `<span class="tilbud-bon-badge" title="Tilbuddet blev til denne bon">\u2192 ${_tEsc(q.bon_numbers)}</span>` : ''
+                }${q.locked ? '<span class="tilbud-lock-note" title="Låst bilag">\u{1F512}</span>' : ''}</td>
             </tr>`;
         }
         h += '</tbody></table>';
@@ -446,6 +454,8 @@ async function _tOpenQuote(id) {
         _tQuoteId = q.id;
         _tQuoteNumber = q.quote_number;
         _tQuoteStatus = q.status || 'draft';
+        _tLocked = !!q.locked;
+        _tConvertedBons = q.converted_bons || [];
         _tTpl = q.template;
         _tPriceCat = q.price_category || 'catering';
         _tPriceMode = q.price_mode || 'total';
@@ -554,6 +564,8 @@ function _tResetWizard() {
     _tQuoteId = null;
     _tQuoteNumber = '';
     _tQuoteStatus = null;
+    _tLocked = false;
+    _tConvertedBons = [];
     _tStep = 0;
     _tMaxStep = 0;
     _tTpl = null;
@@ -2118,10 +2130,22 @@ function _tBuildStatusStrip() {
     const s = _tSTATUS[cur] || _tSTATUS.draft;
 
     if (cur === 'won') {
+        // Hvor blev sagen af? Uden bon-nummeret er "Vundet" en blindgyde: man
+        // kan se AT tilbuddet blev accepteret, men ikke komme videre til den
+        // ordre der skal laves mad ud fra.
+        const bons = _tConvertedBons.map(b =>
+            `<button class="tilbud-status-btn" onclick="_tOpenBonFromQuote(${b.id})"
+                     title="Åbn bonnen">${_tEsc(b.bon_number)}</button>`).join('');
+
         return `<div class="tilbud-status-strip">
             <span class="tilbud-status-label">Status</span>
             <span class="tilbud-status-badge" style="background:${s.color}">${s.label}</span>
-            <span class="tilbud-status-hint">Tilbuddet er accepteret og lavet om til en bon.</span>
+            ${bons ? `<span class="tilbud-status-hint">Lavet om til</span>${bons}` : ''}
+            <span class="tilbud-status-hint">${_tLocked
+                ? '\u{1F512} Bilaget er låst — det viser hvad kunden sagde ja til. Ret i bonnen, ikke her.'
+                : '\u{1F513} Bilaget er låst op og kan rettes.'}</span>
+            <button class="tilbud-status-btn" onclick="${_tLocked ? '_tUnlockQuote()' : '_tLockQuote()'}"
+                    >${_tLocked ? 'Lås op' : 'Lås igen'}</button>
         </div>`;
     }
 
@@ -2134,6 +2158,51 @@ function _tBuildStatusStrip() {
             onclick="_tSetQuoteStatus('${k}')">${_tSTATUS[k].label}</button>`).join('')}
         <span class="tilbud-status-hint">Sættes automatisk til Sendt når du sender tilbuddet på mail.</span>
     </div>`;
+}
+
+/**
+ * Åbn bonnen som tilbuddet blev til.
+ *
+ * Bon-draweren ejes af office-skallen, ikke af tilbudsvisningen, så vejen går
+ * gennem `openDrawer` fra `_tOpts` — samme kanal som resten af viewsene bruger.
+ */
+function _tOpenBonFromQuote(bonId) {
+    if (typeof _tOpts?.openDrawer === 'function') _tOpts.openDrawer(bonId);
+    else if (typeof switchView === 'function') switchView('bons');
+}
+
+/**
+ * Lås bilaget op — bevidst, med en forklaring på hvad man går i gang med.
+ *
+ * Confirm'en er ikke pynt. Den almindelige grund til at ville rette i et vundet
+ * tilbud er at ordren har ændret sig, og dét hører til på bonnen. Kun hvis
+ * SELVE AFTALEN er genforhandlet, skal bilaget følge med.
+ */
+async function _tUnlockQuote() {
+    if (!_tQuoteId) return;
+    if (!confirm('Lås tilbuddet op?\n\nTilbuddet er bilaget kunden har sagt ja til. '
+        + 'Har ordren bare ændret sig, skal du rette i bonnen i stedet — '
+        + 'lås kun op hvis selve aftalen er genforhandlet.')) return;
+    try {
+        await unlockQuote(_tQuoteId);
+        _tLocked = false;
+        _tToast('Tilbuddet er låst op', 'success');
+        _tRenderWizard();
+    } catch (e) {
+        _tToast('Kunne ikke låse op: ' + (e.message || 'ukendt fejl'), 6000);
+    }
+}
+
+async function _tLockQuote() {
+    if (!_tQuoteId) return;
+    try {
+        await lockQuote(_tQuoteId);
+        _tLocked = true;
+        _tToast('Tilbuddet er låst', 'success');
+        _tRenderWizard();
+    } catch (e) {
+        _tToast('Kunne ikke låse: ' + (e.message || 'ukendt fejl'), 6000);
+    }
 }
 
 async function _tSetQuoteStatus(status) {
@@ -2160,11 +2229,13 @@ function _tBuildStep4() {
     const dTypes = { byx: 'Byekspressen', taxa: 'El-taxa', rr: 'RR leverer', custom: 'Levering' };
 
     const canDelete = _tQuoteId && _tQuoteStatus === 'draft';
+    // PDF og mail bliver stående når bilaget er låst — man skal kunne sende
+    // den accepterede aftale igen. Kun det der SKRIVER i tilbuddet forsvinder.
     let h = `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-        <button class="tilbud-btn tilbud-btn-primary" onclick="_tSaveQuote()">Gem tilbud</button>
+        ${_tLocked ? '' : `<button class="tilbud-btn tilbud-btn-primary" onclick="_tSaveQuote()">Gem tilbud</button>`}
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tGenPDF()">Download PDF</button>
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tSendQuoteMail()">${mailIcon(13)} Send til kunde</button>
-        ${_tQuoteId ? `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tConvertToBon()">Opret som bon</button>` : ''}
+        ${_tQuoteId && !_tLocked ? `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tConvertToBon()">Opret som bon</button>` : ''}
         ${canDelete ? `<button class="tilbud-btn tilbud-btn-danger" onclick="_tDeleteQuote()" style="margin-left:auto">Slet tilbud</button>` : ''}
     </div>`;
 
@@ -2312,7 +2383,7 @@ function _tBuildStep4() {
     h += `<div class="tilbud-btn-row">
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tPrev()">\u2190 Tilbage</button>
         <div style="display:flex;gap:8px">
-            <button class="tilbud-btn tilbud-btn-primary" onclick="_tSaveQuote()">Gem tilbud</button>
+            ${_tLocked ? '' : `<button class="tilbud-btn tilbud-btn-primary" onclick="_tSaveQuote()">Gem tilbud</button>`}
         </div>
     </div>`;
     return h;
@@ -2376,6 +2447,9 @@ function _tCollectLines() {
 // og tilbuddet får sit T-nummer med det samme. Der var altså intet der
 // forhindrede det; knappen manglede bare.
 function _tSaveBtn() {
+    // Et låst bilag har ingen Gem-knap. Serveren afviser skrivningen alligevel
+    // (409), og en knap der altid fejler er værre end ingen knap.
+    if (_tLocked) return '<span class="tilbud-lock-note">\u{1F512} Låst bilag</span>';
     const label = _tQuoteId ? 'Gem' : 'Gem kladde';
     return `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tSaveQuote()"
                     title="Gemmer som kladde — du kan altid vende tilbage og gøre tilbuddet færdigt">${label}</button>`;
@@ -2417,6 +2491,13 @@ function _tStripLineDays(lines) {
 }
 
 async function _tSaveQuote() {
+    // Sidste værn: knappen er væk når bilaget er låst, men wizarden gemmer også
+    // automatisk før konvertering og andre skridt. Serveren siger 409 uanset —
+    // her siges det bare på dansk.
+    if (_tLocked) {
+        _tToast('Tilbuddet er låst — lås det op hvis aftalen har ændret sig', 'warning');
+        return;
+    }
     _tSaveStepFields();
     _tSyncBlockStash();
 
@@ -2514,25 +2595,31 @@ async function _tSaveQuote() {
 async function _tConvertToBon() {
     if (!_tQuoteId) { _tToast('Gem tilbuddet f\u00f8rst'); return; }
 
-    // Fler-dags bliver til N bons p\u00e5 \u00e9n gang. Det er ikke til at fortryde med et
-    // klik, s\u00e5 sig hvad der sker inden \u2014 ikke bagefter.
-    if (_tDays.length > 1) {
-        const list = _tDays.map((d, i) => '  \u2022 ' + _tDayLabelPlain(d, i)).join('\n');
-        if (!confirm(`Opret ${_tDays.length} bons \u2014 \u00e9n pr. dag?\n\n${list}\n\nTilbuddet bliver liggende som bilag.`)) return;
-    }
+    // Sig hvad der sker INDEN det sker. Konverteringen opretter rigtige bons og
+    // l\u00e5ser bilaget, og fler-dags laver flere p\u00e5 \u00e9n gang.
+    const list = _tDays.length > 1
+        ? '\n\n' + _tDays.map((d, i) => '  \u2022 ' + _tDayLabelPlain(d, i)).join('\n') + '\n'
+        : '';
+    const what = _tDays.length > 1 ? `Opret ${_tDays.length} bons \u2014 \u00e9n pr. dag?` : 'Opret bon ud fra tilbuddet?';
+    if (!confirm(`${what}${list}\n\nTilbuddet bliver liggende som vundet bilag og bliver l\u00e5st.`)) return;
 
     try {
         await _tSaveQuote();
         const result = await convertQuoteToBon(_tQuoteId);
-        if (result.multi_day) {
-            // Tilbuddet BLIVER et tilbud (markeret vundet) \u2014 kun bonnerne er nye.
-            _tQuoteStatus = 'won';
-            _tToast(`${result.bons.length} bons oprettet: ${result.bons.map(b => b.bon_number).join(', ')}`);
-        } else {
-            _tToast(`Tilbud konverteret til bon ${result.bon_number}`);
-        }
-        // Navigate to bons list
-        if (typeof switchView === 'function') switchView('bons');
+
+        // Tilbuddet BLIVER et tilbud \u2014 kun bonnerne er nye. Derfor bliver vi
+        // st\u00e5ende p\u00e5 bilaget og viser vejen videre i status-striben, i stedet
+        // for at smide brugeren over i bon-listen uden at sige hvad der skete.
+        _tQuoteStatus = 'won';
+        _tLocked = true;
+        _tConvertedBons = (result.bons || []).map(b => ({
+            id: b.bon_id, bon_number: b.bon_number, delivery_date: b.delivery_date,
+        }));
+        const nums = _tConvertedBons.map(b => b.bon_number).join(', ');
+        _tToast(_tConvertedBons.length > 1
+            ? `${_tConvertedBons.length} bons oprettet: ${nums}`
+            : `Bon ${nums} oprettet \u2014 tilbuddet ligger under Vundet`, 'success');
+        _tRenderWizard();
     } catch (e) {
         _tToast('Fejl: ' + e.message);
     }

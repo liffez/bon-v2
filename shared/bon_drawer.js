@@ -566,7 +566,22 @@ class BonDrawer {
 
         // Header
         const isInternal = d.is_internal === 1 || d.is_internal === true;
-        this.el.querySelector('.drawer-title').textContent = `Bon #${d.bon_number}${isInternal ? ' 🔧' : ''}`;
+        const titleEl = this.el.querySelector('.drawer-title');
+        titleEl.textContent = `Bon #${d.bon_number}${isInternal ? ' 🔧' : ''}`;
+        // Kom bonnen af et tilbud, skal vejen tilbage til bilaget stå her.
+        // Bonnen bærer den aftale der skal laves mad ud fra; tilbuddet bærer
+        // den pris kunden sagde ja til, og de to spørgsmål stilles om samme sag.
+        // Knappen vises kun i office — kitchen og mobil har ingen tilbudsvisning
+        // at åbne, og et dødt link er værre end intet.
+        if (d.source_quote_number && typeof window.openQuoteFromBon === 'function') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'drawer-title-quote';
+            btn.textContent = `fra ${d.source_quote_number}`;
+            btn.title = 'Åbn tilbuddet bonnen kom af';
+            btn.onclick = () => window.openQuoteFromBon(d.source_quote_id);
+            titleEl.append(' ', btn);
+        }
         this.el.querySelector('.drawer-header').classList.remove('has-changes');
         this.el.querySelector('.btn-drawer-gem').disabled = true;
 

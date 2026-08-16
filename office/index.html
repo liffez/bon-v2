@@ -1416,6 +1416,29 @@
         }
       };
 
+      // Fra en bon tilbage til det tilbud den kom af (bon-drawerens "fra T-22").
+      //
+      // Tilbudsvisningen læser `?quote` ved init (se views.tilbud ovenfor), så
+      // id'et lægges i URL'en og viewet skiftes — frem for at kalde ind i
+      // tilbud.js' interne funktioner og håbe på at scriptet allerede kører.
+      // Står man ALLEREDE på tilbudsvisningen, gør switchView ingenting (samme
+      // view), og så åbnes tilbuddet direkte i stedet.
+      window.openQuoteFromBon = function openQuoteFromBon(quoteId) {
+        if (!quoteId) return;
+        if (_currentView === 'tilbud' && typeof _tOpenQuote === 'function') {
+          _tOpenQuote(quoteId);
+          return;
+        }
+        const url = new URL(window.location);
+        url.searchParams.set('quote', quoteId);
+        history.replaceState({}, '', url);
+        switchView('tilbud');
+        // Parameteren er brugt nu. Blev den stående, ville tilbuddet åbne sig
+        // selv igen næste gang man klikkede "Tilbud" i menuen.
+        url.searchParams.delete('quote');
+        history.replaceState({}, '', url);
+      };
+
       window.switchView = function switchView(viewName) {
         // Backwards-compat: gamle bookmarks/links → sektion+pill
         if (viewName === 'kunder' || viewName === 'crm-kunde360') {

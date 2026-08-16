@@ -1277,12 +1277,14 @@ Oprettes under Grocy → Manage master data → Userfields.
   - T-nummerserie via `quote_number_prefix` + `quote_number_next` i settings
   - Bons-listen (`GET /api/bons`) ekskluderer `is_offer=1`
   - CRM ordrer/stats ekskluderer `is_offer=1`
-  - Konvertering = `UPDATE SET is_offer=0, offer_status='won', status_id=GODKENDT`
+  - Konvertering = **ny bon pr. dag** (`source_quote_id` → tilbuddet), tilbuddet bliver
+    liggende som bilag: `offer_status='won'` + `offer_locked_at`. `is_offer` skifter aldrig
+    værdi på en levende række (migration 146 — se "vundet betyder ikke forsvundet")
 - [x] `routes/quotes.js` — 11 endpoints (opererer på bons med `is_offer=1`):
   - CRUD: GET liste (filtre: status, customer_id, q), GET /:id med linjer, POST, PATCH, DELETE (kun draft)
   - Linjer: POST/PUT/DELETE /:id/lines/:lid
   - Status: PATCH /:id/status (draft/sent/won/lost/expired)
-  - Convert: POST /:id/convert → sæt is_offer=0
+  - Convert: POST /:id/convert → opret bon(s), lås bilaget · Lås: POST /:id/lock + /:id/unlock
   - Next-number: GET /next-number
 - [x] `office/views/tilbud.js` + `tilbud.css` — Tilbudsliste + 5-trins wizard
   - **Liste**: status-filtre (Kladde/Sendt/Vundet/Tabt), søgning, klik åbner wizard
@@ -3581,6 +3583,68 @@ tilbud (2 af 26 kort), det lukkede tilbud forsvinder fra tavlen og kan findes un
 Tilbud → Tabt. Selve afsendelsen blev testet med et stub'et mail-kald, så der gik ingen
 post ud. Testdata rullet tilbage.
 
+### Tilbud: vundet betyder ikke forsvundet (12.–13. august 2026)
+
+T-22 blev vundet og lavet om til en bon — og var derefter væk. Ikke i tilbudslisten,
+ikke under **Vundet**, ikke i CRM-pipelinen. Den ene sag man havde vundet var den ene
+man ikke kunne finde.
+
+Årsagen var én linje: ét-dags-konvertering flippede `is_offer` fra 1 til 0 på tilbuddets
+**egen række**. Rækken holdt op med at være et tilbud i samme sekund den blev en bon, og
+tre flader tabte den samtidig:
+
+| Flade | Forespørgsel | Hvorfor den tabte rækken |
+|-------|--------------|--------------------------|
+| Tilbudslisten | `WHERE is_offer = 1` | rækken er ikke et tilbud mere |
+| Filteret "Vundet" | `is_offer = 1 AND offer_status = 'won'` | den kombination efterlader et flip aldrig — fanen var **tom af konstruktion** |
+| CRM-pipelinen | `is_offer = 1 OR status IN ('NY','VENTER')` | en konverteret bon er hverken |
+
+**Fler-dags gjorde det allerede rigtigt** (#425): tilbuddet bliver liggende som bilag, og
+dagsbonnerne er NYE rækker med `source_quote_id` tilbage. Ét-dags var særvejen, og den er
+væk — `convertToBons()` er den gamle `convertMultiDay()` hvor et tilbud uden dage bare er
+n = 1. Uden dage bruges en **tom dag**, så hvert `day.x ?? q.x` falder tilbage på
+tilbuddets egen værdi; de to veje kan ikke længere skride fra hinanden. `is_offer` skifter
+aldrig mere værdi på en levende række.
+
+To ting fulgte med i samme ombæring:
+
+- **Menu-grupper kopieres nu med** (`bon_menu_groups` + `menu_group_id` gennem en
+  `groupMap`). Flippet beholdt grupperne gratis — de sad jo på samme række. En ny bon ville
+  have mistet den opdeling køkkenet netop har lavet for at kunne læse bonnen.
+- **Dobbelt-konvertering** afvises nu på at der *står bons på tilbuddet*, ikke på at status
+  er `won`. Pipelinen kan trække et tilbud til Vundet uden at oprette noget, og det tilbud
+  skal stadig kunne blive til en bon.
+
+**Låsen (migration 146, `bons.offer_locked_at`).** Når bilaget bliver liggende, kan man
+også blive ved med at rette i det — og så dokumenterer det ikke længere hvad kunden sagde
+ja til. Konvertering låser derfor tilbuddet: `PATCH /:id`, `PUT /:id/days` og
+`PATCH /:id/status` svarer 409 med `locked: true`. `POST /:id/unlock` tager låsen af igen,
+for en aftale *kan* genforhandles — men det er en bevidst handling med sin egen changelog-
+linje, aldrig en bivirkning af at trykke Gem. Tidsstempel frem for boolean: "hvornår" er
+gratis at gemme og umuligt at rekonstruere bagefter. NULL = ulåst.
+
+PDF og "Send til kunde" bliver stående på et låst bilag — man skal kunne sende den
+accepterede aftale igen. Kun det der **skriver** i tilbuddet forsvinder.
+
+**Vejen frem og tilbage.** Tilbudslisten viser `→ B-1234` på vundne rækker, status-striben
+i wizarden har en klikbar knap til hver bon, og bon-drawerens overskrift bærer et `fra T-22`
+der åbner bilaget (`bons.source_quote_number`, kun i office — kitchen og mobil har ingen
+tilbudsvisning at åbne, og et dødt link er værre end intet).
+
+**De allerede flippede rækker** retter ikke sig selv:
+`node --experimental-sqlite scripts/repair-converted-quotes.js` (dry-run; `--apply` skriver).
+Den opretter bilaget som en NY række med tilbuddets oprindelige T-nummer og giver bonnen et
+almindeligt bon-nummer. Bonnens `id` røres aldrig — en halv snes tabeller peger på
+`bons(id)` (fakturaer, leveringer, mailtråde, vedhæftninger), og de skal blive ved med at
+pege på ordren. Omnummereringen er det farlige skridt, fordi bon-nummeret står i mailemner
+(`#b-…`), på fakturaudkast og i e-conomic — derfor fredes enhver bon med status
+FAKTURERET/BETALT/AFSLUTTET, en `cf_invoices`-række eller et e-conomic-udkast. De listes til
+sidst og skal håndteres i hånden.
+
+Dækket af `tests/quote_convert.test.js` (10 tests), som bygger skemaet af de **rigtige**
+migrations i en `:memory:`-database — en kolonne der flytter sig får testen til at fejle i
+stedet for at bestå mod en håndskrevet kopi.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -3742,7 +3806,7 @@ post ud. Testdata rullet tilbage.
 > - **SSE-event-konvention (13. maj 2026)**: alle `bon_*`-events bruger `{id, ...metadata}`. Polymorfe events (`mail_*`, `po_*`, `supplier_*`) bevarer semantiske FK-navne (`bon_id`, `customer_id` etc.) fordi de kan referere flere entiteter. Frontend skal IKKE bruge fallback-pattern `data.id || data.bon_id` — vælg én eller den anden afhængigt af event-type.
 > - **Force-mode auth (13. maj 2026)**: rolle-tjek mod `req.session.userId` (IKKE body.user_id). Body bruges KUN til audit-felter. Privilege-escalation-vektor lukket i Patch D.
 > - **Partially approved (13. maj 2026)**: ny status-værdi på `goods_receipts` når mindst én item-Grocy-fejl. Bevidste skips (missing-status, no-pid) tæller ikke. UI-rendering kommer i Fase 3 varemodtagelses-listview.
-> - **Tilbud-status convert-only (13. maj 2026)**: `offer_status='won'` kan KUN sættes via `POST /api/quotes/:id/convert` (der samtidig sætter `is_offer=0`, `status_id=GODKENDT`). PATCH `/:id/status` accepterer kun draft/sent/lost/expired.
+> - **Tilbud-status convert-only (13. maj 2026, revideret 13. august 2026)**: `offer_status='won'` kan KUN sættes via `POST /api/quotes/:id/convert` — som nu opretter en NY bon (`source_quote_id`) og låser bilaget i stedet for at flippe `is_offer`. PATCH `/:id/status` accepterer kun draft/sent/lost/expired, og afvises helt (409) mens tilbuddet er låst.
 > - **Test-spec-format**: Hver track har spec i `tests/specs/T_*.md` med 11 sektioner (formål, forudsætninger, strategi, cases, eksempel, fejlsignaler, filer, hvad-vi-ved, næste, status, findings). Findings nummereret F* (track-lokale), observations #NNN (globale i TEST_OBSERVATIONS.md).
 
 ---
