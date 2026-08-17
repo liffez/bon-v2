@@ -2389,14 +2389,28 @@ gør umuligt i drift.
 > `economic_product_number` ikke findes. Verificeret mod en kopi af driftsdata + et
 > Grocy-snapshot; kopien er slettet efter brug.
 
-**Efter deploy:** 6 opskrifter blokerer og skal kobles i grocy-hq (eller på listen):
-**50** Receptions Skinner · **75** Glutenfri Bolle · **95** Glutenfri Bolle slider ·
-**71**/**72** Børne Boks Delle/Fisk · **134** Falafel Bowl. Ingen af dem er i
-faktureringskøen i dag, så deploy koster ingenting med det samme.
+**Efter deploy — målt mod grocy-hq 17. august:** 74 af 429 fakturerbare bons i 2026
+blokerer. Otte opskrifter mangler et varenr — **50** Receptions Skinner · **75**
+Glutenfri Bolle · **95** Glutenfri Bolle slider · **133** Trøflen – slider · **104**
+crossiant · **134** Falafel Bowl · **71**/**72** Børne Boks Delle/Fisk — og fire
+**fritekst-linjer uden opskrift** (Fingergrønt, Müslibar, Kage, Peanuts) kan pr.
+konstruktion ikke stå på en opskrift-liste. De hører til engangsvaren (varenr 111),
+men **knappen findes ikke i UI'et** — se "ikke bygget" nedenfor.
+
+`163 Cookie knæk` viser beløbsreglen virke efter hensigten: opskriften er oprettet
+efter listen blev seedet, står ikke på den, og udelades alligevel korrekt fordi
+linjen er 0 kr. En ufuldstændig liste vælter altså ikke faktureringen.
 
 **Ikke bygget:** Settings-UI til listen — "faktureres ikke" pr. vare hører hjemme på
 koblings-siden (#440). Indtil da kræver en ændring SQL, men beløbsreglen betyder at en
 ny prep-opskrift er dækket af sin 0-kr-pris uden at nogen rører listen.
+
+**Engangsvare-knappen mangler.** `oneoff_for_missing` understøttes hele vejen ned —
+route, service og engangsvarens varenr (111, migration 144) — men `fakturering.js`
+kalder `createEconomicDraft(bonId)` **uden opts**, så flaget sendes aldrig. Nødudgangen
+er dermed kun teoretisk. Det er acceptabelt for en ukoblet *opskrift* (den skal have et
+varenr i Grocy), men ikke for de fire fritekst-linjer: de har ingen opskrift at koble,
+og engangsvaren er præcis hvad adapter-spec'en bygger dem til. Egen opgave.
 
 ### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
 
