@@ -260,6 +260,25 @@ function req(server, method, url, { auth = true, body } = {}) {
             db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.mixed).economic_draft_number == null);
         db.prepare("UPDATE settings SET value=? WHERE key='economic_oneoff_product_number'").run(oneoffBefore);
 
+        // …og med nummeret på plads virker nødudgangen: knappen i fakturerings-skærmen
+        // sender oneoff_for_missing, og de ukoblede linjer faktureres på engangsvaren
+        // med beløb og tekst i behold. Det er den eneste vej for en FRITEKST-linje —
+        // den har ingen opskrift at koble.
+        res = await req(server, 'GET', `/api/invoices/${ids.mixed}/economic-preview`);
+        ok('oneoff → readiness siger at nødudgangen findes', res.body?.readiness?.oneoffAvailable === true);
+
+        lastPostBody = null;
+        res = await req(server, 'POST', `/api/invoices/${ids.mixed}/economic-draft`, { body: { oneoff_for_missing: true } });
+        ok('oneoff → 200 med nummer på plads', res.status === 200, JSON.stringify(res.body));
+        const oneoffLine = (lastPostBody?.lines || []).find(l => l.description === 'Glutenfri Bolle');
+        ok('oneoff → den ukoblede linje kom med på engangsvarens varenr',
+            oneoffLine?.product?.productNumber === '111', JSON.stringify(lastPostBody?.lines));
+        ok('oneoff → beløbet er bevaret (9.000 kr incl → 7.200 ex)',
+            Math.abs((oneoffLine?.unitNetPrice || 0) * (oneoffLine?.quantity || 0) - 7200) < 0.01,
+            JSON.stringify(oneoffLine));
+        ok('oneoff → den 0-kr emballage kom stadig IKKE med',
+            !(lastPostBody?.lines || []).some(l => String(l.description).includes('Salat boks')));
+
 
         console.log('\n── Auth ──');
         res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { auth: false, body: {} });
@@ -269,7 +288,8 @@ function req(server, method, url, { auth = true, body } = {}) {
 
         console.log('\n── Readiness efter draft (drafts_waiting tæller) ──');
         res = await req(server, 'GET', '/api/invoices/economic-readiness');
-        ok('readiness → drafts_waiting = 1', res.body?.drafts_waiting === 1, `(${res.body?.drafts_waiting})`);
+        // To kladder nu: happy path + nødudgangen på mixed-bonen.
+        ok('readiness → drafts_waiting = 2', res.body?.drafts_waiting === 2, `(${res.body?.drafts_waiting})`);
     } finally {
         server.close();
         try { db.close?.(); } catch (e) {}

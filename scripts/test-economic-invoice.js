@@ -379,6 +379,13 @@ console.log('\n── Stille udgange lukket (#444) ──');
     ok('#S4 med fallback er den klar igen', inv.checkReadiness(noDelivNo, SETTINGS).missingDelivery === false
         && inv.buildDraftInvoice(noDelivNo, SETTINGS).lines.some(l => l.product.productNumber === '17'));
 
+    // 4b) UI'et skal kunne se om nødudgangen overhovedet findes, FØR den tilbydes
+    ok('#S4b oneoffAvailable falsk uden nummer',
+        inv.checkReadiness(priced, { ...SETTINGS, oneoffProductNumber: null }).oneoffAvailable === false);
+    ok('#S4b oneoffAvailable sand med nummer',
+        inv.checkReadiness(priced, SETTINGS).oneoffAvailable === true);
+    ok('#S4b uden settings er der ingen nødudgang', inv.checkReadiness(priced).oneoffAvailable === false);
+
     // 5) classifyLine er én kilde — readiness og builder kan ikke blive uenige
     const kinds = ['product', 'bundle', 'excluded', 'oneoff', 'blocked'];
     ok('#S5 classifyLine dækker de fem udfald', kinds.every(k => typeof k === 'string')

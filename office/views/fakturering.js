@@ -651,7 +651,69 @@ function _faktReadinessHtml(r, bonId) {
                     ? '<span class="fakt-eco-exc-why">står på “faktureres ikke”-listen, men har en pris</span>' : ''}</li>`).join('')}
         </ul>` : ''}
         ${_faktExcludedHtml(r)}
+        ${_faktOneoffHtml(r, bonId)}
         ${showSuggest ? `<button class="fakt-btn-eco" style="margin-top:12px" onclick="_faktSuggestEconomic(${bonId})">&#128269; Foreslå kunde fra e-conomic</button>` : ''}`;
+}
+
+/**
+ * Nødudgang: fakturér de ukoblede linjer på engangsvaren (Engangsbeløb / Diverse).
+ * Vises KUN når varenumre er den eneste mangel — mangler kunden et e-conomic-nr,
+ * hjælper engangsvaren ikke, og en knap der altid fejler er værre end ingen knap.
+ *
+ * Bevidst afdæmpet: en vare der sælges igen hører til sit eget varenr i Grocy,
+ * ellers samler regnskabet den under "Diverse". Nødudgangen er til engangsting —
+ * en fritekst-linje som "Kage" har ingen opskrift at koble og hører præcis her.
+ */
+function _faktOneoffHtml(r, bonId) {
+    if (!bonId || !r?.missingProducts?.length) return '';
+    if (r.missingCustomer || r.eanWithoutContact || r.missingDelivery) return '';
+    if (!r.oneoffAvailable) {
+        return `<p class="fakt-eco-pv-note">Engangsvarens varenr er ikke sat i Settings
+                (<span class="mono">economic_oneoff_product_number</span>), så linjerne kan
+                ikke faktureres som engangsbeløb.</p>`;
+    }
+    const fritekst = r.missingProducts.filter(p => p.grocy_recipe_id == null).length;
+    return `
+        <div class="fakt-eco-oneoff">
+            <button class="fakt-btn-eco-ghost" onclick="_faktSendEconomicOneoff(${bonId})">
+                Fakturér som engangsbeløb</button>
+            <span class="fakt-eco-oneoff-why">${fritekst
+                ? `${fritekst} af linjerne er fritekst uden opskrift — de kan kun faktureres sådan.`
+                : 'Til engangsting. En vare der sælges igen bør have sit eget varenr i Grocy.'}</span>
+        </div>`;
+}
+
+async function _faktSendEconomicOneoff(bonId) {
+    const bon = _faktData?.pending.find(b => b.id === bonId) || _faktSelected;
+    let pv;
+    try { pv = await previewEconomicDraft(bonId); }
+    catch (err) { _faktShowToast('Kunne ikke hente linjerne: ' + (err.body?.error || err.message)); return; }
+
+    const lines = pv?.readiness?.missingProducts || [];
+    if (!lines.length) { _faktShowToast('Ingen linjer mangler et varenr.'); return; }
+    const sum = lines.reduce((s2, l) => s2 + (l.amount || 0), 0);
+
+    // Bekræft med linjerne fremme — det er kundens faktura, og teksten kan ikke
+    // rettes bagefter uden at slette udkastet i e-conomic.
+    const ok = window.confirm(
+        `Disse ${lines.length} linje(r) faktureres som engangsbeløb (${_faktFmt(sum)} kr inkl. moms):\n\n`
+        + lines.map(l => `  · ${l.product_name}${l.grocy_recipe_id ? ` (recipe ${l.grocy_recipe_id})` : ' (fritekst)'}`).join('\n')
+        + '\n\nBeløb og tekst bevares, men de lander på "Diverse" i regnskabet.\nFortsæt?');
+    if (!ok) return;
+
+    try {
+        const res = await createEconomicDraft(bonId, { oneoff_for_missing: true });
+        if (bon) {
+            bon.economic_draft_number = res.economic_draft_number;
+            if (_faktData?.summary) _faktData.summary.drafts_waiting = (_faktData.summary.drafts_waiting || 0) + 1;
+        }
+        _faktCloseEcoOverlay();
+        _faktShowToast(`Kladde ${res.economic_draft_number} oprettet — ${lines.length} linje(r) som engangsbeløb`);
+        _faktRender();
+        if (bon) _faktSelectBon(bon);
+    } catch (err) {
+        _faktShowToast('Kunne ikke oprette udkast: ' + (err.body?.error || err.message));
+    }
 }
 
 // ── Foreslå + kobl kunde/kontakt fra e-conomic ───────────────

@@ -158,7 +158,7 @@ function needsDeliveryLine(bon) {
  *            missingDelivery:boolean,
  *            missingProducts:Array<{line_id,line_ids,product_name,grocy_recipe_id,amount,reason}>,
  *            excluded:Array<{line_id,line_ids,product_name,grocy_recipe_id,amount,reason}>,
- *            excluded_total:number}}
+ *            excluded_total:number, oneoffAvailable:boolean}}
  */
 function checkReadiness(bon, settings = {}) {
     const missingProducts = [];
@@ -200,6 +200,9 @@ function checkReadiness(bon, settings = {}) {
         missingProducts,
         excluded,
         excluded_total: excludedTotal,
+        // Findes engangsvaren? Uden den kan UI'et ikke tilbyde nødudgangen — og
+        // en knap der altid fejler er værre end ingen knap.
+        oneoffAvailable: settings.oneoffProductNumber != null,
     };
 }
 
