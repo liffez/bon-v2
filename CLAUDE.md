@@ -2405,12 +2405,20 @@ linjen er 0 kr. En ufuldstændig liste vælter altså ikke faktureringen.
 koblings-siden (#440). Indtil da kræver en ændring SQL, men beløbsreglen betyder at en
 ny prep-opskrift er dækket af sin 0-kr-pris uden at nogen rører listen.
 
-**Engangsvare-knappen mangler.** `oneoff_for_missing` understøttes hele vejen ned —
-route, service og engangsvarens varenr (111, migration 144) — men `fakturering.js`
-kalder `createEconomicDraft(bonId)` **uden opts**, så flaget sendes aldrig. Nødudgangen
-er dermed kun teoretisk. Det er acceptabelt for en ukoblet *opskrift* (den skal have et
-varenr i Grocy), men ikke for de fire fritekst-linjer: de har ingen opskrift at koble,
-og engangsvaren er præcis hvad adapter-spec'en bygger dem til. Egen opgave.
+**Engangsvare-knappen** ("Fakturér som engangsbeløb") er bygget samtidig. Nødudgangen
+fandtes hele vejen ned — route, service og varenr 111 (migration 144) — men
+`fakturering.js` kaldte `createEconomicDraft(bonId)` **uden opts**, så flaget aldrig
+blev sendt. Den var dermed kun teoretisk, og det holdt ikke: fire af de blokerende
+poster i drift er fritekst-linjer uden opskrift, som pr. konstruktion ikke kan stå på
+en opskrift-liste og ikke har noget at koble i Grocy.
+
+Knappen vises kun når varenumre er den **eneste** mangel — mangler kunden et
+e-conomic-nr, hjælper engangsvaren ikke. `checkReadiness` returnerer derfor
+`oneoffAvailable`, så UI'et kan se om nødudgangen findes før den tilbydes; en knap der
+altid fejler er værre end ingen knap. Bekræftelsen viser linjerne fremme, skelner
+fritekst fra opskrift og siger at de lander på "Diverse" i regnskabet. Er ingen af dem
+fritekst, står der i stedet at en vare der sælges igen bør have sit eget varenr i
+Grocy — det er en nødudgang, ikke en genvej.
 
 ### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
 
