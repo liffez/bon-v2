@@ -39,6 +39,13 @@ grocyAdapter.getEconomicProductMap = async () => PRODUCT_MAP;
 let BUNDLE_MAP = new Map();
 grocyAdapter.getEconomicBundleMap = async () => BUNDLE_MAP;
 
+// autoFees slår gebyr-opskriften op via getRecipes(). Opskrift 168 = miljøbidraget
+// fra migration 147, prissat som i Grocy (INCL moms, §6b).
+grocyAdapter.getRecipes = async () => ([
+    { id: 168, name: 'Miljøbidrag', category: 'x- Service', unit: 'stk',
+      prices: { store: 36.25, catering: 36.25, festival: 36.25 }, cost_price: 0, co2e: null },
+]);
+
 let draftSeq = 5000, lastPostBody = null;
 eco.isConfigured = () => true;
 eco.rest = async (p, opts = {}) => {
@@ -106,7 +113,13 @@ function seed() {
     insLine.run(mixed, 'Kartoflen', 1, 9400, 9400, 100, '01 Sandwich', 0);
     insLine.run(mixed, 'Glutenfri Bolle', 2, 4500, 9000, 75, 'Tilbehør & Bokse', 1);
 
-    return { ready, missing, bundle, amount, excl, exclPriced, mixed };
+    // Gebyr-bon: reglen (migration 147) gælder fra 11 pax. Bruges til at bevise at
+    // en prøvekørsel IKKE skriver gebyrlinjen på bonen, mens en rigtig afsendelse gør.
+    const fee = insBon.get('T_ECO_FEE', LEVERET, locId, coId, cuId, adId, pcId).id;
+    db.prepare('UPDATE bons SET pax = 40 WHERE id = ?').run(fee);
+    insLine.run(fee, 'Kartoflen', 40, 9400, 376000, 100, '01 Sandwich', 0);
+
+    return { ready, missing, bundle, amount, excl, exclPriced, mixed, fee };
 }
 
 // ── http helper ─────────────────────────────────────────────
@@ -280,6 +293,55 @@ function req(server, method, url, { auth = true, body } = {}) {
             !(lastPostBody?.lines || []).some(l => String(l.description).includes('Salat boks')));
 
 
+        console.log('\n── Prøvekørsel (dry_run) ──');
+        // Kernen: dry_run skal følge PRÆCIS samme sti som en rigtig afsendelse og
+        // kun undlade det sidste skridt. Derfor måles der på tre ting: at payloaden
+        // er der, at e-conomic ALDRIG blev kaldt, og at bonen er urørt bagefter.
+        const førDraft = db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.ready).economic_draft_number;
+        lastPostBody = null;
+        res = await req(server, 'POST', `/api/invoices/${ids.excl}/economic-draft`, { body: { dry_run: true } });
+        ok('dry_run → 200', res.status === 200, JSON.stringify(res.body).slice(0, 160));
+        ok('dry_run → mærket som prøvekørsel', res.body?.dry_run === true);
+        ok('dry_run → payloaden er bygget', Array.isArray(res.body?.payload?.lines) && res.body.payload.lines.length > 0);
+        ok('dry_run → e-conomic blev ALDRIG kaldt', lastPostBody === null);
+        ok('dry_run → intet udkast gemt på bonen',
+            db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.excl).economic_draft_number == null);
+        ok('dry_run → idempotency-nøglen er den samme form som ved rigtig afsendelse',
+            /^bon-\d+-[0-9a-f]{12}$/.test(res.body?.idempotency_key || ''), res.body?.idempotency_key);
+        ok('dry_run → udeladte linjer rapporteres som ellers',
+            res.body?.readiness?.excluded?.length === 1);
+        ok('dry_run → en ANDEN bons udkast er urørt',
+            db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.ready).economic_draft_number === førDraft);
+
+        // Samme payload som en rigtig afsendelse ville sende — ellers beviser prøven intet.
+        const tørPayload = JSON.stringify(res.body.payload);
+        res = await req(server, 'POST', `/api/invoices/${ids.excl}/economic-draft`, { body: {} });
+        ok('rigtig afsendelse → 200', res.status === 200);
+        ok('rigtig afsendelse sendte NØJAGTIG den payload prøvekørslen viste',
+            JSON.stringify(lastPostBody) === tørPayload);
+
+        // Prøvekørsel må ikke SKRIVE på bonen. Standardgebyrer er den eneste bivirkning
+        // afsendelsen har ud over kaldet til e-conomic, så det er dér det skal bevises.
+        db.prepare(`UPDATE settings SET value='[{"id":"miljobidrag","recipe_id":168,"min_pax":11,"active":1}]' WHERE key='auto_fee_rules'`).run();
+        require('../../services/autoFees').invalidateFeeCache();
+        const linjerFør = db.prepare('SELECT COUNT(*) n FROM bon_lines WHERE bon_id=?').get(ids.fee).n;
+        res = await req(server, 'POST', `/api/invoices/${ids.fee}/economic-draft`, { body: { dry_run: true } });
+        ok('dry_run → 200 på gebyr-bon', res.status === 200, JSON.stringify(res.body).slice(0, 140));
+        ok('dry_run → gebyrlinjen blev IKKE skrevet på bonen',
+            db.prepare('SELECT COUNT(*) n FROM bon_lines WHERE bon_id=?').get(ids.fee).n === linjerFør);
+        ok('dry_run → men den varsles som noget afsendelsen vil lægge på',
+            (res.body?.pending_fees || []).length === 1, JSON.stringify(res.body?.pending_fees));
+
+        res = await req(server, 'POST', `/api/invoices/${ids.fee}/economic-draft`, { body: {} });
+        ok('rigtig afsendelse → gebyrlinjen ER skrevet på bonen',
+            db.prepare('SELECT COUNT(*) n FROM bon_lines WHERE bon_id=?').get(ids.fee).n === linjerFør + 1);
+
+        // Prøvekørsel af en blokeret bon skal afvises på samme måde som en rigtig
+        lastPostBody = null;
+        res = await req(server, 'POST', `/api/invoices/${ids.exclPriced}/economic-draft`, { body: { dry_run: true } });
+        ok('dry_run på blokeret bon → 422 som en rigtig afsendelse', res.status === 422);
+        ok('dry_run på blokeret bon → intet kald til e-conomic', lastPostBody === null);
+
         console.log('\n── Auth ──');
         res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { auth: false, body: {} });
         ok('draft uden session → 401', res.status === 401, `(status ${res.status})`);
@@ -288,8 +350,9 @@ function req(server, method, url, { auth = true, body } = {}) {
 
         console.log('\n── Readiness efter draft (drafts_waiting tæller) ──');
         res = await req(server, 'GET', '/api/invoices/economic-readiness');
-        // To kladder nu: happy path + nødudgangen på mixed-bonen.
-        ok('readiness → drafts_waiting = 2', res.body?.drafts_waiting === 2, `(${res.body?.drafts_waiting})`);
+        // Tre kladder nu: happy path, nødudgangen på mixed-bonen, og den rigtige
+        // afsendelse der blev sammenlignet med prøvekørslen.
+        ok('readiness → drafts_waiting = 3', res.body?.drafts_waiting === 3, `(${res.body?.drafts_waiting})`);
     } finally {
         server.close();
         try { db.close?.(); } catch (e) {}

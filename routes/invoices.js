@@ -659,10 +659,16 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
         return res.status(503).json({ error: 'e-conomic er ikke konfigureret (tokens mangler i .env)' });
     }
 
+    // Prøvekørsel: byg kladden og kør alle vagter, men rør hverken e-conomic eller bonen.
+    const dryRun = req.body?.dry_run === true;
+
     // Sikkerhedsnet for bons der allerede var LEVERET da gebyr-reglen blev tændt
     // (hovedvejen er status-skiftet i routes/bons.js). Idempotent — en opskrift
     // der allerede ligger på bonen tilføjes ikke igen.
-    await autoFees.applyAutoFees(db, bonId, { userId: req.session?.userId ?? null });
+    // Springes over ved prøvekørsel: den SKRIVER gebyrlinjer på bonen, og en
+    // generalprøve må ikke ændre noget. Til gengæld rapporteres hvad den ville have
+    // lagt på, så payloaden ikke ser mindre ud end den rigtige afsendelses.
+    if (!dryRun) await autoFees.applyAutoFees(db, bonId, { userId: req.session?.userId ?? null });
 
     const bon = await enrichBonForEconomic(db, bonId);
     const oneoffForMissing = req.body?.oneoff_for_missing === true;
@@ -680,7 +686,7 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
 
     let result;
     try {
-        result = await economicInvoice.createDraftInvoice(bon, { oneoffForMissing });
+        result = await economicInvoice.createDraftInvoice(bon, { oneoffForMissing, dryRun });
     } catch (e) {
         if (e.code === 'not_ready') {
             return res.status(422).json({ error: 'Bon ikke klar til fakturering', readiness: e.readiness });
@@ -697,6 +703,18 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
             return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere', detail: e.message });
         }
         return res.status(502).json({ error: 'e-conomic afviste udkastet', detail: e.message });
+    }
+
+    // Prøvekørsel stopper her: intet gemmes, intet logges, intet broadcastes.
+    if (dryRun) {
+        return res.json({
+            ok: true, dry_run: true,
+            payload: result.payload,
+            idempotency_key: result.idempotencyKey,
+            readiness: result.readiness ?? readiness,
+            // Gebyrer den RIGTIGE afsendelse ville lægge på først — de er ikke i payloaden her.
+            pending_fees: (await previewPendingFees(db, bon)).fees,
+        });
     }
 
     const draftNo = result.draftInvoiceNumber;

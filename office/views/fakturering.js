@@ -562,43 +562,55 @@ async function _faktSendEconomic(bonId) {
     }
 }
 
+/**
+ * Fakturalinjerne som de ville blive sendt. Bruges af BÅDE forhåndsvisningen og
+ * prøvekørslen, så de to viser nøjagtig det samme — en generalprøve der renderer
+ * sin egen version beviser intet om den rigtige.
+ */
+function _faktPayloadHtml(p, readiness, note) {
+    const exTotal = p.lines.reduce((s, l) => s + (l.unitNetPrice || 0) * (l.quantity || 0), 0);
+    const inclTotal = window.Moms.exclToIncl(exTotal);
+    const momsAmt = inclTotal - exTotal;
+    return `
+        <div class="fakt-eco-pv-meta">
+            <div><span>Modtager</span><strong>${_escHtml(p.recipient?.name || '')}</strong></div>
+            <div><span>e-conomic kunde-nr</span><strong>${p.customer?.customerNumber ?? '—'}</strong></div>
+            <div><span>Reference</span><strong>${_escHtml(p.references?.other || '')}</strong></div>
+            <div><span>Fakturadato</span><strong>${_escHtml(p.date || '')}</strong></div>
+            ${p.delivery ? `<div><span>Leveringsdato</span><strong>${_escHtml(p.delivery.deliveryDate || '')}</strong></div>` : ''}
+        </div>
+        <table class="fakt-eco-pv-table">
+            <thead><tr><th>Varenr</th><th>Tekst</th><th class="r">Antal</th><th class="r">Stk-pris (ex)</th><th class="r">Linje (ex)</th></tr></thead>
+            <tbody>
+                ${p.lines.map(l => `<tr>
+                    <td class="mono">${_escHtml(l.product?.productNumber || '')}</td>
+                    <td>${_escHtml(l.description || '')}${l.discountPercentage ? ` <span class="fakt-eco-pv-disc">−${l.discountPercentage}%</span>` : ''}</td>
+                    <td class="r">${l.quantity}</td>
+                    <td class="r">${_faktFmt(l.unitNetPrice)}</td>
+                    <td class="r">${_faktFmt((l.unitNetPrice || 0) * (l.quantity || 0))}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>
+        <div class="fakt-eco-pv-sums">
+            <div><span>Linje-priser (ex moms)</span><span>${_faktFmt(exTotal)} kr</span></div>
+            <div><span>Moms (25%, beregnes af e-conomic)</span><span>${_faktFmt(momsAmt)} kr</span></div>
+            <div class="tot"><span><strong>Total til kunde (incl moms)</strong></span><span><strong>${_faktFmt(inclTotal)} kr</strong></span></div>
+        </div>
+        ${_faktExcludedHtml(readiness)}
+        <p class="fakt-eco-pv-note">${note || 'Forhåndsvisning — intet er sendt. e-conomic beregner selv momsen ud fra varens momskode.'}</p>`;
+}
+
 async function _faktPreviewEconomic(bonId) {
     const bon = _faktData?.pending.find(b => b.id === bonId) || _faktSelected;
     try {
         const pv = await previewEconomicDraft(bonId);
         let body;
         if (pv.payload) {
-            const p = pv.payload;
-            const exTotal = p.lines.reduce((s, l) => s + (l.unitNetPrice || 0) * (l.quantity || 0), 0);
-            const inclTotal = window.Moms.exclToIncl(exTotal);
-            const momsAmt = inclTotal - exTotal;
-            body = `
-                <div class="fakt-eco-pv-meta">
-                    <div><span>Modtager</span><strong>${_escHtml(p.recipient?.name || '')}</strong></div>
-                    <div><span>e-conomic kunde-nr</span><strong>${p.customer?.customerNumber ?? '—'}</strong></div>
-                    <div><span>Reference</span><strong>${_escHtml(p.references?.other || '')}</strong></div>
-                    <div><span>Fakturadato</span><strong>${_escHtml(p.date || '')}</strong></div>
-                    ${p.delivery ? `<div><span>Leveringsdato</span><strong>${_escHtml(p.delivery.deliveryDate || '')}</strong></div>` : ''}
-                </div>
-                <table class="fakt-eco-pv-table">
-                    <thead><tr><th>Varenr</th><th>Tekst</th><th class="r">Antal</th><th class="r">Stk-pris (ex)</th><th class="r">Linje (ex)</th></tr></thead>
-                    <tbody>
-                        ${p.lines.map(l => `<tr>
-                            <td class="mono">${_escHtml(l.product?.productNumber || '')}</td>
-                            <td>${_escHtml(l.description || '')}${l.discountPercentage ? ` <span class="fakt-eco-pv-disc">−${l.discountPercentage}%</span>` : ''}</td>
-                            <td class="r">${l.quantity}</td>
-                            <td class="r">${_faktFmt(l.unitNetPrice)}</td>
-                            <td class="r">${_faktFmt((l.unitNetPrice || 0) * (l.quantity || 0))}</td>
-                        </tr>`).join('')}
-                    </tbody>
-                </table>
-                <div class="fakt-eco-pv-sums">
-                    <div><span>Linje-priser (ex moms)</span><span>${_faktFmt(exTotal)} kr</span></div>
-                    <div><span>Moms (25%, beregnes af e-conomic)</span><span>${_faktFmt(momsAmt)} kr</span></div>
-                    <div class="tot"><span><strong>Total til kunde (incl moms)</strong></span><span><strong>${_faktFmt(inclTotal)} kr</strong></span></div>
-                </div>
-                ${_faktExcludedHtml(pv.readiness)}
-                <p class="fakt-eco-pv-note">Forhåndsvisning — intet er sendt. e-conomic beregner selv momsen ud fra varens momskode.</p>`;
+            body = _faktPayloadHtml(pv.payload, pv.readiness)
+                + `<div class="fakt-eco-oneoff">
+                     <button class="fakt-btn-eco-ghost" onclick="_faktDryRunEconomic(${bonId}, false)">Prøvekørsel</button>
+                     <span class="fakt-eco-oneoff-why">Kører hele afsendelsen bortset fra kaldet til e-conomic.</span>
+                   </div>`;
         } else {
             body = `<p class="fakt-eco-block-lead">Udkastet kan ikke bygges endnu:</p>${_faktReadinessHtml(pv.readiness, bonId)}`;
             if (!pv.settings_ok) body += `<p class="fakt-eco-pv-note">⚠ e-conomic-indstillinger (betalingsbetingelse/layout) mangler i Settings.</p>`;
@@ -677,10 +689,37 @@ function _faktOneoffHtml(r, bonId) {
         <div class="fakt-eco-oneoff">
             <button class="fakt-btn-eco-ghost" onclick="_faktSendEconomicOneoff(${bonId})">
                 Fakturér som engangsbeløb</button>
+            <button class="fakt-btn-eco-ghost" onclick="_faktDryRunEconomic(${bonId}, true)">
+                Prøvekørsel</button>
             <span class="fakt-eco-oneoff-why">${fritekst
                 ? `${fritekst} af linjerne er fritekst uden opskrift — de kan kun faktureres sådan.`
                 : 'Til engangsting. En vare der sælges igen bør have sit eget varenr i Grocy.'}</span>
         </div>`;
+}
+
+/**
+ * Prøvekørsel: kør hele afsendelsen bortset fra selve kaldet til e-conomic.
+ * Til forskel fra forhåndsvisningen går den gennem POST-ruten, så den også prøver
+ * re-send-vagten, engangsvare-stien og de 422-svar der ellers først viser sig når
+ * man trykker Send for alvor.
+ */
+async function _faktDryRunEconomic(bonId, oneoff) {
+    const bon = _faktData?.pending.find(b => b.id === bonId) || _faktSelected;
+    const titel = `Prøvekørsel${oneoff ? ' (som engangsbeløb)' : ''} — #${bon?.bon_number ?? bonId}`;
+    try {
+        const res = await createEconomicDraft(bonId, { dry_run: true, oneoff_for_missing: !!oneoff });
+        const gebyr = (res.pending_fees || []).length;
+        _faktEcoOverlay(titel,
+            `<p class="fakt-eco-block-lead">Sådan ville kladden se ud. <strong>Intet er sendt</strong>, og bonen er urørt.</p>`
+            + _faktPayloadHtml(res.payload, res.readiness,
+                'Prøvekørsel — der er ikke oprettet noget i e-conomic.')
+            + (gebyr ? `<p class="fakt-eco-pv-note">⚠ En rigtig afsendelse lægger først ${gebyr} standardgebyr-linje(r) på bonen — de er ikke med her.</p>` : ''));
+    } catch (err) {
+        const b = err.body || {};
+        _faktEcoOverlay(titel, b.readiness
+            ? `<p class="fakt-eco-block-lead">Afsendelsen ville blive afvist:</p>${_faktReadinessHtml(b.readiness, bonId)}`
+            : `<p class="fakt-eco-block-lead">Afsendelsen ville fejle:</p><p>${_escHtml(b.error || err.message)}</p>`);
+    }
 }
 
 async function _faktSendEconomicOneoff(bonId) {

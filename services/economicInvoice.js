@@ -444,9 +444,12 @@ function buildDraftInvoice(bon, settings, opts = {}) {
 /**
  * Opret fakturaudkast i e-conomic. Forventer en beriget bon (lines med
  * economic_product_number). Kører forhåndstjek; bygger ikke payload hvis noget mangler.
- * @returns {Promise<{draftInvoiceNumber:number, raw:object}>}
+ * @param {object} opts  { invoiceDate?, oneoffForMissing?, dryRun? }
+ *   dryRun: byg payloaden og kør alle vagter, men ring ikke til e-conomic og opret intet.
+ * @returns {Promise<{draftInvoiceNumber:number|null, raw?:object, payload:object,
+ *                    idempotencyKey:string, dryRun?:true}>}
  */
-async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing } = {}) {
+async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing, dryRun } = {}) {
     // Settings hentes FØR forhåndstjekket, så route og service klassificerer på
     // nøjagtig samme grundlag — ellers kan de to blive uenige om hvad der udelades.
     const settings = getEconomicSettings();
@@ -463,12 +466,19 @@ async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing } = {}) {
     // og undgår e-conomics "PayloadChanged"-fejl. Re-send efter success forhindres
     // separat af economic_draft_number-guarden i routes.
     const hash = crypto.createHash('sha1').update(JSON.stringify(payload)).digest('hex').slice(0, 12);
+    const idempotencyKey = `bon-${bon.id}-${hash}`;
+
+    // Prøvekørsel: stopper på SIDSTE trin, efter at alle vagter og hele payloaden er
+    // bygget af samme kode som en rigtig afsendelse. En generalprøve der følger sin
+    // egen sti beviser ingenting — derfor er dette ét `return`, ikke en parallel gren.
+    if (dryRun) return { dryRun: true, draftInvoiceNumber: null, payload, idempotencyKey, readiness };
+
     const res = await eco.rest('/invoices/drafts', {
         method: 'POST',
         body: payload,
-        idempotencyKey: `bon-${bon.id}-${hash}`,
+        idempotencyKey,
     });
-    return { draftInvoiceNumber: res?.draftInvoiceNumber ?? null, raw: res };
+    return { draftInvoiceNumber: res?.draftInvoiceNumber ?? null, raw: res, payload, idempotencyKey };
 }
 
 /** Slet et fakturaudkast (til test/oprydning). */
