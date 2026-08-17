@@ -16,6 +16,11 @@
  *         Skriver ALDRIG hvis godkendt_nr er tom eller '-'. Overskriver aldrig et
  *         allerede sat nummer (med mindre --force).
  *
+ * Opskrifter der er slettet i Grocy får status SLETTET og godkendt_nr = '-'. De kan
+ * ikke kobles: userfield-værdier overlever sletningen, så en PUT ser ud til at lykkes,
+ * men faktureringen læser /objects/recipes og ser dem aldrig. Apply-mode tjekker
+ * eksistensen igen, så en håndredigeret CSV heller ikke kan skrive et spøgelse.
+ *
  * Kategori afgør status (renere end navne-gætteri):
  *   sælgbar mad + emballage → match til vare · x-Levering/x-Service → service-varenr
  *   RR Produktion* → prep, ingen kobling.
@@ -120,10 +125,23 @@ async function applyMode() {
     }
 
     console.log(`Skriver til Grocy HQ: ${HQ_URL}\n`);
-    let wrote = 0, skipped = 0, failed = 0;
+    let wrote = 0, skipped = 0, failed = 0, gone = 0;
     for (const r of writable) {
         const id = r.recipe_id, num = r.godkendt_nr.trim();
         try {
+            // Findes opskriften overhovedet? Userfield-VÆRDIER overlever at en opskrift
+            // slettes i Grocy, så en PUT lykkes på et id der ikke findes — og et GET
+            // svarer med den gamle værdi. Faktureringen læser /objects/recipes og ser
+            // kun levende opskrifter, så et spøgelse dér er usynligt: koblingen ser
+            // udført ud og virker ikke. Tjek derfor eksistensen FØR alt andet.
+            const exists = await fetch(`${HQ_URL}/objects/recipes/${id}`, { headers: { 'GROCY-API-KEY': HQ_KEY, 'Accept': 'application/json' } });
+            if (exists.status === 404) {
+                gone++;
+                console.log(`  ⊘ recipe ${id} findes ikke i Grocy — kan ikke kobles (${r.recipe_navn})`);
+                continue;
+            }
+            if (!exists.ok) throw new Error(`kunne ikke slå opskriften op: HTTP ${exists.status}`);
+
             if (!FORCE) {
                 const cur = await fetch(`${HQ_URL}/userfields/recipes/${id}`, { headers: { 'GROCY-API-KEY': HQ_KEY, 'Accept': 'application/json' } }).then(x => x.ok ? x.json() : {});
                 if (cur && cur.economic_product_number && String(cur.economic_product_number).trim() !== '') { skipped++; console.log(`  ↷ recipe ${id} har allerede ${cur.economic_product_number} (brug --force for at overskrive)`); continue; }
@@ -136,7 +154,12 @@ async function applyMode() {
             wrote++; console.log(`  ✓ recipe ${id} → ${num}  (${r.recipe_navn})`);
         } catch (e) { failed++; console.log(`  ✗ recipe ${id}: ${e.message}`); }
     }
-    console.log(`\nFærdig: ${wrote} skrevet · ${skipped} sprunget over · ${failed} fejl`);
+    console.log(`\nFærdig: ${wrote} skrevet · ${skipped} havde allerede et nummer · ${gone} findes ikke i Grocy · ${failed} fejl`);
+    if (gone) {
+        console.log(`\n  ${gone === 1 ? 'Den slettede opskrift lever' : `De ${gone} slettede opskrifter lever`}`
+            + ' kun videre på gamle bons og kan aldrig kobles.');
+        console.log('  Deres bons faktureres via "Fakturér som engangsbeløb" i faktureringen. Se issue #441.');
+    }
     process.exit(failed ? 1 : 0);
 }
 
@@ -151,6 +174,21 @@ async function generateMode() {
     while (true) { const r = await eco.rest('/products?pagesize=100&skippages=' + skip); products = products.concat(r.collection || []); if (!r.pagination?.nextPage || ++skip > 20) break; }
     const active = products.filter(p => !p.barred).map(p => ({ number: String(p.productNumber), name: p.name }));
     console.log(`e-conomic: ${products.length} produkter (${active.length} aktive)`);
+
+    // Levende opskrifter i Grocy. CSV'en bygges af bon_lines, som også rummer
+    // opskrifter der siden er slettet — de kan ikke kobles, og skal ikke se ud
+    // som om de kan. Kan Grocy ikke nås, markerer vi ingen (og siger det).
+    let liveIds = null;
+    const HQ_URL = process.env.GROCY_HQ_URL, HQ_KEY = process.env.GROCY_HQ_KEY;
+    if (HQ_URL && HQ_KEY) {
+        try {
+            const arr = await fetch(`${HQ_URL}/objects/recipes`, { headers: { 'GROCY-API-KEY': HQ_KEY, 'Accept': 'application/json' } }).then(x => x.json());
+            liveIds = new Set(arr.map(r => Number(r.id)));
+            console.log(`Grocy HQ: ${liveIds.size} levende opskrifter`);
+        } catch (e) { console.log(`⚠ Kunne ikke hente opskrifter fra Grocy (${e.message}) — slettede markeres ikke.`); }
+    } else {
+        console.log('⚠ GROCY_HQ_URL/GROCY_HQ_KEY mangler — slettede opskrifter markeres ikke.');
+    }
 
     // solgte recipes m. dominant kategori
     const db = new DatabaseSync(DB_PATH);
@@ -185,6 +223,9 @@ async function generateMode() {
 
     function classify(r) {
         const base = { status: '', number: '', pname: '', score: 0, approved: '' };
+        // Først af alt: findes opskriften stadig? Et navne-gæt på "udgået" er en
+        // heuristik — 404 fra Grocy er en kendsgerning, og den slår alt andet.
+        if (liveIds && !liveIds.has(Number(r.rid))) return { ...base, status: 'SLETTET', approved: '-' };
         if (DISCONTINUED.test(r.name)) return { ...base, status: 'UDGÅET', approved: '-' };
         if (PREP_CATS.includes(r.cat)) return { ...base, status: 'PREP', approved: '-' };
         const kasse = kasseOverride(r.name);
@@ -207,7 +248,7 @@ async function generateMode() {
     }
 
     const rows = recipes.map(r => ({ ...r, ...classify(r) }));
-    const order = { AUTO: 0, SERVICE: 1, 'SERVICE?': 2, TJEK: 3, 'MANGLER?': 4, UDGÅET: 5, PREP: 6 };
+    const order = { AUTO: 0, SERVICE: 1, 'SERVICE?': 2, TJEK: 3, 'MANGLER?': 4, UDGÅET: 5, PREP: 6, SLETTET: 7 };
     rows.sort((a, b) => (order[a.status] - order[b.status]) || (b.sold - a.sold));
 
     // CSV
@@ -219,10 +260,12 @@ async function generateMode() {
     // konsol-opsummering
     const count = (s) => rows.filter(r => r.status === s).length;
     console.log('STATUS-FORDELING:');
-    for (const s of ['AUTO', 'SERVICE', 'SERVICE?', 'TJEK', 'MANGLER?', 'UDGÅET', 'PREP'])
+    for (const s of ['AUTO', 'SERVICE', 'SERVICE?', 'TJEK', 'MANGLER?', 'UDGÅET', 'PREP', 'SLETTET'])
         console.log(`  ${s.padEnd(9)} ${String(count(s)).padStart(3)}`);
     console.log(`\n→ Skrev ${rows.length} rækker til ${OUT_CSV}`);
     console.log('   AUTO + SERVICE er forhåndsudfyldt i godkendt_nr. TJEK/MANGLER?/SERVICE? er tomme — udfyld/ret i Excel.');
+    const slettet = count('SLETTET');
+    if (slettet) console.log(`   SLETTET (${slettet}) findes ikke længere i Grocy og kan ALDRIG kobles — deres bons faktureres som engangsbeløb (issue #441).`);
     console.log('   PREP + UDGÅET har godkendt_nr = "-" (bevidst ingen kobling).');
     console.log(`\n   Når listen er gennemgået:  node --experimental-sqlite scripts/economic-product-match.js --apply ${OUT_CSV}`);
 }
