@@ -981,9 +981,18 @@ router.post('/routes/:id/book', requireAuth(), handle((req, res) => {
     const route = db.prepare('SELECT id FROM delivery_routes WHERE id = ?').get(id);
     if (!route) return res.status(404).json({ error: 'Rute ikke fundet' });
 
+    // Dette endpoint kan kun nogensinde udtrykke "et menneske har sendt
+    // bestillingen" (#365). Office kalder det EFTER popout-vinduet, og intet
+    // her har talt med leverandøren. Derfor stemples påstanden som 'manual',
+    // så UI'et kan sige "sendt" frem for "bekræftet".
+    //
+    // 'api' sættes ikke herfra — den hører til en kode-sti der har fået et svar
+    // fra leverandørens system (som services/lobo_booking.js allerede gør på
+    // bon-niveau ved at kaste videre hvis bookOrder fejler).
     db.prepare(`
         UPDATE delivery_routes
         SET booking_status = ?,
+            booking_confirmed_by = 'manual',
             external_reference = COALESCE(?, external_reference),
             booked_at = CURRENT_TIMESTAMP,
             booked_by_user_id = ?,
@@ -991,8 +1000,8 @@ router.post('/routes/:id/book', requireAuth(), handle((req, res) => {
         WHERE id = ?
     `).run(status, external_reference, req.session?.userId || null, id);
 
-    broadcast('delivery_route_status_changed', { route_id: id, booking_status: status });
-    res.json({ id, booking_status: status, external_reference });
+    broadcast('delivery_route_status_changed', { route_id: id, booking_status: status, booking_confirmed_by: 'manual' });
+    res.json({ id, booking_status: status, booking_confirmed_by: 'manual', external_reference });
 }));
 
 // ──────────────────────────────────────────

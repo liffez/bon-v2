@@ -3983,6 +3983,36 @@ Dækket af `tests/quote_convert.test.js` (10 tests), som bygger skemaet af de **
 migrations i en `:memory:`-database — en kolonne der flytter sig får testen til at fejle i
 stedet for at bestå mod en håndskrevet kopi.
 
+### "✓ Booket" betød kun at et menneske trykkede (#365, 20. juli 2026)
+
+Tredje del af mønstret fra #362: *feltet der registrerer en bivirkning skrives på en
+kodesti der ikke afhænger af om bivirkningen lykkedes.*
+
+`POST /routes/:id/book` skriver
+`booked_at` + `booked_by_user_id` uden at noget har talt med leverandøren; office kalder
+det *efter* popout-vinduet. Gennemgang bekræftede at dette endpoint er det **eneste** sted
+der sætter `booking_status='booked'` på en rute — så etiketten var løgnen, ikke dataen.
+
+- **Migration 148** — `delivery_routes.booking_confirmed_by` (`'manual'` | `'api'` | NULL).
+  Bevidst en **ny kolonne** frem for en ny værdi i `booking_status`: den har en
+  CHECK-constraint, og SQLite kræver hele tabellen genskabt for at ændre den — med FK'er
+  fra `delivery_route_stops`. Risikoen står ikke mål med gevinsten.
+- Endpointet stempler altid `'manual'`; `'api'` kan ikke sættes fra request body.
+  NULL på gamle rækker behandles som manuel, for det er faktuelt hvad de var.
+- `shared/logistik.js` viser "Sendt til bud" i gul frem for "✓ Booket" i grøn, med
+  tooltip: *"Leverandøren har ikke bekræftet — ring hvis det er vigtigt."*
+
+**Tests:** `scripts/test-booking-confirmed-by.js` (10 — mod en rigtig server med isoleret
+DB; asserterer mod **databasen**, ikke kun svaret). Mutations-testet. Regression: delivery
+spor1-unit 102, spor2-unit 25, spor2-routes 24.
+
+**Webhook-delen (#363) er flyttet til #414.** Begge ændrede samme funktion i
+`services/goodsReceiptWebhook.js` — hver med sin returværdi, så de udelukkede hinanden.
+#414 er den fyldigere: den løser #363 sammen med #412 og bygger samtidig den
+modtagelseslog og den synlige Whiteboard-status i Settings, som mangler her. Netop
+fraværet af en læser på `webhook_log` var grunden til at denne PR kun kunne skrive
+`Refs #363`, ikke `Closes`.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
