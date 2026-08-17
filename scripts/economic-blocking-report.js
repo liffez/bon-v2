@@ -18,8 +18,10 @@
  *   node --experimental-sqlite scripts/economic-blocking-report.js
  *   node --experimental-sqlite scripts/economic-blocking-report.js --all --since 2026-01-01
  *
- *   --all     alle fakturerbare bons, ikke kun dem i køen (LEVERET, endnu ikke sendt)
- *   --since   kun bons leveret fra denne dato (default: 90 dage tilbage)
+ *   --all       alle fakturerbare bons, ikke kun dem i køen (LEVERET, endnu ikke sendt)
+ *   --since     kun bons leveret fra denne dato (default: 90 dage tilbage)
+ *   --vis-bons  navngiv de blokerede bons (bon-nr, dato, kunde, status), så man kan
+ *               gå direkte til dem i faktureringen
  * ────────────────────────────────────────────────────────────
  */
 require('dotenv').config({ quiet: true });
@@ -30,6 +32,7 @@ const grocyAdapter = require('../services/grocyAdapter');
 
 const args = process.argv.slice(2);
 const ALL = args.includes('--all');
+const VIS_BONS = args.includes('--vis-bons');
 const SINCE = (args[args.indexOf('--since') + 1] || '').match(/^\d{4}-\d{2}-\d{2}$/)
     ? args[args.indexOf('--since') + 1] : offsetISO(-90);
 
@@ -58,10 +61,12 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
 
     const rows = db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_date, b.delivery_price,
-               b.delivery_vehicle_id, co.name AS company_name
+               b.delivery_vehicle_id, sd.code AS status_code,
+               COALESCE(co.name, TRIM(c.first_name || ' ' || c.last_name)) AS company_name
         FROM bons b
         JOIN status_definitions sd ON sd.id = b.status_id
         LEFT JOIN companies co ON co.id = b.company_id
+        LEFT JOIN customers c  ON c.id  = b.customer_id
         WHERE b.payment_type = 'invoice'
           AND (b.is_offer = 0 OR b.is_offer IS NULL)
           AND b.delivery_date >= ?
@@ -77,6 +82,7 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
     const blocking = new Map();   // recipe-nøgle → { navn, bons:Set, kr, kategori }
     const excluded = new Map();
     let blockedBons = 0, okBons = 0;
+    const blockedList = [];
 
     for (const b of rows) {
         const lines = lineSql.all(b.id);
@@ -87,7 +93,11 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
                 ? (bundleMap.get(rid) ?? null) : null;
         }
         const r = economicInvoice.checkReadiness({ ...b, lines }, settings);
-        if (r.missingProducts.length) blockedBons++; else okBons++;
+        if (r.missingProducts.length) {
+            blockedBons++;
+            blockedList.push({ ...b, varer: r.missingProducts.map(m => m.product_name.trim()),
+                               beløb: r.missingProducts.reduce((sum, m) => sum + (m.amount || 0), 0) });
+        } else okBons++;
 
         const tally = (map, e) => {
             const key = e.grocy_recipe_id ?? `fritekst:${e.product_name}`;
@@ -113,6 +123,17 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
     console.log(`${okBons} uden blokerende linjer · ${blockedBons} blokeret`);
     table(blocking, 'Blokerer — mangler et e-conomic varenr');
     table(excluded, 'Udelades bevidst — "faktureres ikke" eller 0 kr');
+
+    if (VIS_BONS && blockedList.length) {
+        console.log('\n── De blokerede bons ──');
+        for (const b of blockedList) {
+            console.log(`  #${String(b.bon_number).padEnd(10)} ${b.delivery_date}  ${String(b.status_code).padEnd(11)}`
+                + `${String(b.company_name || '—').slice(0, 26).padEnd(28)}${kr(b.beløb).padStart(11)} kr`);
+            console.log(`     ${b.varer.join(' · ')}`);
+        }
+    } else if (blockedList.length) {
+        console.log(`\n(kør med --vis-bons for at se hvilke ${blockedList.length} bons det er)`);
+    }
     console.log('\nBeløb er INKL moms (bon_lines.line_total, jf. §6b).');
     console.log('Blokerende opskrifter kobles i Grocy, eller sættes på settings.economic_noninvoice_recipes.\n');
 })().catch(e => { console.error(e); process.exit(1); });
