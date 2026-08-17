@@ -545,7 +545,10 @@ async function _faktSendEconomic(bonId) {
         _faktRender();
         _faktSelectBon(bon);
     } catch (err) {
-        if (err.status === 422 && err.body?.readiness) {
+        if (err.status === 422 && err.body?.code && !err.body?.readiness) {
+            _faktEcoOverlay(`Bon #${bon.bon_number} kan ikke sendes endnu`,
+                `<p class="fakt-eco-block-lead">${_escHtml(err.body.error || '')}</p>`);
+        } else if (err.status === 422 && err.body?.readiness) {
             _faktEcoOverlay(`Bon #${bon.bon_number} kan ikke sendes endnu`,
                 `<p class="fakt-eco-block-lead">Følgende mangler i e-conomic, før et udkast kan oprettes:</p>
                  ${_faktReadinessHtml(err.body.readiness, bonId)}`);
@@ -594,6 +597,7 @@ async function _faktPreviewEconomic(bonId) {
                     <div><span>Moms (25%, beregnes af e-conomic)</span><span>${_faktFmt(momsAmt)} kr</span></div>
                     <div class="tot"><span><strong>Total til kunde (incl moms)</strong></span><span><strong>${_faktFmt(inclTotal)} kr</strong></span></div>
                 </div>
+                ${_faktExcludedHtml(pv.readiness)}
                 <p class="fakt-eco-pv-note">Forhåndsvisning — intet er sendt. e-conomic beregner selv momsen ud fra varens momskode.</p>`;
         } else {
             body = `<p class="fakt-eco-block-lead">Udkastet kan ikke bygges endnu:</p>${_faktReadinessHtml(pv.readiness, bonId)}`;
@@ -605,11 +609,34 @@ async function _faktPreviewEconomic(bonId) {
     }
 }
 
+/**
+ * Linjer der ikke kommer med på fakturaen. Beløbene er INCL moms (`line_total`,
+ * jf. §6b) — det står eksplicit, fordi preview-tabellen ved siden af summerer EX moms.
+ */
+function _faktExcludedHtml(r) {
+    if (!r?.excluded?.length) return '';
+    const reason = {
+        noninvoice:  'faktureres ikke',
+        zero_amount: '0 kr',
+    };
+    return `
+        <details class="fakt-eco-excluded">
+            <summary>${r.excluded.length} linje(r) kommer <strong>ikke</strong> med på fakturaen
+                ${r.excluded_total ? ` — ${_faktFmt(r.excluded_total)} kr inkl. moms` : ''}</summary>
+            <ul>
+                ${r.excluded.map(e => `<li>${_escHtml(e.product_name || '')}
+                    <span class="mono">(recipe ${e.grocy_recipe_id ?? '—'})</span>
+                    <span class="fakt-eco-exc-why">${reason[e.reason] || e.reason || ''}</span></li>`).join('')}
+            </ul>
+        </details>`;
+}
+
 function _faktReadinessHtml(r, bonId) {
     if (!r) return '';
     const items = [];
     if (r.missingCustomer) items.push('Kunden mangler et e-conomic kunde-nr (tilføj det under “Kunde &amp; firma”).');
     if (r.eanWithoutContact) items.push('EAN-kunde uden kontaktperson — e-conomic kræver en kontakt for at sende EAN-faktura.');
+    if (r.missingDelivery) items.push('Leveringen har hverken et varenr på køretøjet eller en fallback i Settings.');
     if (r.missingProducts && r.missingProducts.length) {
         items.push(`${r.missingProducts.length} vare(r) mangler et e-conomic varenr:`);
     }
@@ -618,8 +645,12 @@ function _faktReadinessHtml(r, bonId) {
         <ul class="fakt-eco-block-list">${items.map(i => `<li>${i}</li>`).join('')}</ul>
         ${r.missingProducts && r.missingProducts.length ? `
         <ul class="fakt-eco-block-products">
-            ${r.missingProducts.map(p => `<li>${_escHtml(p.product_name)} <span class="mono">(recipe ${p.grocy_recipe_id ?? '—'})</span></li>`).join('')}
+            ${r.missingProducts.map(p => `<li>${_escHtml(p.product_name)} <span class="mono">(recipe ${p.grocy_recipe_id ?? '—'})</span>
+                ${p.amount ? `<span class="fakt-eco-exc-why">${_faktFmt(p.amount)} kr inkl.</span>` : ''}
+                ${p.reason === 'noninvoice_but_priced'
+                    ? '<span class="fakt-eco-exc-why">står på “faktureres ikke”-listen, men har en pris</span>' : ''}</li>`).join('')}
         </ul>` : ''}
+        ${_faktExcludedHtml(r)}
         ${showSuggest ? `<button class="fakt-btn-eco" style="margin-top:12px" onclick="_faktSuggestEconomic(${bonId})">&#128269; Foreslå kunde fra e-conomic</button>` : ''}`;
 }
 

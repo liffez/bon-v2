@@ -321,6 +321,41 @@ i e-conomic — `customers.economic_contact_id`). → To veje:
   2. **Auto-opret via API** (senere): `POST /customers` (+ kontakt) → skriv numre tilbage.
 Indtil kunde-/kontaktnummer findes: blokér bonen med "kunden mangler i e-conomic" + dokument-knap.
 
+**C. Hvad faktureres IKKE — og hvorfor kategori er den forkerte akse (#454, august 2026).**
+Nogle linjer skal aldrig på fakturaen: emballage kunden ikke betaler for, og prep-opskrifter.
+Det blev først løst med en liste over *kategorier* (`NONINVOICE_CATEGORIES`). Den regel var
+forkert, fordi to af kategorierne er blandede: `Tilbehør & Bokse` rummer ægte varer med
+omsætning (Glutenfri Bolle, Børne Bokse, HåndDelle), og `06 Emballage` rummer både emballage
+og transportkasser der faktureres. `lunch` er slet ikke en Grocy-kategori, men `block_type`
+lækket fra tilbudsmodulet. Resultatet var fakturaer der så rigtige ud og var for små.
+
+Reglen er nu **pr. linje**, i `classifyLine()`, i denne rækkefølge:
+
+| # | Betingelse | Udfald |
+|---|---|---|
+| 1 | linjen har `economic_product_number` | faktureres |
+| 2 | linjen er et bundt (slider-boks) | foldes ud til én linje pr. vare |
+| 3 | linjen bærer 0 kr | udelades — **rapporteres** i `readiness.excluded` |
+| 4 | engangsvare-redning valgt (og nummeret findes) | faktureres som engangsvare |
+| 5 | ellers | **blokerer** |
+
+To invarianter bærer det hele:
+
+- **Beløbet afgør, ikke kategorien.** En linje til 0 kr kan ikke gøre fakturaen for lille;
+  en linje med penge må aldrig forsvinde. Samme opskrift kan derfor lande begge steder —
+  `Receptions Skinner` udelades når den er gratis og blokerer når den er prissat.
+- **`settings.economic_noninvoice_recipes` kan kun ophæve en blokering, aldrig fjerne
+  omsætning.** Står en opskrift på listen og linjen alligevel har en pris, blokerer den:
+  det er en selvmodsigelse i stamdata, og den skal ses frem for at blive skjult.
+
+Udeladelsen er aldrig stille: `checkReadiness` returnerer `excluded[]` + `excluded_total`
+(INKL moms), og fakturerings-skærmen viser dem både i forhåndsvisningen og ved blokering.
+`buildDraftInvoice` **kaster** (`line_without_product`) hvis en linje alligevel når frem —
+et værn bag forhåndstjekket, ikke en erstatning for det.
+
+`scripts/economic-blocking-report.js` (read-only) viser hvilke opskrifter der blokerer,
+hvor mange bons det rammer, og hvad der udelades. Kan køres mod drift.
+
 ---
 
 ## RABAT (undersøgt + besluttet 24. juni 2026)

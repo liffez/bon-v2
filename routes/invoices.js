@@ -359,11 +359,17 @@ router.get('/economic-readiness', requireAuth(), handle(async (req, res) => {
         ORDER BY b.delivery_date ASC
     `).all();
 
+    // Settings hentes én gang — ikke pr. bon; ellers er det N SELECT'er pr. sideindlæsning.
+    const settings = economicInvoice.getEconomicSettings(db);
     const blocked = [];
+    let excludedBons = 0, excludedTotal = 0;
     for (const { id } of queue) {
         const bon = await enrichBonForEconomic(db, id);
         if (!bon) continue;
-        const r = economicInvoice.checkReadiness(bon);
+        const r = economicInvoice.checkReadiness(bon, settings);
+        // Udeladte linjer gør ikke bonen blokeret, men de skal kunne tælles op:
+        // "hvad kommer der IKKE med på fakturaerne i køen".
+        if (r.excluded.length) { excludedBons++; excludedTotal += r.excluded_total; }
         if (!r.ok) {
             blocked.push({
                 bon_id:            bon.id,
@@ -372,7 +378,10 @@ router.get('/economic-readiness', requireAuth(), handle(async (req, res) => {
                                      || `${bon.customer?.first_name || ''} ${bon.customer?.last_name || ''}`.trim(),
                 missing_customer:  r.missingCustomer,
                 ean_without_contact: r.eanWithoutContact,
+                missing_delivery:  r.missingDelivery,
                 missing_products:  r.missingProducts,
+                excluded:          r.excluded,
+                excluded_total:    r.excluded_total,
             });
         }
     }
@@ -390,6 +399,8 @@ router.get('/economic-readiness', requireAuth(), handle(async (req, res) => {
         blocked_count:  blocked.length,
         ready_count:    queue.length - blocked.length,
         drafts_waiting: draftsWaiting,
+        excluded_bons:  excludedBons,
+        excluded_total: Math.round(excludedTotal * 100) / 100,   // INCL moms (§6b)
         blocked,
     });
 }));
@@ -403,7 +414,7 @@ router.get('/:bonId/economic-preview', requireAuth(), handle(async (req, res) =>
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
     const settings = economicInvoice.getEconomicSettings(db);
-    const readiness = economicInvoice.checkReadiness(bon);
+    const readiness = economicInvoice.checkReadiness(bon, settings);
 
     // Hvilke standardgebyrer mangler bonen? Preview'et skriver ikke (det er en
     // GET) — det viser bare hvad kladde-trykket vil lægge på, så gebyret ikke
@@ -656,12 +667,13 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
     const bon = await enrichBonForEconomic(db, bonId);
     const oneoffForMissing = req.body?.oneoff_for_missing === true;
 
-    const readiness = economicInvoice.checkReadiness(bon);
+    const readiness = economicInvoice.checkReadiness(bon, economicInvoice.getEconomicSettings(db));
     // Blokér hvis ikke klar — medmindre eneste mangel er recipe-numre OG oneoff-redning er valgt.
     const oneoffRescues = oneoffForMissing
         && readiness.missingProducts.length > 0
         && !readiness.missingCustomer
-        && !readiness.eanWithoutContact;
+        && !readiness.eanWithoutContact
+        && !readiness.missingDelivery;
     if (!readiness.ok && !oneoffRescues) {
         return res.status(422).json({ error: 'Bon ikke klar til fakturering', readiness });
     }
@@ -672,6 +684,11 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
     } catch (e) {
         if (e.code === 'not_ready') {
             return res.status(422).json({ error: 'Bon ikke klar til fakturering', readiness: e.readiness });
+        }
+        // Værn bag forhåndstjekket (#444/#454): en linje der ikke kan bygges må aldrig
+        // ende som en for lille faktura. Nås kun hvis de to er blevet uenige.
+        if (e.code === 'line_without_product' || e.code === 'delivery_without_product' || e.code === 'oneoff_unavailable') {
+            return res.status(422).json({ error: e.message, code: e.code, line: e.line ?? null, readiness });
         }
         if (e instanceof eco.EconomicAuthError) {
             return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
