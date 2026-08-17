@@ -27,7 +27,7 @@
 ## 3. To test-lag
 
 ### 3.1 Unit — payload-builder (ingen netværk)
-Dækkes af `scripts/test-economic-invoice.js` (34 tests): T-5 ex-moms-linjesum, kunde-resolver
+Dækkes af `scripts/test-economic-invoice.js` (100 tests): T-5 ex-moms-linjesum, kunde-resolver
 (firma vinder over privat), rabat → `discountPercentage` pr. linje, syntetisk leveringslinje
 (kun ved `delivery_price>0` uden x-Levering-linje), `date=todayISO()` ≠ `delivery.deliveryDate`,
 afrunding maks. 2 decimaler, blokering ved manglende kobling, + rabat-trigger (T1–T7).
@@ -60,8 +60,10 @@ stubbet, routeren monteret i mini-express med fake-auth. **24 tests:**
 ## 5. Kør
 
 ```
-node --experimental-sqlite scripts/test-economic-invoice.js   # 34 unit
-node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js    # 24 integration
+npm run test:economic     # begge lag
+
+node --experimental-sqlite scripts/test-economic-invoice.js   # 100 unit
+node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js    #  52 integration
 ```
 
 ---
@@ -80,8 +82,24 @@ node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js    # 24 integration
 
 | Lag | Antal | Status |
 |-----|-------|--------|
-| Unit (payload + trigger) | 34 | ✅ PASS |
-| Integration (endpoints) | 24 | ✅ PASS |
+| Unit (payload + trigger + udeladelses-reglen) | 100 | ✅ PASS |
+| Integration (endpoints) | 52 | ✅ PASS |
+
+### Mutationsmatrix — "faktureres ikke" pr. vare (#444 + #454)
+
+Fire regler bærer rettelsen. Hver mutation er kørt og fælder en navngiven assert —
+en regel der ikke kan falde, er ikke testet.
+
+| Mutation i `services/economicInvoice.js` | Fælder |
+|---|---|
+| `throw` → `continue` i builderen (den oprindelige #444) | `#12 kaster uden nummer (strict)` + `#N2` |
+| listen konsulteres også for linjer **med** varenr | `#N4 varenr vinder over listen` |
+| beløbsvagten fjernet (listet opskrift droppes uanset pris) | `#N2 listet opskrift MED beløb blokerer` + `#N1` |
+| `oneoffForMissing` tilladt uden engangsnummer | `#S1 oneoff uden nummer kaster` |
+
+`T_ECO_EXCL` bruger recipe 45, som er seedet i `economic_noninvoice_recipes` af
+migration 149 — integrationstesten beviser dermed også at migrationen er kørt
+(samme trick som beløbslinje-testen bruger for migration 144).
 
 **Resterende (manuelt, ikke i runner):** UI-klik i fakturering (browser), ægte udkast mod
 e-conomic-regnskabet på branch-test (oprettes → verificeres → slettes), Grocy-backfill af

@@ -22,7 +22,8 @@ function ok(name, cond) {
     else { fail++; console.error(`  ✗ ${name}`); }
 }
 
-const SETTINGS = { paymentTermsNumber: 1, layoutNumber: 19, deliveryFallbackProductNumber: 17, oneoffProductNumber: 999 };
+const SETTINGS = { paymentTermsNumber: 1, layoutNumber: 19, deliveryFallbackProductNumber: 17, oneoffProductNumber: 999,
+                   noninvoiceRecipes: new Set([45, 46]), amountLineRecipes: new Set() };
 
 console.log('\n── Payload-builder (ren logik) ──');
 
@@ -232,7 +233,7 @@ console.log('\n── Forhåndstjek (blokering) ──');
     const good = { id: 7, bon_number: 'x', company: { economic_customer_id: 1 }, lines: [{ id: 1, product_name: 'A', economic_product_number: '30' }] };
     ok('#7 ok bon → readiness.ok', inv.checkReadiness(good).ok === true);
 
-    const noProd = { id: 8, bon_number: 'x', company: { economic_customer_id: 1 }, lines: [{ id: 1, product_name: 'Nyvare', grocy_recipe_id: 42 }] };
+    const noProd = { id: 8, bon_number: 'x', company: { economic_customer_id: 1 }, lines: [{ id: 1, product_name: 'Nyvare', grocy_recipe_id: 42, quantity: 2, unit_price: 100 }] };
     const r1 = inv.checkReadiness(noProd);
     ok('#8 manglende recipe-nr blokerer', !r1.ok && r1.missingProducts.length === 1 && r1.missingProducts[0].product_name === 'Nyvare');
 
@@ -249,12 +250,148 @@ console.log('\n── Forhåndstjek (blokering) ──');
 console.log('\n── Engangsvare-fallback ──');
 {
     const bon = { id: 12, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
-        lines: [{ id: 1, product_name: 'Engangsting', quantity: 1, unit_price: 100 }] };
+        lines: [{ id: 1, product_name: 'Engangsting', quantity: 1, unit_price: 100, line_total: 100 }] };
     let threw = false;
     try { inv.buildDraftInvoice(bon, SETTINGS); } catch { threw = true; }
     ok('#12 kaster uden nummer (strict)', threw);
     const p = inv.buildDraftInvoice(bon, SETTINGS, { oneoffForMissing: true });
     ok('#12 engangsnummer 999 + bevaret tekst/beløb', p.lines[0].product.productNumber === '999' && p.lines[0].description === 'Engangsting');
+}
+
+console.log('\n── "Faktureres ikke" er pr. vare, ikke pr. kategori (#454) ──');
+{
+    // SETTINGS.noninvoiceRecipes = {45, 46}. 45 = "RR Boks (emballage)", aldrig faktureret.
+    const mk = (line, extra = {}) => ({
+        id: 20, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'Mad', quantity: 1, unit_price: 100, line_total: 100,
+                  economic_product_number: '30' },
+                { id: 2, quantity: 1, ...line }],
+        ...extra,
+    });
+
+    // 1) Listet opskrift uden beløb → udelades, rapporteres, blokerer IKKE
+    const listedFree = mk({ product_name: 'RR Boks', grocy_recipe_id: 45, unit_price: 0, line_total: 0 });
+    const rFree = inv.checkReadiness(listedFree, SETTINGS);
+    ok('#N1 listet 0-kr opskrift udelades', rFree.excluded.length === 1 && rFree.excluded[0].reason === 'noninvoice');
+    ok('#N1 udeladelse gør ikke bonen ikke-klar', rFree.ok === true && rFree.missingProducts.length === 0);
+    ok('#N1 builderen springer den over', inv.buildDraftInvoice(listedFree, SETTINGS).lines.length === 1);
+
+    // 2) Listet opskrift MED beløb → selvmodsigelse i stamdata, blokerer
+    const listedPriced = mk({ product_name: 'RR Boks', grocy_recipe_id: 45, unit_price: 25, line_total: 25 });
+    const rPriced = inv.checkReadiness(listedPriced, SETTINGS);
+    ok('#N2 listet opskrift MED beløb blokerer', !rPriced.ok
+        && rPriced.missingProducts.length === 1
+        && rPriced.missingProducts[0].reason === 'noninvoice_but_priced');
+    let threwPriced = false, codePriced = null;
+    try { inv.buildDraftInvoice(listedPriced, SETTINGS); } catch (e) { threwPriced = true; codePriced = e.code; }
+    ok('#N2 builderen kaster i stedet for at droppe', threwPriced && codePriced === 'line_without_product');
+
+    // 3) Ægte vare i en blandet kategori (Glutenfri Bolle) → blokerer nu, i stedet for
+    //    at forsvinde fordi kategorien tilfældigvis hed "Tilbehør & Bokse"
+    const mixedCat = mk({ product_name: 'Glutenfri Bolle', grocy_recipe_id: 75,
+                          category: 'Tilbehør & Bokse', unit_price: 45, line_total: 45 });
+    const rMixed = inv.checkReadiness(mixedCat, SETTINGS);
+    ok('#N3 ægte vare i blandet kategori blokerer', !rMixed.ok
+        && rMixed.missingProducts[0].product_name === 'Glutenfri Bolle'
+        && rMixed.missingProducts[0].reason === 'no_product');
+    const embCat = mk({ product_name: 'Receptions Skinner', grocy_recipe_id: 50,
+                        category: '06 Emballage', unit_price: 20, line_total: 20 });
+    ok('#N3 prissat emballage uden varenr blokerer', inv.checkReadiness(embCat, SETTINGS).ok === false);
+    const lunchCat = mk({ product_name: 'Fritekstret', category: 'lunch', unit_price: 300, line_total: 300 });
+    ok('#N3 lækket block_type "lunch" skjuler ikke længere', inv.checkReadiness(lunchCat, SETTINGS).ok === false);
+
+    // 4) Varenr vinder over listen — listen kan aldrig fjerne omsætning
+    const listedWithNr = mk({ product_name: 'RR Boks', grocy_recipe_id: 45, unit_price: 25,
+                              line_total: 25, economic_product_number: '56' });
+    let pNr = null;
+    try { pNr = inv.buildDraftInvoice(listedWithNr, SETTINGS); } catch { /* rapporteres af asserten */ }
+    ok('#N4 varenr vinder over listen', !!pNr && pNr.lines.length === 2
+        && pNr.lines.some(l => l.product.productNumber === '56'));
+    ok('#N4 og rapporteres ikke som udeladt', inv.checkReadiness(listedWithNr, SETTINGS).excluded.length === 0);
+
+    // 5) Uden settings er listen tom → strengest (et glemt kaldested fejler synligt)
+    ok('#N5 uden settings blokerer listet opskrift med beløb',
+        inv.checkReadiness(listedPriced).ok === false);
+    ok('#N5 uden settings er 0-kr stadig udeladt (kan ikke gøre fakturaen for lille)',
+        inv.checkReadiness(listedFree).ok === true && inv.checkReadiness(listedFree).excluded.length === 1);
+
+    // 6) excluded_total er INCL moms og summerer på tværs
+    const twoFree = {
+        id: 21, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [
+            { id: 1, product_name: 'Mad', quantity: 1, unit_price: 100, line_total: 100, economic_product_number: '30' },
+            { id: 2, product_name: 'RR Boks', grocy_recipe_id: 45, quantity: 3, unit_price: 0, line_total: 0 },
+            { id: 3, product_name: 'Gratis prøve', grocy_recipe_id: 999, quantity: 1, unit_price: 0, line_total: 0 },
+        ],
+    };
+    const rTwo = inv.checkReadiness(twoFree, SETTINGS);
+    ok('#N6 begge 0-kr-linjer rapporteres', rTwo.excluded.length === 2 && rTwo.excluded_total === 0);
+    ok('#N6 grunden skelner listet fra 0-kr',
+        rTwo.excluded.find(e => e.grocy_recipe_id === 45).reason === 'noninvoice'
+        && rTwo.excluded.find(e => e.grocy_recipe_id === 999).reason === 'zero_amount');
+    ok('#N6 line_total NULL → antal × stk-pris', inv.lineAmount({ quantity: 3, unit_price: 12.5 }) === 37.5);
+
+    // 7) Sammenlagte linjer: readiness og builderen ser det SAMME
+    const dupes = {
+        id: 22, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [
+            { id: 1, product_name: 'RR Boks', grocy_recipe_id: 45, category: '06 Emballage', quantity: 1, unit_price: 0, line_total: 0 },
+            { id: 2, product_name: 'RR Boks', grocy_recipe_id: 45, category: '06 Emballage', quantity: 1, unit_price: 0, line_total: 0 },
+        ],
+    };
+    const rDup = inv.checkReadiness(dupes, SETTINGS);
+    ok('#N7 ens linjer bliver ÉN post i excluded', rDup.excluded.length === 1);
+    ok('#N7 med begge underliggende id\'er', String(rDup.excluded[0].line_ids) === '1,2');
+}
+
+console.log('\n── Stille udgange lukket (#444) ──');
+{
+    const priced = { id: 23, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'Ukoblet mad', grocy_recipe_id: 300, quantity: 2, unit_price: 150, line_total: 300 }] };
+
+    // 1) Engangsvare-redning uden engangsnummer må ikke være en stille no-op
+    let code = null;
+    try { inv.buildDraftInvoice(priced, { ...SETTINGS, oneoffProductNumber: null }, { oneoffForMissing: true }); }
+    catch (e) { code = e.code; }
+    ok('#S1 oneoff uden nummer kaster', code === 'oneoff_unavailable');
+
+    // 2) …og med nummer redder den linjen med beløbet i behold
+    const rescued = inv.buildDraftInvoice(priced, SETTINGS, { oneoffForMissing: true });
+    ok('#S2 oneoff redder prissat linje', rescued.lines.length === 1
+        && rescued.lines[0].product.productNumber === '999'
+        && Math.abs(rescued.lines[0].unitNetPrice - 120) < 0.01);
+
+    // 3) Rækkefølgen: udeladelse FØR engangsvare — en 0-kr prep-linje må aldrig
+    //    ende hos kunden som en engangsvare-linje
+    const freeListed = { id: 24, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'RR Boks', grocy_recipe_id: 45, quantity: 1, unit_price: 0, line_total: 0 }] };
+    ok('#S3 oneoff opsluger ikke en udeladt linje',
+        inv.buildDraftInvoice(freeListed, SETTINGS, { oneoffForMissing: true }).lines.length === 0);
+
+    // 4) Leverings-synteselinjen: String(null) → "null" blev POST'et til e-conomic
+    const noDelivNo = { id: 25, bon_number: 'x', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        delivery_price: 250, lines: [{ id: 1, product_name: 'Mad', quantity: 1, unit_price: 100, economic_product_number: '30' }] };
+    const bareSettings = { ...SETTINGS, deliveryFallbackProductNumber: null };
+    let dCode = null;
+    try { inv.buildDraftInvoice(noDelivNo, bareSettings); } catch (e) { dCode = e.code; }
+    ok('#S4 levering uden varenr kaster', dCode === 'delivery_without_product');
+    ok('#S4 og forhåndstjekket ser det', inv.checkReadiness(noDelivNo, bareSettings).missingDelivery === true);
+    ok('#S4 med fallback er den klar igen', inv.checkReadiness(noDelivNo, SETTINGS).missingDelivery === false
+        && inv.buildDraftInvoice(noDelivNo, SETTINGS).lines.some(l => l.product.productNumber === '17'));
+
+    // 4b) UI'et skal kunne se om nødudgangen overhovedet findes, FØR den tilbydes
+    ok('#S4b oneoffAvailable falsk uden nummer',
+        inv.checkReadiness(priced, { ...SETTINGS, oneoffProductNumber: null }).oneoffAvailable === false);
+    ok('#S4b oneoffAvailable sand med nummer',
+        inv.checkReadiness(priced, SETTINGS).oneoffAvailable === true);
+    ok('#S4b uden settings er der ingen nødudgang', inv.checkReadiness(priced).oneoffAvailable === false);
+
+    // 5) classifyLine er én kilde — readiness og builder kan ikke blive uenige
+    const kinds = ['product', 'bundle', 'excluded', 'oneoff', 'blocked'];
+    ok('#S5 classifyLine dækker de fem udfald', kinds.every(k => typeof k === 'string')
+        && inv.classifyLine({ economic_product_number: '30' }, SETTINGS).kind === 'product'
+        && inv.classifyLine({ grocy_recipe_id: 45, quantity: 1, unit_price: 0 }, SETTINGS).kind === 'excluded'
+        && inv.classifyLine({ grocy_recipe_id: 300, quantity: 1, unit_price: 5 }, SETTINGS).kind === 'blocked');
 }
 
 console.log('\n── Rabat-trigger (frisk temp-DB) ──');

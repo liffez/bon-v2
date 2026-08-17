@@ -80,7 +80,11 @@ function getGrocyConfig(locationIdOverride) {
         throw new Error(`Lokation "${loc.name}" mangler grocy_api_url.`);
     }
     if (!key) {
-        throw new Error(`Lokation "${loc.name}" mangler grocy_api_key (og hverken ${envKey} eller GROCY_HQ_KEY er sat i .env).`);
+        // Nævn kun fallback'en når den er et ANDET navn — for HQ er de to ens, og
+        // "hverken GROCY_HQ_KEY eller GROCY_HQ_KEY" læses som om beskeden tager fejl.
+        const names = envKey === 'GROCY_HQ_KEY' ? envKey : `${envKey} eller GROCY_HQ_KEY`;
+        throw new Error(`Lokation "${loc.name}" mangler grocy_api_key, og ${names} er ikke indlæst`
+            + ' (står nøglen i .env, mangler kaldet formentlig --env-file=.env).');
     }
 
     return { url, key, locationName: loc.name };

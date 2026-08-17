@@ -61,6 +61,7 @@
     "test:inbox": "node --env-file=.env.test --experimental-sqlite tests/inbox_handling.test.js",
     "test:inbox-link": "node --experimental-sqlite scripts/test-inbox-link-visibility.js",
     "test:mail-signature": "node --env-file=.env.test --experimental-sqlite tests/mail_signature.test.js",
+    "test:economic": "node --experimental-sqlite scripts/test-economic-invoice.js && node scripts/test-fakturering-render.js && node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js",
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js"
   },
   "dependencies": {

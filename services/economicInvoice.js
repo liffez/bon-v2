@@ -34,6 +34,7 @@ function getEconomicSettings(db = getDb()) {
         deliveryFallbackProductNumber: num(get('economic_delivery_fallback_product_number')),
         oneoffProductNumber:         num(get('economic_oneoff_product_number')),
         amountLineRecipes:           parseIdList(get('economic_amount_line_recipes')),
+        noninvoiceRecipes:           parseIdList(get('economic_noninvoice_recipes')),
     };
 }
 
@@ -77,30 +78,112 @@ function recipientName(bon) {
    FORHÅNDSTJEK (blokerende — recipe-nr, kunde-nr, EAN-kontakt)
    ══════════════════════════════════════════════════════════════ */
 
-// Kategorier der IKKE faktureres: en linje uden varenr i disse udelades stille
-// (ikke på fakturaen, ikke blokerende). Pt. faktureres KUN transportkasser blandt
-// emballage (de HAR varenr 56/58); andre bokse + prep skal ikke med.
-// En mad-/levering-/service-linje uden varenr blokerer stadig (ægte gap).
-const NONINVOICE_CATEGORIES = new Set([
-    '06 Emballage', 'Tilbehør & Bokse', 'RR Produktion', 'RR produktion Hurtig', 'lunch',
-]);
-function isNoninvoice(line) { return NONINVOICE_CATEGORIES.has(line.category); }
+const EMPTY_SET = new Set();
+
+/** Linjens værdi INCL moms. `line_total` er sandheden; ellers antal × stk-pris. */
+function lineAmount(line) {
+    if (line.line_total != null && line.line_total !== '') return round2(Number(line.line_total));
+    return round2(Number(line.quantity || 0) * Number(line.unit_price || 0));
+}
+
+/**
+ * Hvad skal der ske med én bonlinje? ÉN kilde, som BÅDE checkReadiness og
+ * buildDraftInvoice kører over — de to kan ikke blive uenige ved konstruktion.
+ * Det var netop håndkraft-synkroniseringen mellem dem der producerede #444.
+ *
+ * Rækkefølgen er betydningsbærende:
+ *   varenr → bundt → beløb 0 (udelad) → engangsvare → blokér
+ * Udeladelsen ligger FØR engangsvaren; ellers ville en prep-linje til 0 kr blive
+ * sendt til kunden som en engangsvare-linje.
+ *
+ * "Faktureres ikke"-listen (settings, #454) er pr. OPSKRIFT — ikke pr. kategori.
+ * To kategorier er blandede: 'Tilbehør & Bokse' rummer ægte varer med omsætning, og
+ * '06 Emballage' rummer både emballage og transportkasser der faktureres. 'lunch' er
+ * slet ikke en kategori, men block_type lækket fra tilbudsmodulet.
+ *
+ * Listen kan kun ophæve en blokering — den kan ALDRIG fjerne omsætning: en linje
+ * der bærer penge blokerer også når opskriften står på listen. Så er det en
+ * selvmodsigelse i stamdata, og den skal ses frem for at blive skjult.
+ *
+ * @returns {{kind:'product'|'bundle'|'excluded'|'oneoff'|'blocked', listed:boolean,
+ *            amount:number, reason?:string}}
+ */
+function classifyLine(line, settings = {}, opts = {}) {
+    const noninvoice = settings.noninvoiceRecipes || EMPTY_SET;
+    const listed = line.grocy_recipe_id != null && noninvoice.has(Number(line.grocy_recipe_id));
+    const amount = lineAmount(line);
+
+    if (hasProductNumber(line)) return { kind: 'product', listed, amount };
+    if (hasBundle(line))        return { kind: 'bundle',  listed, amount };
+
+    // Ingen varenr. En linje uden beløb kan ikke gøre fakturaen for lille — den
+    // udelades, men rapporteres, så den ikke forsvinder i stilhed.
+    if (amount === 0) {
+        return { kind: 'excluded', listed, amount, reason: listed ? 'noninvoice' : 'zero_amount' };
+    }
+    // Penge uden varenr må aldrig forsvinde — heller ikke fra listen.
+    if (opts.oneoffForMissing && settings.oneoffProductNumber != null) {
+        return { kind: 'oneoff', listed, amount };
+    }
+    return { kind: 'blocked', listed, amount, reason: listed ? 'noninvoice_but_priced' : 'no_product' };
+}
+
+/** Varenr til leverings-synteselinjen — køretøjets eget, ellers fallback fra Settings. */
+function deliveryProductNumber(bon, settings) {
+    const no = bon.delivery_vehicle_economic_product_number ?? settings.deliveryFallbackProductNumber;
+    return (no == null || String(no).trim() === '') ? null : String(no);
+}
+
+/** Har bonen en leverings-synteselinje der skal bygges? (beløb på bon, ingen x-Levering-linje) */
+function needsDeliveryLine(bon) {
+    const { hasDeliveryLine } = require('../db/helpers');
+    return Number(bon.delivery_price) > 0 && !hasDeliveryLine(bon.lines);
+}
 
 /**
  * Tjek om en (beriget) bon kan faktureres. Linjer skal være beriget med
  * economic_product_number (fra grocyAdapter.getEconomicProductMap) før dette kald.
+ *
+ * Kører over de SAMMENLAGTE linjer — præcis som buildDraftInvoice — så `line_ids`
+ * peger på de rækker builderen faktisk arbejder med.
+ *
+ * `settings` er valgfri og funktionen er bevidst ren (den åbner ALDRIG en DB —
+ * unit-testene kalder den uden). Uden settings er "faktureres ikke"-listen tom,
+ * så alt uden varenr blokerer: et glemt kaldested fejler synligt frem for at
+ * slippe noget igennem.
+ *
+ * @param {object} bon       beriget bon
+ * @param {object} [settings] fra getEconomicSettings()
  * @returns {{ok:boolean, missingCustomer:boolean, eanWithoutContact:boolean,
- *            missingProducts:Array<{line_id,product_name,grocy_recipe_id}>}}
+ *            missingDelivery:boolean,
+ *            missingProducts:Array<{line_id,line_ids,product_name,grocy_recipe_id,amount,reason}>,
+ *            excluded:Array<{line_id,line_ids,product_name,grocy_recipe_id,amount,reason}>,
+ *            excluded_total:number, oneoffAvailable:boolean}}
  */
-function checkReadiness(bon) {
-    const lines = bon.lines || [];
-    // Kun fakturérbare linjer uden varenr blokerer. Bokse/prep uden varenr udelades stille.
-    // En bundt-linje (slider-boks) er dækket af sit indhold og blokerer ikke.
-    const missingProducts = lines
-        .filter(l => !hasProductNumber(l) && !hasBundle(l) && !isNoninvoice(l))
-        .map(l => ({ line_id: l.id, product_name: l.product_name, grocy_recipe_id: l.grocy_recipe_id }));
+function checkReadiness(bon, settings = {}) {
+    const missingProducts = [];
+    const excluded = [];
+    for (const l of mergeLines(bon.lines || [])) {
+        const cls = classifyLine(l, settings);
+        if (cls.kind !== 'blocked' && cls.kind !== 'excluded') continue;
+        const entry = {
+            line_id:         l.id,
+            line_ids:        l.merged_line_ids || [l.id],
+            product_name:    l.product_name,
+            grocy_recipe_id: l.grocy_recipe_id,
+            amount:          cls.amount,          // INCL moms (jf. §6b)
+            reason:          cls.reason,
+        };
+        (cls.kind === 'blocked' ? missingProducts : excluded).push(entry);
+    }
+    // Beløbene er INCL moms — `line_total` er det pr. §6b. Mærkes som sådan i UI'et.
+    const excludedTotal = round2(excluded.reduce((sum, e) => sum + e.amount, 0));
 
     const missingCustomer = resolveEconomicCustomer(bon) == null;
+
+    // Leverings-synteselinjen bygges uden om linjerne og var derfor usynlig for
+    // forhåndstjekket: uden varenr blev String(null) = "null" POST'et til e-conomic.
+    const missingDelivery = needsDeliveryLine(bon) && deliveryProductNumber(bon, settings) == null;
 
     // EAN-kunde (offentlig) kræver en kontaktperson på e-conomic-kunden, ellers fejler bogføring.
     const isEan = Boolean(bon.company?.ean);
@@ -109,10 +192,17 @@ function checkReadiness(bon) {
     const eanWithoutContact = isEan && !hasContact;
 
     return {
-        ok: missingProducts.length === 0 && !missingCustomer && !eanWithoutContact,
+        // `excluded` gør IKKE bonen ikke-klar — det er en oplysning, ikke en mangel.
+        ok: missingProducts.length === 0 && !missingCustomer && !eanWithoutContact && !missingDelivery,
         missingCustomer,
         eanWithoutContact,
+        missingDelivery,
         missingProducts,
+        excluded,
+        excluded_total: excludedTotal,
+        // Findes engangsvaren? Uden den kan UI'et ikke tilbyde nødudgangen — og
+        // en knap der altid fejler er værre end ingen knap.
+        oneoffAvailable: settings.oneoffProductNumber != null,
     };
 }
 
@@ -172,16 +262,48 @@ function buildDraftInvoice(bon, settings, opts = {}) {
     const oneoff = settings.oneoffProductNumber;
     const amountRecipes = settings.amountLineRecipes || new Set();
 
+    // At bede om en redning der ikke findes må ikke være en stille no-op (#444):
+    // uden engangsnummer faldt koden tilbage til at droppe linjen uden en lyd.
+    if (opts.oneoffForMissing && oneoff == null) {
+        const err = new Error('Engangsvare-redning er valgt, men engangsvarens varenr (economic_oneoff_product_number) er ikke sat.');
+        err.code = 'oneoff_unavailable';
+        throw err;
+    }
+
     const lines = [];
     let ln = 0;
     // Ens bon-linjer slås sammen, så kunden ser "3 × Kartoflen slider" og ikke
     // tre fakturalinjer à 1 stk — se shared/bon_lines.js.
     for (const line of mergeLines(bon.lines || [])) {
+        const cls = classifyLine(line, settings, opts);
+
+        // Bevidst udeladt (på "faktureres ikke"-listen, eller uden beløb). Ikke stille:
+        // checkReadiness rapporterer den i `excluded`, og fakturerings-skærmen viser den.
+        if (cls.kind === 'excluded') continue;
+
+        // Værn BAG checkReadiness (#444). Nås kun hvis nogen bygger uden om
+        // forhåndstjekket — så skal det larme, ikke give en for lille faktura.
+        if (cls.kind === 'blocked') {
+            const err = new Error(
+                `Linjen "${line.product_name}" (recipe ${line.grocy_recipe_id ?? '—'}, ${cls.amount} kr incl moms) `
+                + 'har intet e-conomic varenr og kan ikke faktureres.'
+                + (cls.reason === 'noninvoice_but_priced'
+                    ? ' Opskriften står på "faktureres ikke"-listen, men linjen har en pris — ret det ene af de to.'
+                    : ''));
+            err.code = 'line_without_product';
+            err.line = {
+                line_id: line.id, line_ids: line.merged_line_ids || [line.id],
+                product_name: line.product_name, grocy_recipe_id: line.grocy_recipe_id,
+                amount: cls.amount, reason: cls.reason,
+            };
+            throw err;
+        }
+
         // Bundt (slider-boks) → én fakturalinje pr. vare i boksen.
         // Prisen fordeles fra BONENS linjepris, ikke fra delenes listepriser: boksen
         // er solgt til en aftalt pris (boks 78 koster 160 kr, delene står til 176),
         // og fakturasummen skal være præcis den samme som uden udfoldning.
-        if (!hasProductNumber(line) && hasBundle(line)) {
+        if (cls.kind === 'bundle') {
             const parts   = line.economic_bundle;
             const boxOre  = Math.round(round2(inclToExcl(line.unit_price)) * 100);
             const shares  = splitOre(boxOre, parts.map(p => p.servings));
@@ -216,16 +338,11 @@ function buildDraftInvoice(bon, settings, opts = {}) {
         }
 
         // productNumber SKAL være String pr. e-conomics skema (varenr kan være alfanumerisk).
-        let productNumber = hasProductNumber(line) ? String(line.economic_product_number) : null;
-        if (productNumber == null) {
-            if (opts.oneoffForMissing && oneoff != null) {
-                productNumber = String(oneoff);   // engangsvare: overskriv tekst+beløb (de er allerede på linjen)
-            } else {
-                // Ingen varenr → faktureres ikke (fx anden boks). checkReadiness har
-                // allerede blokeret, hvis det var en fakturérbar linje. Udelad stille.
-                continue;
-            }
-        }
+        // 'oneoff' = engangsvaren redder en prissat linje uden varenr; tekst og beløb
+        // ligger allerede på linjen.
+        const productNumber = cls.kind === 'oneoff'
+            ? String(oneoff)
+            : String(line.economic_product_number);
         // Beløbslinje (Rabat / Engangsbeløb): kronerne står i quantity og prisen er
         // ±1, så "11.600 stk à -0,80" ville stå på kundens faktura. Foldes sammen
         // til antal 1 med linjesummen som pris — samme beløb, læsbar linje.
@@ -263,13 +380,18 @@ function buildDraftInvoice(bon, settings, opts = {}) {
     // (det nye logistik-systems linjeløse levering). x-Levering-recipes er allerede normale linjer.
     // Delt regel — et standardgebyr i x-Levering (fx miljøbidraget) er ikke en
     // levering og må ikke undertrykke synteselinjen (se db/helpers.js).
-    const deliveryOnBon = require('../db/helpers').hasDeliveryLine(bon.lines);
-    if (Number(bon.delivery_price) > 0 && !deliveryOnBon) {
-        const deliveryNo = bon.delivery_vehicle_economic_product_number
-            || settings.deliveryFallbackProductNumber;
+    if (needsDeliveryLine(bon)) {
+        // Uden varenr blev String(null) til strengen "null" og POST'et til e-conomic.
+        // Samme fejlklasse som #444: en linje der ikke kan bygges, skal larme.
+        const deliveryNo = deliveryProductNumber(bon, settings);
+        if (deliveryNo == null) {
+            const err = new Error('Leveringen har hverken et e-conomic varenr på køretøjet eller en fallback i Settings (economic_delivery_fallback_product_number).');
+            err.code = 'delivery_without_product';
+            throw err;
+        }
         const dl = {
             lineNumber:   ++ln,
-            product:      { productNumber: String(deliveryNo) },
+            product:      { productNumber: deliveryNo },
             description:  bon.delivery_vehicle_label ? `Levering (${bon.delivery_vehicle_label})` : 'Levering',
             quantity:     1,
             unitNetPrice: round2(inclToExcl(bon.delivery_price)),
@@ -322,29 +444,41 @@ function buildDraftInvoice(bon, settings, opts = {}) {
 /**
  * Opret fakturaudkast i e-conomic. Forventer en beriget bon (lines med
  * economic_product_number). Kører forhåndstjek; bygger ikke payload hvis noget mangler.
- * @returns {Promise<{draftInvoiceNumber:number, raw:object}>}
+ * @param {object} opts  { invoiceDate?, oneoffForMissing?, dryRun? }
+ *   dryRun: byg payloaden og kør alle vagter, men ring ikke til e-conomic og opret intet.
+ * @returns {Promise<{draftInvoiceNumber:number|null, raw?:object, payload:object,
+ *                    idempotencyKey:string, dryRun?:true}>}
  */
-async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing } = {}) {
-    const readiness = checkReadiness(bon);
-    if (!readiness.ok && !(oneoffForMissing && readiness.missingProducts.length && !readiness.missingCustomer && !readiness.eanWithoutContact)) {
+async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing, dryRun } = {}) {
+    // Settings hentes FØR forhåndstjekket, så route og service klassificerer på
+    // nøjagtig samme grundlag — ellers kan de to blive uenige om hvad der udelades.
+    const settings = getEconomicSettings();
+    const readiness = checkReadiness(bon, settings);
+    if (!readiness.ok && !(oneoffForMissing && readiness.missingProducts.length && !readiness.missingCustomer && !readiness.eanWithoutContact && !readiness.missingDelivery)) {
         const err = new Error('Bon ikke klar til fakturering (manglende kobling).');
         err.code = 'not_ready';
         err.readiness = readiness;
         throw err;
     }
-    const settings = getEconomicSettings();
     const payload = buildDraftInvoice(bon, settings, { invoiceDate, oneoffForMissing });
     // Idempotency-nøgle = bon-id + content-hash: ægte netværks-retry (samme payload)
     // dedupes; ændret indhold (redigeret bon gen-sendt inden for 1t) får en ny nøgle
     // og undgår e-conomics "PayloadChanged"-fejl. Re-send efter success forhindres
     // separat af economic_draft_number-guarden i routes.
     const hash = crypto.createHash('sha1').update(JSON.stringify(payload)).digest('hex').slice(0, 12);
+    const idempotencyKey = `bon-${bon.id}-${hash}`;
+
+    // Prøvekørsel: stopper på SIDSTE trin, efter at alle vagter og hele payloaden er
+    // bygget af samme kode som en rigtig afsendelse. En generalprøve der følger sin
+    // egen sti beviser ingenting — derfor er dette ét `return`, ikke en parallel gren.
+    if (dryRun) return { dryRun: true, draftInvoiceNumber: null, payload, idempotencyKey, readiness };
+
     const res = await eco.rest('/invoices/drafts', {
         method: 'POST',
         body: payload,
-        idempotencyKey: `bon-${bon.id}-${hash}`,
+        idempotencyKey,
     });
-    return { draftInvoiceNumber: res?.draftInvoiceNumber ?? null, raw: res };
+    return { draftInvoiceNumber: res?.draftInvoiceNumber ?? null, raw: res, payload, idempotencyKey };
 }
 
 /** Slet et fakturaudkast (til test/oprydning). */
@@ -357,6 +491,8 @@ module.exports = {
     resolveEconomicCustomer,
     buildReference,
     checkReadiness,
+    classifyLine,
+    lineAmount,
     hasBundle,
     isAmountLine,
     parseIdList,

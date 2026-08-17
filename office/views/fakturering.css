@@ -482,6 +482,29 @@
 .fakt-eco-block-products li { padding: 2px 0; }
 .fakt-eco-block-products .mono { font-family: monospace; font-size: 11px; color: var(--color-text-dim, #888); }
 
+/* Linjer der bevidst ikke kommer med på fakturaen (#454) — dæmpet, foldet sammen.
+   Beløbene er INKL moms, mens preview-tabellen ved siden af summerer EX moms. */
+.fakt-eco-excluded { margin-top: 12px; font-size: 12px; color: var(--color-text-dim, #888); }
+.fakt-eco-excluded > summary { cursor: pointer; padding: 6px 0; }
+.fakt-eco-excluded > ul {
+  margin: 4px 0 0; padding: 8px 14px; list-style: none;
+  background: var(--color-background, #f5f4f2); border-radius: 8px;
+}
+.fakt-eco-excluded li { padding: 2px 0; }
+.fakt-eco-excluded .mono { font-family: monospace; font-size: 11px; }
+.fakt-eco-exc-why { font-style: italic; opacity: .8; margin-left: 6px; }
+
+/* Nødudgang: fakturér ukoblede linjer som engangsbeløb. Bevidst afdæmpet — den
+   er til engangsting, ikke en genvej uden om at koble varen i Grocy. */
+.fakt-eco-oneoff { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.fakt-btn-eco-ghost {
+  padding: 6px 14px; background: transparent; color: var(--color-text, #3a3128);
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+  font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap;
+}
+.fakt-btn-eco-ghost:hover { background: var(--color-background, #f5f4f2); }
+.fakt-eco-oneoff-why { font-size: 12px; color: var(--color-text-dim, #888); font-style: italic; }
+
 /* Foreslå kunde/kontakt fra e-conomic */
 .fakt-sug-sec { font-weight: 700; font-size: 12px; color: var(--color-text-dim, #888); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .3px; }
 .fakt-sug-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--color-border, #ece8e2); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }

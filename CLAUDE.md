@@ -2298,8 +2298,149 @@ sendes ud.
 koblet samme dag — alle **levende** opskrifter er nu dækket på nær de tre beløbslinjer.
 Alt andet der blokerer er slettede opskrifter, se #441 (16 stk: udgåede + dubletter).
 
-**Tests**: `scripts/test-economic-invoice.js` 75/1 (den ene = #444) +
+**Tests**: `scripts/test-economic-invoice.js` 75/1 (den ene = #444, lukket nedenfor) +
 `run_T_ECONOMIC.js` 34/0, hvor route-testen samtidig beviser at migrationen er seedet.
+
+### E-conomic: en linje må ikke forsvinde stille fra fakturaen (#444 + #454, 17. august 2026)
+
+To issues, samme fil, samme rod: **en bonlinje kunne falde ud af fakturaen uden at
+nogen fik det at vide.** Resultatet er en faktura der ser rigtig ud og er for lille.
+Samme fejlklasse som #319 og #305 — se memory `project_silent_sideeffect_failures`.
+
+**#444 — mekanismen.** Manglede en linje `economic_product_number`, gjorde
+`buildDraftInvoice` `continue`. Testen `#12 kaster uden nummer (strict)` havde fejlet
+lige siden `NONINVOICE_CATEGORIES` blev indført; ingen andre steder opdagede forskellen.
+
+**#454 — aksen.** `NONINVOICE_CATEGORIES` udelod pr. **kategori**, men to af de fem
+kategorier er blandede. Målt på driftsdata:
+
+| Kategori | Billede |
+|---|---|
+| `Tilbehør & Bokse` | 19 opskrifter, **ingen** har varenr — men flere er ægte varer med omsætning (Glutenfri Bolle, Børne Bokse, HåndDelle, Morgenboller, Toast) |
+| `06 Emballage` | 47/96/157 **har** varenr. 45/46/48/82/121 er aldrig faktureret. Men **Receptions Skinner (50) er faktureret 210 gange mod 55 gratis** |
+| `RR Produktion` + `RR produktion Hurtig` | 32 opskrifter, alt er prep, 0 kr — ægte "faktureres ikke" |
+| `lunch` | **ikke en Grocy-kategori.** Det er `block_type` lækket fra tilbudsmodulet og kan dække hvad som helst |
+
+Alene i 2026 ville reglen have droppet **3.643,90 kr fordelt på 66 bons** hvis de var
+gået den automatiske vej. Det er eksponering, ikke tabt omsætning — de fleste blev
+faktureret i hånden, hvor et menneske så hele bonen. Men mekanismen var live.
+
+> CLAUDE.md's egen note fra 11. august — *"alle levende opskrifter er nu dækket"* —
+> var kun sand fordi kategori-reglen skjulte netop disse varer. Blokerede de, ville
+> de have været synlige som ukoblede.
+
+**Løsningen — beløbet afgør, ikke kategorien.** Én ren `classifyLine()` som **både**
+`checkReadiness` og `buildDraftInvoice` kører over `mergeLines(...)`, i denne orden:
+
+| # | Betingelse | Udfald |
+|---|---|---|
+| 1 | linjen har varenr | faktureres |
+| 2 | linjen er et bundt (slider-boks) | foldes ud |
+| 3 | linjen bærer **0 kr** | udelades — men **rapporteres** |
+| 4 | engangsvare-redning valgt (og nummeret findes) | engangsvare-linje |
+| 5 | ellers | **blokerer** |
+
+To invarianter:
+
+- **En linje til 0 kr kan ikke gøre fakturaen for lille; en linje med penge må aldrig
+  forsvinde.** Samme opskrift kan derfor lande begge steder — `Receptions Skinner`
+  udelades gratis og blokerer prissat. Det er præcis dét kategorien ikke kunne udtrykke.
+- **`settings.economic_noninvoice_recipes` (migration 149) kan kun ophæve en blokering,
+  aldrig fjerne omsætning.** Står en opskrift på listen og linjen har en pris, blokerer
+  den — en selvmodsigelse i stamdata skal ses, ikke skjules. Den værste fejl en forkert
+  indtastning kan lave, er derfor at en 0-kr-linje ikke kommer med.
+
+> **Hvorfor én `classifyLine` og ikke bare et `throw`.** `checkReadiness` klassificerede
+> rå `bon.lines`, builderen sine egne `mergeLines(...)` med en parallel if-kæde. De blev
+> holdt i sync ved håndkraft — og dét var netop hvad der producerede #444. Et `throw`
+> uden at samle klassifikationen ét sted havde bare gjort divergensen til en 500-fejl.
+
+**To stille udgange mere, lukket samtidig:**
+- `createDraftInvoice` slap en bon igennem med `oneoffForMissing` selv om
+  `economic_oneoff_product_number` var tom — så faldt den tilbage til `continue`.
+  Nu kaster den `oneoff_unavailable`. (Feltet er sat til 111 af migration 144, så
+  hullet var lukket i praksis — men ved et tilfælde, ikke ved et værn.)
+- **Leverings-synteselinjen** var usynlig for forhåndstjekket: uden varenr blev
+  `String(null)` = strengen `"null"` POST'et til e-conomic. Nu `readiness.missingDelivery`
+  + `delivery_without_product`. Latent i dag (fallback er sat til 17), men samme fejlklasse.
+
+**Synligt for kontoret:** `checkReadiness` returnerer `excluded[]` + `excluded_total`
+(INKL moms — preview-tabellen ved siden af summerer EX moms, så det står eksplicit).
+Fakturerings-skærmen viser dem i **forhåndsvisningen**, ikke kun når bonen er blokeret.
+
+**Slettede opskrifter kan ikke kobles — og så det ud som om de kunne.** Userfield-værdier
+overlever at en opskrift slettes i Grocy: `objects/recipes/133` svarer **404**, mens
+`userfields/recipes/133` stadig returnerer `economic_product_number: "92"`.
+`economic-product-match.js --apply` læste kun userfeltet og meldte *"recipe 133 har
+allerede 92"* — mens faktureringen læser `/objects/recipes` og aldrig ser spøgelset.
+De to værktøjer var uenige om hvad "koblet" betyder, og scriptet meldte succes på noget
+der ikke virkede. Det tjekker nu eksistensen **først** (både i apply og som ny status
+`SLETTET` i review-CSV'en, med `godkendt_nr = "-"`, så en håndredigeret fil heller ikke
+kan skrive et spøgelse). Målt mod grocy-hq: **19 solgte opskrifter findes ikke længere**
+— bl.a. Tomaten (260 linjer), Humus'en (192) og Trøflen – slider (48, den der blokerer
+i dag). Deres bons kan kun faktureres via engangsbeløb-knappen. Se
+[#441](https://github.com/liffez/bon-v2/issues/441), som dermed er større end de 5
+opskrifter issuet nævner.
+
+**`scripts/economic-blocking-report.js`** (read-only, kan køres mod drift) viser hvilke
+opskrifter der blokerer, hvor mange bons det rammer, og hvad der udelades:
+
+```bash
+node --experimental-sqlite scripts/economic-blocking-report.js --all --since 2026-01-01
+```
+
+> Scriptet loader selv `.env` (via dotenv, som `scripts/economic-product-match.js`),
+> fordi koblingerne hentes fra Grocy. Kør det fra projektroden.
+
+**Tests**: `npm run test:economic` — 100 unit + 52 integration, alle grønne (baseline
+var 75/1 + 34/0). **Mutations-testet:** de fire kerneregler rulles hver især tilbage og
+fælder en navngiven assert; matrixen står i `tests/specs/T_ECONOMIC.md` §7. Fixturen i
+`#8` blev rettet undervejs — den havde hverken antal eller pris, hvilket `quantity NOT NULL`
+gør umuligt i drift.
+
+> ⚠️ **Kan ikke ses i den lokale dev-DB** — den peger på grocytest, hvor userfeltet
+> `economic_product_number` ikke findes. Verificeret mod en kopi af driftsdata + et
+> Grocy-snapshot; kopien er slettet efter brug.
+
+**Koblingsarbejdet er gjort (17. august).** Rapporten fandt først **74 af 429**
+fakturerbare bons i 2026 blokeret. Ni opskrifter blev koblet i grocy-hq — Receptions
+Skinner (50 + 82), Glutenfri Bolle (75 → varenr 25, ikke scriptets gæt 94), Glutenfri
+Bolle slider (95), begge Børne Bokse (71/72), crossiant (104) og de to Kartoflen-One
+planet (152/154). **Tilbage: 10 bons**, og ingen af dem kan kobles:
+
+- **133** Trøflen – slider og **134** Falafel Bowl er **slettet i Grocy** (404).
+- Fire **fritekst-linjer uden opskrift** — Fingergrønt, Müslibar, Kage, Peanuts.
+
+Alle seks faktureres via engangsbeløb-knappen. Det var netop dét tilfælde der gjorde
+knappen nødvendig frem for teoretisk.
+
+To ting fra samme runde, værd at kende:
+
+- **`133` optræder i BEGGE lister** — den blokerer på 6 bons hvor den bærer 2.793 kr,
+  og udelades på 1 bon hvor den står til 0 kr. Samme opskrift, to udfald. Det er
+  beløbsreglen, og kategorien kunne aldrig have skilt dem ad.
+- **`163 Cookie knæk`** viser reglen bære en ufuldstændig liste: opskriften er oprettet
+  efter listen blev seedet, står ikke på den, og udelades alligevel korrekt fordi linjen
+  er 0 kr.
+
+**Ikke bygget:** Settings-UI til listen — "faktureres ikke" pr. vare hører hjemme på
+koblings-siden (#440). Indtil da kræver en ændring SQL, men beløbsreglen betyder at en
+ny prep-opskrift er dækket af sin 0-kr-pris uden at nogen rører listen.
+
+**Engangsvare-knappen** ("Fakturér som engangsbeløb") er bygget samtidig. Nødudgangen
+fandtes hele vejen ned — route, service og varenr 111 (migration 144) — men
+`fakturering.js` kaldte `createEconomicDraft(bonId)` **uden opts**, så flaget aldrig
+blev sendt. Den var dermed kun teoretisk, og det holdt ikke: fire af de blokerende
+poster i drift er fritekst-linjer uden opskrift, som pr. konstruktion ikke kan stå på
+en opskrift-liste og ikke har noget at koble i Grocy.
+
+Knappen vises kun når varenumre er den **eneste** mangel — mangler kunden et
+e-conomic-nr, hjælper engangsvaren ikke. `checkReadiness` returnerer derfor
+`oneoffAvailable`, så UI'et kan se om nødudgangen findes før den tilbydes; en knap der
+altid fejler er værre end ingen knap. Bekræftelsen viser linjerne fremme, skelner
+fritekst fra opskrift og siger at de lander på "Diverse" i regnskabet. Er ingen af dem
+fritekst, står der i stedet at en vare der sælges igen bør have sit eget varenr i
+Grocy — det er en nødudgang, ikke en genvej.
 
 ### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
 

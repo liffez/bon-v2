@@ -10,7 +10,7 @@
  *
  * In-process: temp-DB via DB_PATH, e-conomic + Grocy STUBBET (ingen netværk),
  * routeren monteret i en mini-express-app med fake-auth. Payload-builderens rene
- * logik dækkes separat af scripts/test-economic-invoice.js (34 tests).
+ * logik dækkes separat af scripts/test-economic-invoice.js (100 tests).
  *
  * Kør: node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js
  * Spec: tests/specs/T_ECONOMIC.md
@@ -38,6 +38,13 @@ grocyAdapter.getEconomicProductMap = async () => PRODUCT_MAP;
 // Tom som standard; sættes af de tests der har brug for den.
 let BUNDLE_MAP = new Map();
 grocyAdapter.getEconomicBundleMap = async () => BUNDLE_MAP;
+
+// autoFees slår gebyr-opskriften op via getRecipes(). Opskrift 168 = miljøbidraget
+// fra migration 147, prissat som i Grocy (INCL moms, §6b).
+grocyAdapter.getRecipes = async () => ([
+    { id: 168, name: 'Miljøbidrag', category: 'x- Service', unit: 'stk',
+      prices: { store: 36.25, catering: 36.25, festival: 36.25 }, cost_price: 0, co2e: null },
+]);
 
 let draftSeq = 5000, lastPostBody = null;
 eco.isConfigured = () => true;
@@ -87,7 +94,32 @@ function seed() {
     insLine.run(amount, 'Kartoflen', 1, 9400, 9400, 100, '01 Sandwich', 0);
     insLine.run(amount, 'Rabat', 2000, -1, -2000, 8, 'x- Service', 1);
 
-    return { ready, missing, bundle, amount };
+    // #454: en bon med emballage der bevidst ikke faktureres. Recipe 45 er seedet
+    // i economic_noninvoice_recipes af migration 149 — testen beviser dermed også
+    // at migrationen er kørt (samme trick som beløbslinje-testen).
+    const excl = insBon.get('T_ECO_EXCL', LEVERET, locId, coId, cuId, adId, pcId).id;
+    insLine.run(excl, 'Kartoflen', 1, 9400, 9400, 100, '01 Sandwich', 0);
+    insLine.run(excl, 'RR Boks  (emballage)', 3, 0, 0, 45, '06 Emballage', 1);
+
+    // Selvmodsigelse: opskriften står på listen, men linjen har en pris. Må blokere —
+    // listen kan ophæve en blokering, aldrig fjerne omsætning.
+    const exclPriced = insBon.get('T_ECO_EXCL_PRICED', LEVERET, locId, coId, cuId, adId, pcId).id;
+    insLine.run(exclPriced, 'Kartoflen', 1, 9400, 9400, 100, '01 Sandwich', 0);
+    insLine.run(exclPriced, 'RR Boks  (emballage)', 1, 2500, 2500, 45, '06 Emballage', 1);
+
+    // Ægte vare i den blandede kategori: før #454 forsvandt den stille, fordi
+    // kategorien hed "Tilbehør & Bokse". Nu blokerer den.
+    const mixed = insBon.get('T_ECO_MIXED', LEVERET, locId, coId, cuId, adId, pcId).id;
+    insLine.run(mixed, 'Kartoflen', 1, 9400, 9400, 100, '01 Sandwich', 0);
+    insLine.run(mixed, 'Glutenfri Bolle', 2, 4500, 9000, 75, 'Tilbehør & Bokse', 1);
+
+    // Gebyr-bon: reglen (migration 147) gælder fra 11 pax. Bruges til at bevise at
+    // en prøvekørsel IKKE skriver gebyrlinjen på bonen, mens en rigtig afsendelse gør.
+    const fee = insBon.get('T_ECO_FEE', LEVERET, locId, coId, cuId, adId, pcId).id;
+    db.prepare('UPDATE bons SET pax = 40 WHERE id = ?').run(fee);
+    insLine.run(fee, 'Kartoflen', 40, 9400, 376000, 100, '01 Sandwich', 0);
+
+    return { ready, missing, bundle, amount, excl, exclPriced, mixed, fee };
 }
 
 // ── http helper ─────────────────────────────────────────────
@@ -188,6 +220,128 @@ function req(server, method, url, { auth = true, body } = {}) {
         ok('missing → 422', res.status === 422, `(status ${res.status})`);
         ok('missing → readiness.missingProducts', res.body?.readiness?.missingProducts?.length === 1);
 
+        console.log('\n── "Faktureres ikke" er pr. vare (#454) ──');
+        res = await req(server, 'GET', `/api/invoices/${ids.excl}/economic-preview`);
+        ok('excl → 200', res.status === 200);
+        ok('excl → bonen er klar (udeladelse blokerer ikke)', res.body?.readiness?.ok === true);
+        ok('excl → emballagen rapporteres som udeladt',
+            res.body?.readiness?.excluded?.length === 1
+            && res.body.readiness.excluded[0].grocy_recipe_id === 45
+            && res.body.readiness.excluded[0].reason === 'noninvoice',
+            JSON.stringify(res.body?.readiness?.excluded));
+        ok('excl → udeladt linje er IKKE i payloaden',
+            (res.body?.payload?.lines || []).every(l => l.product.productNumber !== '45'));
+        ok('excl → migration 149 er seedet (ellers ville reason være zero_amount)',
+            res.body?.readiness?.excluded?.[0]?.reason === 'noninvoice');
+
+        res = await req(server, 'GET', `/api/invoices/${ids.exclPriced}/economic-preview`);
+        ok('excl-priced → listet opskrift MED pris blokerer', res.body?.readiness?.ok === false);
+        ok('excl-priced → grunden er selvmodsigelsen',
+            res.body?.readiness?.missingProducts?.[0]?.reason === 'noninvoice_but_priced',
+            JSON.stringify(res.body?.readiness?.missingProducts));
+
+        res = await req(server, 'GET', `/api/invoices/${ids.mixed}/economic-preview`);
+        ok('mixed → ægte vare i blandet kategori blokerer', res.body?.readiness?.ok === false);
+        ok('mixed → varen er navngivet',
+            res.body?.readiness?.missingProducts?.[0]?.product_name === 'Glutenfri Bolle');
+
+        // Kø-listen læses FØR der oprettes udkast — et udkast fjerner bonen fra køen.
+        res = await req(server, 'GET', '/api/invoices/economic-readiness');
+        ok('readiness → udeladte linjer tælles op', typeof res.body?.excluded_bons === 'number'
+            && res.body.excluded_bons >= 1);
+        ok('readiness → excl-bonen er ikke blokeret',
+            !(res.body?.blocked || []).some(b => b.bon_id === ids.excl));
+        ok('readiness → mixed-bonen ER blokeret',
+            (res.body?.blocked || []).some(b => b.bon_id === ids.mixed));
+
+        res = await req(server, 'POST', `/api/invoices/${ids.mixed}/economic-draft`, { body: {} });
+        ok('mixed → draft afvises med 422', res.status === 422);
+        ok('mixed → intet udkast gemt på bonen',
+            db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.mixed).economic_draft_number == null);
+
+        // Engangsvare-redningen er en ÅBEN vej i en frisk DB: migration 144 sætter
+        // economic_oneoff_product_number = 111. #444 handlede om hvad der sker når
+        // feltet er tomt — så faldt koden tilbage til at droppe linjen uden en lyd.
+        const oneoffBefore = db.prepare("SELECT value FROM settings WHERE key='economic_oneoff_product_number'").get()?.value;
+        ok('engangsvarens varenr er sat af migration 144', oneoffBefore === '111', String(oneoffBefore));
+        db.prepare("UPDATE settings SET value='' WHERE key='economic_oneoff_product_number'").run();
+        res = await req(server, 'POST', `/api/invoices/${ids.mixed}/economic-draft`, { body: { oneoff_for_missing: true } });
+        ok('tom engangsvare → 422, ikke en stille droppet linje', res.status === 422, JSON.stringify(res.body));
+        ok('tom engangsvare → fejlkoden siger hvad der mangler', res.body?.code === 'oneoff_unavailable',
+            JSON.stringify(res.body));
+        ok('tom engangsvare → stadig intet udkast gemt',
+            db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.mixed).economic_draft_number == null);
+        db.prepare("UPDATE settings SET value=? WHERE key='economic_oneoff_product_number'").run(oneoffBefore);
+
+        // …og med nummeret på plads virker nødudgangen: knappen i fakturerings-skærmen
+        // sender oneoff_for_missing, og de ukoblede linjer faktureres på engangsvaren
+        // med beløb og tekst i behold. Det er den eneste vej for en FRITEKST-linje —
+        // den har ingen opskrift at koble.
+        res = await req(server, 'GET', `/api/invoices/${ids.mixed}/economic-preview`);
+        ok('oneoff → readiness siger at nødudgangen findes', res.body?.readiness?.oneoffAvailable === true);
+
+        lastPostBody = null;
+        res = await req(server, 'POST', `/api/invoices/${ids.mixed}/economic-draft`, { body: { oneoff_for_missing: true } });
+        ok('oneoff → 200 med nummer på plads', res.status === 200, JSON.stringify(res.body));
+        const oneoffLine = (lastPostBody?.lines || []).find(l => l.description === 'Glutenfri Bolle');
+        ok('oneoff → den ukoblede linje kom med på engangsvarens varenr',
+            oneoffLine?.product?.productNumber === '111', JSON.stringify(lastPostBody?.lines));
+        ok('oneoff → beløbet er bevaret (9.000 kr incl → 7.200 ex)',
+            Math.abs((oneoffLine?.unitNetPrice || 0) * (oneoffLine?.quantity || 0) - 7200) < 0.01,
+            JSON.stringify(oneoffLine));
+        ok('oneoff → den 0-kr emballage kom stadig IKKE med',
+            !(lastPostBody?.lines || []).some(l => String(l.description).includes('Salat boks')));
+
+
+        console.log('\n── Prøvekørsel (dry_run) ──');
+        // Kernen: dry_run skal følge PRÆCIS samme sti som en rigtig afsendelse og
+        // kun undlade det sidste skridt. Derfor måles der på tre ting: at payloaden
+        // er der, at e-conomic ALDRIG blev kaldt, og at bonen er urørt bagefter.
+        const førDraft = db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.ready).economic_draft_number;
+        lastPostBody = null;
+        res = await req(server, 'POST', `/api/invoices/${ids.excl}/economic-draft`, { body: { dry_run: true } });
+        ok('dry_run → 200', res.status === 200, JSON.stringify(res.body).slice(0, 160));
+        ok('dry_run → mærket som prøvekørsel', res.body?.dry_run === true);
+        ok('dry_run → payloaden er bygget', Array.isArray(res.body?.payload?.lines) && res.body.payload.lines.length > 0);
+        ok('dry_run → e-conomic blev ALDRIG kaldt', lastPostBody === null);
+        ok('dry_run → intet udkast gemt på bonen',
+            db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.excl).economic_draft_number == null);
+        ok('dry_run → idempotency-nøglen er den samme form som ved rigtig afsendelse',
+            /^bon-\d+-[0-9a-f]{12}$/.test(res.body?.idempotency_key || ''), res.body?.idempotency_key);
+        ok('dry_run → udeladte linjer rapporteres som ellers',
+            res.body?.readiness?.excluded?.length === 1);
+        ok('dry_run → en ANDEN bons udkast er urørt',
+            db.prepare('SELECT economic_draft_number FROM bons WHERE id=?').get(ids.ready).economic_draft_number === førDraft);
+
+        // Samme payload som en rigtig afsendelse ville sende — ellers beviser prøven intet.
+        const tørPayload = JSON.stringify(res.body.payload);
+        res = await req(server, 'POST', `/api/invoices/${ids.excl}/economic-draft`, { body: {} });
+        ok('rigtig afsendelse → 200', res.status === 200);
+        ok('rigtig afsendelse sendte NØJAGTIG den payload prøvekørslen viste',
+            JSON.stringify(lastPostBody) === tørPayload);
+
+        // Prøvekørsel må ikke SKRIVE på bonen. Standardgebyrer er den eneste bivirkning
+        // afsendelsen har ud over kaldet til e-conomic, så det er dér det skal bevises.
+        db.prepare(`UPDATE settings SET value='[{"id":"miljobidrag","recipe_id":168,"min_pax":11,"active":1}]' WHERE key='auto_fee_rules'`).run();
+        require('../../services/autoFees').invalidateFeeCache();
+        const linjerFør = db.prepare('SELECT COUNT(*) n FROM bon_lines WHERE bon_id=?').get(ids.fee).n;
+        res = await req(server, 'POST', `/api/invoices/${ids.fee}/economic-draft`, { body: { dry_run: true } });
+        ok('dry_run → 200 på gebyr-bon', res.status === 200, JSON.stringify(res.body).slice(0, 140));
+        ok('dry_run → gebyrlinjen blev IKKE skrevet på bonen',
+            db.prepare('SELECT COUNT(*) n FROM bon_lines WHERE bon_id=?').get(ids.fee).n === linjerFør);
+        ok('dry_run → men den varsles som noget afsendelsen vil lægge på',
+            (res.body?.pending_fees || []).length === 1, JSON.stringify(res.body?.pending_fees));
+
+        res = await req(server, 'POST', `/api/invoices/${ids.fee}/economic-draft`, { body: {} });
+        ok('rigtig afsendelse → gebyrlinjen ER skrevet på bonen',
+            db.prepare('SELECT COUNT(*) n FROM bon_lines WHERE bon_id=?').get(ids.fee).n === linjerFør + 1);
+
+        // Prøvekørsel af en blokeret bon skal afvises på samme måde som en rigtig
+        lastPostBody = null;
+        res = await req(server, 'POST', `/api/invoices/${ids.exclPriced}/economic-draft`, { body: { dry_run: true } });
+        ok('dry_run på blokeret bon → 422 som en rigtig afsendelse', res.status === 422);
+        ok('dry_run på blokeret bon → intet kald til e-conomic', lastPostBody === null);
+
         console.log('\n── Auth ──');
         res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { auth: false, body: {} });
         ok('draft uden session → 401', res.status === 401, `(status ${res.status})`);
@@ -196,7 +350,9 @@ function req(server, method, url, { auth = true, body } = {}) {
 
         console.log('\n── Readiness efter draft (drafts_waiting tæller) ──');
         res = await req(server, 'GET', '/api/invoices/economic-readiness');
-        ok('readiness → drafts_waiting = 1', res.body?.drafts_waiting === 1, `(${res.body?.drafts_waiting})`);
+        // Tre kladder nu: happy path, nødudgangen på mixed-bonen, og den rigtige
+        // afsendelse der blev sammenlignet med prøvekørslen.
+        ok('readiness → drafts_waiting = 3', res.body?.drafts_waiting === 3, `(${res.body?.drafts_waiting})`);
     } finally {
         server.close();
         try { db.close?.(); } catch (e) {}
