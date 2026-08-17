@@ -99,7 +99,7 @@ function _ibCalcQty(needKg, bc) { return Math.max(1, Math.ceil(needKg / packKg))
 
 `quantity` er 5 **poser**, ikke 5 kg. Korrekt er `quantity × netWeightKg` = 10 kg.
 Ved et behov på 8 kg foreslås 2 kartoner = 20 kg. **Dobbelt op.**
-Samme mekanik som kendt bug #001 — se `../Grocy audit/KENDTE_DATABUGS.md`.
+Samme mekanik som kendt bug #001 — se `../grocy-audit/KENDTE_DATABUGS.md`.
 
 ### 1.5 Leveringsdatoen er hardcodet — og priserne afhænger af den
 

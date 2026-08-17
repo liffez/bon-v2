@@ -18,7 +18,7 @@
  * returnerer et warning-objekt som route-handleren sender med i svaret,
  * så brugeren der lige koblede varen får besked.
  *
- * Spec: docs/Grocy audit/CLAUDE_GROCY_AUDIT_4B.md — "Næste skridt" #2.
+ * Spec: docs/grocy-audit/CLAUDE_GROCY_AUDIT_4B.md — "Næste skridt" #2.
  * ════════════════════════════════════════════════════════════
  */
 
