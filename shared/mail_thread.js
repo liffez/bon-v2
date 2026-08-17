@@ -79,6 +79,19 @@
         return body.length > 260 || newlines > 5;
     }
 
+    /* Hvor langt musen må flytte sig mellem mousedown og klik, før vi
+       regner det som et træk (markering) frem for et klik. */
+    var DRAG_SLOP_PX = 5;
+
+    /* Står der en tekstmarkering inde i el? Så var klikket afslutningen på en
+       markering — brugeren er ved at kopiere noget ud af mailen, ikke ved at
+       folde den sammen. En markering et andet sted på siden tæller ikke med. */
+    function hasSelectionIn(el) {
+        var sel = window.getSelection && window.getSelection();
+        if (!sel || sel.isCollapsed || !String(sel).trim()) return false;
+        return el.contains(sel.anchorNode) || el.contains(sel.focusNode);
+    }
+
     /* Har beskeden en HTML-krop vi skal rendere (frem for ren tekst)? */
     function hasHtmlBody(m) {
         return !!(m && m.body_html && String(m.body_html).trim());
@@ -314,7 +327,13 @@
         // HTML-mails: indsæt sandboxed iframes (kan ikke stå i innerHTML-strengen).
         mountHtmlFrames(container, msgs);
 
-        // Interaktion: klik på boble → fold ud/ind + markér læst.
+        // Interaktion: klik på boble → fold UD + markér læst.
+        //
+        // Boblen kan kun folde ud, aldrig ind — sammenfoldning sker via
+        // "Skjul"-knappen. Før togglede hele boblen, og så lukkede en
+        // markering af fx et EAN-nummer mailen midt i markeringen: museklikket
+        // ender inde i boblen og blev tolket som "luk". Der mistes intet ved
+        // det — at folde ud er stadig ét klik hvor som helst i boblen.
         container.querySelectorAll('.mt-msg').forEach(function (el) {
             var m = msgs[parseInt(el.dataset.mtIdx, 10)];
             // Fold ulæste indgående beskeder ud straks, så man kan læse hele
@@ -323,11 +342,34 @@
                 && el.classList.contains('mt-collapsible')) {
                 el.classList.add('mt-expanded');
             }
+
+            // Træk-vagt: et klik der afslutter en trækbevægelse er en
+            // markering, ikke et klik på boblen. Kompletterer markerings-
+            // vagten nedenfor — den fanger bl.a. et træk der endte med at
+            // markere ingenting, og et dobbeltklik på et tal.
+            var downX = null, downY = null;
+            el.addEventListener('mousedown', function (ev) {
+                downX = ev.clientX; downY = ev.clientY;
+            });
+
             el.addEventListener('click', function (ev) {
                 if (ev.target.closest('.mt-msg-att')) return; // lad links virke
+                var onMore = !!ev.target.closest('.mt-msg-more');
+                var dragged = downX !== null
+                    && (Math.abs(ev.clientX - downX) > DRAG_SLOP_PX
+                        || Math.abs(ev.clientY - downY) > DRAG_SLOP_PX);
+                downX = downY = null;
+
                 if (el.classList.contains('mt-collapsible')) {
-                    el.classList.toggle('mt-expanded');
+                    if (onMore) {
+                        // Eksplicit knap — folder begge veje, uanset markering.
+                        el.classList.toggle('mt-expanded');
+                    } else if (!dragged && !hasSelectionIn(el)) {
+                        el.classList.add('mt-expanded');
+                    }
                 }
+                // Markér læst sker uanset om foldningen blev undertrykt: man
+                // HAR læst mailen når man markerer tekst i den.
                 if (el.classList.contains('mt-unread') && opts.onMarkRead && m && m.id != null) {
                     el.classList.remove('mt-unread');
                     var badge = el.querySelector('.mt-msg-new');
