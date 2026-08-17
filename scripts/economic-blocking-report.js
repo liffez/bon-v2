@@ -12,8 +12,12 @@
  *
  * Skriver ALDRIG. Kan køres mod drift.
  *
- *   node --experimental-sqlite scripts/economic-blocking-report.js
- *   node --experimental-sqlite scripts/economic-blocking-report.js --all --since 2026-01-01
+ * `--env-file=.env` er NØDVENDIG: koblingerne ligger i Grocy, og Node loader ikke
+ * .env af sig selv. Uden den fejler scriptet på en manglende Grocy-nøgle, selv om
+ * nøglen står i .env.
+ *
+ *   node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js
+ *   node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js --all --since 2026-01-01
  *
  *   --all     alle fakturerbare bons, ikke kun dem i køen (LEVERET, endnu ikke sendt)
  *   --since   kun bons leveret fra denne dato (default: 90 dage tilbage)
@@ -42,7 +46,12 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
         ]);
     } catch (e) {
         console.error(`Kunne ikke hente koblinger fra Grocy: ${e.message}`);
-        console.error('Rapporten kræver adgang til den Grocy-instans der bærer economic_product_number (grocy-hq).');
+        if (!process.env.GROCY_HQ_KEY && !process.env.GROCY_HQ_URL) {
+            console.error('\nIngen GROCY_*-variabler er indlæst. Node loader ikke .env af sig selv — kør med:');
+            console.error('  node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js\n');
+        } else {
+            console.error('Rapporten kræver adgang til den Grocy-instans der bærer economic_product_number (grocy-hq).');
+        }
         process.exit(2);
     }
 

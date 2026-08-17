@@ -2369,7 +2369,15 @@ To invarianter:
 Fakturerings-skærmen viser dem i **forhåndsvisningen**, ikke kun når bonen er blokeret.
 
 **`scripts/economic-blocking-report.js`** (read-only, kan køres mod drift) viser hvilke
-opskrifter der blokerer, hvor mange bons det rammer, og hvad der udelades.
+opskrifter der blokerer, hvor mange bons det rammer, og hvad der udelades:
+
+```bash
+node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js --all --since 2026-01-01
+```
+
+> `--env-file=.env` er nødvendig — koblingerne ligger i Grocy, og **Node loader ikke
+> `.env` af sig selv**. Uden den fejler scriptet på en manglende Grocy-nøgle, selv om
+> nøglen står i filen. Samme konvention som `scripts/audit-grocy-live.js`.
 
 **Tests**: `npm run test:economic` — 100 unit + 52 integration, alle grønne (baseline
 var 75/1 + 34/0). **Mutations-testet:** de fire kerneregler rulles hver især tilbage og
