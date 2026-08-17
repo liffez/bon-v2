@@ -66,6 +66,8 @@ router.get('/webhook-log', requireAuth('admin'), handle((req, res) => {
     res.json({
         configured:      webhook.isConfigured(),
         url:             webhook.getWebhookUrl(),
+        // Selve hemmeligheden forlader ALDRIG serveren — kun om den er sat.
+        secret_configured: webhook.isSecretConfigured(),
         receipts_total:  counts?.total || 0,
         receipts_unsynced: counts?.unsynced || 0,
         attempts:        rows,

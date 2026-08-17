@@ -94,7 +94,7 @@ const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', c => body += c);
     req.on('end', () => {
-        lastPayload = { url: req.url, json: JSON.parse(body) };
+        lastPayload = { url: req.url, json: JSON.parse(body), headers: req.headers };
         res.writeHead(replyStatus, { 'Content-Type': 'application/json' });
         res.end('{"id":1}');
     });
@@ -226,6 +226,54 @@ const server = http.createServer((req, res) => {
         ok(logCount() === before + 1, 'omdirigeringen logges så den kan ses i Settings');
 
         gate.close();
+    }
+
+    console.log('\n── Legitimation følger med (#460) ──');
+    // Webhook-stien hos Whiteboard ligger uden for login-gaten, fordi et
+    // maskine-kald ikke har en session. Hemmeligheden er dermed den eneste
+    // dør — sendes den ikke, står stien enten åben eller lukket, og begge
+    // dele er værre end en fejl vi kan læse.
+    resetSynced();
+    replyStatus = 201;
+    setUrl(url);
+    delete process.env.GOODS_RECEIPT_WEBHOOK_SECRET;
+    {
+        ok(webhook.isSecretConfigured() === false, 'isSecretConfigured() er false uden .env-værdi');
+        await webhook.send(RECEIPT, 'Tester');
+        ok(!('x-webhook-secret' in lastPayload.headers),
+            'uden hemmelighed sendes headeren slet ikke');
+
+        process.env.GOODS_RECEIPT_WEBHOOK_SECRET = '  s3kr3t  ';
+        ok(webhook.isSecretConfigured() === true, 'isSecretConfigured() er true når .env-værdien er sat');
+        resetSynced();
+        await webhook.send(RECEIPT, 'Tester');
+        ok(lastPayload.headers['x-webhook-secret'] === 's3kr3t',
+            'hemmeligheden sendes som X-Webhook-Secret, trimmet');
+
+        // Hemmeligheden må ikke ende i webhook_log — loggen vises i Settings
+        // og følger med enhver kopi af databasen.
+        const logged = db.prepare(`SELECT payload FROM webhook_log ORDER BY id DESC LIMIT 1`).get().payload;
+        ok(!/s3kr3t/.test(logged), 'hemmeligheden lækker ikke ud i webhook_log');
+    }
+
+    console.log('\n── Et afvist kald forklarer hvorfor ──');
+    // 401 på webhook-stien betyder næsten altid at de to .env-filer er uenige.
+    // Statuskoden alene efterlader driften med at gætte.
+    resetSynced();
+    replyStatus = 401;
+    {
+        const r = await webhook.send(RECEIPT, 'Tester');
+        ok(r && r.ok === false && r.statusCode === 401, 'send() melder fejl ved 401');
+        ok(/SAMME i begge \.env/.test(r.error || ''),
+            'med hemmelighed sat peger fejlen på at de to filer er uenige');
+        ok(syncedAt() === null, 'whiteboard_synced_at forbliver tom — gensend virker');
+
+        delete process.env.GOODS_RECEIPT_WEBHOOK_SECRET;
+        resetSynced();
+        const r2 = await webhook.send(RECEIPT, 'Tester');
+        ok(/mangler i Bon v2/.test(r2.error || ''),
+            'uden hemmelighed siger fejlen at den mangler her hos afsenderen');
+        ok(syncedAt() === null, 'stadig ikke markeret som sendt');
     }
 
     server.close();

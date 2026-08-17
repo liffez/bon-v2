@@ -608,12 +608,16 @@
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
         <label style="width:280px;font-size:14px;font-weight:500">Webhook-URL til Whiteboard</label>
         <input class="st-input" id="wb-webhook-url" type="url" style="min-width:360px;flex:1"
-               placeholder="https://whiteboard.ristetrug.dk/api/events">
+               placeholder="https://whiteboard.ristetrug.dk/api/events/webhook">
         <button class="st-btn st-btn-primary" onclick="saveWhiteboardUrl()">Gem</button>
       </div>
       <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 24px;max-width:640px;line-height:1.6">
-        Skal pege på <code style="font-size:10px">/api/events</code> — ikke bare på forsiden.
-        Tøm feltet for at slå koblingen fra igen.
+        Skal pege på <code style="font-size:10px">/api/events/webhook</code> — ikke bare på forsiden.
+        Tøm feltet for at slå koblingen fra igen.<br>
+        Webhook-stien ligger uden for login-gaten, fordi et maskine-kald ikke har en session.
+        Den lukker kun op for den der kender hemmeligheden
+        (<code style="font-size:10px">GOODS_RECEIPT_WEBHOOK_SECRET</code>, samme værdi i begge
+        <code style="font-size:10px">.env</code>-filer).
       </p>
 
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Seneste forsøg</h3>
@@ -2240,8 +2244,25 @@ async function loadWhiteboardSection() {
     ? '<span style="background:#eaf6ec;color:#2c6b39;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700">✓ Koblet til Whiteboard</span>'
     : '<span style="background:#fdf3e2;color:#8a6412;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700">⚠ Ikke koblet — registreringer bliver i Bon v2</span>';
 
+  // Hemmeligheden er den eneste dør ind på webhook-stien. Mangler den, får
+  // hvert kald 401 — og uden en visning her ville man kun kunne se det som
+  // en statuskode i forsøgs-listen. Kun localhost går uden om nginx og
+  // dermed uden om gaten, så dér er den ikke nødvendig.
+  var viaNginx = /^https?:\/\/(?!localhost|127\.0\.0\.1)/i.test(info.url || '');
+  var secretPill = '';
+  if (info.configured && viaNginx) {
+    secretPill = info.secret_configured
+      ? '<span style="background:#eaf6ec;color:#2c6b39;border-radius:999px;padding:4px 12px;' +
+        'font-size:12px;font-weight:700" title="GOODS_RECEIPT_WEBHOOK_SECRET er sat i .env">' +
+        '🔑 Hemmelighed sat</span>'
+      : '<span style="background:#fbeae7;color:#a33227;border-radius:999px;padding:4px 12px;' +
+        'font-size:12px;font-weight:700" ' +
+        'title="Sæt GOODS_RECEIPT_WEBHOOK_SECRET i .env — samme værdi i Whiteboards .env">' +
+        '⚠ Hemmelighed mangler — Whiteboard afviser (401)</span>';
+  }
+
   statusEl.innerHTML =
-    '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' + pill +
+    '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' + pill + secretPill +
     '<span style="font-size:12px;color:var(--color-text-dim)">' +
       info.receipts_total + ' varemodtagelser i alt · ' +
       (unsynced > 0
@@ -2279,10 +2300,10 @@ function fmtWbTime(s) {
 async function saveWhiteboardUrl() {
   var url = document.getElementById('wb-webhook-url').value.trim();
 
-  // Whiteboard tager kun imod på /api/events — en URL uden stien giver et
-  // 404 der ser ud som om noget blev sendt. Bedre at spørge først.
-  if (url && !/\/api\/events\/?$/.test(url)) {
-    if (!confirm('URL\'en peger ikke på /api/events.\n\nWhiteboard modtager kun ' +
+  // Whiteboard tager kun imod på /api/events(/webhook) — en URL uden stien
+  // giver et 404 der ser ud som om noget blev sendt. Bedre at spørge først.
+  if (url && !/\/api\/events(\/webhook)?\/?$/.test(url)) {
+    if (!confirm('URL\'en peger ikke på /api/events/webhook.\n\nWhiteboard modtager kun ' +
                  'varemodtagelser dér. Gem alligevel?')) return;
   }
 

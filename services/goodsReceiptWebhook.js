@@ -45,6 +45,27 @@ function isConfigured() {
 }
 
 /**
+ * Den delte hemmelighed der lukker webhooken ind hos Whiteboard.
+ *
+ * Ligger i .env og ikke i settings-tabellen, af to grunde: modtageren har
+ * ingen Settings-side og skal have værdien i SIN .env uanset hvad, så en
+ * halvdel i browseren ville betyde at man kunne skifte den ene side og
+ * bryde koblingen uden at opdage det. Og alle andre hemmeligheder i Bon v2
+ * bor i .env (SMTP, ORS, Hørkram) — dev-databasen kopieres rundt til
+ * analyse, hemmeligheder bør ikke følge med.
+ *
+ * @returns {string|null}
+ */
+function getWebhookSecret() {
+    const secret = (process.env.GOODS_RECEIPT_WEBHOOK_SECRET || '').trim();
+    return secret || null;
+}
+
+function isSecretConfigured() {
+    return getWebhookSecret() !== null;
+}
+
+/**
  * Send webhook til Whiteboard (fire-and-forget fra POST-stien).
  *
  * Returnerer et resultat-objekt så kaldere der VENTER på den (gensend fra
@@ -150,6 +171,14 @@ async function send(receipt, userName) {
     let statusCode = null;
     let error = null;
 
+    // Modtagerens webhook-sti ligger uden for login-gaten og lukker kun op
+    // for den der kender hemmeligheden. Mangler den, sender vi alligevel —
+    // så svaret bliver et 401 vi kan forklare, i stedet for en tavshed her
+    // på afsenderens side.
+    const secret = getWebhookSecret();
+    const headers = { 'Content-Type': 'application/json' };
+    if (secret) headers['X-Webhook-Secret'] = secret;
+
     try {
         // redirect: 'manual' er ikke en detalje — det er hele forskellen på
         // "sendt" og "det så ud som om".
@@ -165,7 +194,7 @@ async function send(receipt, userName) {
         // er en maskine uden session. Nu fejler den højlydt og siger hvorhen.
         const response = await fetch(webhookUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify(payload),
             redirect: 'manual',
             signal: AbortSignal.timeout(10000), // 10s timeout
@@ -186,6 +215,17 @@ async function send(receipt, userName) {
             console.log(`[webhook] Whiteboard notificeret for ${receipt.receipt_number}`);
         } else {
             error = `HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`;
+
+            // Et 401/403 på webhook-stien betyder næsten altid at de to
+            // .env-filer ikke er enige. Sig det, i stedet for at lade
+            // driften gætte ud fra en statuskode.
+            if (statusCode === 401 || statusCode === 403) {
+                error += secret
+                    ? ' — Whiteboard afviste hemmeligheden. Tjek at '
+                      + 'GOODS_RECEIPT_WEBHOOK_SECRET er den SAMME i begge .env-filer.'
+                    : ' — GOODS_RECEIPT_WEBHOOK_SECRET mangler i Bon v2\'s .env, '
+                      + 'så kaldet blev sendt uden legitimation.';
+            }
             console.warn(`[webhook] Whiteboard fejl for ${receipt.receipt_number}:`, error);
         }
     } catch (err) {
@@ -219,4 +259,7 @@ function _clearSentWebhooks() {
     _sentWebhooks.length = 0;
 }
 
-module.exports = { send, isConfigured, getWebhookUrl, _getSentWebhooks, _clearSentWebhooks };
+module.exports = {
+    send, isConfigured, getWebhookUrl, isSecretConfigured,
+    _getSentWebhooks, _clearSentWebhooks,
+};
