@@ -2828,6 +2828,15 @@ hele beskeden** — selvom backenden altid har returneret hele `body_text`.
     — chat-boble-historik med **klik-for-at-folde-ud**: lange beskeder (>260 tegn / >5 linjer)
     kollapses visuelt med fade-maske + "Vis hele beskeden ▾"-knap; klik på boblen folder ud.
     Klik på ulæst indgående boble markerer den læst via `onMarkRead`.
+  - **Boblen folder kun UD — aldrig ind.** Sammenfoldning sker via "Skjul ▴"-knappen.
+    Togglede boblen begge veje, lukkede en markering af fx et EAN-nummer mailen midt i
+    markeringen: muse-klikket ender inde i boblen og blev tolket som "luk". To vagter
+    oveni, så heller ikke *udfoldningen* stjæler en markering: klikket ignoreres hvis
+    musen har flyttet sig mere end `DRAG_SLOP_PX` siden mousedown (træk), eller hvis
+    `hasSelectionIn(el)` siger at der står en markering inde i netop den boble (en
+    markering et andet sted på siden tæller ikke). Markér-læst fyrer **uanset** at
+    foldningen blev undertrykt — man har læst mailen når man markerer i den. Knappen
+    er fritaget for vagterne: den er utvetydig hensigt.
   - `fmtDate(iso)` — ét fælles datoformat (dd/M HH:MM, 2-cifret år hvis ikke i år)
   - `normalize({threads|messages})` — tråde/flad liste → sorteret array (nyeste først)
   - `isLong`-heuristik er tegn/linje-baseret (ikke `scrollHeight`) så den virker når

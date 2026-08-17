@@ -63,7 +63,10 @@
     box-shadow: inset 2px 0 0 var(--color-red, #e53e3e);
 }
 .mt-msg.mt-unread:hover { background: #ffe8cc; }
-.mt-msg.mt-collapsible { cursor: pointer; }
+/* Kun den sammenfoldede boble er klikbar — en udfoldet boble kan ikke
+   foldes ind ved klik (så en tekstmarkering ikke lukker mailen), og
+   må derfor heller ikke se klikbar ud. Sammenfoldning: "Skjul"-knappen. */
+.mt-msg.mt-collapsible:not(.mt-expanded) { cursor: pointer; }
 
 .mt-msg-head {
     display: flex;
