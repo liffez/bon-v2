@@ -2368,6 +2368,20 @@ To invarianter:
 (INKL moms — preview-tabellen ved siden af summerer EX moms, så det står eksplicit).
 Fakturerings-skærmen viser dem i **forhåndsvisningen**, ikke kun når bonen er blokeret.
 
+**Slettede opskrifter kan ikke kobles — og så det ud som om de kunne.** Userfield-værdier
+overlever at en opskrift slettes i Grocy: `objects/recipes/133` svarer **404**, mens
+`userfields/recipes/133` stadig returnerer `economic_product_number: "92"`.
+`economic-product-match.js --apply` læste kun userfeltet og meldte *"recipe 133 har
+allerede 92"* — mens faktureringen læser `/objects/recipes` og aldrig ser spøgelset.
+De to værktøjer var uenige om hvad "koblet" betyder, og scriptet meldte succes på noget
+der ikke virkede. Det tjekker nu eksistensen **først** (både i apply og som ny status
+`SLETTET` i review-CSV'en, med `godkendt_nr = "-"`, så en håndredigeret fil heller ikke
+kan skrive et spøgelse). Målt mod grocy-hq: **19 solgte opskrifter findes ikke længere**
+— bl.a. Tomaten (260 linjer), Humus'en (192) og Trøflen – slider (48, den der blokerer
+i dag). Deres bons kan kun faktureres via engangsbeløb-knappen. Se
+[#441](https://github.com/liffez/bon-v2/issues/441), som dermed er større end de 5
+opskrifter issuet nævner.
+
 **`scripts/economic-blocking-report.js`** (read-only, kan køres mod drift) viser hvilke
 opskrifter der blokerer, hvor mange bons det rammer, og hvad der udelades:
 
