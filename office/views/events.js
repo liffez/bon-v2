@@ -48,6 +48,9 @@ const _EV_MODEL_LABEL = { light: 'Let event (alt fra HQ)', festival: 'Festival (
 const _EV_STATUS_LABEL = { planning: 'Planlægning', active: 'Aktiv', done: 'Afsluttet', cancelled: 'Aflyst' };
 const _EV_ROLE_LABEL  = { prep: 'Prep / pakkeliste', topup: 'Top-up', sales: 'Dagssalg', expense: 'Udgift' };
 const _EV_ROLE_ICON   = { prep: '🎒', topup: '🔄', sales: '💰', expense: '💸' };
+// Knappen i linje-modalen navngiver den bon der oprettes (og tæller linjerne),
+// så "Gem" ikke kan forveksles med "gem denne linje".
+const _EV_SUBMIT_LABEL = { prep: 'Opret prep-bon', topup: 'Opret top-up-bon', sales: 'Opret salgsbon', expense: 'Opret udgift' };
 
 async function _evFetch(path, opts) {
     const res = await fetch('/api' + path, Object.assign({ headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' }, opts || {}));
@@ -1520,7 +1523,7 @@ async function _evOpenGenModal(event, role, opts) {
         }
     }
 
-    _evModal(`
+    const overlay = _evModal(`
         <h3>${_EV_ROLE_ICON[role]} ${_EV_ROLE_LABEL[role]} — ${_evEsc(event.name)}</h3>
         <div class="ev-modal-hint">
             ${isTopup
@@ -1535,11 +1538,19 @@ async function _evOpenGenModal(event, role, opts) {
         <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${defaultDate}"></label>
         ${isTopup ? '<div id="evm-topup" class="ev-topup-strip"></div>' : ''}
         <div class="ev-modal-oh" id="evm-oh" style="display:none"></div>
-        <label>Tilføj fra Grocy<select id="evm-recipe"><option value="">— vælg ${isExpense ? 'produkt' : 'opskrift'} —</option>${recipeOpts}</select></label>
+        ${isProd ? `
+        <div class="ev-picker-block">
+            <div class="ev-picker-head">
+                <span class="ev-picker-label">Vælg varer — de lægges i listen nedenfor</span>
+                <button type="button" class="ev-btn ev-btn-small" id="evm-picker-toggle">Luk vareliste</button>
+            </div>
+            <div id="evm-picker"></div>
+        </div>`
+        : `<label>Tilføj fra Grocy<select id="evm-recipe"><option value="">— vælg ${isExpense ? 'produkt' : 'opskrift'} —</option>${recipeOpts}</select></label>`}
         <div class="ev-line-table-wrap">
             <table class="ev-line-table">
                 <thead><tr><th>Vare</th><th>Antal</th><th>Enhed</th><th>${isProd ? 'Kostpris ex' : (isExpense ? 'Beløb' : 'Pris/stk incl')}</th>${isExpense ? '<th>Moms</th>' : ''}<th>Total</th><th></th></tr></thead>
-                <tbody id="evm-lines"></tbody>
+                <tbody id="evm-lines"><tr id="evm-empty-row"><td colspan="${isExpense ? 7 : 6}" class="ev-line-empty">Ingen varer valgt endnu${isProd ? ' — vælg fra listen ovenfor' : ''}.</td></tr></tbody>
                 <tfoot><tr class="ev-line-total-row"><td colspan="${isExpense ? 5 : 4}">${isProd ? 'Samlet kostpris' : (isExpense ? 'Samlet udgift' : 'Total')}</td><td class="ev-num" id="evm-grand-total">—</td><td></td></tr></tfoot>
             </table>
             <button type="button" class="ev-btn ev-btn-small" id="evm-add-line">+ Fritekst-linje</button>
@@ -1581,7 +1592,7 @@ async function _evOpenGenModal(event, role, opts) {
         if (!isProd && !isExpense) body.price_category_code = 'festival';
         await _evFetch(`/events/${event.id}/bons`, { method: 'POST', body: JSON.stringify(body) });
         _evRender();
-    });
+    }, { submitLabel: _EV_SUBMIT_LABEL[role] || 'Gem' });
 
     // Åbningstid for valgt dato (fra forecast-tabellens "Åbent"-kolonne)
     const ohMap = _evParseOpenHours(_evState.event || event);
@@ -1599,6 +1610,21 @@ async function _evOpenGenModal(event, role, opts) {
     const linesEl = document.getElementById('evm-lines');
     const selectEl = document.getElementById('evm-recipe');
     function addLine(data) {
+        // Samme vare igen = læg antallet oveni den række der allerede står der.
+        // Samme regel som POST /api/bons/:id/lines bruger server-side; ellers
+        // ville pickeren producere "Frikadellen" to gange på samme bon.
+        if (data.merge && data.recipeId) {
+            const dup = linesEl.querySelector(`tr[data-line][data-recipe-id="${data.recipeId}"]`);
+            if (dup) {
+                const qtyEl = dup.querySelector('[data-f=qty]');
+                qtyEl.value = (Number(qtyEl.value) || 0) + (Number(data.qty) || 1);
+                qtyEl.dispatchEvent(new Event('input'));
+                dup.classList.remove('ev-line-bump');
+                void dup.offsetWidth;          // genstart animationen
+                dup.classList.add('ev-line-bump');
+                return;
+            }
+        }
         const tr = document.createElement('tr');
         tr.dataset.line = '1';
         if (data.recipeId) tr.dataset.recipeId = data.recipeId;
@@ -1646,6 +1672,21 @@ async function _evOpenGenModal(event, role, opts) {
         });
         // Udgifter vises negativt i P&L; her viser vi bruttobeløbet som pr. linje.
         el.textContent = _evFmtKr(sum);
+        _evSyncSubmit();
+    }
+
+    // Knappen fortæller hvad der sker, og hvor meget der er i kurven. Ved 0
+    // linjer er den slået fra — så et fejlklik ikke kan oprette en tom bon.
+    function _evSyncSubmit() {
+        const n = linesEl.querySelectorAll('tr[data-line]').length;
+        const emptyRow = document.getElementById('evm-empty-row');
+        if (emptyRow) emptyRow.style.display = n ? 'none' : '';
+        const btn = overlay.querySelector('button[type=submit]');
+        if (!btn) return;
+        btn.disabled = n === 0;
+        btn.textContent = n === 0
+            ? 'Tilføj mindst én linje'
+            : `${_EV_SUBMIT_LABEL[role] || 'Gem'} (${n} ${n === 1 ? 'linje' : 'linjer'})`;
     }
 
     function _evRecalcTargets() {
@@ -1694,6 +1735,7 @@ async function _evOpenGenModal(event, role, opts) {
                     co2e: opt.dataset.co2e,
                     momsIncluded: 1,
                     qty: 1,
+                    merge: true,
                 });
             }
             selectEl.value = '';
@@ -1701,6 +1743,46 @@ async function _evOpenGenModal(event, role, opts) {
     }
     document.getElementById('evm-add-line').addEventListener('click', () => addLine({}));
     if (isExpense) addLine({ name: 'Udgift', price: 0, momsIncluded: 0 });
+
+    // Prep/top-up: samme "vælg vare"-gestus som på bon-kortet. VarePicker kører
+    // detached (bonId: null) — den POSTer ikke selv, men leverer linjen til
+    // tabellen, og bonnen oprettes først når man trykker på opret-knappen.
+    // Prislisten viser KOSTPRIS: bonnen er 0 kr (produktion), og kostprisen er
+    // det tal der snapshottes pr. linje og driver Vareforbrug i P&L.
+    const pickerHost   = document.getElementById('evm-picker');
+    const pickerToggle = document.getElementById('evm-picker-toggle');
+    if (isProd && pickerHost && pickerToggle && typeof VarePicker !== 'undefined') {
+        let picker = null;
+        const setToggle = (open) => { pickerToggle.textContent = open ? 'Luk vareliste' : '+ Tilføj vare'; };
+        const openPicker = () => {
+            picker = new VarePicker({
+                bonId: null,
+                priceCategory: 'produktion',
+                priceField: 'cost',
+                container: pickerHost,
+                viewName: 'event-prep',
+                onAdded: (line) => addLine({
+                    recipeId: line.grocy_recipe_id,
+                    name:     line.product_name,
+                    category: line.category,
+                    unit:     line.unit,
+                    price:    Math.round((line.cost_price || 0) * 100) / 100,
+                    cost:     line.cost_price,
+                    co2e:     line.co2e,
+                    qty:      line.quantity,
+                    momsIncluded: 1,
+                    merge:    true,
+                }),
+                onClose: () => { picker = null; setToggle(false); },
+            });
+            picker.open();
+            setToggle(true);
+        };
+        pickerToggle.addEventListener('click', () => { picker ? picker.close() : openPicker(); });
+        openPicker();   // åben som udgangspunkt — det er modalens primære handling
+    } else if (isProd && pickerHost) {
+        pickerHost.innerHTML = '<div class="ev-picker-fallback">Varelisten kunne ikke indlæses.</div>';
+    }
 
     // Salgsbon: fyld de pre-udfyldte menuer (fra prep-bonnerne) ind. Antal =
     // preppet (start-gæt, justeres ned for spild). Pris = festival-salgspris.
@@ -1718,6 +1800,8 @@ async function _evOpenGenModal(event, role, opts) {
             });
         }
     }
+
+    _evSyncSubmit();
 
     // Top-up: §6-forslaget (forecast − beregnet rest) for valgt dato.
     // Pre-fylder linjerne med de allokerede produkter og viser kategori-tabel
@@ -1763,7 +1847,9 @@ async function _evOpenGenModal(event, role, opts) {
                     </div>` : ''}
                 </details>` : ''}`;
             // Pre-fyld linjer med de allokerede produkter (erstatter auto-fill).
-            linesEl.innerHTML = '';
+            // Fjern kun linje-rækkerne — tom-tilstands-rækken skal blive stående,
+            // ellers forsvinder den når forslaget er tomt.
+            linesEl.querySelectorAll('tr[data-line]').forEach(r => r.remove());
             for (const p of (s.products || [])) {
                 const rec = (_evRecipes || []).find(r => r.id === p.grocy_recipe_id);
                 addLine({
@@ -1778,6 +1864,9 @@ async function _evOpenGenModal(event, role, opts) {
                     co2e:     rec?.co2e ?? '',
                 });
             }
+            // Tomt forslag kalder ikke addLine — så knappen skal synkes her,
+            // ellers står den med linjeantallet fra før genberegningen.
+            _evSyncSubmit();
         } catch (err) {
             host.innerHTML = `<div class="ev-topup-warn">Kunne ikke beregne forslag: ${_evEsc(err.message)}</div>`;
         }
@@ -1847,7 +1936,8 @@ async function _evOpenFindPayment(ev) {
 
 // ── MODAL primitive (rene event handlers — ingen eksterne deps) ──────────
 
-function _evModal(bodyHtml, onSubmit) {
+function _evModal(bodyHtml, onSubmit, opts) {
+    opts = opts || {};
     const overlay = document.createElement('div');
     overlay.className = 'ev-modal-overlay';
     overlay.innerHTML = `
@@ -1857,7 +1947,7 @@ function _evModal(bodyHtml, onSubmit) {
                 <div class="ev-modal-error" style="display:none"></div>
                 <div class="ev-modal-actions">
                     <button type="button" class="ev-btn ev-btn-ghost" data-act="cancel">Annullér</button>
-                    <button type="submit" class="ev-btn ev-btn-primary">Gem</button>
+                    <button type="submit" class="ev-btn ev-btn-primary">${_evEsc(opts.submitLabel || 'Gem')}</button>
                 </div>
             </form>
         </div>`;
@@ -1866,13 +1956,34 @@ function _evModal(bodyHtml, onSubmit) {
     overlay.querySelector('[data-act=cancel]').addEventListener('click', cleanup);
     overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
     const errEl = overlay.querySelector('.ev-modal-error');
-    overlay.querySelector('form').addEventListener('submit', async e => {
+    const form = overlay.querySelector('form');
+
+    // Enter i et felt må IKKE indsende formularen. Linje-modalerne har mange
+    // inputs, og Enter i antal-feltet oprettede før bonnen med én linje — samme
+    // gestus som VarePicker bruger til at TILFØJE en linje. Det gav dublet-bons
+    // (Vig Festival 8. juli: B4099/B4100/B4101 inden for to minutter).
+    // Indsendelse sker kun via knappen.
+    form.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        const t = e.target;
+        if (!t || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON') return;
+        e.preventDefault();
+    });
+
+    form.addEventListener('submit', async e => {
         e.preventDefault();
         errEl.style.display = 'none';
         try { await onSubmit(); cleanup(); }
         catch (err) { errEl.style.display = ''; errEl.textContent = err.message || String(err); }
     });
-    // Escape
-    const onKey = (e) => { if (e.key === 'Escape') { cleanup(); document.removeEventListener('keydown', onKey); } };
+    // Escape. En åben varepicker inde i modalen ejer tasten først (den lukker
+    // sig selv) — ellers ville ét tryk lukke både picker og hele modalen.
+    const onKey = (e) => {
+        if (e.key !== 'Escape') return;
+        if (overlay.querySelector('.vp-picker.open')) return;
+        cleanup();
+        document.removeEventListener('keydown', onKey);
+    };
     document.addEventListener('keydown', onKey);
+    return overlay;
 }

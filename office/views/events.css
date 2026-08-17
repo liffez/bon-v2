@@ -131,6 +131,21 @@
 .ev-modal-error { background: #fdecec; color: #8a2222; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 13px; }
 .ev-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
+/* Varevælger i prep/top-up-modalen (VarePicker i detached mode) */
+.ev-picker-block { border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; margin-bottom: 12px; background: #fdfcfa; }
+.ev-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; }
+.ev-picker-label { font-size: 12px; font-weight: 500; color: #555; }
+.ev-picker-fallback { padding: 12px; font-size: 12px; color: #a33; }
+/* Pickeren er modalens primære indtastning — den lukkes via knappen i headeren,
+   ikke via sit eget ×, så knappens tekst ikke kan komme ud af trit. */
+.ev-picker-block .vp-close { display: none; }
+.ev-picker-block .vp-picker.open { border-top: 1px solid var(--color-border, #d7d1ca); max-height: 320px; overflow-y: auto; }
+
+.ev-line-empty { color: #999; font-style: italic; font-size: 12px; padding: 10px 6px !important; }
+/* Kvittering når en allerede tilføjet vare får lagt antal oveni */
+@keyframes evLineBump { from { background: #fdf3d6; } to { background: transparent; } }
+.ev-line-table tr.ev-line-bump td { animation: evLineBump 1.1s ease-out; }
+
 .ev-line-table-wrap { margin: 8px 0 14px; }
 .ev-line-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
 .ev-line-table th { font-size: 10px; text-transform: uppercase; color: #888; text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; font-weight: 500; }

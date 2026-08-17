@@ -20,8 +20,13 @@ class VarePicker {
         this.priceCategory = opts.priceCategory || 'catering';
         this.container = opts.container;
         this.onAdded = opts.onAdded || function() {};
+        this.onClose = opts.onClose || function() {};
         this.viewName = opts.viewName || 'all';
         this.showPriceCategorySelector = !!opts.showPriceCategorySelector;
+        // 'sales' (default) viser salgsprisen for den valgte priskategori.
+        // 'cost' viser kostprisen — brugt af event-prep, hvor bonnen er 0 kr
+        // (produktion) og kostprisen er det tal der driver Vareforbrug i P&L.
+        this.priceField = opts.priceField === 'cost' ? 'cost' : 'sales';
         this._visible = false;
         this._cats = null;
         this._priceCat = this.priceCategory;
@@ -88,13 +93,13 @@ class VarePicker {
                 '<div class="vp-header">' +
                     '<span class="vp-title">Tilf\u00f8j vare</span>' +
                     priceCatSelectorHtml +
-                    '<button class="vp-price-toggle" title="Vis/skjul priser">' + priceToggleIcon + '</button>' +
-                    '<button class="vp-close">\u00d7</button>' +
+                    '<button type="button" class="vp-price-toggle" title="Vis/skjul priser">' + priceToggleIcon + '</button>' +
+                    '<button type="button" class="vp-close">\u00d7</button>' +
                 '</div>' +
                 '<div class="vp-body">' +
                     '<div class="vp-categories">' +
                         catNames.map(function(c, i) {
-                            return '<button class="vp-cat' + (i === 0 ? ' active' : '') + '">' + c + '</button>';
+                            return '<button type="button" class="vp-cat' + (i === 0 ? ' active' : '') + '">' + c + '</button>';
                         }).join('') +
                     '</div>' +
                     '<div class="vp-items">' +
@@ -103,11 +108,11 @@ class VarePicker {
                 '</div>' +
                 '<div class="vp-action-bar" style="display:none">' +
                     '<div class="vp-action-row">' +
-                        '<button class="vp-qty-btn" data-delta="-1">\u2212</button>' +
+                        '<button type="button" class="vp-qty-btn" data-delta="-1">\u2212</button>' +
                         '<input class="vp-qty-input" type="number" value="1" min="1">' +
-                        '<button class="vp-qty-btn" data-delta="1">+</button>' +
+                        '<button type="button" class="vp-qty-btn" data-delta="1">+</button>' +
                         '<span class="vp-action-name"></span>' +
-                        '<button class="vp-action-add">Tilf\u00f8j</button>' +
+                        '<button type="button" class="vp-action-add">Tilf\u00f8j</button>' +
                     '</div>' +
                     '<input class="vp-special" type="text" placeholder="Extra info\u2026">' +
                 '</div>' +
@@ -175,6 +180,7 @@ class VarePicker {
         }
         this._cats = null;
         this.container.innerHTML = '';
+        this.onClose();
     }
 
     /** Update bonId + priceCategory (e.g. when drawer re-loads) */
@@ -242,13 +248,18 @@ class VarePicker {
 
     _renderItems(items, priceCat) {
         var selectedId = this._selectedRecipeId;
+        var useCost = (this.priceField === 'cost');
         return items.map(function(r) {
-            var price = r.prices[priceCat] || 0;
+            var price = useCost ? (r.cost_price || 0) : (r.prices[priceCat] || 0);
+            var priceTxt = useCost
+                ? (Math.round(price * 100) / 100).toLocaleString('da-DK')
+                : price;
+            var priceTitle = useCost ? ' title="Kostpris ex moms"' : '';
             var name = (r.name || '').trim();
             var cls = 'vp-item' + (r.id === selectedId ? ' selected' : '');
             return '<div class="' + cls + '" data-recipe-id="' + r.id + '">' +
                 '<span class="vp-item-name">' + name + '</span>' +
-                '<span class="vp-item-price">' + price + ' kr</span>' +
+                '<span class="vp-item-price"' + priceTitle + '>' + priceTxt + ' kr</span>' +
             '</div>';
         }).join('');
     }
