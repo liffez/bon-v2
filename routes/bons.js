@@ -25,7 +25,7 @@ const bonTransportCo2 = require('../services/bonTransportCo2');
  * Mønster:
  *   if (payment_type !== 'pos') recalcBonTotal(db, bonId);
  *
- * Ref: docs/Grocy audit/KENDTE_DATABUGS.md — moms-refaktorering, Commit 3 (1. maj 2026)
+ * Ref: docs/grocy-audit/KENDTE_DATABUGS.md — moms-refaktorering, Commit 3 (1. maj 2026)
  *      verificerede at ingen eksisterende sti sender total_price.
  *
  * Quick-fix (Del 5.5 i CLAUDE_TILBUD_PRIS.md): hvis bonnen har en x-Levering-linje
