@@ -322,7 +322,7 @@ Tidligere lå det spredt i denne fils "Åbne afhængigheder", MEMORY.md og docs/
 - **Epics** (`projekt`-label) = store projekter med spec-mapper i `docs/`, hver med fase-checkliste:
   - #81 Festival / multi-lokation (`docs/festival/`)
   - #82 Form Builder (`docs/formbuilder/`)
-  - #83 Kunde-portal (`docs/kunde portal/`)
+  - #83 Kunde-portal (`docs/kunde-portal/`)
   - docs/-specs forbliver source-of-truth; epics linker til dem og tracker fremdrift via checkbokse.
 
 **Arbejdsgang:**
@@ -4291,7 +4291,7 @@ gange. Tages op hvis det viser sig i drift alligevel.
 > - **CO₂-epic #88 (#105–113)** — ✅ **F0–F7 KOMPLET og merget** (16. juli 2026). Se sektionen "CO₂-modul" ovenfor for detaljer. Kort: råvarefaktorer importeret fra Katrines CONCITO-ark, beregningsmotor (opskrift-CO₂ = Σ kg×faktor), frosset snapshot pr. bon, transport-CO₂, og en Office-rapport under CO₂-sektionen (dækning · datakvalitet · CO₂ over tid m. kategori-stak · pr. opskrift m. drill-down pr. råvare · synonym-panel · emballage-tildeler · vejeværktøj). **Kun F8 (ESG-eksport) mangler — og det er bevidst et separat eksternt modul** der trækker data fra Bon, ikke en CO₂-pill (Leifs beslutning). **De reelle udeståender er DATA, ikke kode:** (1) køkkenet skal veje ~22 tælle-varer (værktøj: CO₂ → Vej tælle-varer), (2) Katrine skal levere emballage-faktorer fra Klimakompasset + B-listen af krydderi-faktorer. Dækningen stiger af sig selv når de lander. Spec: `docs/CLAUDE_CO2.md`
 > - **Festival/multi-lokation #81 (#98–103)** — ~20 % færdigt. `locations`-tabel + `getGrocyConfig(locationId)` findes; festival-specifikke dele (flags `multi_location`/`festival_enabled`, transfer HQ↔Trailer, afstemnings-view) er ustartede. Event-modulet ER IKKE Festival (separat "let event fra HQ"-model). Bygges lidt senere. Spec: `docs/festival/`
 > - **Form Builder #82 (#119–125)** + **field-type-engine #79** — kun spec (`docs/formbuilder/`), ingen kode
-> - **Kunde-portal #83 (#89–97)** — kun spec (`docs/kunde portal/`), kun `external_ref`-kroge findes
+> - **Kunde-portal #83 (#89–97)** — kun spec (`docs/kunde-portal/`), kun `external_ref`-kroge findes
 > - **Menu-agent #78** — kun spec (`docs/CLAUDE_MENU_AGENT.md`), ingen Anthropic-SDK-brug
 > - **Mindre features:** #236 leveringsomkostnings-rapport, #165 indkøbs-forecast, #215 leveringsafstand fra bons, #136 Grocy-SSO-genvej
 > - **Tech-debt:** #237 fælles `createBon()`-helper (bon-oprettelse duplikeret i 5 routes), #72 slet ubrugt `services/hokaAdapter.js`, #133 6 tidszone-follow-ups (14 `toISOString().slice` tilbage), #194 bug (drift-levering-tal er incl-moms salgspris)
