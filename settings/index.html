@@ -993,9 +993,16 @@
         <tbody id="fee-body"></tbody>
       </table>
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-        <select id="fee-add-select" class="st-input" style="flex:1;max-width:340px"></select>
-        <button class="st-btn" type="button" onclick="feeAddSelected()">+ Tilføj gebyr</button>
+        <button class="st-btn" type="button" id="fee-add-toggle" onclick="feeToggleAdd()">+ Tilføj endnu et gebyr</button>
         <button class="st-btn st-btn-primary" type="button" onclick="feeSave()">Gem gebyrer</button>
+      </div>
+      <div id="fee-add-row" style="display:none;gap:8px;align-items:center;margin-top:10px">
+        <select id="fee-add-select" class="st-input" style="flex:1;max-width:340px"></select>
+        <button class="st-btn st-btn-primary" type="button" onclick="feeAddSelected()">Tilføj</button>
+        <button class="st-btn" type="button" onclick="feeToggleAdd(false)">Annullér</button>
+      </div>
+      <div id="fee-add-hint" style="display:none;font-size:11px;color:var(--color-text-dim);margin-top:6px;max-width:640px">
+        Gebyret skal findes som opskrift i Grocy — så følger pris pr. priskategori og e-conomic-varenummer med af sig selv.
       </div>
       <div id="fee-status" style="font-size:12px;margin-top:10px;min-height:18px"></div>
 
@@ -3115,6 +3122,19 @@ function feeSet(i, field, value) {
   if (field === 'active') _feeRender();   // tænd/sluk kan ændre advarslen
 }
 
+/** Fold opskrift-vælgeren frem/væk. Uden argument: skift. */
+function feeToggleAdd(show) {
+  var row = document.getElementById('fee-add-row');
+  var hint = document.getElementById('fee-add-hint');
+  var btn = document.getElementById('fee-add-toggle');
+  if (!row) return;
+  var open = (show === undefined) ? (row.style.display === 'none') : !!show;
+  row.style.display  = open ? 'flex'  : 'none';
+  if (hint) hint.style.display = open ? 'block' : 'none';
+  if (btn)  btn.style.display  = open ? 'none'  : '';
+  if (open) { var sel = document.getElementById('fee-add-select'); if (sel) sel.focus(); }
+}
+
 function feeAddSelected() {
   var sel = document.getElementById('fee-add-select');
   if (!sel || !sel.value) return;
@@ -3130,6 +3150,7 @@ function feeAddSelected() {
 
   _feeRules.push({ id: id, recipe_id: Number(rec.id), min_pax: 11, active: 0 });
   _feeRender();
+  feeToggleAdd(false);   // ærindet er ovre — fold vælgeren væk igen
 }
 
 function feeRemove(i) {
