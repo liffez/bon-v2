@@ -12,17 +12,17 @@
  *
  * Skriver ALDRIG. Kan køres mod drift.
  *
- * `--env-file=.env` er NØDVENDIG: koblingerne ligger i Grocy, og Node loader ikke
- * .env af sig selv. Uden den fejler scriptet på en manglende Grocy-nøgle, selv om
- * nøglen står i .env.
+ * Loader selv .env (som scripts/economic-product-match.js) — koblingerne ligger i
+ * Grocy, og Node loader ikke .env af sig selv. `--env-file=.env` virker også.
  *
- *   node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js
- *   node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js --all --since 2026-01-01
+ *   node --experimental-sqlite scripts/economic-blocking-report.js
+ *   node --experimental-sqlite scripts/economic-blocking-report.js --all --since 2026-01-01
  *
  *   --all     alle fakturerbare bons, ikke kun dem i køen (LEVERET, endnu ikke sendt)
  *   --since   kun bons leveret fra denne dato (default: 90 dage tilbage)
  * ────────────────────────────────────────────────────────────
  */
+require('dotenv').config({ quiet: true });
 const { getDb } = require('../db/database');
 const { offsetISO } = require('../db/helpers');
 const economicInvoice = require('../services/economicInvoice');
@@ -47,8 +47,9 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
     } catch (e) {
         console.error(`Kunne ikke hente koblinger fra Grocy: ${e.message}`);
         if (!process.env.GROCY_HQ_KEY && !process.env.GROCY_HQ_URL) {
-            console.error('\nIngen GROCY_*-variabler er indlæst. Node loader ikke .env af sig selv — kør med:');
-            console.error('  node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js\n');
+            console.error('\nIngen GROCY_*-variabler er indlæst. Scriptet leder efter .env i den mappe');
+            console.error('det køres fra — kør det fra projektroden, eller peg på filen:');
+            console.error('  node --env-file=/sti/til/.env --experimental-sqlite scripts/economic-blocking-report.js\n');
         } else {
             console.error('Rapporten kræver adgang til den Grocy-instans der bærer economic_product_number (grocy-hq).');
         }

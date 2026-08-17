@@ -354,11 +354,11 @@ Udeladelsen er aldrig stille: `checkReadiness` returnerer `excluded[]` + `exclud
 et værn bag forhåndstjekket, ikke en erstatning for det.
 
 `scripts/economic-blocking-report.js` (read-only) viser hvilke opskrifter der blokerer,
-hvor mange bons det rammer, og hvad der udelades. Kan køres mod drift — men kræver
-`--env-file=.env`, da koblingerne hentes fra Grocy og Node ikke loader `.env` selv:
+hvor mange bons det rammer, og hvad der udelades. Kan køres mod drift; loader selv
+`.env`, da koblingerne hentes fra Grocy:
 
 ```bash
-node --env-file=.env --experimental-sqlite scripts/economic-blocking-report.js --all
+node --experimental-sqlite scripts/economic-blocking-report.js --all
 ```
 
 ---
