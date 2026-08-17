@@ -323,6 +323,9 @@ Tidligere lå det spredt i denne fils "Åbne afhængigheder", MEMORY.md og docs/
   - #81 Festival / multi-lokation (`docs/festival/`)
   - #82 Form Builder (`docs/formbuilder/`)
   - #83 Kunde-portal (`docs/kunde-portal/`)
+  - #88 CO₂-aftryk pr. bon + ESG-datagrundlag (`docs/co2/`)
+  - #259 Leverings- & adressedata-oprydning (`docs/delivery/`)
+  - #471 Indkøb Fase A — salgsenhed, pris, leveringsdato (`docs/indkob/`)
   - docs/-specs forbliver source-of-truth; epics linker til dem og tracker fremdrift via checkbokse.
 
 **Arbejdsgang:**
