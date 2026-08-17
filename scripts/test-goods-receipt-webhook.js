@@ -162,6 +162,72 @@ const server = http.createServer((req, res) => {
         ok(logCount() === 3, 'netværksfejlen logges så den kan ses i Settings');
     }
 
+    console.log('\n── Bilaget bærer altid sin egen dato ──');
+    // Whiteboard stempler datetime('now') på alt uden occurred_at. Første udgave
+    // sendte feltet KUN ved baguddatering — det holdt så længe kaldet skete i
+    // samme sekund som registreringen, men ved en gensendelse uger senere fik ti
+    // modtagelser tilbage til 18. maj gensendelsesdagen i FVST-loggen.
+    resetSynced();
+    replyStatus = 201;
+    setUrl(url);
+    {
+        const send = async (received_at, created_at) => {
+            resetSynced();
+            await webhook.send({ ...RECEIPT, received_at, created_at }, 'Tester');
+            return lastPayload.json;
+        };
+
+        let p = await send('2026-08-11 09:00:00', '2026-08-11 09:00:00');
+        ok(p.occurred_at === '2026-08-11T09:00:00Z',
+            'almindelig modtagelse sender hele tidsstemplet som UTC');
+
+        p = await send('2026-07-14 12:00:00', '2026-08-11 21:30:00');
+        ok(p.occurred_at === '2026-07-14',
+            'baguddateret bilag sender KUN datoen — klokkeslættet er opdigtet');
+
+        // received_at og created_at skrives af samme sætning ved en normal
+        // modtagelse, så de er ens uanset tidszone. Sammenlignede vi i stedet
+        // med dagens danske dato, ville en modtagelse mellem midnat og kl. 2
+        // se baguddateret ud — kolonnerne står i UTC, hvor det stadig er i går.
+        p = await send('2026-08-10 22:30:00', '2026-08-10 22:30:00');
+        ok(p.occurred_at === '2026-08-10T22:30:00Z',
+            'modtagelse efter midnat dansk tid regnes ikke som baguddateret');
+
+        p = await send('2026-07-14 12:00:00', null);
+        ok(p.occurred_at === '2026-07-14T12:00:00Z',
+            'uden created_at gættes der ikke på baguddatering — tidsstemplet sendes som det er');
+
+        p = await send(null, null);
+        ok(!('occurred_at' in p), 'uden received_at sendes intet — tavlen stempler selv');
+    }
+
+    console.log('\n── En omdirigering er ikke en succes ──');
+    // Den fejl der kostede sytten registreringer: whiteboard.ristetrug.dk lå bag
+    // en login-gate i nginx, som svarede 302 → bon.ristetrug.dk/login.html.
+    // fetch() følger som standard en omdirigering og laver POST om til GET, så
+    // kaldet endte på vores egen login-side med 200. response.ok var true,
+    // receiptet blev stemplet som sendt, og webhook_log viste en pæn 200 — mens
+    // FVST-loggen aldrig så leverancen.
+    resetSynced();
+    {
+        const gate = http.createServer((req, res) => {
+            res.writeHead(302, { location: 'https://bon.ristetrug.dk/login.html' });
+            res.end();
+        });
+        await new Promise(r => gate.listen(0, r));
+        setUrl(`http://127.0.0.1:${gate.address().port}/api/events`);
+
+        const before = logCount();
+        const r = await webhook.send(RECEIPT, 'Tester');
+        ok(r && r.ok === false, 'send() melder fejl ved 302 — ikke tavs succes');
+        ok(r && r.statusCode === 302, 'omdirigeringens statuskode kan aflæses');
+        ok(/login\.html/.test(r.error || ''), 'fejlen navngiver hvor den blev sendt hen');
+        ok(syncedAt() === null, 'whiteboard_synced_at forbliver tom — gensend virker stadig');
+        ok(logCount() === before + 1, 'omdirigeringen logges så den kan ses i Settings');
+
+        gate.close();
+    }
+
     server.close();
     db.close();
     try { fs.unlinkSync(TMP_DB); } catch {}
