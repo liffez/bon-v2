@@ -1155,6 +1155,9 @@ function _ibRenderItem(entry, group, showSupplier) {
             } else {
                 h += '<button class="ib-kb" data-ib="add-to-cart" data-product-id="' + p.id + '">Læg i kurv</button>';
             }
+            if (entry._cartError) {
+                h += '<div class="ib-cart-error">⚠ ' + _ibEsc(entry._cartError) + '</div>';
+            }
         } else if (group.integrationType === 'intern') {
             h += '<button class="ib-kb bon" data-ib="create-single-bon" data-product-id="' + p.id + '">Opret bon →</button>';
         } else {
@@ -1702,13 +1705,26 @@ async function _ibAddToCart(productId) {
             suQty = bc._hoka.salesUnits[0].quantity || suQty;
         }
 
-        await putHokaBasket([{
+        var res = await putHokaBasket([{
             varenummer: bc.barcode,
             quantity: entry.qty,
             salesUnitCode: suCode,
             salesUnitQuantity: suQty,
         }]);
 
+        // Backend afviser varer hvor salgsenheden ikke kunne slås op (#419) —
+        // den gætter ikke længere. Vi må derfor heller ikke sige "lagt i kurv".
+        var rej = (res && res.rejected || []).filter(function(r) {
+            return String(r.varenummer) === String(bc.barcode);
+        })[0];
+        if (rej) {
+            entry._cartError = rej.message;
+            _ibToast(rej.message, true);
+            _ibRender();
+            return;
+        }
+
+        entry._cartError = null;
         entry.inCart = true;
         _ibCartItems.push(entry);
         _ibToast('Lagt i kurv: ' + entry.product.name);
