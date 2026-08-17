@@ -4158,6 +4158,61 @@ lover "vises på bestillingssiden".
 Settings → `/webhook/event-menu` → bro → event-order-siden, og mod en kopi af
 driftsdata: 32 af 36 retter matchede på id, 0 ikke fundet.
 
+
+### Hørkram-kurven gætter ikke længere salgsenheden (#419, 12. august 2026)
+> Fjerde gang samme mønster: *vi kender ikke værdien, og i stedet for at sige det
+> sender vi noget der ser rigtigt ud.* Jf. #358 (enheds-forveksling), #362 (`sent_at`),
+> #365 (`booked_at`).
+
+`PUT /api/horkram/basket/add` slår salgsenheden op via Hørkrams snapshot-endpoint.
+Hoka bruger `SalesUnitIndex` (0, 1, …) i sin PUT, og det indeks giver kun mening mod
+den liste snapshottet leverer — **uden snapshot findes der ingen korrekt værdi**.
+Alligevel faldt koden igennem til `SalesUnitIndex: ?? 0` og `Code: || 'st'` og sendte.
+
+Hoka tog imod PUT'en og markerede linjen ugyldig. Fejlen dukkede derfor op ovre hos
+dem, i deres ord — *"Produktet er blevet tilføjet med fejl - fjern og tilføj produktet
+på ny"* — efter at Bon v2 havde sagt "lagt i kurv" uden forbehold. Rådet virker ikke:
+varenummeret er dødt, så samme forsøg giver samme resultat hver gang. **12 af 137**
+Hørkram-koblinger i grocy-hq havde døde varenumre 9. august, heraf tre aftalevarer.
+
+- **`resolveSalesUnits(products, snapMap, failedIds)`** i `routes/horkram.js` er trukket
+  ud som ren funktion og eksporteret — beslutningen om at afvise er nu testbar uden at
+  røre Hørkram. Returnerer `{resolved, rejected}`.
+- **Afvist ≠ afvist.** `lookup_failed` (opslaget kunne ikke gennemføres) holdes adskilt
+  fra `unknown_product` (varenummeret findes ikke), fordi de kræver hver sin handling:
+  "prøv igen om lidt" mod "kobl varen til det aktuelle nummer". Chunk-loopet noterer nu
+  også HTTP-fejl, ikke kun kastede exceptions.
+- **Ugyldigt varenummer** blev før sprunget tavst over med en `console.warn`. Det kommer
+  nu retur som `invalid_number`.
+- **Er intet tilbage at sende, røres kurven ikke** — ingen PUT, og svaret bærer `rejected`.
+  Resten af kurven går uhindret igennem når kun én vare er død.
+- **`addedProducts`** talte de *ønskede* varer (`products.length`). Den tæller nu de
+  faktisk afsendte (`newProducts.length`) — samme slags påstand i det små.
+- **`shared/indkob.js`** sætter ikke længere `inCart = true` uden at læse svaret, og
+  beskeden bliver stående ved varen (`.ib-cart-error`) i stedet for i en kvittering der
+  forsvinder af sig selv.
+
+**Tests:** `scripts/test-horkram-salesunit.js` (18 asserts — kendt vare uændret, dødt
+varenummer, opslagsfejl, blandet kurv, tomme `SalesUnits`, ugyldigt nummer).
+Mutations-testet: genindføres gættet, falder 11 asserts. Testen er skrevet så den
+**fejler rent** frem for at kaste `TypeError` på et tomt `rejected` — en stak-udskrift
+er et dårligere signal end en rød linje der siger hvad der gik galt.
+
+**Observation til T_INDKOB_HORKRAM:** BASKET_02 bruger Spinat som "kendt aktivt
+varenummer", og Spinat står på listen over døde numre. Fixturen skal skiftes, eller
+varen kobles om, før den suite siger noget meningsfuldt.
+
+**Fandt undervejs:** pre-commit-hooken standsede commit'en på to UTC-datoer i samme
+fil (#133). `deliveryDate()` og søgningens `expectedDeliveryDate` brugte
+`toISOString()`, som mellem midnat og kl. 02 dansk tid giver gårsdagens dato — så
+"i morgen" blev til i dag, og søgningen spurgte på en leveringsdato der var passeret.
+Begge bruger nu `todayISO()`/`offsetISO()` fra `db/helpers`. `/dropsize` sender
+bevidst et fuldt tidsstempel og er urørt.
+
+**Tilbage:** de døde koblinger rettes i Grocy — det er data, ikke kode. Issuet foreslår
+også at markere dem i "Alle koblinger" ud fra samme opslag; udgået-detektionen findes
+allerede dér, men fanger ikke 404-tilfældet før nogen prøver at bestille.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
