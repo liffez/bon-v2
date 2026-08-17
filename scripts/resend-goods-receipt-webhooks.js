@@ -154,7 +154,12 @@ const webhook   = require('../services/goodsReceiptWebhook');
 async function verifyAgainstWhiteboard(db, postUrl) {
     // Samme endpoint, men som liste. Beholder host + sti fra den konfigurerede
     // URL, så en localhost-kobling verificeres mod localhost.
-    const listUrl = `${postUrl.replace(/\/+$/, '')}?schema=varemodtagelse`;
+    //
+    // POST-stien kan ende på /webhook — den dør maskiner går ind ad, uden om
+    // login-gaten (#460). Der findes ingen GET dér, så trimmes ledet fra;
+    // ellers ville hvert tjek svare 404 og afbryde.
+    const base = postUrl.replace(/\/+$/, '').replace(/\/webhook$/, '');
+    const listUrl = `${base}?schema=varemodtagelse`;
 
     let events;
     try {
