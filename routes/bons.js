@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, hasDeliveryLine } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
@@ -35,8 +35,9 @@ const bonTransportCo2 = require('../services/bonTransportCo2');
 function recalcBonTotal(db, bonId, opts = {}) {
     const bon = db.prepare('SELECT total_price, total_with_delivery, delivery_price, offer_discount_percent FROM bons WHERE id = ?').get(bonId);
     if (!bon) return null;
-    const lines = db.prepare('SELECT line_total, category FROM bon_lines WHERE bon_id = ?').all(bonId);
-    const hasLeveringLine = lines.some(l => l.category === 'x-Levering');
+    const lines = db.prepare('SELECT line_total, category, grocy_recipe_id FROM bon_lines WHERE bon_id = ?').all(bonId);
+    // Delt regel — et standardgebyr i x-Levering er ikke en levering (se db/helpers.js).
+    const hasLeveringLine = hasDeliveryLine(lines);
     const linesSum = lines.reduce((s, l) => s + (l.line_total ?? 0), 0);
     const deliveryAdd = hasLeveringLine ? 0 : (bon.delivery_price ?? 0);
     const subtotal = linesSum + deliveryAdd;
@@ -960,6 +961,26 @@ router.patch('/:id/status', handle((req, res) => {
         syncCashflowInvoice(db, id);
     } catch (err) {
         console.error(`[cashflow] sync failed for bon ${id}:`, err.message);
+    }
+
+    // Standardgebyrer (settings.auto_fee_rules, fx miljøbidraget) lægges på når
+    // bonen træder ind i faktureringskøen. Her — og ikke i e-conomic-kladden —
+    // fordi ikke alle fakturaer går gennem kladden; nogle tastes i hånden, og de
+    // skal se samme total. Se services/autoFees.js.
+    //
+    // Fire-and-forget som auto-consume ovenfor: gebyret kræver et Grocy-opslag,
+    // og køkkenets "Leveret"-tryk skal svare med det samme. Lander gebyret, skal
+    // cf_invoice have det nye beløb, og skærmene skal opdatere.
+    if (status_code === 'LEVERET') {
+        require('../services/autoFees')
+            .applyAutoFees(db, id, { userId: auditUserId })
+            .then(({ added }) => {
+                if (!added.length) return;
+                try { syncCashflowInvoice(db, id); }
+                catch (err) { console.error(`[cashflow] resync efter gebyr, bon ${id}:`, err.message); }
+                broadcast('bon_updated', { id });
+            })
+            .catch(err => console.error(`[autoFees] bon ${id}:`, err.message));
     }
 
     for (const trigger of triggers) {

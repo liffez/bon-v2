@@ -10,6 +10,7 @@
 - docs/CLAUDE_TILBUD_PRIS.md (hvis du rører pris/moms eller tilbud)
 - docs/CLAUDE_KONTAKTER.md (hvis du rører CRM, firmaer eller kontaktpunkter)
 - docs/CLAUDE_MOMS_AUDIT.md + CLAUDE_MOMS_AUDIT_AUTO.md (audit-værktøjer + automatisering)
+- docs/CLAUDE_CO2.md (hvis du rører CO₂ — F0–F7 er bygget; §1 kildehierarki + §3 `na` + §7 motor)
 - docs/CLAUDE_ECONOMIC_ADAPTER.md (spec — ikke bygget endnu)
 - docs/CLAUDE_MENU_AGENT.md (spec — ikke bygget endnu)
 
@@ -530,7 +531,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 | `SalespriceWaiste` | number-integral | VarePicker | Salgspris waiste |
 | `sellable` | checkbox | VarePicker | Salgbar (vises i picker) |
 | `sellableZettle` | checkbox | POS | Salg via Zettle |
-| `Co2e` | number-decimal | VarePicker | CO2-aftryk per enhed |
+| `Co2e` | number-decimal | VarePicker, CO₂-modul | CO₂-aftryk pr. enhed. **Udfyldes IKKE i hånden** — det er F5-motorens cache, skrevet af `scripts/co2-f5-compute.js --apply` (Σ ingrediens-kg × faktor). Kun komplette opskrifter får et tal; resten står tomt (ærligt). Frontenden fryser værdien på `bon_lines.co2e` ved bon-oprettelse. |
 | `costprice` | number-decimal | VarePicker | Kostpris (fallback — primært bruges Grocy fulfillment `costs`) |
 | `Oeko` | checkbox | VarePicker | Økologisk markering |
 
@@ -4013,6 +4014,205 @@ modtagelseslog og den synlige Whiteboard-status i Settings, som mangler her. Net
 fraværet af en læser på `webhook_log` var grunden til at denne PR kun kunne skrive
 `Refs #363`, ikke `Closes`.
 
+### Web-bestilling: menu_items[] → bon-linjer (#382, august 2026)
+> As-is-fund (`docs/formbuilder/CLAUDE_PREORDER_ASIS.md` §6): kundens ret-valg blev sendt
+> struktureret (`menu_items:[{id,count}]`) men lå kun inert i `web_orders.raw_data` — office
+> tastede linjerne i hånden. Nu auto-genereres bon-linjer ved bestilling.
+
+- [x] `services/menuItemsToLines.js` — **ny**, ren/testbar `resolveMenuItemLines()`: id `r<recipe_id>`
+  → Grocy-opskrift → snapshot af pris/kostpris/CO₂. Pris = **bonens priskategori** (festival-events
+  rammer festival-pris; catering default). Uset/0-pris → prisløs linje (office prissætter, ikke 0 kr).
+  Slug-id uden Grocy-kobling → navn-only linje via menu-JSON. Aldrig magic-moms (pris tages råt fra Grocy)
+- [x] `routes/web-orders.js` — `generateLinesFromMenuItems()` kaldes efter `createBon`, **best-effort**
+  i try/catch: en Grocy-fejl vælter aldrig selve bestillingen (bonen er allerede oprettet). Læser bonens
+  priskategori, snapshotter linjer, `recalcBonTotalUnits` + `recalcBonTotal`, changelog + SSE `bon_updated`
+- [x] `recalcBonTotal` flyttet `routes/bons.js` → `db/helpers.js` (eksporteret) så webhooken bruger
+  **nøjagtig samme** server-autoritative total-beregning (rabat + levering). `bons.js` importerer den nu
+- [x] Eksponeret `_generateLinesFromMenuItems` til integrationstest
+- [x] Tests: `scripts/test-menu-items-lines.js` (24 unit — mapping, festival vs catering, prisløs fallback,
+  unmatched, defensivt) + `scripts/test-web-order-lines-e2e.js` (12 integration mod isoleret `.backup`-kopi:
+  linjer indsat, `total_price` + boks-aware `total_units` recalc, changelog). Verificeret mod ægte grocytest:
+  `r91` → festival-pris 115 snapshottet, slug-menu → graceful navn-only fallback
+- **Drifts-note:** værdien afhænger af menu-id-format. Produktionsmenuen er importeret fra Grocy (`r<id>`)
+  → prissatte linjer. En håndlavet slug-menu → navn-only. `menu_items` ligger allerede i `raw_data` for
+  ~25 historiske ordrer → backfill mulig hvis ønsket (ikke bygget)
+### Hærdning af consume-/varemodtagelses-stien (#358 + #359 + #361, 6. august 2026)
+> Migration 141. Tre fejl der delte rod — enheds-forveksling og manglende idempotens —
+> og som først blev til aktiv skade da auto-deduct blev tændt i drift 17. juli (#305).
+
+**#358 — varemodtagelsen skrev indkøbs-enhed som lager-enhed.** Tallet kommer fra
+indkøbslisten i INDKØBS-enhed ("994 Kasse"), men `addToStock` sendte det uden enhed, og
+Grocy læser altid lager-enhed. **69 af 215 produkter** i grocy-hq har forskellig købs- og
+lager-enhed. Sket to gange i drift (spidskål fordoblet, rødkål for lavt) og først fundet i
+Grocys `stock_log` — en fysisk optælling havde imens rettet tallet og dermed skjult årsagen.
+- Klienten sender nu `qu_id` (den kendte den allerede fra indkøbsliste-rækken);
+  serveren omregner via ny **`resolveToStockAmount()`** i [services/quConvert.js](services/quConvert.js).
+- **Nægter at gætte:** manglende omregning → `grocy_error` på linjen + receipt
+  `partially_approved`. Lageret røres ikke. Fødevarekontrollen (temperaturer, FVST, foto)
+  gemmes uanset — den er lovpligtig og må ikke afhænge af Grocys tilstand.
+- Sender klienten slet ingen `qu_id` (cachet browser), accepteres det KUN på produkter hvor
+  køb og lager er samme enhed — der er intet at forveksle. Ellers fejl.
+- `received_qu_id` + `received_quantity_stock` gemmes på linjen, så en fremtidig afvigelse
+  kan afgøres uden at gætte. Samme fix i legacy [routes/receiving.js](routes/receiving.js).
+- **Sagt FØR der tastes, ikke efter.** Serverens nægtelse kom først når man havde trykket
+  Godkend — stående med varerne, hvor løsningen lå i et andet system. Klienten tjekker nu
+  omregningen mens varelisten bygges (`_vmUnitIssue`), og siger det to steder: en gul
+  advarsel **uden for** varelisten (den er foldet sammen som default, så "Godkend alt" er
+  den normale vej igennem — en advarsel inde i listen ville ikke blive set) og på selve
+  varekortet.
+- **Og kan rettes på stedet.** Lager-enheden er i praksis altid kilo eller stk (grocy-hq:
+  136 Kilo, 59 Antal, 15 Liter, 1 Flaske ud af 211 aktive), så det manglende svar er ét tal:
+  *"Hvor meget er én Kasse i Kilo?"*. Feltet skriver omregningen til Grocy via det
+  eksisterende `POST /api/grocy/quantity-unit-conversions` — svaret kender den der står med
+  kassen, ikke kontoret. `pack_size_warning` fra routen vises, den betyder at tallet strider
+  mod pakkestørrelsen på stregkoden.
+- Kun **5 produkter** i grocy-hq mangler en omregning i dag (`npm run check:receipt-units`),
+  så advarslen er sjælden — men den rammer netop dem der ellers ville blive skrevet forkert.
+- `_vmFindFactor` **spejler** `findConversionFactor` i quConvert.js. Divergerede de to, ville
+  skærmen sige god for noget serveren bagefter nægter. Enigheden er testet direkte.
+- Kunne omregningerne ikke hentes, advares der **ikke** (`_vmConversionsLoaded`). Tom liste
+  ville ellers markere hver vare med afvigende enhed — 22 falske alarmer ved et Grocy-hik.
+  Serverens nægtelse står stadig som sikkerhedsnet mod en cachet browser.
+
+**#359 — `inventory_deducted` blev sat selvom hvert Grocy-træk fejlede.** `consumeRecipes`
+afviser aldrig (fejl pr. produkt returneres som `success:false`), så `UPDATE ... = 1` kørte
+ubetinget. En bon hvor alt fik 500 stod som "lager trukket" — og **vagthunden fra #305 leder
+efter bons UDEN flaget**, så den var blind for præcis den tilstand den blev bygget til at fange.
+- Flaget er en **idempotens-vagt, ikke en kvittering**: det sættes kun når en gentagelse ville
+  gøre skade. Ny `bons.inventory_deduct_status`: `ok` / `partial` (flag sat — ellers dobbelt-
+  trækkes dem der lykkedes) / `failed` (flag bliver 0, sikkert at gentage) / `empty` /
+  `event_prep_owns_stock`.
+- [scripts/check-inventory-deduct.js](scripts/check-inventory-deduct.js) fik `findPartial()` —
+  delvise træk har flaget sat og var helt usynlige. Både log og alarm-mail dækker nu begge.
+- **Vagthundens afgrænsning rettet (9. august 2026).** Første kørsel i drift meldte tre
+  "manglende træk" der ingen af dem var fejl. Vinduet havde **ingen øvre datogrænse** —
+  beskeden sagde "de seneste N dage", men forespørgslen fangede alt fra N dage siden og
+  *frem*, så en bon med leveringsdato i 2027 blev rapporteret hver eneste dag indtil datoen
+  indtraf. Og bons **uden opskriftskoblede linjer** blev talt med, selvom de aldrig kan
+  trække noget; nye bons får `empty` + flaget sat, men historiske rækker fra før #359 står
+  med flaget på 0 for evigt (migration 141 bagudfyldte bevidst ikke). Begge afgrænsninger
+  ligger nu i SQL'en. `failed` slipper igennem datogrænsen — et forsøgt og mislykket træk
+  skal frem uanset dato. Bons uden noget at trække **tælles og nævnes** frem for at
+  forsvinde, så man kan se forskel på "ingen problemer" og "kontrollen kigger forkert".
+  En alarm der melder det samme hver dag om noget der ikke er galt, bliver ikke læst —
+  samme svigt som #305 selv. `npm run test:deduct-watchdog` (15 asserts mod den ægte SQL
+  og et rigtigt skema, mutationstestet). Målt på en kopi af driftsdata over 400 dage:
+  787 → 773 rapporterede, heraf 13 flyttet til "intet at trække" og 1 fremtidsdateret.
+- [office/views/events.js](office/views/events.js) viste `✓ lager trukket` ud fra flaget alene
+  og bekræftede dermed løgnen for et menneske. Nu egne labels for delvis/fejlet.
+
+**#361 — consume-endpoints havde ingen idempotens.** To klik, dobbelt-submit eller
+netværks-retry = dobbelt træk, og trækket var usynligt bagefter, så det først dukkede op ved
+næste optælling som en uforklarlig difference.
+- Ny `grocy_consume_log` (nonce UNIQUE) — samme mønster som produktionsbatchens `batch_nonce`.
+  Rækken indsættes **før** trækket og virker dermed også som lock: to samtidige klik kappes om
+  constrainten, taberen får vinderens svar. Igangværende træk → 409, ikke et opdigtet resultat.
+- `consume_nonce` er **påkrævet** på begge endpoints. En cachet klient får en fejlbesked der
+  beder om genindlæsning — det er bedre end et tavst dobbelttræk.
+- [shared/recipe_viewer.js](shared/recipe_viewer.js) holder nonce'en indtil trækket er
+  kvitteret, så et gentaget klik efter en netværksfejl bliver en opslagning. Trækket kan
+  nemlig godt være gået igennem hos Grocy selvom svaret aldrig nåede tilbage.
+
+**Deploy-forudsætning:** `npm run check:receipt-units` (read-only) lister produkter med
+forskellig købs- og lager-enhed UDEN omregning i Grocy — dem nægter varemodtagelsen nu.
+På grocytest: 5 af 64 (2 på indkøbslisten). Ordn dem i Grocy før første modtagelse.
+
+**Tests:** `npm run test:consume-hardening` (40 + 9 asserts — stubbet Grocy, så "hvert kald
+fejler" og "kun ét fejler" kan fremprovokeres; vm-sandkasse for klientens payload).
+T_VAREMODTAGELSE_FULL udvidet med UNIT-gruppen der modtager i købs-enhed mod ægte grocytest
+og måler at lageret flyttede sig med qty × faktor (**79 PASS**, op fra 76). Alle fire
+kerne-rettelser er **mutations-testet**. Regression grøn: VAREMOD_PATCH 26, T_STOCK 31,
+T_GROCY 14/2skip, T_RECIPES 20, deduct-check 10, prep-packing 12, packing-units 18,
+subrecipe-status 16, resolver-graph 8, recipe-viewer-nested 12, moms-audit 18.
+### Rettens beskrivelse vises bag ⓘ (6. august 2026)
+
+Kost-tags og allergener nåede frem til event-order-3's bestillingsside (broen, `#394`),
+men beskrivelsen gjorde ikke. Datavejen var der allerede — `buildEventMenu` har hele tiden
+læst `description` fra `bestilling.menu_standard` — men **ingen af retterne havde feltet
+udfyldt**, og bon-v2's egen bestillingsform viste det slet ikke, selvom Settings-feltet
+lover "vises på bestillingssiden".
+
+- `public/embed/bestilling.html` — ⓘ folder nu **beskrivelse + allergener** ud (før kun
+  allergener). Beskrivelsen står øverst, allergenerne dæmpet nedenunder. `max-height` på
+  `.allergen-row` hævet 100px → 260px så en to-linjers salgstekst ikke klippes.
+- `routes/embed.js` + `routes/event-bridge.js` — Grocy-mode/fallback læser nyt valgfrit
+  userfield **`bestil_beskrivelse`**. Grocys egen `description` på opskriften bruges
+  bevidst IKKE: den indeholder produktions-noter ("skæres med blad nr 2 på Robocut") og må
+  aldrig ud til kunden. 34 af 131 opskrifter i grocy-hq har sådan en note i dag.
+- `settings/index.html` — Grocy-mode-infoboksen dokumenterer feltet + advarslen.
+- Manuel mode er uændret: beskrivelsen skrives pr. ret i **Settings → Bestilling — Menu**
+  (feltet "Kort salgstekst" fandtes allerede) og følger med gennem broen uden kodeændring.
+- Info-rækken er skiftet fra mørkeblå (`#2c3e50`) til designmanualens **grå flade + brun
+  markering** (s. 5: grå `#d7d1ca`, brun `#8e631f`). Den sorte/mørke boks skar for hårdt i
+  en ellers lys menu. Samme greb i event-order-3's ⓘ-boks.
+- `scripts/import-menu-descriptions.js` — fylder de 32 retter med teksterne fra
+  ristetrug.dk/menu (hentet 6. august 2026). Matcher på menu-item-id med navne-fallback,
+  rører ikke retter der allerede har en tekst (`--force` overskriver), dry-run default,
+  tager backup af menuen ved `--apply`. Idempotent — anden kørsel siger "0 sættes".
+  Fire bevidste indgreb i teksterne er dokumenteret i scriptets hoved (fodnote-stjerner
+  fjernet, én tastefejl rettet, slidere arver standard-rettens tekst, bokse skrevet ud
+  pr. variant). Brownie + de tre drikkevarer har ingen tekst på hjemmesiden og springes over.
+
+**Drift:** feltet er tomt på alle retter i produktion. Kør scriptet på serveren
+(dry-run først) — eller skriv teksterne i Settings i hånden. Verificeret hele vejen:
+Settings → `/webhook/event-menu` → bro → event-order-siden, og mod en kopi af
+driftsdata: 32 af 36 retter matchede på id, 0 ikke fundet.
+
+
+### Hørkram-kurven gætter ikke længere salgsenheden (#419, 12. august 2026)
+> Fjerde gang samme mønster: *vi kender ikke værdien, og i stedet for at sige det
+> sender vi noget der ser rigtigt ud.* Jf. #358 (enheds-forveksling), #362 (`sent_at`),
+> #365 (`booked_at`).
+
+`PUT /api/horkram/basket/add` slår salgsenheden op via Hørkrams snapshot-endpoint.
+Hoka bruger `SalesUnitIndex` (0, 1, …) i sin PUT, og det indeks giver kun mening mod
+den liste snapshottet leverer — **uden snapshot findes der ingen korrekt værdi**.
+Alligevel faldt koden igennem til `SalesUnitIndex: ?? 0` og `Code: || 'st'` og sendte.
+
+Hoka tog imod PUT'en og markerede linjen ugyldig. Fejlen dukkede derfor op ovre hos
+dem, i deres ord — *"Produktet er blevet tilføjet med fejl - fjern og tilføj produktet
+på ny"* — efter at Bon v2 havde sagt "lagt i kurv" uden forbehold. Rådet virker ikke:
+varenummeret er dødt, så samme forsøg giver samme resultat hver gang. **12 af 137**
+Hørkram-koblinger i grocy-hq havde døde varenumre 9. august, heraf tre aftalevarer.
+
+- **`resolveSalesUnits(products, snapMap, failedIds)`** i `routes/horkram.js` er trukket
+  ud som ren funktion og eksporteret — beslutningen om at afvise er nu testbar uden at
+  røre Hørkram. Returnerer `{resolved, rejected}`.
+- **Afvist ≠ afvist.** `lookup_failed` (opslaget kunne ikke gennemføres) holdes adskilt
+  fra `unknown_product` (varenummeret findes ikke), fordi de kræver hver sin handling:
+  "prøv igen om lidt" mod "kobl varen til det aktuelle nummer". Chunk-loopet noterer nu
+  også HTTP-fejl, ikke kun kastede exceptions.
+- **Ugyldigt varenummer** blev før sprunget tavst over med en `console.warn`. Det kommer
+  nu retur som `invalid_number`.
+- **Er intet tilbage at sende, røres kurven ikke** — ingen PUT, og svaret bærer `rejected`.
+  Resten af kurven går uhindret igennem når kun én vare er død.
+- **`addedProducts`** talte de *ønskede* varer (`products.length`). Den tæller nu de
+  faktisk afsendte (`newProducts.length`) — samme slags påstand i det små.
+- **`shared/indkob.js`** sætter ikke længere `inCart = true` uden at læse svaret, og
+  beskeden bliver stående ved varen (`.ib-cart-error`) i stedet for i en kvittering der
+  forsvinder af sig selv.
+
+**Tests:** `scripts/test-horkram-salesunit.js` (18 asserts — kendt vare uændret, dødt
+varenummer, opslagsfejl, blandet kurv, tomme `SalesUnits`, ugyldigt nummer).
+Mutations-testet: genindføres gættet, falder 11 asserts. Testen er skrevet så den
+**fejler rent** frem for at kaste `TypeError` på et tomt `rejected` — en stak-udskrift
+er et dårligere signal end en rød linje der siger hvad der gik galt.
+
+**Observation til T_INDKOB_HORKRAM:** BASKET_02 bruger Spinat som "kendt aktivt
+varenummer", og Spinat står på listen over døde numre. Fixturen skal skiftes, eller
+varen kobles om, før den suite siger noget meningsfuldt.
+
+**Fandt undervejs:** pre-commit-hooken standsede commit'en på to UTC-datoer i samme
+fil (#133). `deliveryDate()` og søgningens `expectedDeliveryDate` brugte
+`toISOString()`, som mellem midnat og kl. 02 dansk tid giver gårsdagens dato — så
+"i morgen" blev til i dag, og søgningen spurgte på en leveringsdato der var passeret.
+Begge bruger nu `todayISO()`/`offsetISO()` fra `db/helpers`. `/dropsize` sender
+bevidst et fuldt tidsstempel og er urørt.
+
+**Tilbage:** de døde koblinger rettes i Grocy — det er data, ikke kode. Issuet foreslår
+også at markere dem i "Alle koblinger" ud fra samme opslag; udgået-detektionen findes
+allerede dér, men fanger ikke 404-tilfældet før nogen prøver at bestille.
+
 ### Prep-modal: Enter oprettede bonnen — og varevalget fik bon-kortets flow (17. august 2026)
 
 Medarbejdere fik oprettet en prep-bon efter **første** varelinje. Antagelsen var at
@@ -4088,7 +4288,7 @@ gange. Tages op hvis det viser sig i drift alligevel.
 > stadig åbne.
 >
 > **Reelt tilbageværende arbejde (verificeret mod kode 29. juni):**
-> - **CO₂-epic #88 (#105–113)** — ~10-15 % færdigt. Kun det GAMLE `Co2e`-grundlag findes (`bon_lines.co2e`-kolonne + recipe-cache + event-CO₂, alt på upålidelige GLO-tal). Det nye modul (F1 userfields → F8 ESG-eksport) er reelt ikke startet. **F1 (5 nye userfields + deprecér `Co2e`→`Co2e_OLD`) er gating-trinnet — skal bygges først.** Skal bruges snart. Spec: `docs/CLAUDE_CO2.md`
+> - **CO₂-epic #88 (#105–113)** — ✅ **F0–F7 KOMPLET og merget** (16. juli 2026). Se sektionen "CO₂-modul" ovenfor for detaljer. Kort: råvarefaktorer importeret fra Katrines CONCITO-ark, beregningsmotor (opskrift-CO₂ = Σ kg×faktor), frosset snapshot pr. bon, transport-CO₂, og en Office-rapport under CO₂-sektionen (dækning · datakvalitet · CO₂ over tid m. kategori-stak · pr. opskrift m. drill-down pr. råvare · synonym-panel · emballage-tildeler · vejeværktøj). **Kun F8 (ESG-eksport) mangler — og det er bevidst et separat eksternt modul** der trækker data fra Bon, ikke en CO₂-pill (Leifs beslutning). **De reelle udeståender er DATA, ikke kode:** (1) køkkenet skal veje ~22 tælle-varer (værktøj: CO₂ → Vej tælle-varer), (2) Katrine skal levere emballage-faktorer fra Klimakompasset + B-listen af krydderi-faktorer. Dækningen stiger af sig selv når de lander. Spec: `docs/CLAUDE_CO2.md`
 > - **Festival/multi-lokation #81 (#98–103)** — ~20 % færdigt. `locations`-tabel + `getGrocyConfig(locationId)` findes; festival-specifikke dele (flags `multi_location`/`festival_enabled`, transfer HQ↔Trailer, afstemnings-view) er ustartede. Event-modulet ER IKKE Festival (separat "let event fra HQ"-model). Bygges lidt senere. Spec: `docs/festival/`
 > - **Form Builder #82 (#119–125)** + **field-type-engine #79** — kun spec (`docs/formbuilder/`), ingen kode
 > - **Kunde-portal #83 (#89–97)** — kun spec (`docs/kunde portal/`), kun `external_ref`-kroge findes

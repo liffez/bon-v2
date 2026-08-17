@@ -975,6 +975,37 @@
       </div>
       <div id="ue-status" style="font-size:11px;color:var(--color-text-dim);min-height:16px"></div>
 
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Standardgebyrer</h3>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:640px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        <strong style="color:var(--color-text)">Gebyrer der lægges automatisk på en faktura</strong><br>
+        Gebyret lægges på som en almindelig varelinje når bonen bliver <strong>leveret</strong> — altså når den træder ind i faktureringskøen. Der er pax endeligt, og fakturaen er ikke lavet endnu, så både e-conomic-kladden og en faktura tastet i hånden viser det samme.<br>
+        Rammer kun bons der <strong>betales med faktura</strong>. Tilbud, kontantsalg og interne bons springes over. Linjen kan altid slettes på den enkelte bon.<br>
+        <strong style="color:var(--color-text)">Prisen kommer fra Grocy-opskriften</strong> og følger bonens priskategori — som enhver anden vare. Grocy-salgspriser er <em>inkl. moms</em>.
+      </div>
+      <table class="st-table" id="fee-table" style="max-width:760px">
+        <thead><tr>
+          <th>Opskrift (Grocy)</th>
+          <th style="width:150px">Pris nu</th>
+          <th style="width:130px">Fra og med pax</th>
+          <th style="width:70px">Aktiv</th>
+          <th style="width:60px"></th>
+        </tr></thead>
+        <tbody id="fee-body"></tbody>
+      </table>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <button class="st-btn" type="button" id="fee-add-toggle" onclick="feeToggleAdd()">+ Tilføj endnu et gebyr</button>
+        <button class="st-btn st-btn-primary" type="button" onclick="feeSave()">Gem gebyrer</button>
+      </div>
+      <div id="fee-add-row" style="display:none;gap:8px;align-items:center;margin-top:10px">
+        <select id="fee-add-select" class="st-input" style="flex:1;max-width:340px"></select>
+        <button class="st-btn st-btn-primary" type="button" onclick="feeAddSelected()">Tilføj</button>
+        <button class="st-btn" type="button" onclick="feeToggleAdd(false)">Annullér</button>
+      </div>
+      <div id="fee-add-hint" style="display:none;font-size:11px;color:var(--color-text-dim);margin-top:6px;max-width:640px">
+        Gebyret skal findes som opskrift i Grocy — så følger pris pr. priskategori og e-conomic-varenummer med af sig selv.
+      </div>
+      <div id="fee-status" style="font-size:12px;margin-top:10px;min-height:18px"></div>
+
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Planlægningsbon</h3>
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
         <label style="width:280px;font-size:14px;font-weight:500">Vis priser i planlægningsbon</label>
@@ -1538,6 +1569,7 @@
 
 <div class="st-msg" id="st-msg"></div>
 
+<script src="../shared/moms.js"></script>
 <script src="../shared/api.js"></script>
 <script src="../shared/utils.js"></script>
 <script src="../shared/env_badge.js"></script>
@@ -1635,6 +1667,7 @@ async function init() {
     loadCapacitySettings();
     loadPlanningPricesSettings();
     loadUnitCategoriesSettings();
+    loadAutoFeeSettings();
     renderDeliveryIcons();
     loadActivityPurposes();
   }
@@ -2975,6 +3008,181 @@ async function getGrocyCategories() {
   });
   out.sort(function(a, b) { return a.localeCompare(b, 'da'); });
   return out;
+}
+
+/* ═══ Standardgebyrer (settings.auto_fee_rules) ═══════════════════════════
+ * Gebyrer der lægges automatisk på en faktura — miljøbidraget først.
+ * Prisen ejes af Grocy; her udpeges kun opskrift + betingelse. Derfor VISES
+ * den aktuelle Grocy-pris ved siden af hver regel: står miljøgebyret stadig
+ * til 29 kr inkl. (= 23,20 ex) i stedet for 36,25, skal det kunne ses her og
+ * ikke først opdages på en faktura hos kunden.
+ * ─────────────────────────────────────────────────────────────────────── */
+var _feeRules = [];
+var _feeRecipes = [];          // Grocy-opskrifter, til dropdown + prisvisning
+
+async function loadAutoFeeSettings() {
+  try { _feeRules = JSON.parse(allSettings['auto_fee_rules'] || '[]'); }
+  catch (e) { _feeRules = []; }
+  if (!Array.isArray(_feeRules)) _feeRules = [];
+
+  try { _feeRecipes = await getGrocyRecipesCached() || []; }
+  catch (e) { _feeRecipes = []; }
+  _feeRender();
+}
+
+function _feeRecipe(id) {
+  for (var i = 0; i < _feeRecipes.length; i++) {
+    if (Number(_feeRecipes[i].id) === Number(id)) return _feeRecipes[i];
+  }
+  return null;
+}
+
+/** Prisen som office skal kunne vurdere: inkl. moms med ex-tallet i parentes. */
+function _feePriceCell(recipe) {
+  if (!recipe) {
+    return '<span style="color:var(--color-danger,#b3261e)">opskriften findes ikke i Grocy</span>';
+  }
+  var incl = Number((recipe.prices || {}).catering || 0);
+  if (!(incl > 0)) {
+    return '<span style="color:var(--color-danger,#b3261e)" title="Uden pris tilføjes gebyret ikke">'
+         + 'ingen pris</span>';
+  }
+  var excl = (window.Moms ? Moms.inclToExcl(incl) : null);
+  var exclTxt = excl == null ? '' :
+    ' <span style="color:var(--color-text-dim)">(' + excl.toFixed(2).replace('.', ',') + ' ex)</span>';
+  return incl.toFixed(2).replace('.', ',') + ' kr inkl.' + exclTxt;
+}
+
+function _feeRender() {
+  var body = document.getElementById('fee-body');
+  var sel  = document.getElementById('fee-add-select');
+  if (!body || !sel) return;
+
+  if (!_feeRules.length) {
+    body.innerHTML = '<tr><td colspan="5" style="font-size:13px;color:var(--color-text-dim);'
+      + 'font-style:italic;padding:12px">Ingen standardgebyrer — fakturaer får kun de linjer der står på bonen.</td></tr>';
+  } else {
+    body.innerHTML = _feeRules.map(function(r, i) {
+      var rec = _feeRecipe(r.recipe_id);
+      return '<tr>'
+        + '<td>' + esc(rec ? rec.name : ('Opskrift ' + r.recipe_id))
+          + '<div style="font-size:11px;color:var(--color-text-dim)">id: ' + esc(String(r.id)) + '</div></td>'
+        + '<td style="font-size:12px">' + _feePriceCell(rec) + '</td>'
+        + '<td><input class="st-input" type="number" min="0" style="width:90px" value="'
+          + (r.min_pax == null ? '' : esc(String(r.min_pax)))
+          + '" oninput="feeSet(' + i + ', \'min_pax\', this.value)"></td>'
+        + '<td><label class="st-toggle"><input type="checkbox" ' + (Number(r.active) === 1 ? 'checked' : '')
+          + ' onchange="feeSet(' + i + ', \'active\', this.checked ? 1 : 0)">'
+          + '<span class="st-toggle-slider"></span></label></td>'
+        + '<td><button class="st-btn" type="button" onclick="feeRemove(' + i + ')" title="Fjern regel">×</button></td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  var used = _feeRules.map(function(r) { return Number(r.recipe_id); });
+  var avail = _feeRecipes.filter(function(rec) { return used.indexOf(Number(rec.id)) === -1; });
+  sel.innerHTML = '<option value="">— vælg Grocy-opskrift —</option>' + avail.map(function(rec) {
+    return '<option value="' + esc(String(rec.id)) + '">'
+         + esc(rec.name) + (rec.category ? ' · ' + esc(rec.category) : '') + '</option>';
+  }).join('');
+
+  _feeWarn();
+}
+
+/**
+ * Advar om det der ellers først opdages på en faktura: en TÆNDT regel uden
+ * brugbar pris. Vi kan ikke vide hvad prisen BØR være, så vi siger ikke
+ * "29 er forkert" — vi viser tallet og lader office se det.
+ */
+function _feeWarn() {
+  var el = document.getElementById('fee-status');
+  if (!el) return;
+  var problems = [];
+  _feeRules.forEach(function(r) {
+    if (Number(r.active) !== 1) return;
+    var rec = _feeRecipe(r.recipe_id);
+    if (!rec) { problems.push('"' + r.id + '" peger på en opskrift der ikke findes i Grocy'); return; }
+    if (!(Number((rec.prices || {}).catering) > 0)) {
+      problems.push('"' + rec.name + '" har ingen catering-pris i Grocy — gebyret tilføjes ikke');
+    }
+  });
+  if (problems.length) {
+    el.style.color = 'var(--color-danger,#b3261e)';
+    el.innerHTML = '⚠ ' + problems.map(esc).join('<br>⚠ ');
+  } else {
+    el.style.color = 'var(--color-text-dim)';
+    el.textContent = '';
+  }
+}
+
+function feeSet(i, field, value) {
+  if (!_feeRules[i]) return;
+  if (field === 'min_pax') _feeRules[i].min_pax = (value === '' ? null : Number(value));
+  else _feeRules[i][field] = value;
+  if (field === 'active') _feeRender();   // tænd/sluk kan ændre advarslen
+}
+
+/** Fold opskrift-vælgeren frem/væk. Uden argument: skift. */
+function feeToggleAdd(show) {
+  var row = document.getElementById('fee-add-row');
+  var hint = document.getElementById('fee-add-hint');
+  var btn = document.getElementById('fee-add-toggle');
+  if (!row) return;
+  var open = (show === undefined) ? (row.style.display === 'none') : !!show;
+  row.style.display  = open ? 'flex'  : 'none';
+  if (hint) hint.style.display = open ? 'block' : 'none';
+  if (btn)  btn.style.display  = open ? 'none'  : '';
+  if (open) { var sel = document.getElementById('fee-add-select'); if (sel) sel.focus(); }
+}
+
+function feeAddSelected() {
+  var sel = document.getElementById('fee-add-select');
+  if (!sel || !sel.value) return;
+  var rec = _feeRecipe(sel.value);
+  if (!rec) return;
+  // Id'et står i changelogen på hver gebyr-linje, så det skal være stabilt og
+  // læsbart. Udledes af navnet; en kollision får et løbenummer.
+  var base = String(rec.name).toLowerCase()
+    .replace(/[æ]/g, 'ae').replace(/[ø]/g, 'oe').replace(/[å]/g, 'aa')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || ('gebyr_' + rec.id);
+  var id = base, n = 2;
+  while (_feeRules.some(function(r) { return r.id === id; })) id = base + '_' + (n++);
+
+  _feeRules.push({ id: id, recipe_id: Number(rec.id), min_pax: 11, active: 0 });
+  _feeRender();
+  feeToggleAdd(false);   // ærindet er ovre — fold vælgeren væk igen
+}
+
+function feeRemove(i) {
+  var r = _feeRules[i];
+  if (!r) return;
+  // Fjernelse rører ikke gebyr-linjer der allerede ligger på bons — de bliver
+  // stående som den faktura kunden fik. Sig det, så det ikke overrasker.
+  if (!confirm('Fjern reglen "' + r.id + '"?\n\n'
+    + 'Gebyrer der allerede er lagt på bons bliver stående.')) return;
+  _feeRules.splice(i, 1);
+  _feeRender();
+}
+
+async function feeSave() {
+  var el = document.getElementById('fee-status');
+  if (el) { el.style.color = 'var(--color-text-dim)'; el.textContent = 'Gemmer…'; }
+  try {
+    var json = JSON.stringify(_feeRules.map(function(r) {
+      return { id: r.id, recipe_id: Number(r.recipe_id),
+               min_pax: r.min_pax == null ? null : Number(r.min_pax),
+               active: Number(r.active) === 1 ? 1 : 0 };
+    }));
+    await saveSetting('auto_fee_rules', json);
+    allSettings['auto_fee_rules'] = json;
+    if (el) {
+      el.style.color = 'var(--color-success,#2e7d32)';
+      el.textContent = 'Gemt — gælder fra næste bon der bliver leveret.';
+      setTimeout(_feeWarn, 5000);
+    }
+  } catch (e) {
+    if (el) { el.style.color = 'var(--color-danger,#b3261e)'; el.textContent = 'Fejl: ' + (e.message || e); }
+  }
 }
 
 async function loadUnitCategoriesSettings() {

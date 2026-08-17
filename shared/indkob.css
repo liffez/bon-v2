@@ -645,6 +645,21 @@ body.zone-office .ib-toolbar { top: 0; }
 .ib-kb.done { background: var(--ib-green-light); color: var(--ib-green); border-color: var(--ib-green); cursor: default; }
 .ib-kb.kobl { background: var(--ib-orange-light); color: #7a5200; border-color: var(--ib-orange); }
 .ib-kb.mark { background: var(--ib-blue-light); color: var(--ib-blue); border-color: #90caf9; }
+
+/* Salgsenheden kunne ikke slås op hos Hørkram (#419) — beskeden bliver
+   stående ved varen, i stedet for en kvittering der forsvinder af sig selv.
+   Handlingen står i teksten: varenummeret skal kobles om. */
+.ib-cart-error {
+    flex-basis: 100%;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--ib-orange-light);
+    border: 1px solid var(--ib-orange);
+    color: #7a2f00;
+    font-size: 12px;
+    line-height: 1.4;
+}
 .ib-kb.bon  { background: var(--ib-purple-light); color: var(--ib-purple); border-color: #c0b8f0; }
 
 /* ── BESTILT TOGGLE ── */

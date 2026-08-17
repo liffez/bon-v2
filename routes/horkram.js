@@ -18,6 +18,7 @@
 'use strict';
 
 const express = require('express');
+const { todayISO, offsetISO } = require('../db/helpers');
 const router  = express.Router();
 const parser  = require('../services/hokaParser');
 const { requireAuth } = require('../shared/auth');
@@ -179,9 +180,9 @@ async function fetchWithAuth(url, options = {}) {
 }
 
 function deliveryDate() {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0] + 'T00:00:00';
+    // Dansk kalenderdato, ikke UTC (#133): mellem midnat og kl. 02 gav
+    // toISOString() gårsdagens dato, så "i morgen" blev til i dag.
+    return offsetISO(1) + 'T00:00:00';
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -279,7 +280,7 @@ router.get('/search', async (req, res) => {
         if (!q) return res.status(400).json({ error: 'q parameter påkrævet' });
         console.log(`[Hørkram] → SEARCH "${q}"`);
 
-        const today = new Date().toISOString().split('T')[0] + 'T00:00:00';
+        const today = todayISO() + 'T00:00:00';   // dansk kalenderdato, ikke UTC (#133)
         const url = `${HOKA_BASE}/api/catalog/search?q=${encodeURIComponent(q)}&Last=q&term=${encodeURIComponent(q)}&expectedDeliveryDate=${encodeURIComponent(today)}`;
         const apiRes = await fetchWithAuth(url);
         if (!apiRes.ok) {
@@ -558,6 +559,9 @@ router.put('/basket/add', async (req, res) => {
         const snapIds = [...new Set(products
             .map(p => parseInt(p.varenummer || p.productId))
             .filter(id => id && !isNaN(id)))];
+        // Id'er hvor selve opslaget ikke kunne gennemføres (netværk/HTTP-fejl).
+        // Holdes adskilt fra "varen findes ikke" — de to kræver hver sin handling.
+        const failedIds = new Set();
         for (let i = 0; i < snapIds.length; i += 20) {
             const chunk = snapIds.slice(i, i + 20);
             try {
@@ -567,30 +571,32 @@ router.put('/basket/add', async (req, res) => {
                     const snapData = await snapRes.json();
                     const snapArr = Array.isArray(snapData) ? snapData : Array.isArray(snapData?.Model) ? snapData.Model : [];
                     for (const s of snapArr) snapMap.set(String(s.Id), s);
+                } else {
+                    console.log(`[Hørkram] ⚠ Snapshot-opslag gav HTTP ${snapRes.status} for ${chunk.length} varenumre`);
+                    for (const id of chunk) failedIds.add(id);
                 }
             } catch (e) {
                 console.log(`[Hørkram] ⚠ Snapshot batch-lookup for salesUnit fejlede: ${e.message}`);
+                for (const id of chunk) failedIds.add(id);
             }
         }
 
-        for (const p of products) {
-            const snap = snapMap.get(String(parseInt(p.varenummer || p.productId)));
-            const su = snap?.SalesUnits?.Values;
-            if (su && su.length > 0) {
-                // Find matching unit by code, eller brug default
-                let match;
-                if (p.salesUnitCode && p.salesUnitCode !== 'st') {
-                    match = su.find(u => u.Code === p.salesUnitCode);
-                }
-                if (!match) {
-                    match = su.find(u => u.IsDefault) || su[0];
-                }
-                const idx = su.findIndex(u => u.Code === match.Code);
-                p._salesUnitIndex = idx >= 0 ? idx : 0;
-                p.salesUnitCode = match.Code;
-                p.salesUnitQuantity = match.Quantity || 1;
-                console.log(`[Hørkram] SalesUnit for ${p.varenummer}: ${match.Code} idx=${p._salesUnitIndex} (${match.TextSingular || ''})`);
-            }
+        const { resolved, rejected } = resolveSalesUnits(products, snapMap, failedIds);
+        for (const p of resolved) {
+            console.log(`[Hørkram] SalesUnit for ${p.varenummer}: ${p.salesUnitCode} idx=${p._salesUnitIndex}`);
+        }
+        for (const r of rejected) {
+            console.warn(`[Hørkram] ⚠ Afvist (${r.reason}): ${r.message}`);
+        }
+
+        // Intet at sende: rør ikke kurven, og sig hvorfor. Tidligere gættede vi
+        // enheden og lod Hoka afvise linjen bagefter — brugeren fik "lagt i kurv"
+        // og opdagede først fejlen ovre hos Hørkram.
+        if (resolved.length === 0) {
+            return res.json({
+                ok: false, basketId: targetBasketId,
+                addedProducts: 0, rejected,
+            });
         }
 
         // ── Hent eksisterende kurv og re-send med nye varer ──
@@ -621,18 +627,14 @@ router.put('/basket/add', async (req, res) => {
         // (verificeret: InvalidLineItem.HasSalesUnitQuantity=false selvom
         // SalesUnitQuantity er sendt). Korrekte format er nested SalesUnit.
         const newProducts = [];
-        for (const p of products) {
+        for (const p of resolved) {
             const pid = parseInt(p.varenummer || p.productId);
-            if (!pid || isNaN(pid)) {
-                console.warn('[Hørkram] ⚠ Springer over produkt med ugyldigt varenummer:', p.varenummer, p.productId);
-                continue;
-            }
             newProducts.push({
                 ProductId:      pid,
                 Quantity:       parseFloat(p.quantity) || 1,
-                SalesUnitIndex: p._salesUnitIndex ?? 0,
+                SalesUnitIndex: p._salesUnitIndex,
                 SalesUnit: {
-                    Code:     p.salesUnitCode || 'st',
+                    Code:     p.salesUnitCode,
                     Quantity: parseFloat(p.salesUnitQuantity) || 1,
                 },
             });
@@ -702,6 +704,7 @@ router.put('/basket/add', async (req, res) => {
                                 ok: true, basketId: retryUpdated?.Id,
                                 lineCount: retryUpdated?.LineItems?.length || 0,
                                 addedProducts: newProducts.length,
+                                rejected,
                             });
                         }
                     }
@@ -734,7 +737,8 @@ router.put('/basket/add', async (req, res) => {
             basketId:      updated?.Id,
             lineCount:     updated?.LineItems?.length || 0,
             subtotal:      updated?.Subtotal,
-            addedProducts: products.length,
+            addedProducts: newProducts.length,
+            rejected,
         });
     } catch (err) {
         console.error('[Hørkram basket/add]', err.message);
@@ -838,4 +842,76 @@ router.get('/debug/:varenr', async (req, res) => {
     }
 });
 
+/* ══════════════════════════════════════════════════════════
+   SALGSENHED — vi gætter ikke (#419)
+   ══════════════════════════════════════════════════════════ */
+
+/**
+ * Afgør salgsenhed for hver vare ud fra Hørkrams snapshot.
+ *
+ * Hoka bruger SalesUnitIndex (0, 1, ...) i sin PUT. Indekset giver kun mening
+ * i forhold til den liste snapshottet leverer — uden snapshot findes der ingen
+ * korrekt værdi. Tidligere faldt vi igennem til `?? 0` og `|| 'st'` og sendte
+ * alligevel; Hoka tog imod PUT'en og markerede linjen ugyldig, så fejlen dukkede
+ * op ovre hos dem, i deres ord, efter at vi havde sagt "lagt i kurv".
+ *
+ * Samme fejlklasse som #358: vi kender ikke enheden, og i stedet for at sige det
+ * sender vi noget der ser rigtigt ud. Derfor: kender vi den ikke, afviser vi
+ * linjen og siger hvorfor. Resten af kurven går uhindret igennem.
+ *
+ * @param {Array}  products   varer fra request (muteres med _salesUnitIndex m.m.)
+ * @param {Map}    snapMap    String(varenummer) → snapshot fra Hørkram
+ * @param {Set}    failedIds  varenumre hvis opslag ikke kunne gennemføres
+ * @returns {{resolved: Array, rejected: Array}}
+ */
+function resolveSalesUnits(products, snapMap, failedIds) {
+    const resolved = [];
+    const rejected = [];
+
+    for (const p of products) {
+        const pid = parseInt(p.varenummer || p.productId);
+        if (!pid || isNaN(pid)) {
+            rejected.push({
+                varenummer: p.varenummer || p.productId || null,
+                reason:     'invalid_number',
+                message:    'Varen har intet gyldigt Hørkram-varenummer.',
+            });
+            continue;
+        }
+
+        const snap = snapMap.get(String(pid));
+        const su   = snap && snap.SalesUnits && snap.SalesUnits.Values;
+
+        if (!su || su.length === 0) {
+            // Skelnen er vigtig: et opslag der ikke kunne gennemføres er noget
+            // andet end et varenummer der ikke findes. Den første går væk af sig
+            // selv, den anden kræver at nogen kobler varen om i Grocy.
+            const lookupFailed = failedIds && failedIds.has(pid);
+            rejected.push({
+                varenummer: pid,
+                reason:     lookupFailed ? 'lookup_failed' : 'unknown_product',
+                message:    lookupFailed
+                    ? `Kunne ikke nå Hørkram for varenummer ${pid} — prøv igen om lidt.`
+                    : `Varenummer ${pid} findes ikke længere hos Hørkram — kobl varen til det aktuelle nummer under Indkøb → Indstillinger → Hørkram.`,
+            });
+            continue;
+        }
+
+        let match;
+        if (p.salesUnitCode && p.salesUnitCode !== 'st') {
+            match = su.find(u => u.Code === p.salesUnitCode);
+        }
+        if (!match) match = su.find(u => u.IsDefault) || su[0];
+
+        const idx = su.findIndex(u => u.Code === match.Code);
+        p._salesUnitIndex   = idx >= 0 ? idx : 0;
+        p.salesUnitCode     = match.Code;
+        p.salesUnitQuantity = match.Quantity || 1;
+        resolved.push(p);
+    }
+
+    return { resolved, rejected };
+}
+
 module.exports = router;
+module.exports.resolveSalesUnits = resolveSalesUnits;

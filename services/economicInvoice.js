@@ -261,8 +261,10 @@ function buildDraftInvoice(bon, settings, opts = {}) {
 
     // Leveringslinje KUN når levering ligger på bon.delivery_price uden en x-Levering-linje
     // (det nye logistik-systems linjeløse levering). x-Levering-recipes er allerede normale linjer.
-    const hasDeliveryLine = (bon.lines || []).some(l => l.category === 'x-Levering');
-    if (Number(bon.delivery_price) > 0 && !hasDeliveryLine) {
+    // Delt regel — et standardgebyr i x-Levering (fx miljøbidraget) er ikke en
+    // levering og må ikke undertrykke synteselinjen (se db/helpers.js).
+    const deliveryOnBon = require('../db/helpers').hasDeliveryLine(bon.lines);
+    if (Number(bon.delivery_price) > 0 && !deliveryOnBon) {
         const deliveryNo = bon.delivery_vehicle_economic_product_number
             || settings.deliveryFallbackProductNumber;
         const dl = {
