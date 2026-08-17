@@ -335,6 +335,14 @@ function getBon(id) {
         `).get(bon.delivery_address_id);
     }
 
+    // Tilbuddet bonnen kom af. `source_quote_id` alene er et tal ingen kan
+    // slå op i hovedet — nummeret er det man leder efter når man står med en
+    // bon og skal finde den aftale kunden godkendte.
+    if (bon.source_quote_id) {
+        bon.source_quote_number = db.prepare('SELECT bon_number FROM bons WHERE id = ?')
+                                    .get(bon.source_quote_id)?.bon_number ?? null;
+    }
+
     bon.lines = getBonLines(id);
     bon.menu_groups = getBonMenuGroups(id);
     return bon;

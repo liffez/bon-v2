@@ -149,9 +149,19 @@
         var body = (m.body_text || '').replace(/\r\n/g, '\n').trim();
         var long = !isHtml && isLongBody(body); // tekst-kollaps; HTML kollapses efter måling
 
+        // En udgående besked UDEN sent_at forlod aldrig huset (#362). Tidligere
+        // blev sent_at sat allerede ved oprettelsen, så en fejlet mail så
+        // fuldstændig ud som en sendt — også for et menneske der læste tråden.
+        // `send_error` findes kun på nyere rækker; fravær af sent_at er det
+        // bærende signal, så gamle rækker ikke pludselig markeres som fejlede.
+        // Kun dømme når endpointet faktisk har fortalt os om sent_at — ellers
+        // ville en visning der ikke henter feltet markere alt som fejlet.
+        var knowsSentAt = Object.prototype.hasOwnProperty.call(m, 'sent_at');
+        var failed = !isIn && knowsSentAt && !m.sent_at;
+
         var h = '<div class="mt-msg ' + (isIn ? 'mt-in' : 'mt-out')
             + (isUnread ? ' mt-unread' : '') + (long ? ' mt-collapsible' : '')
-            + (isHtml ? ' mt-html' : '')
+            + (isHtml ? ' mt-html' : '') + (failed ? ' mt-failed' : '')
             + '" data-mt-idx="' + idx + '">';
         h += '<div class="mt-msg-head">'
             + '<span class="mt-msg-from">' + esc(who) + bonTag + '</span>'
@@ -159,6 +169,11 @@
             + (isUnread ? ' <span class="mt-msg-new">Ny</span>' : '')
             + '</span>'
             + '</div>';
+        if (failed) {
+            h += '<div class="mt-msg-failed" title="' + esc(m.send_error || '') + '">'
+                + '⚠ Ikke sendt' + (m.send_error ? ' — ' + esc(String(m.send_error).slice(0, 120)) : '')
+                + '</div>';
+        }
         if (subject) h += '<div class="mt-msg-subject">' + esc(subject) + '</div>';
         if (isHtml) {
             // iframen indsættes af renderHistory (srcdoc kan ikke stå i en HTML-streng).

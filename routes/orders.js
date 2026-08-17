@@ -285,6 +285,7 @@ router.get('/pending/:id/mail', handle((req, res) => {
     const messages = db.prepare(`
         SELECT mm.id, mm.thread_id, mm.direction, mm.from_email, mm.from_name, mm.to_email, mm.subject,
                mm.body_text, mm.body_html, mm.is_read, mm.has_attachments, mm.sent_at, mm.received_at, mm.created_at,
+               mm.send_error,
                (SELECT json_group_array(json_object('id', ma.id, 'filename', ma.filename, 'mime_type', ma.mime_type, 'size_bytes', ma.size_bytes, 'content_id', ma.content_id, 'is_inline', ma.is_inline))
                 FROM mail_attachments ma WHERE ma.message_id = mm.id) as attachments_json
         FROM mail_messages mm

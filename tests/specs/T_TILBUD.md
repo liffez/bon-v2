@@ -42,7 +42,7 @@ sletter via deres relation.
 |--------|--------------|-------|--------------|-----------|
 | T_TIL_DRAFT_1 | draft | 2 stk (sandwich + salat) | template=event, pax=20 | Kommer i listen, kan slettes |
 | T_TIL_SENT_1 | sent | 3 stk | discount_percent=10 | Kommer i listen, kan IKKE slettes |
-| T_TIL_WON_1 | won (via convert) | 1 stk | — | IKKE i /api/quotes liste (is_offer=0 efter convert) |
+| T_TIL_WON_1 | won (via convert) | 1 stk | — | STADIG i /api/quotes, låst — kun bonnen er ny |
 | T_TIL_LOST | lost | 0 lines | — | Kommer i listen, line_total=0 |
 | T_TIL_EXPIRED | expired | 2 stk | valid_until=igår | Kommer i listen, expired-flag synligt |
 | T_TIL_NO_LINES | draft | 0 lines | pax=5 | total_price=0 efter recalc |
@@ -119,7 +119,7 @@ fra N til N+M" som data, ikke som fejl.
 | ID | Action | Forventet |
 |----|--------|-----------|
 | **T_TIL_GET_01** | GET /api/quotes | Returnerer kun is_offer=1 bons (vores 6+ test-tilbud + evt. eksisterende) |
-| **T_TIL_GET_02** | T_TIL_WON_1 IKKE i listen | Efter convert er is_offer=0 — IKKE i /api/quotes |
+| **T_TIL_GET_02** | T_TIL_WON_1 ER i listen | Bilaget bliver liggende efter convert — se CONV_03 |
 | **T_TIL_GET_03** | Filter `?status=draft` | Kun draft-tilbud |
 | **T_TIL_GET_04** | Filter `?status=sent,lost` | Multi-status filter via komma |
 | **T_TIL_GET_05** | Filter `?customer_id=N` | Kun tilbud ejet af kunden |
@@ -138,7 +138,7 @@ fra N til N+M" som data, ikke som fejl.
 | **T_TIL_DETAIL_04** | Moms-felter (total_incl_moms, total_excl_moms, moms_amount) | Returneres altid |
 | **T_TIL_DETAIL_05** | offer_block_metadata parses som JSON | Hvis sat — ellers null |
 | **T_TIL_DETAIL_06** | GET /:id på en bon (is_offer=0) | 404 — endpoint filtrerer is_offer=1 |
-| **T_TIL_DETAIL_07** | GET /:id på konverteret tilbud | 404 — is_offer=0 efter convert |
+| **T_TIL_DETAIL_07** | GET /:id på konverteret tilbud | 200 — bilaget findes stadig, med `locked` + `converted_bons` |
 | **T_TIL_DETAIL_08** | GET /:id på ukendt id | 404 |
 
 ### 4.6 PATCH (8)
@@ -162,18 +162,18 @@ fra N til N+M" som data, ikke som fejl.
 | **T_TIL_STAT_02** | PATCH status='lost' | Accepteret |
 | **T_TIL_STAT_03** | PATCH status='expired' | Accepteret |
 | **T_TIL_STAT_04** | PATCH status='xyz' | 400 "Ugyldig status" |
-| **T_TIL_STAT_05** | PATCH status='won' direkte (uden convert) | **F-kandidat**: Tillader status='won' uden at sætte is_offer=0. Resulterer i tilbud der er "won" men stadig er et tilbud → forvirrende. Bør status='won' kun nås via /convert? |
+| **T_TIL_STAT_05** | PATCH status='won' direkte (uden convert) | 400 — 'won' sættes kun af /convert (F68). Er tilbuddet låst, svarer alle skrive-endpoints 409 |
 | **T_TIL_STAT_06** | Changelog-entry action='status_change' | Logget med fieldName='offer_status' |
 
 ### 4.8 CONVERT (7)
 
 | ID | Action | Forventet |
 |----|--------|-----------|
-| **T_TIL_CONV_01** | POST /:id/convert på draft | 200, is_offer=0, offer_status='won', status_id=GODKENDT |
+| **T_TIL_CONV_01** | POST /:id/convert på draft | 200, NY bon med `source_quote_id` + status GODKENDT. Tilbuddet bliver liggende: `is_offer=1`, `offer_status='won'`, `offer_locked_at` sat |
 | **T_TIL_CONV_02** | Konverteret tilbud nu i `GET /api/bons` | Dukker op som regulær bon |
-| **T_TIL_CONV_03** | Konverteret tilbud IKKE i `GET /api/quotes` | Filtreret bort fordi is_offer=0 |
+| **T_TIL_CONV_03** | Konverteret tilbud STADIG i `GET /api/quotes` | `locked: true` + `converted_to_bon: true`. Bonnen må ikke lække med i listen |
 | **T_TIL_CONV_04** | Convert ikke-eksisterende id | 404 |
-| **T_TIL_CONV_05** | Convert allerede konverteret (is_offer=0) | 400 "Denne bon er ikke et tilbud" |
+| **T_TIL_CONV_05** | Convert på bonnen / på brugt bilag | 400 "Denne bon er ikke et tilbud" hhv. "allerede lavet om til …" |
 | **T_TIL_CONV_06** | Convert tilbud med offer_status='won' (sat via PATCH /status) | 400 "Tilbud er allerede konverteret" — selv om is_offer stadig er 1 (jf. T_TIL_STAT_05) |
 | **T_TIL_CONV_07** | Lines bevares ved convert | DELETE/INSERT sker ikke — lines er stadig samme rækker |
 
@@ -210,7 +210,7 @@ fra N til N+M" som data, ikke som fejl.
 
 | ID | Action | Forventet |
 |----|--------|-----------|
-| **T_TIL_ISO_01** | GET /api/bons ekskluderer T_TIL-tilbud | bons.js linje 75 har `is_offer=0 OR IS NULL` |
+| **T_TIL_ISO_01** | GET /api/bons ekskluderer T_TIL-tilbud | bons.js har `is_offer=0 OR IS NULL` — bilaget bliver derfor aldrig et kort i bon-listen |
 | **T_TIL_ISO_02** | GET /api/invoices/queue ekskluderer T_TIL-tilbud | Patch G F62-fix verificeret |
 | **T_TIL_ISO_03** | GET /api/bons/calendar/... viser T_TIL-tilbud | Kalender VISER tilbud (separate sektion) — verificér ej brudt |
 | **T_TIL_ISO_04** | GET /api/bons/later viser T_TIL-tilbud | OR b.is_offer=1 i WHERE — bekræftet |
@@ -322,7 +322,7 @@ npm-script:
 | # | Reference | Spørgsmål | Hvordan tjekkes |
 |---|-----------|-----------|-----------------|
 | **F68** | §4.7 (STAT_05) | PATCH status='won' tillader 'won' uden convert | Verificér ved første kørsel. Hvis adfærden er at status='won' kun må sættes via /convert, bør valid-listen ekskludere 'won' |
-| **F69** | §4.8 (CONV_06) | Convert på allerede won (uden konvertering) — er fejlmeddelelsen rigtig? | Status text "allerede konverteret" er upræcist når is_offer stadig er 1 |
+| **F69** | §4.8 (CONV_06) | ~~Convert på allerede won~~ **Lukket 13. august 2026** | Convert kigger nu på om der STÅR bons på tilbuddet, ikke på status. Et tilbud trukket til Vundet i pipelinen (uden bon) kan derfor stadig konverteres |
 | **F70** | §4.6 (PATCH_04) | PATCH med lines:[] (tom array) | Sletter alle linjer uden at indsætte nogen — er det intended? Lille rationale-spørgsmål |
 | **F71** | (overordnet) | DELETE bon_lines i PATCH replace-all logger ingen changelog | Linjeniveau-historik tabes ved tilbud-redigering. F-kandidat hvis audit-trail er vigtig |
 | **F72** | §4.6 (PATCH_06) | routes/quotes.js INSERT INTO bon_lines mangler is_accessory-kolonne | Både POST og PATCH dropper `is_accessory`-flaget på lines. routes/bons.js bevarer det (linje 498) — quotes.js er ude af sync. Konsekvens: accessory-lines på tilbud kan ikke markeres, og total_units kan ikke ekskludere dem. Fix: tilføj `is_accessory` til INSERT-statementen i POST + PATCH (2 steder) |
@@ -333,3 +333,22 @@ npm-script:
 *Oprettet: 13. maj 2026 — femte office-track. Verificerer at den
 arkitektoniske beslutning om tilbud-som-bon (is_offer=1-mønstret) faktisk
 holder under realistiske CRUD-operationer.*
+
+---
+
+## Rettelse 13. august 2026 — konvertering flipper ikke længere `is_offer`
+
+Et ét-dags-tilbud blev konverteret ved at sætte `is_offer=0` på tilbuddets egen række.
+Rækken holdt dermed op med at være et tilbud, og det vundne tilbud forsvandt fra
+tilbudslisten, fra filteret "Vundet" og fra CRM-pipelinen på én gang.
+
+Konvertering opretter nu en NY bon (`source_quote_id` → tilbuddet) og lader bilaget
+blive liggende som vundet og **låst** (`bons.offer_locked_at`, migration 146).
+`PATCH /:id`, `PUT /:id/days` og `PATCH /:id/status` svarer 409 `{ locked: true }`
+mens låsen sidder; `POST /:id/unlock` tager den af.
+
+Berørte cases i denne spec: GET_02, DETAIL_07, STAT_05, CONV_01, CONV_03, CONV_05,
+CONV_06, CONV_07, PI_02 — alle opdateret ovenfor og i `run_T_TILBUD.js`.
+Finding F69 er lukket. PI_02 tester nu den nye SSE-kontrakt: `bon_updated{is_offer:true}`
+for bilaget (ændret status + lås) plus `bon_created{source_quote_id}` for bonnen — hvor
+den før krævede `is_offer:false`, fordi listen skulle fjerne rækken.

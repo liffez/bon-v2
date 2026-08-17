@@ -116,20 +116,70 @@ async function send(receipt, userName) {
         data,
     };
 
+    // occurred_at: hvornår varen blev modtaget. Sendes ALTID.
+    //
+    // Første udgave sendte det kun når bilaget var baguddateret, ud fra at
+    // "nu" ellers er det rigtige tidspunkt og tavlens datetime('now') derfor
+    // ramte plet. Det holder kun når kaldet sker i samme sekund som
+    // registreringen. Ved en gensendelse — efter nedetid, efter en fejl, efter
+    // en login-gate der slugte sytten bilag — er "nu" uger forkert. Ti
+    // modtagelser tilbage til 18. maj landede som 17. august i FVST-loggen.
+    //
+    // Afsenderen kender tidspunktet. Så send det, hver gang.
+    //
+    // To formater, fordi received_at bærer to slags sandhed:
+    //   baguddateret  → kun datoen. Klokkeslættet er opdigtet (12:00 sat af
+    //                   POST-ruten), og tavlen sætter selv middag så datoen
+    //                   lander rigtigt i begge tidszoner.
+    //   almindelig    → hele tidsstemplet. Kolonnen er skrevet af SQLites
+    //                   CURRENT_TIMESTAMP og er altså UTC, deraf 'Z'.
+    //
+    // Skelnen sker mod created_at, ikke mod dagens dato: de to kolonner
+    // skrives af samme sætning ved en almindelig modtagelse, så de er ens
+    // uanset tidszone. Sammenlignede vi med todayISO(), ville en modtagelse
+    // mellem midnat og kl. 2 se baguddateret ud.
+    const receivedRaw  = String(receipt.received_at || '');
+    const receivedDate = receivedRaw.slice(0, 10);
+    const createdDate  = String(receipt.created_at || '').slice(0, 10);
+    if (receivedDate) {
+        payload.occurred_at = (createdDate && receivedDate !== createdDate)
+            ? receivedDate
+            : receivedRaw.replace(' ', 'T') + 'Z';
+    }
+
     let statusCode = null;
     let error = null;
 
     try {
+        // redirect: 'manual' er ikke en detalje — det er hele forskellen på
+        // "sendt" og "det så ud som om".
+        //
+        // whiteboard.ristetrug.dk lå bag en login-gate i nginx, som svarede
+        // 302 → bon.ristetrug.dk/login.html. fetch() følger som standard en
+        // omdirigering og laver POST om til GET, så kaldet endte på vores egen
+        // login-side, der svarer 200. response.ok var true, receiptet blev
+        // stemplet som sendt, og loggen viste en pæn 200 — mens FVST-loggen
+        // aldrig så leverancen. Sytten registreringer stod som "alle sendt".
+        //
+        // En omdirigering er aldrig et gyldigt svar på en webhook: modtageren
+        // er en maskine uden session. Nu fejler den højlydt og siger hvorhen.
         const response = await fetch(webhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
+            redirect: 'manual',
             signal: AbortSignal.timeout(10000), // 10s timeout
         });
 
         statusCode = response.status;
 
-        if (response.ok) {
+        if (statusCode >= 300 && statusCode < 400) {
+            const target = response.headers.get('location') || 'ukendt mål';
+            error = `HTTP ${statusCode}: omdirigeret til ${target} — `
+                  + 'modtageren kræver login. Webhooken har ingen session og kan '
+                  + 'aldrig komme igennem en login-gate.';
+            console.warn(`[webhook] Whiteboard omdirigerede ${receipt.receipt_number}:`, error);
+        } else if (response.ok) {
             // Success — marker som synced
             db.prepare(`UPDATE goods_receipts SET whiteboard_synced_at = datetime('now') WHERE id = ?`)
                 .run(receipt.id);

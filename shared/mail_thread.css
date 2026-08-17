@@ -221,6 +221,20 @@
 .mt-atts-standalone .mt-att-pair .mt-msg-att { border-right: none; }
 .mt-atts-standalone .mt-att-dl { padding-left: 8px; padding-right: 10px; }
 
+/* Udgående mail der aldrig blev sendt (#362). Tidligere var den ikke til at
+   skelne fra en gennemført — sent_at blev sat før afsendelsen blev forsøgt. */
+.mt-msg.mt-failed {
+    border: 1px solid #c0392b;
+    background: color-mix(in srgb, #c0392b 6%, transparent);
+}
+.mt-msg-failed {
+    margin: 4px 0 2px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #c0392b;
+    line-height: 1.35;
+}
+
 /* ── Signatur-varsel under skrivefelter ──────────────────────────
    Vises hvor man skriver en mail, så man ikke selv taster en hilsen
    oveni den serveren sætter på. Lukket som standard — én linje. */
