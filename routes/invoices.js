@@ -30,6 +30,7 @@ const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const eco = require('../services/economicAdapter');
 const economicInvoice = require('../services/economicInvoice');
+const autoFees = require('../services/autoFees');
 
 // ─── GET /api/invoices/queue ────────────────────────────────────────────────
 router.get('/queue', handle((req, res) => {
@@ -254,6 +255,9 @@ const ECO_BON_SQL = `
         b.id, b.bon_number, b.delivery_date, b.delivery_price,
         b.offer_discount_percent, b.delivery_vehicle_id,
         b.economic_draft_number, b.economic_draft_at,
+        -- Til standardgebyrer (services/autoFees.js): betingelsen + faktura-filtrene.
+        b.pax, b.payment_type, b.is_offer, b.is_internal,
+        pc.code AS price_category_code,
         c.id AS customer_id, c.first_name AS customer_first_name,
         c.last_name AS customer_last_name,
         c.economic_contact_id, c.economic_customer_id AS customer_economic_customer_id,
@@ -268,6 +272,7 @@ const ECO_BON_SQL = `
     LEFT JOIN companies co ON co.id = b.company_id
     LEFT JOIN addresses a ON a.id = b.delivery_address_id
     LEFT JOIN delivery_vehicles dv ON dv.id = b.delivery_vehicle_id
+    LEFT JOIN price_categories pc ON pc.id = b.price_category_id
     WHERE b.id = ?
 `;
 
@@ -306,6 +311,14 @@ async function enrichBonForEconomic(db, bonId) {
         delivery_vehicle_economic_product_number: row.delivery_vehicle_economic_product_number,
         economic_draft_number:  row.economic_draft_number,
         economic_draft_at:      row.economic_draft_at,
+        // Standardgebyrer (services/autoFees.js) skal kunne se betingelsen + at
+        // bonen overhovedet er en faktura. Uden dem er computeFees blind og
+        // returnerer stille en tom liste.
+        pax:                    row.pax,
+        payment_type:           row.payment_type,
+        is_offer:               row.is_offer,
+        is_internal:            row.is_internal,
+        price_category_code:    row.price_category_code,
         customer: {
             id:                   row.customer_id,
             first_name:           row.customer_first_name,
@@ -392,6 +405,11 @@ router.get('/:bonId/economic-preview', requireAuth(), handle(async (req, res) =>
     const settings = economicInvoice.getEconomicSettings(db);
     const readiness = economicInvoice.checkReadiness(bon);
 
+    // Hvilke standardgebyrer mangler bonen? Preview'et skriver ikke (det er en
+    // GET) — det viser bare hvad kladde-trykket vil lægge på, så gebyret ikke
+    // dukker op som en overraskelse på kundens faktura.
+    const pendingFees = await previewPendingFees(db, bon);
+
     let payload = null;
     let buildError = null;
     if (readiness.ok) {
@@ -411,8 +429,31 @@ router.get('/:bonId/economic-preview', requireAuth(), handle(async (req, res) =>
         settings_ok:           settings.paymentTermsNumber != null && settings.layoutNumber != null,
         payload,
         build_error:           buildError,
+        pending_fees:          pendingFees.fees,
+        skipped_fees:          pendingFees.skipped,
     });
 }));
+
+/**
+ * Gebyrer bonen mangler — ren læsning til preview'et. Grocy nede ⇒ tom liste,
+ * ikke en fejl: previewet skal stadig kunne vises.
+ */
+async function previewPendingFees(db, bon) {
+    try {
+        const rules = autoFees.getFeeRules(db);
+        if (!rules.some(r => r.active)) return { fees: [], skipped: [] };
+        const recipes = new Map(
+            (await grocyAdapter.getRecipes()).map(r => [Number(r.id), r])
+        );
+        const present = new Set(
+            (bon.lines || []).filter(l => l.grocy_recipe_id != null).map(l => Number(l.grocy_recipe_id))
+        );
+        return autoFees.computeFees(bon, rules, recipes, present);
+    } catch (err) {
+        console.error('[autoFees] preview:', err.message);
+        return { fees: [], skipped: [] };
+    }
+}
 
 // ─── GET /api/invoices/:bonId/economic-customer-suggest ─────────────────────
 // Når en bon blokerer på manglende kunde: slå firmaet op i e-conomic (CVR→EAN→navn)
@@ -606,6 +647,11 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
     if (!eco.isConfigured()) {
         return res.status(503).json({ error: 'e-conomic er ikke konfigureret (tokens mangler i .env)' });
     }
+
+    // Sikkerhedsnet for bons der allerede var LEVERET da gebyr-reglen blev tændt
+    // (hovedvejen er status-skiftet i routes/bons.js). Idempotent — en opskrift
+    // der allerede ligger på bonen tilføjes ikke igen.
+    await autoFees.applyAutoFees(db, bonId, { userId: req.session?.userId ?? null });
 
     const bon = await enrichBonForEconomic(db, bonId);
     const oneoffForMissing = req.body?.oneoff_for_missing === true;

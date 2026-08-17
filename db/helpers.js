@@ -690,11 +690,39 @@ function recalcBonTotalCo2e(db, bonId) {
  * Flyttet hertil fra routes/bons.js så både bon-routen OG web-order-webhooken
  * bruger nøjagtig samme beregning (#382). Returnerer den nye total.
  */
+/**
+ * Har bonen en linje der REPRÆSENTERER leveringen?
+ *
+ * Reglen har hidtil været "findes der en x-Levering-linje?" og bor fire steder
+ * (her, routes/bons.js, routes/quotes.js, services/economicInvoice.js). Den er
+ * samlet her fordi den fik en undtagelse: et STANDARDGEBYR (settings.auto_fee_rules,
+ * fx miljøbidraget) er også en x-Levering-opskrift i Grocy, men det er ikke en
+ * levering. Uden undtagelsen ville et gebyr på 36 kr få recalcBonTotal til at tro
+ * at leveringen allerede lå som linje — og lade `bons.delivery_price` (fx 180 kr)
+ * falde ud af totalen OG af e-conomic-fakturaen. Det nye logistik-system gemmer
+ * netop levering linjeløst på delivery_price, så det ville ramme fremadrettet.
+ *
+ * Kræver at linjerne har `grocy_recipe_id` med — ellers kan et gebyr ikke skelnes
+ * fra en levering, og vi falder (sikkert) tilbage til den gamle adfærd.
+ */
+function hasDeliveryLine(lines) {
+    let feeIds = null;   // slås først op hvis der faktisk ER en x-Levering-linje
+    return (lines || []).some(l => {
+        if (l.category !== 'x-Levering') return false;
+        if (l.grocy_recipe_id == null) return true;
+        if (feeIds === null) {
+            try { feeIds = require('../services/autoFees').getFeeRecipeIds(); }
+            catch { feeIds = new Set(); }
+        }
+        return !feeIds.has(Number(l.grocy_recipe_id));
+    });
+}
+
 function recalcBonTotal(db, bonId, opts = {}) {
     const bon = db.prepare('SELECT total_price, total_with_delivery, delivery_price, offer_discount_percent FROM bons WHERE id = ?').get(bonId);
     if (!bon) return null;
-    const lines = db.prepare('SELECT line_total, category FROM bon_lines WHERE bon_id = ?').all(bonId);
-    const hasLeveringLine = lines.some(l => l.category === 'x-Levering');
+    const lines = db.prepare('SELECT line_total, category, grocy_recipe_id FROM bon_lines WHERE bon_id = ?').all(bonId);
+    const hasLeveringLine = hasDeliveryLine(lines);
     const linesSum = lines.reduce((s, l) => s + (l.line_total ?? 0), 0);
     const deliveryAdd = hasLeveringLine ? 0 : (bon.delivery_price ?? 0);
     const subtotal = linesSum + deliveryAdd;
@@ -814,7 +842,7 @@ module.exports = {
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
     bonUnitsExpr, unitCountablePredicate,
-    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal,
+    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, hasDeliveryLine,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
     countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
