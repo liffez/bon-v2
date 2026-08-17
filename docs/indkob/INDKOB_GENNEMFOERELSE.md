@@ -10,10 +10,10 @@
 
 | Fil | Indhold | Status |
 |---|---|---|
-| `CLAUDE_INDKOB_ASIS.md` | Sådan virker modulet i dag | **Skal have indsættelse** — se `ASIS_indsaettelse_12_5.md` |
+| `../CLAUDE_INDKOB_ASIS.md` | Sådan virker modulet i dag | **Skal have indsættelse** — se `ASIS_indsaettelse_12_5.md` |
 | `CLAUDE_INDKOB_FASE_A.md` | A1–A9: retter fejl | Klar til Simon |
 | `CLAUDE_INDKOB_FASE_B.md` | B1–B3: fjerner det der lyver | Klar til Simon |
-| `HUSKELISTE_indkob_fase_c.md` | Fase C-skitse | Indsættes i `BON_V2_HUSKELISTE.md`. **Ingen spec endnu** |
+| `HUSKELISTE_indkob_fase_c.md` | Fase C-skitse | Indsættes i `../BON_V2_HUSKELISTE.md`. **Ingen spec endnu** |
 | `ASIS_indsaettelse_12_5.md` | Tre blokke til ASIS | Indsættes af Leif |
 
 Ingen mockup nødvendig for A og B — alt er backend eller små tilføjelser i eksisterende
@@ -25,8 +25,8 @@ komponenter. Fase C kræver mockup før spec.
 
 - [ ] Sig til den der bestiller: **tjek salgsenheden på hoka.dk's checkout** indtil Deploy 2
       er ude. Systemet kan bestille kartoner hvor du ville have poser (Fase A §0)
-- [ ] Indsæt de tre blokke fra `ASIS_indsaettelse_12_5.md` i `CLAUDE_INDKOB_ASIS.md`
-- [ ] Indsæt `HUSKELISTE_indkob_fase_c.md` i `BON_V2_HUSKELISTE.md`
+- [ ] Indsæt de tre blokke fra `ASIS_indsaettelse_12_5.md` i `../CLAUDE_INDKOB_ASIS.md`
+- [ ] Indsæt `HUSKELISTE_indkob_fase_c.md` i `../BON_V2_HUSKELISTE.md`
 
 ---
 
@@ -126,7 +126,7 @@ Sidste spørgsmål afgør om Fase C's kladde-entitet overhovedet skal bygges.
 
 ## Trin 7 — opdatér ASIS (Simon, ~1 time)
 
-Når Deploy 2 er ude: ret `CLAUDE_INDKOB_ASIS.md` så den ikke beskriver rettede fejl.
+Når Deploy 2 er ude: ret `../CLAUDE_INDKOB_ASIS.md` så den ikke beskriver rettede fejl.
 Ellers fejlsøger nogen om tre måneder noget der er væk.
 
 ---

@@ -1,4 +1,4 @@
-# Indsættelse til `CLAUDE_INDKOB_ASIS.md`
+# Indsættelse til `../CLAUDE_INDKOB_ASIS.md`
 
 Tre ændringer. Indsæt i rækkefølge.
 

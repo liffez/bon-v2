@@ -7,7 +7,7 @@
 > holder op med at stole på modulet — og et modul man ikke stoler på, bliver
 > omgået i stedet for brugt. Derfor kommer B før C, og gerne parallelt med A.
 >
-> Grundlag: `CLAUDE_INDKOB_ASIS.md` §9, §10 og §12.6.
+> Grundlag: `../CLAUDE_INDKOB_ASIS.md` §9, §10 og §12.6.
 >
 > **Note:** et tidligere "Fase B" i planlægningen betød "synkronisér leveringsdatoen
 > til Hoka". Den opgave er absorberet i `CLAUDE_INDKOB_FASE_A.md` §4.2 (`_edd`-cookien).
@@ -126,4 +126,4 @@ Fase C.
 
 ---
 
-*Skrevet august 2026. Grounded i `CLAUDE_INDKOB_ASIS.md` (udvidet version).*
+*Skrevet august 2026. Grounded i `../CLAUDE_INDKOB_ASIS.md` (udvidet version).*

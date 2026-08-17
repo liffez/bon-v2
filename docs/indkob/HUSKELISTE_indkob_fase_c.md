@@ -4,7 +4,7 @@
 > **Skriv ikke spec før Fase A har kørt i drift i ~2 uger.**
 > Fase A retter bugs, Fase B fjerner det der lyver; først derefter ved vi hvilke af
 > punkterne herunder der reelt er problemer, og hvilke der bare var symptomer.
-> Se `CLAUDE_INDKOB_FASE_A.md` §13 og `CLAUDE_INDKOB_ASIS.md` §12 + §14.
+> Se `CLAUDE_INDKOB_FASE_A.md` §13 og `../CLAUDE_INDKOB_ASIS.md` §12 + §14.
 
 ### Diagnosen der stadig står
 
@@ -75,7 +75,7 @@ Overvej at skrive dem sammen til ét spørgsmål i §14.
 
 1. To ugers faktisk brug efter Deploy 2. **Noter hvad der gør ondt — ikke hvad du tror mangler.**
 2. Interaktiv HTML-mockup til godkendelse. C er UI-tungt; spec uden mockup bliver forkert.
-3. Opdatér `CLAUDE_INDKOB_ASIS.md` når Deploy 2 er ude, så den ikke beskriver rettede fejl.
+3. Opdatér `../CLAUDE_INDKOB_ASIS.md` når Deploy 2 er ude, så den ikke beskriver rettede fejl.
 
 ### Åbent spørgsmål
 

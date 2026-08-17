@@ -3,14 +3,14 @@
 > **Til Simon.** Fase A retter fejl i den eksisterende kode. Den bygger ikke nye features.
 > Restruktureringen (kladde-entitet, "Bestillinger" som ægte view, engangskøb) er Fase C.
 > Fase B ("ting der ikke virker") ligger i `CLAUDE_INDKOB_FASE_B.md` og kan køre parallelt.
-> Læs `CLAUDE_INDKOB_ASIS.md` først hvis du ikke kender modulet.
+> Læs `../CLAUDE_INDKOB_ASIS.md` først hvis du ikke kender modulet.
 >
 > **Baggrund:** modulet har været i drift med tre fejl der forstærker hinanden: forkert
 > salgsenhed, priser der ikke findes, og en hardcodet leveringsdato. Kombinationen betyder at
 > systemet kan have bestilt 5 gange for meget uden at vise en fejl. Se §1.
 >
-> **Autoritative dokumenter:** `BON_V2_PRINCIPPER.md`, `bon_v2_datamodel_v2.md`,
-> `bon_v2_zoner_og_layout.md`. Ved konflikt vinder de over dette dokument.
+> **Autoritative dokumenter:** `../BON_V2_PRINCIPPER.md`, `../bon_v2_datamodel_v2.md`,
+> `../bon_v2_zoner_og_layout.md`. Ved konflikt vinder de over dette dokument.
 >
 > **Note om fasenavne:** et tidligere "Fase B" betød "synkronisér leveringsdatoen til Hoka".
 > Den opgave viste sig at være fire linjer kode (`_edd`-cookien) og er absorberet i A1 §4.2.
@@ -99,7 +99,7 @@ function _ibCalcQty(needKg, bc) { return Math.max(1, Math.ceil(needKg / packKg))
 
 `quantity` er 5 **poser**, ikke 5 kg. Korrekt er `quantity × netWeightKg` = 10 kg.
 Ved et behov på 8 kg foreslås 2 kartoner = 20 kg. **Dobbelt op.**
-Samme mekanik som kendt bug #001 — se `KENDTE_DATABUGS.md`.
+Samme mekanik som kendt bug #001 — se `../Grocy audit/KENDTE_DATABUGS.md`.
 
 ### 1.5 Leveringsdatoen er hardcodet — og priserne afhænger af den
 
@@ -640,7 +640,7 @@ function _ibKgPerSalesUnit(su, hoka) {
 ```
 
 **`null` skal renderes som `?` — aldrig som 0, aldrig som tom streng, aldrig skjult.**
-En kunstigt billig vare er farligere end ingen pris. Se `BON_V2_PRINCIPPER.md`.
+En kunstigt billig vare er farligere end ingen pris. Se `../BON_V2_PRINCIPPER.md`.
 
 Har en vare ingen `netWeightKg`, kan dækning ikke beregnes i kg. Vis antal i salgsenheder og
 `?` ved kg — foreslå ikke et antal på et gæt.
@@ -1148,5 +1148,5 @@ frontenden med felter der ikke findes, og fejlen bliver stille igen.
 *Skrevet august 2026. Grounded i `routes/horkram.js`, `services/hokaParser.js`,
 `shared/indkob.js`, `shared/indkob_settings.js`, `routes/orders.js`,
 `routes/goods-receipts.js`, migrationerne 005 + 030, og verificeret netværkstrafik
-mod hoka.dk 31.07.2026. Referencer til `CLAUDE_INDKOB_ASIS.md` følger den udvidede
+mod hoka.dk 31.07.2026. Referencer til `../CLAUDE_INDKOB_ASIS.md` følger den udvidede
 version (smertepunkter i §12).*
