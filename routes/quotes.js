@@ -13,7 +13,7 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }    = require('../db/database');
-const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits, todayISO, createBon } = require('../db/helpers');
+const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits, todayISO, createBon, hasDeliveryLine } = require('../db/helpers');
 const { transaction } = require('../db/compat');
 const { broadcast } = require('../shared/sse');
 
@@ -423,8 +423,9 @@ function formatOffer(row) {
  */
 function recalcTotal(db, bonId) {
     const bon = db.prepare('SELECT delivery_price, offer_discount_percent FROM bons WHERE id = ?').get(bonId);
-    const lines = db.prepare('SELECT line_total, category FROM bon_lines WHERE bon_id = ?').all(bonId);
-    const hasLeveringLine = lines.some(l => l.category === 'x-Levering');
+    const lines = db.prepare('SELECT line_total, category, grocy_recipe_id FROM bon_lines WHERE bon_id = ?').all(bonId);
+    // Delt regel — et standardgebyr i x-Levering er ikke en levering (se db/helpers.js).
+    const hasLeveringLine = hasDeliveryLine(lines);
     const linesSum = lines.reduce((s, l) => s + (l.line_total ?? 0), 0);
     const deliveryAdd = hasLeveringLine ? 0 : (bon.delivery_price ?? 0);
     const subtotal = linesSum + deliveryAdd;

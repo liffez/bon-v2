@@ -207,6 +207,14 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
         });
     }
 
+    // Standardgebyrer: en ugyldig regel skal afvises HER, ikke opdages som et
+    // manglende gebyr på en faktura tre uger senere. Gemmes den ødelagt, springer
+    // autoFees den bare over — tavst, og det er den fejlklasse vi kender (#319).
+    if (req.params.key === 'auto_fee_rules') {
+        const bad = validateAutoFeeRules(value);
+        if (bad) return res.status(400).json({ error: bad });
+    }
+
     getDb().prepare(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`).run(req.params.key, value, value);
     // Invalidér cache for helpers der læser settings ved hver bon-recalc + genopbyg
     // recipe_unit_counts (enheds-kategorier/extra-recipes påvirker boks-tællingen).
@@ -218,6 +226,11 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
     if (req.params.key === 'invoice_guard_from_date') {
         require('../services/invoiceGuard').invalidateGuardCache();
     }
+    // Gebyr-reglerne caches i 60s og bruges også af hasDeliveryLine — ryd straks,
+    // så en ændring gælder næste bon og ikke først om et minut.
+    if (req.params.key === 'auto_fee_rules') {
+        require('../services/autoFees').invalidateFeeCache();
+    }
     // Interne afsendere afgør hvor indgående mail lander — en ændring skal virke
     // ved næste polling, ikke først når 60s-cachen udløber.
     if (req.params.key === 'internal_mail_domains' || req.params.key === 'mail_domain') {
@@ -225,6 +238,42 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
     }
     res.json({ key: req.params.key, value });
 }));
+
+/**
+ * Validér auto_fee_rules. Returnerer en dansk fejlbesked, eller null hvis OK.
+ * Kravene spejler services/autoFees.isValidRule — men her siger vi det HØJT
+ * i stedet for at springe rækken over.
+ */
+function validateAutoFeeRules(value) {
+    let arr;
+    try { arr = JSON.parse(value || '[]'); }
+    catch { return 'Standardgebyrer skal være gyldig JSON'; }
+    if (!Array.isArray(arr)) return 'Standardgebyrer skal være en liste';
+
+    const seenIds = new Set();
+    for (const [i, r] of arr.entries()) {
+        const nr = `Regel ${i + 1}`;
+        if (!r || typeof r !== 'object') return `${nr}: ikke et objekt`;
+
+        const id = String(r.id ?? '').trim();
+        if (!id) return `${nr}: mangler et id`;
+        // Id'et står i changelogen på hver gebyr-linje. To ens gør sporet tvetydigt.
+        if (seenIds.has(id)) return `To regler har id "${id}" — id skal være unikt`;
+        seenIds.add(id);
+
+        const rid = Number(r.recipe_id);
+        if (!Number.isInteger(rid) || rid <= 0) return `${nr} (${id}): vælg en Grocy-opskrift`;
+
+        if (r.min_pax != null && r.min_pax !== '') {
+            const p = Number(r.min_pax);
+            if (!Number.isFinite(p) || p < 0) return `${nr} (${id}): "fra og med pax" skal være et positivt tal`;
+        }
+        if (r.active != null && ![0, 1, '0', '1', true, false].includes(r.active)) {
+            return `${nr} (${id}): aktiv skal være 0 eller 1`;
+        }
+    }
+    return null;
+}
 
 /* ── Rollerettigheder (admin) ────────────────────────── */
 
