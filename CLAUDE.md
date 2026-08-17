@@ -3577,6 +3577,312 @@ Desuden: manglende mailadresse blokerer ikke længere. Send-panelet åbner med t
 og en synlig gul note, så adressen kan skrives ind på stedet. Før afviste knappen sig selv
 med en toast, der (jf. fejl 1) var usynlig — så knappen så ud til slet ikke at gøre noget.
 
+- `public/embed/bestilling.html` — ⓘ folder nu **beskrivelse + allergener** ud (før kun
+  allergener). Beskrivelsen står øverst, allergenerne dæmpet nedenunder. `max-height` på
+  `.allergen-row` hævet 100px → 260px så en to-linjers salgstekst ikke klippes.
+- `routes/embed.js` + `routes/event-bridge.js` — Grocy-mode/fallback læser nyt valgfrit
+  userfield **`bestil_beskrivelse`**. Grocys egen `description` på opskriften bruges
+  bevidst IKKE: den indeholder produktions-noter ("skæres med blad nr 2 på Robocut") og må
+  aldrig ud til kunden. 34 af 131 opskrifter i grocy-hq har sådan en note i dag.
+- `settings/index.html` — Grocy-mode-infoboksen dokumenterer feltet + advarslen.
+- Manuel mode er uændret: beskrivelsen skrives pr. ret i **Settings → Bestilling — Menu**
+  (feltet "Kort salgstekst" fandtes allerede) og følger med gennem broen uden kodeændring.
+- Info-rækken er skiftet fra mørkeblå (`#2c3e50`) til designmanualens **grå flade + brun
+  markering** (s. 5: grå `#d7d1ca`, brun `#8e631f`). Den sorte/mørke boks skar for hårdt i
+  en ellers lys menu. Samme greb i event-order-3's ⓘ-boks.
+- `scripts/import-menu-descriptions.js` — fylder de 32 retter med teksterne fra
+  ristetrug.dk/menu (hentet 6. august 2026). Matcher på menu-item-id med navne-fallback,
+  rører ikke retter der allerede har en tekst (`--force` overskriver), dry-run default,
+  tager backup af menuen ved `--apply`. Idempotent — anden kørsel siger "0 sættes".
+  Fire bevidste indgreb i teksterne er dokumenteret i scriptets hoved (fodnote-stjerner
+  fjernet, én tastefejl rettet, slidere arver standard-rettens tekst, bokse skrevet ud
+  pr. variant). Brownie + de tre drikkevarer har ingen tekst på hjemmesiden og springes over.
+
+**Drift:** feltet er tomt på alle retter i produktion. Kør scriptet på serveren
+(dry-run først) — eller skriv teksterne i Settings i hånden. Verificeret hele vejen:
+Settings → `/webhook/event-menu` → bro → event-order-siden, og mod en kopi af
+driftsdata: 32 af 36 retter matchede på id, 0 ikke fundet.
+
+### Leveringspris: tal i pillen + beregner for løs adresse (6. august 2026)
+
+To ting fra driften: pillen i logistik-rækken sagde bare "By-ex pris" uden et tal, og
+der var ingen vej til at svare på "hvad koster levering til X?" når en kunde ringer,
+uden først at oprette en bon.
+
+- **Pris i pillen uden klik** ([shared/logistik.js](shared/logistik.js) `_logFillByExPill`):
+  rækken henter allerede `/api/delivery/calculate`, og svarets `alternatives[]` indeholder
+  By-expressens standard **kundepris**. Pillen viser den nu direkte (`💰 By-ex 154 kr`) —
+  **nul ekstra API-kald**. Klik henter stadig By-expressens egen pris (vores KOSTpris) +
+  margin som før. Ligger turen uden for standardprisens rækkevidde (`max_distance_km`),
+  vises **intet tal** — pillen bliver stiplet med begrundelsen i tooltip. Et forkert tal
+  er værre end ingen. `_logFillRow` samler forslag-linje + pille, så de altid følges ad.
+- **Prisberegner for en løs adresse**: knappen `🧮 Beregn pris` i logistik-toolbaren
+  åbner et panel med DAWA-autocomplete + kuverter/kasser. Bruger **samme** `/calculate`
+  som bon-forslagene, så prisen kunden får i røret er den samme office senere ser på bonen.
+  Ingen bon oprettes, og der ringes ikke ud til By-expressen. Viser **både ex og inkl. moms**
+  (via `Moms.exclToIncl`) — `cost_formula` er ex moms, mens `bons.delivery_price` er incl,
+  så en privatkunde skal høre det andet tal end et firma. Uegnede vogne vises stadig, men
+  dæmpet med begrundelse (constraint-princippet: aldrig spærring). Egne vogne er mærket
+  "egen vogn" med en note om at det er vores omkostning, ikke et tal at give kunden.
+  Virker i begge zoner (delt `shared/logistik.js`).
+
+**Prisformlen rettet — `standard_inner_city` er et GULV, ikke et loft**
+([services/booking_template.js](services/booking_template.js) `estimateCost`): bytaksten tog
+hidtil forrang og **ignorerede afstanden helt**, så taxaens `base 136 + per_km 19` var reelt
+uendelig død kode — en tur til Roskilde (40 km) blev prissat til 250 kr i stedet for ~895 kr.
+Nu vinder km-taksten når turen er lang nok. Vogne uden km-takst (By-expressen) er uændret
+flade; dér er `max_distance_km = 8` værnet. Kasse-tillægget lægges oveni uanset hvilket
+prisled der vinder. Uden afstand står bytaksten alene → bagudkompatibelt.
+Rammer også margin-visningen i draweren, hvor lange taxature før så kunstigt rentable ud.
+
+**`POST /api/delivery/calculate`** ([routes/delivery.js](routes/delivery.js)): uden `bon_id`
+udledes kasser nu af `pax` efter **samme** regel som for en bon (`default_pax_per_box`), så
+beregneren og bon-forslaget ikke kan blive uenige — reglen lever ét sted, på serveren.
+Svaret returnerer additivt `boxes` + `pax_per_box`, så beregneren kan vise *hvilket*
+kasse-antal prisen er regnet på.
+
+**Falsk tabs-alarm på lange ture fjernet** (driftsfund): `GET /lobo/quote` regnede margin
+mod `estimateCost(vehicle, bon)` **uden afstand**, altså mod By-expressens **bypris** på
+154 kr — også når turen lå langt uden for de 8 km bytaksten gælder for. En levering til
+Høje Taastrup (21,9 km, kost 328,80) viste derfor rødt `margin −174,8 kr` + "I taber på
+leveringen", målt mod en pris vi aldrig ville have tilbudt derude. By-expressen har ingen
+`per_km`, så gulv-rettelsen ovenfor hjælper ikke her — formlen *kan* ikke udtrykke afstand
+for den vogn.
+- `quoteForBon` sammenligner nu Lobos **egen** målte `routedistance` mod vognens
+  `max_distance_km` (samme regel som `supply_warning` i `previewBooking`) → nyt felt
+  `standard_price_applies`. Er den falsk: `margin = null` (ingen margin mod en pris der
+  ikke gælder) og i stedet `suggested_customer_ex` + `suggested_margin` via den
+  eksisterende `suggestCustomerPrice` — som hidtil KUN blev brugt i booking-previewet.
+- **Vi foreslår IKKE selv en kundepris derude.** Driftsfeedback afdækkede hvorfor:
+  By-expressen *kører* gerne uden for zonen — bare på andre produkter
+  (Small/Medium/Large × Economy/Standard/VIP) plus et `outside zone`-tillæg på +30 %
+  af ordreværdien (dertil `volume surcharge` +50 % og `saturday delivery` +30 %; vi får
+  10 % rabat på basisprisen). **Food** — det produkt `cost_formula` beskriver, og det
+  vi altid spørger om i `bonToOrderInput` — er derimod kun tilgængeligt i
+  forsyningsområdet, og Lobos *kladde* afviser IKKE out-of-area (kun den rigtige
+  booking gør; det er præcis hvad `supply_warning` i `previewBooking` allerede advarer
+  om). Kostprisen for en fjern tur er altså **en Food-pris for noget vi ikke kan købe**,
+  og en markup ovenpå ville bygge en kundepris på et tal der ikke findes. Derfor
+  `suggested_customer_ex = null` ved out-of-area; office henter den rigtige pris i
+  By-ex booking-panelet, hvor produktet kan vælges og `previewBooking` regner forslaget
+  på rigtigt grundlag.
+- Logistik-rækken: `uden for Food-området — hent rigtig pris under By-ex booking`
+  (dæmpet gul) i stedet for rødt tab. Draweren: `Kundepris (std) → gælder ikke så langt
+  ude` + samme forklaring som booking-panelets `supply_warning`, i dæmpet gul
+  (`.lq-warn-soft`) — det er en anvisning, ikke et tab. Inden for området hvor
+  bytaksten ikke dækker (fx mange kasser) er kostprisen ægte, og dér beregnes forslaget
+  som før.
+- **Kendt upræcished:** grænsen testes som `routedistance > max_distance_km` (8 km),
+  men By-expressens rigtige grænse er **postnummer-zoner**, ikke en radius — primær zone
+  (1000–2450 Kbh, 1800–2000 Frb, 2150, 2500, 2900) + udvidet zone (2600 Glostrup …
+  2920 Charlottenlund). Fx 2750 Ballerup ligger ~14 km væk men *i* den udvidede zone.
+  Radius-testen er derfor konservativ i begge retninger. At kode zonelisterne ind kræver
+  bekræftelse på om Food dækker hele den udvidede zone — ikke afklaret.
+- Vogne uden `max_distance_km` → bytaksten gælder altid (bagudkompatibelt; test-fixturen
+  har ikke feltet, så de eksisterende margin-asserts er urørte).
+- **De to afstande skilles ad**: rækken/draweren viste `21,9 km` (vores ORS fra HQ) og
+  `18,9 km` (Lobos egen rute) lige over hinanden uden forklaring. Lobos er nu mærket
+  `(By-ex)`.
+
+**Tests:** +7 asserts i `scripts/test-delivery-spor2-unit.js` (bypris vs. km-takst i begge
+retninger, flad vogn uden km-takst, kasse-tillæg på begge grene) og +5 tests i
+`tests/lobo_booking.test.js` (drifts-tilfældet 18,9 km/8 km → margin null + `supply_warning`
++ **intet** forslag, bynær tur hvor bytaksten dækker → margin bevaret og intet forslag,
+bynær tur hvor den ikke dækker → forslag beregnet, vogn uden `max_distance_km` → uændret).
+Mutationstestet: neutraliseres `outOfArea`, fejler drifts-testen.
+241 delivery-tests grønne (102+50 spor1, 31+24+29 spor2, 21 lobo) + moms-audit 18/0.
+Browser-verificeret i begge zoner mod live ORS: 5 km → taxa 250 kr, 21,9 km → 552 kr,
+40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr; pille med og uden tal;
+Lobo-svaret stubbet med driftens egne tal for at se renderingen. Testdata ryddet.
+
+### Leveringspris: afstandstrappe + "sidst taget" (6. august 2026)
+> Fortsættelse af sektionen ovenfor. Driften leverede tre oplysninger der ændrede designet:
+> Food dækker kun byområdet · til Høje Taastrup har vi taget 400 kr · en taxa koster 605 kr i dag.
+
+**Trappe-takst i `estimateCost`** (migration 139): ny formel-type
+`{tiers:[{max_km,price,label},…]}` — fast pris pr. afstandsinterval. Sidste trin uden
+`max_km` = "og derover". Vinder over `standard_inner_city`/`base`/`per_km` når afstanden
+kendes; uden afstand bruges trin 1, så kaldere uden distance er upåvirkede.
+
+**Trappen er ikke opfundet** — den lå i driftsdataene hele tiden
+(`bon_lines.category = 'x-Levering'`, 2.269 linjer):
+
+| Leveringslinje | Pris incl | Antal | Sidst brugt |
+|---|---|---|---|
+| By-ekspressen leverer | 180 kr | 1.067 | maj 2026 |
+| By-ekspressen – Langt væk | 300 kr | 47 | **apr. 2024** |
+| By-ekspressen – Meget Langt væk | 500 kr | 9 | **apr. 2024** |
+
+De to sidste holdt op med at blive brugt i april 2024 — dét var hullet. Bekræftet mod en
+faktura fra 11. juni 2025 til 2630 Taastrup: `Transport Taastrup 400,00` = 500 incl = **400 ex**,
+altså meget-langt-taksten. `bon_lines.unit_price` er incl moms, `cost_formula` er ex (§6b),
+så trappen er **144 / 240 / 400**. Km-grænserne (8 / 15) er derimod et **skøn** — de historiske
+takster blev valgt i hånden og er ikke konsistente (2800 Lyngby fik både 300 og 500;
+300-taksten blev også brugt på inderby-adresser). Justeres i Settings → Leveringsmetoder.
+
+**`quoteForBon` + `previewBooking` sender nu Lobos målte afstand ind i `estimateCost`,**
+så `customer_ex` rammer det rigtige trin. Dermed er kundeprisen pålidelig hele vejen ud —
+men `margin` er stadig `null` uden for Food-området, fordi **kostprisen** dér er en Food-pris
+for noget vi ikke kan købe (uændret fra sidste runde).
+
+**`GET /api/delivery/price-history?postal_code=&limit=`** — hvad har vi FAKTISK taget?
+Læser leveringslinjer (`category = 'x-Levering'`), ikke `bons.delivery_price` (udfyldt på
+4 af 3.125 bons) og ikke `bons.delivery_cost` (blandet v1/v2-semantik, #194). Returnerer
+`last` + `common` + `rows` med både incl og ex. Postnumrene i v1-data er rodede
+(`2630`, `DK-2620`, `1000 København K`) → delstrengs-match på de fire cifre.
+Vises i **prisberegneren** og i **bon-drawerens forslags-blok** ("Sidst taget til 2630:
+180 kr inkl. (144 kr ex) · Levering med El-Taxa · 2026-01-28 · oftest 180 kr (2/3)").
+
+**Tre kilder, bevidst adskilt i UI'et:** trappen = *hvad bør det koste*, historikken =
+*hvad plejer vi at tage*, live By-ex-opslag = *hvad koster det os*. Live-opslaget er
+uændret on-demand (klik) — det opretter og sletter en kladde hos Lobo pr. opslag, så det
+må ikke køre automatisk pr. række. Det er mest pålideligt netop inden for byområdet, hvor
+Food gælder.
+
+**Pillen viser nu trappens pris hele vejen ud** (400 kr på 21,9 km) — stiplet med forklaring
+når Food ikke dækker, i stedet for at skjule tallet. Beregnerens caveat blev rettet fra
+"prisen holder ikke her" til "kan vælges alligevel": efter trappen *gælder* prisen derude.
+
+**Tests:** +14 asserts i `scripts/test-delivery-spor1-unit.js` og `-spor2-unit.js`
+(trin-grænser inkl. ≤-kant, kasse-tillæg oveni trappen, tiers-forrang, tom/ugyldig trappe
+falder igennem), +14 i `scripts/test-delivery-spor1.js` (price-history: kun x-Levering,
+`DK-`-præfiks matcher, incl→ex, hyppigste pris, ukendt postnr → 200 tom, ugyldigt → 400).
+285 delivery-tests grønne (105+65 spor1, 42+24+29 spor2, 21 lobo) + moms-audit 18/0.
+Browser-verificeret i office: pille 144/400 kr, beregner 400 ex / 500 incl (= fakturaens tal),
+historik i både beregner og drawer. Testdata ryddet.
+
+**Beregnet adresse vises på kortet** (driftsønske): markør (🧮 i stiplet brun ring — bevidst
+anderledes end bon-pins, for det er et opslag og ikke en levering der findes) + stiplet linje
+fra HQ, så afstanden kan *ses* og ikke bare læses. Tooltip: adresse · km · billigste eksterne
+vogn. Ligger i sit **eget Leaflet-lag** (`_logPcLayer`), så `_logRenderMap`'s `clearLayers()`
+ikke fjerner den ved en SSE-drevet genindlæsning; punktet lægges desuden ind i `fitBounds`
+så kortet ikke panorerer det ud af syne. Ryddes når panelet lukkes, og så snart der tastes i
+adressefeltet igen (så markøren aldrig viser noget andet end det feltet siger).
+**Åbn/luk ejes af én funktion** (`_logPcSetOpen`) — første udgave lagde oprydningen i ✕-vejen
+men ikke i toolbar-knappen, så markøren blev hængende når man lukkede dér (fundet i drift).
+Escape lukker først adresse-listen, derefter panelet.
+
+**Åbent:** taxaens takst. Appen viser 605 kr for HQ → 2630 Taastrup; vores formel siger
+552 kr ex. Er appens tal **incl** moms (som forbrugerpriser typisk er), er den rigtige pris
+484 ex, og `per_km: 19` er ~14 % for høj (~15,8 ville ramme). Ikke rettet — moms-grundlaget
+er ikke bekræftet.
+### Kontaktperson på eventet (6. august 2026)
+> Spec: `docs/CLAUDE_EVENT.md §17`. Driftsfeedback: kontoret udfyldte kunden i hånden
+> på hver enkelt event-bon, og de øvrige stod som "Ukendt" på køkkenets kort.
+
+- **Migration 139**: `events.customer_id` + `company_id` + `day_contact_name`/`_phone`
+  (alle nullable → events uden kontakt opfører sig præcis som før).
+- **`eventContactFields(event)`** ([routes/events.js](routes/events.js)) er den ene regel:
+  kunden kopieres råt; dagskontakten falder tilbage til kundens navn/telefon når den ikke er
+  sat separat. **Både** event-generatoren (`POST /:id/bons`) og **event-broen**
+  ([routes/event-bridge.js](routes/event-bridge.js)) bruger den — broen importerer helperen
+  frem for at have sin egen kopi. Eksplicit `customer_id` i payloadet vinder (`??`, ikke `||`).
+- **Bons lavet før kontakten fandtes**: `GET /:id/overview` returnerer
+  `bons_missing_contact`, og `POST /:id/apply-contact` udfylder dem. Rører **kun tomme
+  felter** (`COALESCE`) — en bon hvor kontoret selv har sat noget står urørt. Eksplicit
+  handling med bekræftelse, ikke en bivirkning af at gemme eventet. Idempotent.
+- **UI** ([office/views/events.js](office/views/events.js)): kontaktpersonen vælges i
+  event-modalen med samme `KundeSoeg` som bon-draweren; kontaktlinje under event-headeren
+  med "Udfyld på N bons uden kunde" når der er noget at udfylde.
+- **Fælde (fundet ved browser-verifikation):** `KundeSoeg` må ikke stå i et `<label>` —
+  label-aktivering videresender klikket til labelens første formularkontrol, som efter
+  valget er ✕ ("skift kunde"), så valget blev ryddet i samme klik.
+- **Tests**: `scripts/test-event-contact.js` — 26 asserts mod de ægte endpoints over HTTP
+  (isoleret temp-DB, spawned server). Regression grøn: event-menu 42, event-bridge-prep 69,
+  topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
+  Browser-verificeret end-to-end; testdata ryddet.
+### Vægtberegning: kæd to hop via kilo (20. juli 2026)
+### Yield-modellen: en opskrift vejer ikke summen af sine input (20. juli 2026)
+
+Køkkenet har standardiseret på at hver produktionsopskrift **yielder** en fast mængde af
+den vare der bruges senere — typisk 1 kg. Syltelagen hældes fra, kødet svinder:
+
+```
+"Balsamico + løg" = 1 kg løg + 0,06 L balsamico + 0,5 L vand
+    sum af input: 470 g      yield: 300 g
+Syltet rødkål:  2,7 kg ind → 1 kg brugbar vare
+Svinekam:      1,12 kg ind → 1 kg pulled pork
+```
+
+**Yieldet er allerede erklæret i Grocy** som `recipeunit` + `recipeunitnumber` (14 af 16
+underopskrifter). Koden *kendte* feltet — `recipe_viewer` brugte `recipeunit` til at
+afgøre OM der skulle vises en vægt — men beregnede så vægten som summen af input.
+
+Målt på alle 16: yieldet er **aldrig højere** end summen (intet opstår af ingenting), og
+rammer præcist dér hvor intet går tabt (Frisk Grønt, Remoulade ±0 %). Størst afvigelse:
+Balsamico + løg −36 %, Æggesalat −23 %.
+
+- **`services/ingredientResolver.js`** — `sub_recipes[]` får `yield_amount` + `yield_unit`,
+  og `weight_grams` er nu **yieldet** når det er en masse. Summen bevares som
+  `input_weight_grams`, og `unit_weight_grams` giver g/stk for antal-opskrifter.
+  Findes intet yield, falder vi tilbage på summen — **vi opfinder aldrig et yield**.
+- **To slags visning:** masse/volumen → yieldet ER mængden. Antal (sliders) → bonen
+  tæller stykker (`63 antal` frem for `3,78 kg`), men vægten skal stadig kunne findes.
+- **`shared/recipe_viewer.js`** viser begge dele: `1 antal` med `137 g/stk · i alt 136,86 g`
+  under. Afviger yield og sum på en masse-opskrift, vises `råvarer ind: …` som note.
+- **Lagertrækket er urørt.** Råvarerne forbruges nøjagtigt som før; yieldet ændrer kun
+  hvad der VISES. Låst fast af en test (S5).
+- **Kædning som fallback:** `findConversionFactorToGrams` kæder nu via kilo, så et produkt
+  med `1 Liter = 1 Kilo` kan vejes. 27 råvarer i grocy-hq var tavst udeladt af summen.
+  Betyder mest for de opskrifter der ikke har et erklæret yield.
+
+**Tests:** `scripts/test-yield-model.js` (14 — masse-yield, antal-yield med g/stk, fallback
+uden yield, skalering, og at lagertrækket er uændret) + `scripts/test-gram-chaining.js` (6).
+Browser-verificeret mod live grocy-hq.
+
+**Grocy-huller fundet undervejs:** `Løvstikke Mayo` og `Æggesalat` mangler
+`recipeunitnumber` (falder tilbage på summen indtil de udfyldes), og Æggesalat-opskriften
+producerer efter køkkenets egen vurdering for meget — rettes af Leif.
+
+**Retning:** yieldet er første skridt mod #272/#269, hvor underopskrifterne bliver rigtige
+produkter med eget lager, og `recipeunitnumber` bliver mængden på `Produces product`.
+
+### Varemodtagelsen blev usynlig — modtagelseslog + Whiteboard-kobling (7. august 2026)
+> Driftsfund: varemodtagelserne dukkede ikke op i loggen, og køkkenet var gået tilbage til
+> Whiteboards egen formular (den uden lagerdelen). Koden fejlede aldrig — den var **aldrig
+> koblet til**.
+
+**Diagnosen** (bekræftet mod drift): `settings.whiteboard_webhook_url` har stået **tom siden
+den blev seedet** (migration 035, 11. april 2026). `send()` springer stille over ved tom URL
+(`bonv2_only`-mode, spec §"Tre driftsmodes"), så `webhook_log` var tom og
+`whiteboard_synced_at` NULL på **alle** registreringer. Samtidig havde `fetchGoodsReceipts()`
+**nul forbrugere** — listevisningen var aldrig bygget. En registrering var derfor usynlig fra
+det øjeblik succes-skærmen forsvandt. Fem registreringer (18. maj – 5. august) nåede aldrig
+frem. Feltet kunne kun sættes med SQL.
+
+Fejlklassen er den samme som #305/#319 (jf. memory `project_silent_sideeffect_failures`):
+**handlingen påstod at være sket, bivirkningen fyrede aldrig, og intet sted mødtes de to.**
+
+- **🗂 Modtagelseslog** i `shared/varemodtagelse.js` — liste (periode-chips 30 dage/3 mdr/1 år/alt)
+  + detalje med alle FVST-felter, varer, foto og synk-status. Ligger i **samme container** som
+  selve modtagelsen, så den følger med i køkkenfanen *og* mobilen uden separat montering.
+- **Loggen overlever at Grocy er nede**: `initVaremodtagelse`'s catch-gren renderer nu topbaren
+  i stedet for kun en fejltekst. Ny registrering kræver Grocy (varer, enheder, leverandører) —
+  FVST-dokumentationen gør ikke, og måtte ikke ryge med i faldet.
+- **Settings → Integrationer → Whiteboard**: URL-felt (validerer at den peger på `/api/events`),
+  koblet/ikke-koblet-mærke, antal usendte + "send de manglende", og de seneste 20 forsøg med
+  statuskode og fejl. `GET /api/goods-receipts/webhook-log` (admin).
+- **`whiteboard: { configured, dispatched }`** i POST-svaret. `webhook_sent`/`webhook_dispatched`
+  stod altid på `true` — også når intet blev sendt; de er bevaret som deprecated fordi
+  T_VAREMOD_HAPPY_03 pinner dem (F31).
+- **`POST /:id/resend-webhook`** (`requireAuth()`, ikke admin — den der står ved leverancen skal
+  kunne rette op). **Nægter når `whiteboard_synced_at` er sat**: Whiteboard afviser ikke dubletter,
+  så en gensendelse ville lægge samme leverance i FVST-loggen to gange.
+- **`scripts/resend-goods-receipt-webhooks.js`** — backfill af efterslæbet. Dry-run default,
+  `--apply`/`--id`/`--from`/`--to`. Sender kun hvor `whiteboard_synced_at IS NULL` ⇒ idempotent.
+- `send()` returnerer nu `{ok, skipped, reason, statusCode, error}` (additivt — POST-stien
+  er stadig fire-and-forget) + `isConfigured()`/`getWebhookUrl()`.
+- **Tests**: `scripts/test-goods-receipt-webhook.js` — 27 asserts mod isoleret temp-DB + stub-modtager:
+  at en sluttet kobling *rapporterer* sig selv, at payloaden matcher Whiteboards skema-felter
+  (FVST Skema 1, migration 020), og at `whiteboard_synced_at` kun sættes ved 2xx. Mutations-testet.
+- Verificeret end-to-end mod stub-modtager der validerer mod Whiteboards feltnavne: payload rent
+  igennem (ingen ukendte nøgler, gyldig `deviation`-værdi, frys udeladt når toggle er slået fra),
+  503 + netværksfejl logges uden at blokere brugeren, gensend + backfill + dublet-værn.
+  Browser-verificeret i køkken, mobil og Settings; testdata ryddet, dev-DB tilbage i udgangspunktet.
+
+**Deploy:** URL'en er sat i drift (7. august). Kør bagefter backfill'en mod prod —
+dry-run først, så `--apply` — for de fem registreringer der aldrig nåede frem.
+
 Browser-verificeret ende-til-ende mod en kopi af driftsdata: status gemmes (`offer_status`,
 `offer_sent_at`), listen skifter til SENDT, kvitteringen bliver stående, ✕ vises kun på
 tilbud (2 af 26 kort), det lukkede tilbud forsvinder fra tavlen og kan findes under
