@@ -1,0 +1,35 @@
+-- 146_offer_lock.sql
+--
+-- Vundne tilbud er bilag, ikke arbejdsdokumenter (#: tilbud forsvandt ved
+-- konvertering).
+--
+-- ── Hvad der var galt ───────────────────────────────────────────────────────
+-- Ét-dags-konvertering flippede `is_offer` på tilbuddets EGEN række. Rækken
+-- holdt op med at være et tilbud i samme sekund den blev en bon, og dermed:
+--   • forsvandt den fra tilbudslisten (`WHERE is_offer = 1`)
+--   • kunne den aldrig vises under "Vundet" — filteret spørger på
+--     `is_offer = 1 AND offer_status = 'won'`, en kombination flippet ikke
+--     efterlader
+--   • faldt den ud af CRM-pipelinen, som kræver `is_offer = 1` ELLER status
+--     NY/VENTER — og en konverteret bon er hverken
+-- Tilbuddet man netop havde vundet var altså det eneste man ikke kunne finde.
+--
+-- Fler-dags-konvertering (migration 145) gjorde det allerede rigtigt: tilbuddet
+-- bliver liggende som bilag, og bonnerne er NYE rækker med `source_quote_id`
+-- tilbage. Konverteringen går nu samme vej uanset antal dage, så `is_offer`
+-- aldrig mere skifter værdi på en levende række.
+--
+-- ── Hvorfor en lås ──────────────────────────────────────────────────────────
+-- Når tilbuddet bliver liggende, kan man også blive ved med at rette i det —
+-- og så dokumenterer det ikke længere hvad kunden sagde ja til. Prisen kunne
+-- ændre sig efter accepten uden at nogen kunne se det. Låsen er derfor ikke en
+-- teknisk spærring men et løfte: det der står i bilaget er det der blev aftalt.
+--
+-- Den kan låses op igen. En aftale kan ændre sig, og et system der tvinger
+-- brugeren til at bygge tilbuddet forfra bliver omgået, ikke overholdt.
+-- Oplåsning er blot en BEVIDST handling, ikke en bivirkning af at trykke Gem,
+-- og den lander i changelog med bruger og tidspunkt.
+--
+-- Tidsstempel frem for boolean: "hvornår blev det låst" er gratis at gemme og
+-- umuligt at rekonstruere bagefter. NULL = ulåst.
+ALTER TABLE bons ADD COLUMN offer_locked_at DATETIME;

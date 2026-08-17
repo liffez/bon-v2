@@ -528,3 +528,13 @@
 .rv-toast-error {
     background: #c0392b;
 }
+
+/* Vægt-note under en underopskrifts mængde: "138 g/stk" eller "råvarer ind: 470 g".
+   Bonen interesserer sig for antallet — køkkenet skal også kunne se vægten. */
+.rv-nesting-extra {
+    display: block;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--color-text-dim, #8a8580);
+    margin-top: 1px;
+}

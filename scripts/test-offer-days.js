@@ -10,7 +10,12 @@
 //   GET  /api/quotes/:id
 //
 // Den vigtigste test er den FØRSTE: et almindeligt ét-dags-tilbud skal
-// konvertere præcis som før. Fler-dags er en tilføjelse, ikke en omlægning.
+// konvertere korrekt. Fler-dags er en tilføjelse, ikke en omlægning.
+//
+// OPDATERET 13. august 2026: ét-dags flipper ikke længere `is_offer` på sin egen
+// række. Den går nu samme vej som fler-dags — ny bon, bilaget bliver liggende og
+// låses — fordi flippet fik det vundne tilbud til at forsvinde fra tilbudslisten,
+// fra "Vundet" og fra CRM-pipelinen. Assertionerne herunder er rettet med.
 //
 // Kør:
 //   node --experimental-sqlite scripts/test-offer-days.js
@@ -81,8 +86,8 @@ async function main() {
         if (!await waitForServer()) throw new Error('Server startede ikke');
         await http('POST', '/api/auth/pin', { pin: TEST_PIN });
 
-        // ── 1. Regression: ét-dags-tilbud konverterer som hidtil ────────────
-        console.log('\n— Ét-dags-tilbud: uændret adfærd —');
+        // ── 1. Ét-dags-tilbud: ny bon, bilaget bliver liggende ─────────────
+        console.log('\n— Ét-dags-tilbud: ny bon, bilaget bliver liggende —');
         let r = await http('POST', '/api/quotes', {
             template: 'single', price_category: 'catering',
             delivery_date: '2026-09-10', delivery_time: '11:00', pax: 20,
@@ -96,15 +101,17 @@ async function main() {
 
         r = await http('POST', `/api/quotes/${single.id}/convert`);
         assert(r.status === 200, 'convert svarer 200');
-        assert(r.data.bon_id === single.id, 'SAMME række flippes — ingen ny bon oprettet');
+        assert(r.data.bon_id !== single.id, 'bonnen er en NY række — tilbuddet flippes ikke');
         assert(!r.data.multi_day, 'ikke markeret som fler-dags');
 
         let dbx = openDb(TEST_DB);
-        const conv = dbx.prepare('SELECT is_offer, offer_status FROM bons WHERE id=?').get(single.id);
-        const spawned = dbx.prepare('SELECT COUNT(*) c FROM bons WHERE source_quote_id=?').get(single.id).c;
+        const conv = dbx.prepare('SELECT is_offer, offer_status, offer_locked_at FROM bons WHERE id=?').get(single.id);
+        const spawnedRows = dbx.prepare('SELECT id, bon_number FROM bons WHERE source_quote_id=?').all(single.id);
         dbx.close();
-        assert(conv.is_offer === 0 && conv.offer_status === 'won', 'is_offer=0 + won som før');
-        assert(spawned === 0, 'ingen afledte bons');
+        assert(conv.is_offer === 1 && conv.offer_status === 'won', 'tilbuddet er stadig et tilbud, markeret vundet');
+        assert(!!conv.offer_locked_at, 'bilaget er låst');
+        assert(spawnedRows.length === 1, 'præcis én afledt bon');
+        assert(spawnedRows[0].bon_number !== single.quote_number, 'bonnen har sit eget nummer, ikke T-nummeret');
 
         // ── 2. Validering af dage ──────────────────────────────────────────
         console.log('\n— Dage: validering før der skrives —');
@@ -260,8 +267,11 @@ async function main() {
         assert(listed?.day_count === 3, `day_count = 3 på listen (fik ${listed?.day_count})`);
         assert(listed?.converted_to_bon === true,
             'et vundet fler-dags-tilbud regnes som konverteret, selvom is_offer stadig er 1');
-        assert(!(r.data || []).some(q => q.id === single.id),
-            'det konverterede ét-dags-tilbud er væk fra listen — dét flipper is_offer');
+        const listedSingle = (r.data || []).find(q => q.id === single.id);
+        assert(!!listedSingle,
+            'det konverterede ét-dags-tilbud står STADIG på listen — det er hele pointen');
+        assert(listedSingle?.locked === true && listedSingle?.converted_to_bon === true,
+            'og det er markeret som låst og konverteret');
         // Et almindeligt tilbud uden dage skal stå med 0, ikke NULL: UI\'et
         // afgør på tallet om der overhovedet skal vises en dags-sektion.
         r = await http('POST', '/api/quotes', { template: 'single', delivery_date: '2026-12-01', lines: [] });
@@ -303,6 +313,16 @@ async function main() {
         dbx.close();
         assert(exLines.length === 2 && exLines.every(l => l.moms_included === 0),
             'begge dage arvede moms_included = 0 — linjen ligger stadig ex moms');
+
+        console.log('\n— Låst bilag afviser ændringer —');
+        r = await http('PUT', `/api/quotes/${multi.id}/days`, { days: [
+            { id: dayIds[0], delivery_date: '2026-10-01' },
+        ]});
+        assert(r.status === 409 && r.data.locked === true,
+            'dagene kan ikke ændres på et konverteret tilbud — bilaget er låst');
+
+        r = await http('POST', `/api/quotes/${multi.id}/unlock`);
+        assert(r.status === 200 && r.data.locked === false, 'oplåsning er en bevidst handling');
 
         console.log('\n— Sletning af dag efterlader linjerne som fælles —');
         r = await http('PUT', `/api/quotes/${multi.id}/days`, { days: [

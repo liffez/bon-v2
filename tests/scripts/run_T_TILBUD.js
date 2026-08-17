@@ -637,7 +637,7 @@ async function runGetById() {
         }
     } catch (e) { record('T_TIL_DETAIL_06', 'GET_BY_ID', 'FAIL', e.message); }
 
-    // DETAIL_07: testes i CONVERT-sektionen (efter convert er is_offer=0 → 404)
+    // DETAIL_07: testes i CONVERT-sektionen (bilaget bliver liggende → 200)
     record('T_TIL_DETAIL_07', 'GET_BY_ID', 'PASS', 'testes i T_TIL_CONV_03/04');
 
     // DETAIL_08: GET /:id på ukendt id → 404
@@ -896,42 +896,53 @@ async function runConvert() {
         created.quotes.CONV_LINES = conv2Id;
     } catch (e) {/* ignore */}
 
-    // CONV_01: POST /:id/convert
+    // CONV_01: POST /:id/convert — NY bon, tilbuddet bliver liggende som låst bilag
+    // (13. august 2026: konvertering flipper ikke længere `is_offer`)
+    let convBonId = null;
     try {
         const r = await api('POST', `/api/quotes/${convId}/convert`);
-        const row = db.prepare(`
-            SELECT b.is_offer, b.offer_status, sd.code AS status_code
+        convBonId = r.body?.bon_id ?? null;
+        const quote = db.prepare(`SELECT is_offer, offer_status, offer_locked_at FROM bons WHERE id = ?`).get(convId);
+        const bon = convBonId ? db.prepare(`
+            SELECT b.is_offer, b.source_quote_id, sd.code AS status_code
             FROM bons b JOIN status_definitions sd ON sd.id = b.status_id
             WHERE b.id = ?
-        `).get(convId);
-        if (r.status === 200 && row.is_offer === 0 && row.offer_status === 'won' && row.status_code === 'GODKENDT') {
-            created.convertedBons.push(convId);
-            record('T_TIL_CONV_01', 'CONVERT', 'PASS');
+        `).get(convBonId) : null;
+        if (r.status === 200 && convBonId && convBonId !== convId &&
+            quote.is_offer === 1 && quote.offer_status === 'won' && quote.offer_locked_at &&
+            bon.is_offer === 0 && bon.source_quote_id === convId && bon.status_code === 'GODKENDT') {
+            created.convertedBons.push(convBonId);
+            record('T_TIL_CONV_01', 'CONVERT', 'PASS', `bon ${convBonId} oprettet, bilag ${convId} låst`);
         } else {
             record('T_TIL_CONV_01', 'CONVERT', 'FAIL',
-                `status=${r.status}, is_offer=${row?.is_offer}, offer_status=${row?.offer_status}, code=${row?.status_code}`);
+                `status=${r.status}, bon_id=${convBonId}, quote.is_offer=${quote?.is_offer}, `
+                + `locked=${!!quote?.offer_locked_at}, bon.source_quote_id=${bon?.source_quote_id}`);
         }
     } catch (e) { record('T_TIL_CONV_01', 'CONVERT', 'FAIL', e.message); }
 
     // CONV_02: Konverteret bon i GET /api/bons
     try {
         const r = await api('GET', '/api/bons');
-        const found = (r.body?.bons || r.body || []).find(b => b.id === convId);
+        const found = (r.body?.bons || r.body || []).find(b => b.id === convBonId);
         if (found) {
-            record('T_TIL_CONV_02', 'CONVERT', 'PASS', 'konverteret tilbud findes i bons-list');
+            record('T_TIL_CONV_02', 'CONVERT', 'PASS', 'den nye bon findes i bons-list');
         } else {
-            record('T_TIL_CONV_02', 'CONVERT', 'FAIL', 'konverteret bon ikke fundet i /api/bons');
+            record('T_TIL_CONV_02', 'CONVERT', 'FAIL', 'den nye bon ikke fundet i /api/bons');
         }
     } catch (e) { record('T_TIL_CONV_02', 'CONVERT', 'FAIL', e.message); }
 
-    // CONV_03: Konverteret bon IKKE i GET /api/quotes (T_TIL_GET_02 + DETAIL_07)
+    // CONV_03: bilaget bliver på tilbudslisten, bonnen kommer ikke med
+    // (T_TIL_GET_02 + DETAIL_07). Det er hele rettelsen: et vundet tilbud skal
+    // kunne findes bagefter — før forsvandt det ud af alle tre flader.
     try {
         const r = await api('GET', '/api/quotes');
-        const found = (r.body || []).find(q => q.id === convId);
-        if (!found) {
-            record('T_TIL_CONV_03', 'CONVERT', 'PASS', 'konverteret tilbud filtreret bort fra /api/quotes');
+        const quote = (r.body || []).find(q => q.id === convId);
+        const bonLeaked = (r.body || []).some(q => q.id === convBonId);
+        if (quote && quote.locked === true && quote.converted_to_bon === true && !bonLeaked) {
+            record('T_TIL_CONV_03', 'CONVERT', 'PASS', 'bilaget står som vundet + låst på /api/quotes');
         } else {
-            record('T_TIL_CONV_03', 'CONVERT', 'FAIL', 'konverteret bon stadig i /api/quotes');
+            record('T_TIL_CONV_03', 'CONVERT', 'FAIL',
+                `bilag fundet=${!!quote}, locked=${quote?.locked}, bon lækket=${bonLeaked}`);
         }
     } catch (e) { record('T_TIL_CONV_03', 'CONVERT', 'FAIL', e.message); }
 
@@ -942,13 +953,16 @@ async function runConvert() {
         else record('T_TIL_CONV_04', 'CONVERT', 'FAIL', `status=${r.status}`);
     } catch (e) { record('T_TIL_CONV_04', 'CONVERT', 'FAIL', e.message); }
 
-    // CONV_05: Convert allerede konverteret bon (is_offer=0)
+    // CONV_05: to afvisninger — bonnen er ikke et tilbud, og bilaget er brugt
     try {
-        const r = await api('POST', `/api/quotes/${convId}/convert`);
-        if (r.status === 400 && /ikke et tilbud/.test(r.body?.error || '')) {
+        const onBon = await api('POST', `/api/quotes/${convBonId}/convert`);
+        const again = await api('POST', `/api/quotes/${convId}/convert`);
+        if (onBon.status === 400 && /ikke et tilbud/.test(onBon.body?.error || '')
+            && again.status === 400 && /allerede/.test(again.body?.error || '')) {
             record('T_TIL_CONV_05', 'CONVERT', 'PASS');
         } else {
-            record('T_TIL_CONV_05', 'CONVERT', 'FAIL', `status=${r.status}, error=${r.body?.error}`);
+            record('T_TIL_CONV_05', 'CONVERT', 'FAIL',
+                `bon=${onBon.status}/${onBon.body?.error}, igen=${again.status}/${again.body?.error}`);
         }
     } catch (e) { record('T_TIL_CONV_05', 'CONVERT', 'FAIL', e.message); }
 
@@ -958,12 +972,19 @@ async function runConvert() {
             // STAT_WON har offer_status='won' MEN is_offer=1 (hvis F68 bekræftet)
             const beforeRow = db.prepare(`SELECT is_offer, offer_status FROM bons WHERE id=?`).get(created.quotes.STAT_WON);
             if (beforeRow.offer_status === 'won' && beforeRow.is_offer === 1) {
+                // F69 omgjort (13. august 2026): 'won' UDEN bons er en anden
+                // tilstand end en gennemført ordre — pipelinen kan trække et
+                // tilbud til Vundet uden at oprette noget. Convert kigger derfor
+                // på om der STÅR bons på tilbuddet, ikke på status.
                 const r = await api('POST', `/api/quotes/${created.quotes.STAT_WON}/convert`);
-                if (r.status === 400 && /allerede konverteret/.test(r.body?.error || '')) {
+                const spawned = db.prepare(`SELECT COUNT(*) c FROM bons WHERE source_quote_id = ?`)
+                                  .get(created.quotes.STAT_WON).c;
+                if (r.status === 200 && spawned === 1) {
+                    created.convertedBons.push(r.body.bon_id);
                     record('T_TIL_CONV_06', 'CONVERT', 'PASS',
-                        'F69 dokumenteret: convert afviser når offer_status=won, selv hvis is_offer stadig=1');
+                        'et tilbud markeret vundet uden bon kan stadig konverteres');
                 } else {
-                    record('T_TIL_CONV_06', 'CONVERT', 'FAIL', `status=${r.status}, error=${r.body?.error}`);
+                    record('T_TIL_CONV_06', 'CONVERT', 'FAIL', `status=${r.status}, bons=${spawned}`);
                 }
             } else {
                 record('T_TIL_CONV_06', 'CONVERT', 'SKIP', 'STAT_WON state ikke som forventet');
@@ -973,19 +994,21 @@ async function runConvert() {
         }
     } catch (e) { record('T_TIL_CONV_06', 'CONVERT', 'FAIL', e.message); }
 
-    // CONV_07: Lines bevares ved convert
+    // CONV_07: linjerne kopieres til bonnen — og bilaget beholder sine egne
     try {
-        const linesBefore = db.prepare(`SELECT id, product_name, line_total FROM bon_lines WHERE bon_id=? ORDER BY id`).all(conv2Id);
+        const q = `SELECT product_name, quantity, line_total FROM bon_lines WHERE bon_id=? ORDER BY sort_order, id`;
+        const linesBefore = db.prepare(q).all(conv2Id);
         const r = await api('POST', `/api/quotes/${conv2Id}/convert`);
-        const linesAfter = db.prepare(`SELECT id, product_name, line_total FROM bon_lines WHERE bon_id=? ORDER BY id`).all(conv2Id);
-        if (r.status === 200 &&
-            linesBefore.length === linesAfter.length &&
-            linesBefore.every((l, i) => l.id === linesAfter[i].id)) {
-            created.convertedBons.push(conv2Id);
-            record('T_TIL_CONV_07', 'CONVERT', 'PASS', `${linesBefore.length} lines bevaret`);
+        const onQuote = db.prepare(q).all(conv2Id);
+        const onBon = r.body?.bon_id ? db.prepare(q).all(r.body.bon_id) : [];
+        const same = (a, b) => a.length === b.length
+            && a.every((l, i) => l.product_name === b[i].product_name && l.line_total === b[i].line_total);
+        if (r.status === 200 && same(linesBefore, onQuote) && same(linesBefore, onBon)) {
+            created.convertedBons.push(r.body.bon_id);
+            record('T_TIL_CONV_07', 'CONVERT', 'PASS', `${linesBefore.length} linjer på både bilag og bon`);
         } else {
             record('T_TIL_CONV_07', 'CONVERT', 'FAIL',
-                `før=${linesBefore.length}, efter=${linesAfter.length}`);
+                `før=${linesBefore.length}, bilag=${onQuote.length}, bon=${onBon.length}`);
         }
     } catch (e) { record('T_TIL_CONV_07', 'CONVERT', 'FAIL', e.message); }
 }
@@ -1311,7 +1334,12 @@ async function runPatchIVerification() {
         }
     } catch (e) { record('T_TIL_PI_01', 'PATCH_I_VERIFICATION', 'FAIL', e.message); }
 
-    // PI_02: SSE bon_updated efter convert har is_offer=false
+    // PI_02: SSE efter convert — bilaget opdateres, bonnen oprettes
+    //
+    // F73 omgjort (13. august 2026): før sendte convert bon_updated{is_offer:false},
+    // fordi tilbudslisten skulle FJERNE rækken. Nu bliver bilaget liggende, så
+    // eventet bærer is_offer:true (ændret status + lås), og den nye bon meldes
+    // som bon_created med source_quote_id.
     try {
         const fresh = await api('POST', '/api/quotes', {
             customer_id: created.customers.priv,
@@ -1319,21 +1347,23 @@ async function runPatchIVerification() {
             lines: [{ product_name: 'X', quantity: 1, unit_price: 100 }],
         });
         created.quotes.PI_CONV = fresh.body.id;
-        created.convertedBons.push(fresh.body.id);
 
         sseListener.clearEvents();
-        await api('POST', `/api/quotes/${fresh.body.id}/convert`);
-        const evt = await sseListener.waitForEvent('bon_updated',
-            d => d?.id === fresh.body.id && d?.is_offer === false,
-            2000
-        ).catch(() => null);
-        if (evt) {
+        const conv = await api('POST', `/api/quotes/${fresh.body.id}/convert`);
+        if (conv.body?.bon_id) created.convertedBons.push(conv.body.bon_id);
+
+        const updated = await sseListener.waitForEvent('bon_updated',
+            d => d?.id === fresh.body.id && d?.is_offer === true, 2000).catch(() => null);
+        const createdEvt = await sseListener.waitForEvent('bon_created',
+            d => d?.source_quote_id === fresh.body.id, 2000).catch(() => null);
+
+        if (updated && createdEvt) {
             record('T_TIL_PI_02', 'PATCH_I_VERIFICATION', 'PASS',
-                'F73 verificeret: convert sender bon_updated{is_offer:false} så tilbudslisten kan fjerne den');
+                'convert sender bon_updated{is_offer:true} for bilaget + bon_created for bonnen');
         } else {
             const all = sseListener.getEvents('bon_updated');
             record('T_TIL_PI_02', 'PATCH_I_VERIFICATION', 'FAIL',
-                `ingen matching event — alle bon_updated: ${JSON.stringify(all.map(e => e.data)).slice(0, 200)}`);
+                `updated=${!!updated}, created=${!!createdEvt} — bon_updated: ${JSON.stringify(all.map(e => e.data)).slice(0, 200)}`);
         }
     } catch (e) { record('T_TIL_PI_02', 'PATCH_I_VERIFICATION', 'FAIL', e.message); }
 
