@@ -4013,6 +4013,72 @@ modtagelseslog og den synlige Whiteboard-status i Settings, som mangler her. Net
 fraværet af en læser på `webhook_log` var grunden til at denne PR kun kunne skrive
 `Refs #363`, ikke `Closes`.
 
+### Prep-modal: Enter oprettede bonnen — og varevalget fik bon-kortets flow (17. august 2026)
+
+Medarbejdere fik oprettet en prep-bon efter **første** varelinje. Antagelsen var at
+kurv-metaforen var utydelig. Den egentlige mekanisme var en anden: modalen er en
+`<form>`, alle linjefelterne ligger inde i den, og **Enter i antal-feltet indsendte
+den**. Det er præcis den gestus `VarePicker` har lært folk på bon-kortet — vælg vare,
+tast antal, Enter = *tilføj linje*. Muskelhukommelsen fyrede den forkerte knap.
+
+Ses i drift. Vig Festival 8. juli, tre prep-bons på samme dag:
+
+| Bon | Tid | Indhold |
+|---|---|---|
+| B4099 | 07:43:49 | Frikadellen 40 — **1 linje** |
+| B4100 | 07:44:08 | Falaflen 300, Frikadellen 800 … — 9 linjer |
+| B4101 | 07:45:52 | Falaflen 10 — **1 linje** |
+
+19 sekunder mellem de to første. Hver ekstra bon er et kort mere på køkkenets
+I dag-tavle, og vareforbruget splittes over flere bons.
+
+- **`_evModal`** ([office/views/events.js](office/views/events.js)) — Enter i et felt
+  indsender ikke længere formularen (alle fire roller: prep, top-up, salg, udgift).
+  `textarea` og `button` er undtaget. Knappen navngiver den bon der oprettes og tæller
+  linjerne (`Opret prep-bon (3 linjer)`); ved 0 linjer er den slået fra, så et fejlklik
+  ikke kan lave en tom bon. Escape lukker en åben varepicker før hele modalen.
+  Returnerer nu overlay'et, så kalderen kan nå knappen.
+- **Prep/top-up bruger `VarePicker` i detached mode** (`bonId: null`) — samme vælger som
+  bon-kortet, åben som udgangspunkt. Den POSTer ikke selv; linjerne samles i tabellen og
+  bonnen oprettes først ved klik på knappen. Samme mønster som
+  [shared/planning.js](shared/planning.js) allerede brugte.
+- **Prislisten viser kostpris ex, ikke salgspris.** Bonnen er 0 kr (produktion), så
+  salgsprisen ville stå som "0 kr" ud for hver vare; kostprisen er det tal der
+  snapshottes pr. linje og driver Vareforbrug i P&L. Ny option `priceField: 'cost'` på
+  `VarePicker` — additiv, default uændret (`'sales'`), så bon-kort, bon-drawer og
+  planlægning er urørte.
+- **Salg og udgift beholder dropdownen.** Udgiftsmodalen har moms-vælger pr. linje og
+  fritekstbeløb, som pickeren ikke kender; salgsbonnen er forudfyldt fra prep-bonnerne
+  og handler om at justere antal, ikke om at vælge varer.
+- **Ens varer slås sammen** i stedet for to rækker med samme navn (samme regel som
+  `POST /api/bons/:id/lines` bruger server-side), med et kort gult blink som kvittering.
+- Tom tabel har en tom-tekst. Top-up-genberegning fjerner nu kun linje-rækkerne i stedet
+  for at tømme hele `tbody` — ellers forsvandt tom-teksten, og et tomt forslag efterlod
+  knappen med linjeantallet fra før genberegningen.
+
+> ⚠️ **En knap uden `type` er `submit` inde i en `<form>`.** `VarePicker`s seks knapper
+> manglede `type="button"`, så et klik på **"Tilføj" eller på en kategori** oprettede
+> bonnen. Latent de tre andre steder — bon-kort, bon-drawer og planlægning er ingen af
+> dem formularer — men fatalt her. Fejlen slap gennem hele testrunden, fordi jeg kun
+> brugte Enter og `dispatchEvent`; den viste sig i første fysiske museklik. Læg en delt
+> komponent ind i en formular, og gennemgå dens knapper.
+
+**Sideeffekt værd at kende:** Enter gemmer heller ikke længere event-redigeringsmodalen
+— den skal lukkes med knappen. Bevidst: et ensartet "Enter indsender aldrig" er sikrere
+end en undtagelse pr. modal.
+
+Browser-verificeret mod kopi af driftsdata, testdata ryddet: prep-bon gennem UI'et giver
+**én** bon med korrekte linjer (`unit_price = 0`, `cost_price`, kategori,
+`grocy_recipe_id`); alle fire roller opfører sig rigtigt; bon-draweren viser uændret
+salgspriser. 183 tests grønne (event-menu 42, event-contact 26, event-gate 15,
+event-polish 27, event-cancelled 26, topup-suggestion 35, prep-packing 12).
+Bekræftet i drift 17. august — kostpriserne stemmer mod grocy-hq.
+
+**Ikke bygget:** dublet-værn ("der findes allerede en prep-bon på 20. august — læg
+linjerne på den?"). Bevidst udskudt: Enter-fælden var kilden til de observerede
+dubletter, så værnet ville kun fange det tilfælde hvor nogen bevidst åbner modalen to
+gange. Tages op hvis det viser sig i drift alligevel.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -4698,3 +4764,5 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
 *20. maj 2026 (Delivery Spor 2 — S2.0 + S2.1) — Vej-routing via OpenRouteService + DAWA-geokodning. Migration 073 (`delivery_routes`/`delivery_route_stops`/`delivery_incidents` + `geo_calculations` genskabt med nullable `bon_id`). Nye services: `routing.js` (ORS-wrapper m. afstands-cache), `geocode.js` (DAWA), `delivery_calc.js` (single-bon forslag), `route_planner.js` (computeRoute/applyRouteProposal). `routes/delivery.js` udvidet med `/calculate`, `/health` + 11 rute-endpoints. `office/views/logistik.js`+`.css` — leveringsoversigten (erstatter placeholderen). Constraint-forslag i bon-draweren. Constraint-princip: brud er advarsler, aldrig spærringer — office bestemmer. 143 delivery-tests grønne. Bevidst udskudt: Leaflet-kort, rute-popout-booking, `/history`. Spec: `docs/delivery/CLAUDE_DELIVERY_SPOR2.md`.*
 
 *5. juli 2026 (#251 — re-baseline af Grocy-live test-tracks) — Opfølgning på PR #248 (deterministiske tracks). De 11 Grocy-afhængige tracks re-baselinet mod nuværende kode + live grocytest via fuld procedure pr. track (kill port 4322 → `test:reset` → `test:snapshot` → `test:patch` → frisk `test:server` → track). **Resultat: 392 PASS · 3 FAIL · 5 SKIP.** 10 tracks fuldt grønne og matcher deres dokumenterede baseline præcist — **ingen stale fixtures at rette, ingen ægte produkt-bugs** (modsat #248's ~12 stale assertions). T_GROCY 14/16, T_STOCK 31/31, T_RECIPES 20/20, T_INDKOB_LISTE 38/39, T_INDKOB_SETUP 47/47, T_INDKOB_ADMIN 50/50, T_INDKOB_HORKRAM 54/56, T_VAREMOD_PATCH 26/26, T_VAREMODTAGELSE_FULL 67/67, T_OPSKRIFTER 35/35. De 3 FAIL er alle i **T_INVENTORY (10/13)** og er miljø-betinget — ikke regression: fem grocytest-produkter er udtømt til ~0 lager (pid 16 Kylling-BBQ, 28 Spinat, 33 Rødløg-Sylt, 48 Mayo-Vegansk, 72 Transport Kasser), så `consume` ikke har noget at trække fra ("fik 0"). Consume-logikken bekræftet virksom af T_GROCY/T_STOCK/T_VAREMODTAGELSE_FULL (alle muterer Grocy-lager, alle grønne). 10/13 = accepteret baseline (grocytest-lager toppes IKKE op unilateralt). Spec §41 kræver tilstrækkelig stock som precondition.*
+
+*17. august 2026 (prep-modal) — Enter i antal-feltet indsendte event-modalens `<form>` og oprettede bonnen efter første linje (synligt i drift: B4099/B4100/B4101 på Vig Festival inden for to minutter). `_evModal` blokerer nu Enter-submit for alle fire roller, navngiver knappen efter den bon der oprettes og tæller linjerne. Prep/top-up bruger `VarePicker` i detached mode med ny `priceField: 'cost'` (bonnen er 0 kr — kostprisen er det tal der driver Vareforbrug). Ens varer slås sammen. Fælde fundet undervejs: `VarePicker`s knapper manglede `type="button"`, så et klik på "Tilføj" eller en kategori indsendte formularen — kun synligt ved fysisk museklik, ikke via Enter eller `dispatchEvent`. PR #466. Bekræftet i drift samme dag.*
