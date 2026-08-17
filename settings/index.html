@@ -994,7 +994,6 @@
       </table>
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <button class="st-btn" type="button" id="fee-add-toggle" onclick="feeToggleAdd()">+ Tilføj endnu et gebyr</button>
-        <button class="st-btn st-btn-primary" type="button" onclick="feeSave()">Gem gebyrer</button>
       </div>
       <div id="fee-add-row" style="display:none;gap:8px;align-items:center;margin-top:10px">
         <select id="fee-add-select" class="st-input" style="flex:1;max-width:340px"></select>
@@ -3070,9 +3069,10 @@ function _feeRender() {
         + '<td style="font-size:12px">' + _feePriceCell(rec) + '</td>'
         + '<td><input class="st-input" type="number" min="0" style="width:90px" value="'
           + (r.min_pax == null ? '' : esc(String(r.min_pax)))
-          + '" oninput="feeSet(' + i + ', \'min_pax\', this.value)"></td>'
+          + '" oninput="feeSet(' + i + ', \'min_pax\', this.value)"'
+          + ' onchange="feeSave()"></td>'
         + '<td><label class="st-toggle"><input type="checkbox" ' + (Number(r.active) === 1 ? 'checked' : '')
-          + ' onchange="feeSet(' + i + ', \'active\', this.checked ? 1 : 0)">'
+          + ' onchange="feeSetAndSave(' + i + ', \'active\', this.checked ? 1 : 0)">'
           + '<span class="st-toggle-slider"></span></label></td>'
         + '<td><button class="st-btn" type="button" onclick="feeRemove(' + i + ')" title="Fjern regel">×</button></td>'
         + '</tr>';
@@ -3115,6 +3115,13 @@ function _feeWarn() {
   }
 }
 
+/** Sæt et felt OG gem. Bruges hvor ændringen er en beslutning (tænd/sluk), ikke
+ *  en indtastning man er midt i. */
+async function feeSetAndSave(i, field, value) {
+  feeSet(i, field, value);
+  await feeSave();
+}
+
 function feeSet(i, field, value) {
   if (!_feeRules[i]) return;
   if (field === 'min_pax') _feeRules[i].min_pax = (value === '' ? null : Number(value));
@@ -3151,6 +3158,7 @@ function feeAddSelected() {
   _feeRules.push({ id: id, recipe_id: Number(rec.id), min_pax: 11, active: 0 });
   _feeRender();
   feeToggleAdd(false);   // ærindet er ovre — fold vælgeren væk igen
+  feeSave();             // ny regel er slukket, så det er trygt at gemme straks
 }
 
 function feeRemove(i) {
@@ -3162,6 +3170,7 @@ function feeRemove(i) {
     + 'Gebyrer der allerede er lagt på bons bliver stående.')) return;
   _feeRules.splice(i, 1);
   _feeRender();
+  feeSave();
 }
 
 async function feeSave() {
@@ -3178,6 +3187,7 @@ async function feeSave() {
     if (el) {
       el.style.color = 'var(--color-success,#2e7d32)';
       el.textContent = 'Gemt — gælder fra næste bon der bliver leveret.';
+      el.dataset.saved = '1';
       setTimeout(_feeWarn, 5000);
     }
   } catch (e) {
