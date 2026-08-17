@@ -116,24 +116,35 @@ async function send(receipt, userName) {
         data,
     };
 
-    // Efterregistrering: er bilaget modtaget en anden dag end i dag, skal
-    // Whiteboard bruge DEN dato i FVST-loggen. Uden feltet stempler tavlen
-    // datetime('now'), og en følgeseddel fra juli ville stå som august.
-    // Datoen på et egenkontrol-bilag er ikke pynt — det er hele pointen.
+    // occurred_at: hvornår varen blev modtaget. Sendes ALTID.
     //
-    // Sendes KUN når bilaget rent faktisk er baguddateret. Ved en almindelig
-    // modtagelse er "nu" det rigtigste tidspunkt, og så skal klokkeslættet
-    // ikke rundes til middag.
+    // Første udgave sendte det kun når bilaget var baguddateret, ud fra at
+    // "nu" ellers er det rigtige tidspunkt og tavlens datetime('now') derfor
+    // ramte plet. Det holder kun når kaldet sker i samme sekund som
+    // registreringen. Ved en gensendelse — efter nedetid, efter en fejl, efter
+    // en login-gate der slugte sytten bilag — er "nu" uger forkert. Ti
+    // modtagelser tilbage til 18. maj landede som 17. august i FVST-loggen.
     //
-    // Testen går mod created_at og ikke mod dagens dato: de to kolonner
-    // skrives af samme sætning ved en normal modtagelse, så de er ens uanset
-    // tidszone. Sammenlignede vi med todayISO(), ville en modtagelse mellem
-    // midnat og kl. 2 se baguddateret ud — received_at står i UTC, hvor det
-    // stadig er i går.
-    const receivedDate = (receipt.received_at || '').slice(0, 10);
-    const createdDate  = (receipt.created_at  || '').slice(0, 10);
-    if (receivedDate && createdDate && receivedDate !== createdDate) {
-        payload.occurred_at = receivedDate;
+    // Afsenderen kender tidspunktet. Så send det, hver gang.
+    //
+    // To formater, fordi received_at bærer to slags sandhed:
+    //   baguddateret  → kun datoen. Klokkeslættet er opdigtet (12:00 sat af
+    //                   POST-ruten), og tavlen sætter selv middag så datoen
+    //                   lander rigtigt i begge tidszoner.
+    //   almindelig    → hele tidsstemplet. Kolonnen er skrevet af SQLites
+    //                   CURRENT_TIMESTAMP og er altså UTC, deraf 'Z'.
+    //
+    // Skelnen sker mod created_at, ikke mod dagens dato: de to kolonner
+    // skrives af samme sætning ved en almindelig modtagelse, så de er ens
+    // uanset tidszone. Sammenlignede vi med todayISO(), ville en modtagelse
+    // mellem midnat og kl. 2 se baguddateret ud.
+    const receivedRaw  = String(receipt.received_at || '');
+    const receivedDate = receivedRaw.slice(0, 10);
+    const createdDate  = String(receipt.created_at || '').slice(0, 10);
+    if (receivedDate) {
+        payload.occurred_at = (createdDate && receivedDate !== createdDate)
+            ? receivedDate
+            : receivedRaw.replace(' ', 'T') + 'Z';
     }
 
     let statusCode = null;

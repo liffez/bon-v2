@@ -162,10 +162,11 @@ const server = http.createServer((req, res) => {
         ok(logCount() === 3, 'netværksfejlen logges så den kan ses i Settings');
     }
 
-    console.log('\n── Baguddateret bilag bærer sin egen dato ──');
-    // Whiteboard stempler datetime('now') på alt den modtager. Uden occurred_at
-    // ville syv følgesedler fra juli stå i FVST-loggen som den dag de blev
-    // tastet ind. Datoen på et egenkontrol-bilag er hele pointen med bilaget.
+    console.log('\n── Bilaget bærer altid sin egen dato ──');
+    // Whiteboard stempler datetime('now') på alt uden occurred_at. Første udgave
+    // sendte feltet KUN ved baguddatering — det holdt så længe kaldet skete i
+    // samme sekund som registreringen, men ved en gensendelse uger senere fik ti
+    // modtagelser tilbage til 18. maj gensendelsesdagen i FVST-loggen.
     resetSynced();
     replyStatus = 201;
     setUrl(url);
@@ -177,20 +178,27 @@ const server = http.createServer((req, res) => {
         };
 
         let p = await send('2026-08-11 09:00:00', '2026-08-11 09:00:00');
-        ok(!('occurred_at' in p), 'almindelig modtagelse sender ingen occurred_at');
+        ok(p.occurred_at === '2026-08-11T09:00:00Z',
+            'almindelig modtagelse sender hele tidsstemplet som UTC');
 
         p = await send('2026-07-14 12:00:00', '2026-08-11 21:30:00');
-        ok(p.occurred_at === '2026-07-14', 'baguddateret bilag sender modtagedatoen, ikke indtastningsdagen');
+        ok(p.occurred_at === '2026-07-14',
+            'baguddateret bilag sender KUN datoen — klokkeslættet er opdigtet');
 
         // received_at og created_at skrives af samme sætning ved en normal
         // modtagelse, så de er ens uanset tidszone. Sammenlignede vi i stedet
         // med dagens danske dato, ville en modtagelse mellem midnat og kl. 2
         // se baguddateret ud — kolonnerne står i UTC, hvor det stadig er i går.
         p = await send('2026-08-10 22:30:00', '2026-08-10 22:30:00');
-        ok(!('occurred_at' in p), 'modtagelse efter midnat dansk tid regnes ikke som baguddateret');
+        ok(p.occurred_at === '2026-08-10T22:30:00Z',
+            'modtagelse efter midnat dansk tid regnes ikke som baguddateret');
 
         p = await send('2026-07-14 12:00:00', null);
-        ok(!('occurred_at' in p), 'uden created_at gættes der ikke — den gamle adfærd beholdes');
+        ok(p.occurred_at === '2026-07-14T12:00:00Z',
+            'uden created_at gættes der ikke på baguddatering — tidsstemplet sendes som det er');
+
+        p = await send(null, null);
+        ok(!('occurred_at' in p), 'uden received_at sendes intet — tavlen stempler selv');
     }
 
     console.log('\n── En omdirigering er ikke en succes ──');

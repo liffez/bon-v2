@@ -188,10 +188,11 @@ async function verifyAgainstWhiteboard(db, postUrl) {
 
     // Tavlen kan sagtens have registreringer fra sin egen formular; de har
     // intet bon_v2_receipt_id og siger derfor intet om vores bilag.
-    const arrived = new Set();
+    // Vi gemmer tidsstemplet med, så vi også kan se om datoen er rigtig.
+    const arrived = new Map();   // receipt_id → tavlens ts
     for (const e of events) {
         const id = e?.data?.bon_v2_receipt_id;
-        if (id != null) arrived.add(Number(id));
+        if (id != null) arrived.set(Number(id), String(e.ts || ''));
     }
 
     if (events.length && arrived.size === 0) {
@@ -218,18 +219,37 @@ async function verifyAgainstWhiteboard(db, postUrl) {
     sql += ` ORDER BY received_at`;
 
     const flagged = db.prepare(sql).all(...params);
-    const ghosts  = flagged.filter(r => !arrived.has(r.id));
 
-    console.log(`${flagged.length} bilag står som sendt. ${ghosts.length} af dem findes ikke i tavlen.\n`);
+    // To slags problemer, samme rettelse: ryd flaget så gensendelsen fanger dem.
+    //   mangler  — bilaget nåede aldrig frem
+    //   forkert dato — det nåede frem, men står på en anden dag end det blev
+    //                  modtaget. Sådan så de ud efter en gensendelse dengang
+    //                  webhooken kun sendte datoen ved baguddatering.
+    const ghosts   = [];
+    const misdated = [];
+    for (const r of flagged) {
+        const boardTs = arrived.get(r.id);
+        if (boardTs === undefined) { ghosts.push(r); continue; }
+        const ours  = String(r.received_at || '').slice(0, 10);
+        const board = boardTs.slice(0, 10);
+        if (ours && board && ours !== board) misdated.push({ ...r, board_date: board });
+    }
 
-    if (!ghosts.length) {
-        console.log('Intet at rydde — alt der står som sendt er nået frem.');
+    const total = ghosts.length + misdated.length;
+    console.log(`${flagged.length} bilag står som sendt. ` +
+                `${ghosts.length} findes ikke i tavlen, ${misdated.length} står på en forkert dato.\n`);
+
+    if (!total) {
+        console.log('Intet at rydde — alt der står som sendt er nået frem med den rigtige dato.');
         return;
     }
 
     for (const r of ghosts) {
-        console.log(`  ${r.receipt_number}  ${String(r.received_at).slice(0, 16)}  ` +
-                    `${r.supplier_name}  (stemplet sendt ${String(r.whiteboard_synced_at).slice(0, 16)})`);
+        console.log(`  mangler        ${r.receipt_number}  ${String(r.received_at).slice(0, 16)}  ${r.supplier_name}`);
+    }
+    for (const r of misdated) {
+        console.log(`  forkert dato   ${r.receipt_number}  modtaget ${String(r.received_at).slice(0, 10)}  ` +
+                    `— står som ${r.board_date}  ${r.supplier_name}`);
     }
 
     if (!apply) {
@@ -238,10 +258,13 @@ async function verifyAgainstWhiteboard(db, postUrl) {
     }
 
     const stmt = db.prepare(`UPDATE goods_receipts SET whiteboard_synced_at = NULL WHERE id = ?`);
-    for (const r of ghosts) stmt.run(r.id);
+    for (const r of [...ghosts, ...misdated]) stmt.run(r.id);
 
-    console.log(`\n${ghosts.length} flag ryddet. Send dem med:`);
+    console.log(`\n${total} flag ryddet. Send dem med:`);
     console.log('  node --experimental-sqlite scripts/resend-goods-receipt-webhooks.js --apply');
+    if (misdated.length) {
+        console.log('\nDe forkert daterede rettes på plads i tavlen — der kommer ingen dubletter.');
+    }
 }
 
 
