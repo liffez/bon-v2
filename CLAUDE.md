@@ -2402,17 +2402,26 @@ gør umuligt i drift.
 > `economic_product_number` ikke findes. Verificeret mod en kopi af driftsdata + et
 > Grocy-snapshot; kopien er slettet efter brug.
 
-**Efter deploy — målt mod grocy-hq 17. august:** 74 af 429 fakturerbare bons i 2026
-blokerer. Otte opskrifter mangler et varenr — **50** Receptions Skinner · **75**
-Glutenfri Bolle · **95** Glutenfri Bolle slider · **133** Trøflen – slider · **104**
-crossiant · **134** Falafel Bowl · **71**/**72** Børne Boks Delle/Fisk — og fire
-**fritekst-linjer uden opskrift** (Fingergrønt, Müslibar, Kage, Peanuts) kan pr.
-konstruktion ikke stå på en opskrift-liste. De hører til engangsvaren (varenr 111),
-men **knappen findes ikke i UI'et** — se "ikke bygget" nedenfor.
+**Koblingsarbejdet er gjort (17. august).** Rapporten fandt først **74 af 429**
+fakturerbare bons i 2026 blokeret. Ni opskrifter blev koblet i grocy-hq — Receptions
+Skinner (50 + 82), Glutenfri Bolle (75 → varenr 25, ikke scriptets gæt 94), Glutenfri
+Bolle slider (95), begge Børne Bokse (71/72), crossiant (104) og de to Kartoflen-One
+planet (152/154). **Tilbage: 10 bons**, og ingen af dem kan kobles:
 
-`163 Cookie knæk` viser beløbsreglen virke efter hensigten: opskriften er oprettet
-efter listen blev seedet, står ikke på den, og udelades alligevel korrekt fordi
-linjen er 0 kr. En ufuldstændig liste vælter altså ikke faktureringen.
+- **133** Trøflen – slider og **134** Falafel Bowl er **slettet i Grocy** (404).
+- Fire **fritekst-linjer uden opskrift** — Fingergrønt, Müslibar, Kage, Peanuts.
+
+Alle seks faktureres via engangsbeløb-knappen. Det var netop dét tilfælde der gjorde
+knappen nødvendig frem for teoretisk.
+
+To ting fra samme runde, værd at kende:
+
+- **`133` optræder i BEGGE lister** — den blokerer på 6 bons hvor den bærer 2.793 kr,
+  og udelades på 1 bon hvor den står til 0 kr. Samme opskrift, to udfald. Det er
+  beløbsreglen, og kategorien kunne aldrig have skilt dem ad.
+- **`163 Cookie knæk`** viser reglen bære en ufuldstændig liste: opskriften er oprettet
+  efter listen blev seedet, står ikke på den, og udelades alligevel korrekt fordi linjen
+  er 0 kr.
 
 **Ikke bygget:** Settings-UI til listen — "faktureres ikke" pr. vare hører hjemme på
 koblings-siden (#440). Indtil da kræver en ændring SQL, men beløbsreglen betyder at en
