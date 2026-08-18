@@ -1337,11 +1337,11 @@ function _ibRenderLinkPanel(entry) {
     if (hasHoka) {
         h += '<div class="ib-lp-block">';
         h += '<div class="ib-lp-note">' +
-             (isHokaGroup ? 'Slå op i Hørkram-kataloget:'
-                          : 'Køber du den hos Hørkram i stedet? Slå op i deres katalog:') +
+             (isHokaGroup ? 'Slå op i ' + _ibEsc(_ibCatalogName()) + '-kataloget:'
+                          : 'Køber du den hos ' + _ibEsc(_ibCatalogName()) + ' i stedet? Slå op i deres katalog:') +
              '</div>';
         h += '<div class="ib-lp-row">';
-        h += '<input class="ib-lp-inp" placeholder="Søg produktnavn eller Hørkram-varenr..."' +
+        h += '<input class="ib-lp-inp" placeholder="Søg produktnavn eller varenr. hos ' + _ibEsc(_ibCatalogName()) + '..."' +
              ' data-ib="lp-input" data-product-id="' + pid + '" value="' + _ibEsc(entry.product.name || '') + '">';
         h += '<button class="ib-lp-btn" data-ib="lp-search" data-product-id="' + pid + '">Søg</button>';
         h += '</div>';
@@ -1371,14 +1371,35 @@ function _ibSupplierLabelForLocation(locId) {
     return _ibLocations[locId] ? _ibLocations[locId].name : '';
 }
 
-/* Hørkram-lokationen (første api-handelssted) — null hvis ingen er koblet. */
-function _ibHokaLocationId() {
+/*
+ * Leverandøren med et søgbart katalog (integration_type 'api'). Mekanikken har
+ * altid været generisk — det var kun teksten der sagde "Hørkram". Bon skal kunne
+ * køre hos et køkken med en anden grossist, og så må skærmen ikke påstå vores.
+ * Ét katalog ad gangen: adapteren (routes/horkram.js) er stadig leverandør-
+ * specifik, så vi udnævner det første api-handelssted.
+ */
+function _ibCatalogSupplier() {
     for (var i = 0; i < _ibHandelssteder.length; i++) {
-        if (_ibHandelssteder[i].integration_type === 'api' && _ibHandelssteder[i].grocy_location_id) {
-            return _ibHandelssteder[i].grocy_location_id;
+        var hs = _ibHandelssteder[i];
+        if (hs.integration_type === 'api' && hs.grocy_location_id) {
+            return {
+                locationId: hs.grocy_location_id,
+                name: hs.supplier_name || hs.grocy_location_display_name || 'leverandøren',
+            };
         }
     }
     return null;
+}
+
+function _ibCatalogName() {
+    var c = _ibCatalogSupplier();
+    return c ? c.name : 'leverandøren';
+}
+
+/* Katalog-leverandørens lokation — null hvis ingen er koblet. */
+function _ibHokaLocationId() {
+    var c = _ibCatalogSupplier();
+    return c ? c.locationId : null;
 }
 
 /* Åbn panelet med et eksisterende varenummer i feltet. */
@@ -2346,7 +2367,7 @@ async function _ibLinkSearch(productId) {
     var q = inp.value.trim();
     if (!q) return;
 
-    resultsEl.innerHTML = '<div class="ib-lp-loading">Søger i Hørkram-katalog...</div>';
+    resultsEl.innerHTML = '<div class="ib-lp-loading">Søger i ' + _ibEsc(_ibCatalogName()) + '-katalog...</div>';
 
     // Search favorites first
     var favResults = [];
@@ -2366,10 +2387,10 @@ async function _ibLinkSearch(productId) {
         console.warn('[indkob] hoka search fejl:', e.message);
     }
 
-    var html = '<div class="ib-lp-source">Søgning i Hørkram-katalog (hoka.dk)</div>';
+    var html = '<div class="ib-lp-source">Søgning i ' + _ibEsc(_ibCatalogName()) + '-katalog</div>';
 
     if (favResults.length) {
-        html += '<div class="ib-lp-note" style="margin-top:6px">Fra dine Hørkram-favoritter:</div>';
+        html += '<div class="ib-lp-note" style="margin-top:6px">Fra dine favoritter hos ' + _ibEsc(_ibCatalogName()) + ':</div>';
         for (var f = 0; f < favResults.length; f++) {
             html += _ibRenderLinkResult(favResults[f], productId, true);
         }
@@ -2383,7 +2404,7 @@ async function _ibLinkSearch(productId) {
     }
 
     if (!favResults.length && !catalogResults.length) {
-        html = '<div class="ib-lp-loading">Ingen resultater for "' + _ibEsc(q) + '" i Hørkram-katalog</div>';
+        html = '<div class="ib-lp-loading">Ingen resultater for "' + _ibEsc(q) + '" i ' + _ibEsc(_ibCatalogName()) + '-katalog</div>';
     }
 
     resultsEl.innerHTML = html;
