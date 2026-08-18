@@ -194,6 +194,15 @@
     padding: 4px 8px; border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 6px; font-size: 12px; font-family: inherit; background: #fff;
 }
+.is-gloc-nm {
+    width: 150px; padding: 4px 8px; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px; font-size: 12px; font-family: inherit; background: #fff;
+}
+.is-gloc-nm::placeholder { color: var(--color-text-dim, #999); font-style: italic; }
+.is-gloc-help {
+    font-size: 11px; color: var(--color-text-dim, #777);
+    line-height: 1.45; margin: -4px 0 10px;
+}
 
 /* ── PRODUCT TABLE (Tab 2) ── */
 .is-col-picker {

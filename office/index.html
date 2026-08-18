@@ -1144,7 +1144,7 @@
             if (typeof initIndkob === 'function') initIndkob(contentEl);
             else contentEl.innerHTML = '<div style="padding:24px;color:#888">Indkøbsmodul ikke indlæst</div>';
           },
-          cleanup: () => {},
+          cleanup: () => { if (typeof cleanupIndkob === 'function') cleanupIndkob(); },
         },
         'indkob-lev': {
           init: () => {

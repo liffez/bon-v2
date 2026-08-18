@@ -46,6 +46,11 @@ var _ibCartItems       = [];
 var _ibShowOrdered     = {};
 var _ibPanelOpen       = null;  // 'missing'|'expiring'|null
 var _ibLinkPanelId     = null;
+/* Det man har tastet i kobl-panelet, holdt uden for DOM'en. _ibRender() bygger
+   hele listen forfra — og efterslæbet (snapshots, favoritter, leverandørpost)
+   udløser en render sekunder efter at panelet er åbnet. Uden dette forsvinder
+   teksten mens man skriver; fokus og markør blev gendannet, men ikke værdien. */
+var _ibLinkDraft       = {};
 var _ibMoOpen          = null;
 var _ibBusy            = false;
 var _ibFocusGroup      = null;  // grocy_location_id in focus mode
@@ -54,6 +59,12 @@ var _ibSearchTerm      = '';
 var _ibToastTimer      = null;
 var _ibSSE             = null;
 var _ibViewMode        = 'combined';  // 'combined' (efter kategori) | 'order' (efter leverandør)
+
+/* Kaldes af view-switcheren når indkøbslisten forlades. Slipper containeren,
+   så igangværende async-arbejde ikke skriver i den næste visning. */
+function cleanupIndkob() {
+    _ibContainer = null;
+}
 
 /* ── Init ──────────────────────────────────────────────────── */
 async function initIndkob(el) {
@@ -72,6 +83,7 @@ async function initIndkob(el) {
         _ibContainer.addEventListener('click', _ibHandleClick);
         _ibContainer.addEventListener('input', _ibHandleInput);
         _ibContainer.addEventListener('change', _ibHandleInput);
+        _ibContainer.addEventListener('keydown', _ibHandleKeydown);
 
         _ibRender();
 
@@ -133,6 +145,7 @@ async function initIndkob(el) {
         }
     } catch (err) {
         console.error('[indkob] init fejl:', err);
+        if (!_ibContainer) return;
         _ibContainer.innerHTML = '<div class="ib-empty"><div class="ib-empty-icon">⚠️</div>'
             + '<div class="ib-empty-title">Kunne ikke indlæse indkøbsdata</div>'
             + '<div class="ib-empty-sub">' + (err.message || 'Ukendt fejl') + '</div></div>';
@@ -534,10 +547,16 @@ function _ibChipLabel(bc) {
 
 /* ── Render ────────────────────────────────────────────────── */
 function _ibShowLoading() {
+    if (!_ibContainer) return;
     _ibContainer.innerHTML = '<div class="ib-loading"><div class="ib-loading-spinner"></div><div>Indlæser indkøbsliste...</div></div>';
 }
 
 function _ibRender() {
+    // Afmonteret? Så hører vi ikke længere til i containeren. initIndkob's
+    // efterslæb (snapshots, favoritter, leverandørpost, SSE) fyrer LÆNGE efter
+    // at brugeren kan have skiftet visning — og contentEl genbruges af alle
+    // office-views, så en sen render ville overskrive den visning der står der nu.
+    if (!_ibContainer) return;
     var html = '';
 
     // Toolbar
@@ -628,7 +647,8 @@ function _ibRender() {
             var varenr = this.getAttribute('data-varenr');
             var name = this.getAttribute('data-name');
             var pid = this.closest('[data-lp-product]').getAttribute('data-lp-product');
-            _ibLinkBarcode(parseInt(pid), varenr, name);
+            // Hørkram-resultat ⇒ Hørkram-lokationen (se _ibRenderLinkPanel).
+            _ibLinkBarcode(parseInt(pid), varenr, name, _ibHokaLocationId());
         });
     });
 
@@ -854,6 +874,7 @@ function _ibRenderPanels() {
 }
 
 function _ibRenderPanelBadges() {
+    if (!_ibContainer) return;
     // Update badge counts in toolbar without full re-render
     var misBtn = _ibContainer.querySelector('[data-ib="toggle-missing"]');
     if (misBtn) {
@@ -1231,17 +1252,95 @@ function _ibGetBadges(entry) {
 }
 
 /* ── Link panel ────────────────────────────────────────────── */
+/*
+ * To veje, fordi de fører til hver sit sted:
+ *
+ *  1. Hørkram-søgning  → nummeret hører til Hørkrams katalog, så stregkoden
+ *     lægges på Hørkram-lokationen. Kun sådan kan varen lægges i deres kurv —
+ *     også når produktet i øvrigt hører til en anden gruppe (fx Emballage).
+ *  2. Leverandørens eget varenummer → lægges på DENNE gruppes lokation.
+ *     Feltet er fri tekst, for en leverandør uden katalog har ofte ikke et
+ *     nummer, men en fast betegnelse ("Hvide servietter 33x33") som er dét
+ *     man skriver i bestillingsmailen.
+ *
+ * INT-nummeret er nødløsningen når der hverken findes nummer eller betegnelse.
+ */
 function _ibRenderLinkPanel(entry) {
-    var h = '<div class="ib-lp" data-lp-product="' + entry.product.id + '">';
-    h += '<div class="ib-lp-note">Søg i Hørkram-katalog eller indtast varenr. — eller generer et internt nummer:</div>';
+    var pid = entry.product.id;
+    var group = _ibGroups[_ibFindGroupForEntry(entry)] || {};
+    var supLabel = group.displayName || group.supplierName || 'denne leverandør';
+    var isHokaGroup = group.integrationType === 'api';
+    var hasHoka = !!_ibHokaLocationId();
+
+    var h = '<div class="ib-lp" data-lp-product="' + pid + '">';
+
+    // ── Leverandørens eget varenummer ──
+    h += '<div class="ib-lp-block">';
+    h += '<div class="ib-lp-note"><b>Varenummer hos ' + _ibEsc(supLabel) + '</b>' +
+         ' — nummer eller den betegnelse du skriver i bestillingen.</div>';
     h += '<div class="ib-lp-row">';
-    h += '<input class="ib-lp-inp" placeholder="Varenr. eller søg produktnavn..." data-ib="lp-input" data-product-id="' + entry.product.id + '" value="' + _ibEsc(entry.product.name || '') + '">';
-    h += '<button class="ib-lp-btn" data-ib="lp-search" data-product-id="' + entry.product.id + '">Søg</button>';
-    h += '<button class="ib-lp-btn" style="background:#5040b0;border-color:#5040b0" data-ib="lp-gen-int" data-product-id="' + entry.product.id + '">INT-nr</button>';
+    h += '<input class="ib-lp-inp" placeholder="fx 4471 eller Hvide servietter 33x33"' +
+         ' data-ib="lp-varenr" data-product-id="' + pid + '"' +
+         ' value="' + _ibEsc(_ibLinkDraft[pid] || '') + '">';
+    h += '<button class="ib-lp-btn" data-ib="lp-save-varenr" data-product-id="' + pid + '">Gem</button>';
     h += '</div>';
-    h += '<div data-ib="lp-results" data-product-id="' + entry.product.id + '"></div>';
+    h += '<div class="ib-lp-msg" data-ib="lp-msg" data-product-id="' + pid + '"></div>';
+    h += '</div>';
+
+    // ── Hørkram-katalog ── (kun når der ER en Hørkram-kobling at lægge det på)
+    if (hasHoka) {
+        h += '<div class="ib-lp-block">';
+        h += '<div class="ib-lp-note">' +
+             (isHokaGroup ? 'Slå op i Hørkram-kataloget:'
+                          : 'Køber du den hos Hørkram i stedet? Slå op i deres katalog:') +
+             '</div>';
+        h += '<div class="ib-lp-row">';
+        h += '<input class="ib-lp-inp" placeholder="Søg produktnavn eller Hørkram-varenr..."' +
+             ' data-ib="lp-input" data-product-id="' + pid + '" value="' + _ibEsc(entry.product.name || '') + '">';
+        h += '<button class="ib-lp-btn" data-ib="lp-search" data-product-id="' + pid + '">Søg</button>';
+        h += '</div>';
+        h += '<div data-ib="lp-results" data-product-id="' + pid + '"></div>';
+        h += '</div>';
+    }
+
+    // ── Nødløsning ──
+    h += '<div class="ib-lp-foot">Har varen hverken nummer eller fast betegnelse? ' +
+         '<button class="ib-lp-link" data-ib="lp-gen-int" data-product-id="' + pid + '">' +
+         'Generer et internt nummer</button></div>';
+
     h += '</div>';
     return h;
+}
+
+/* Hørkram-lokationen (første api-handelssted) — null hvis ingen er koblet. */
+function _ibHokaLocationId() {
+    for (var i = 0; i < _ibHandelssteder.length; i++) {
+        if (_ibHandelssteder[i].integration_type === 'api' && _ibHandelssteder[i].grocy_location_id) {
+            return _ibHandelssteder[i].grocy_location_id;
+        }
+    }
+    return null;
+}
+
+/* Gemmer leverandørens eget varenummer på gruppens egen lokation. */
+async function _ibSaveFreeVarenr(productId) {
+    var inp = _ibContainer && _ibContainer.querySelector('[data-ib="lp-varenr"][data-product-id="' + productId + '"]');
+    var msgEl = _ibContainer && _ibContainer.querySelector('[data-ib="lp-msg"][data-product-id="' + productId + '"]');
+    if (!inp) return;
+
+    var varenr = inp.value.trim();
+    if (!varenr) {
+        if (msgEl) msgEl.innerHTML = '<span class="ib-lp-err">Skriv varenummeret eller betegnelsen først</span>';
+        inp.focus();
+        return;
+    }
+
+    var entry = _ibFindEntry(productId);
+    if (!entry) return;
+    var groupKey = _ibFindGroupForEntry(entry);
+    var locId = parseInt(groupKey) || null;
+
+    await _ibLinkBarcode(productId, varenr, entry.product.name || '', locId, msgEl);
 }
 
 /* ── Manual order dialog ───────────────────────────────────── */
@@ -1455,12 +1554,22 @@ function _ibHandleClick(e) {
             break;
 
         case 'open-link':
+            if (_ibLinkPanelId === parseInt(productId)) delete _ibLinkDraft[productId];
             _ibLinkPanelId = _ibLinkPanelId === parseInt(productId) ? null : parseInt(productId);
             _ibRender();
+            // Fokus i varenr-feltet: panelet åbnes netop for at skrive dér.
+            if (_ibLinkPanelId) {
+                var inp = _ibContainer.querySelector('[data-ib="lp-varenr"][data-product-id="' + productId + '"]');
+                if (inp) inp.focus();
+            }
             break;
 
         case 'skip-item':
             e.target.closest('.ib-item').style.opacity = '0.3';
+            break;
+
+        case 'lp-save-varenr':
+            _ibSaveFreeVarenr(parseInt(productId));
             break;
 
         case 'lp-search':
@@ -1654,6 +1763,10 @@ function _ibHandleInput(e) {
         el._debounce = setTimeout(function() { _ibAddProductAutocomplete(el.value); }, 200);
         return;
     }
+    if (el.getAttribute('data-ib') === 'lp-varenr') {
+        _ibLinkDraft[el.getAttribute('data-product-id')] = el.value;
+        return;
+    }
     if (el.getAttribute('data-ib') === 'qty-input') {
         var pid = el.getAttribute('data-product-id');
         var entry = _ibFindEntry(pid);
@@ -1661,6 +1774,19 @@ function _ibHandleInput(e) {
             entry.qty = Math.max(0, parseInt(el.value) || 0);
         }
     }
+}
+
+/* Enter i kobl-panelets felter gør det knappen ved siden af gør. Uden det
+   indsender Enter ingenting, og man skal ramme knappen med musen. */
+function _ibHandleKeydown(e) {
+    if (e.key !== 'Enter') return;
+    var el = e.target;
+    var action = el.getAttribute && el.getAttribute('data-ib');
+    if (action !== 'lp-varenr' && action !== 'lp-input') return;
+    e.preventDefault();
+    var pid = parseInt(el.getAttribute('data-product-id'));
+    if (action === 'lp-varenr') _ibSaveFreeVarenr(pid);
+    else _ibLinkSearch(pid);
 }
 
 /* ── Actions ───────────────────────────────────────────────── */
@@ -2033,7 +2159,9 @@ async function _ibLinkSearch(productId) {
         btn.addEventListener('click', function() {
             var varenr = this.getAttribute('data-varenr');
             var name = this.getAttribute('data-name');
-            _ibLinkBarcode(productId, varenr, name);
+            // Fra Hørkrams katalog ⇒ Hørkram-lokationen, så varen kan lægges
+            // i deres kurv uanset hvilken gruppe produktet ellers hører til.
+            _ibLinkBarcode(productId, varenr, name, _ibHokaLocationId());
         });
     });
 }
@@ -2051,39 +2179,28 @@ function _ibRenderLinkResult(item, productId, isFav) {
     return h;
 }
 
-async function _ibLinkBarcode(productId, varenr, name) {
+/*
+ * locationId er nu et ARGUMENT, ikke et gæt. Tidligere blev et rent numerisk
+ * varenummer tvunget over på Hørkram-lokationen — hvilket er rigtigt for et
+ * nummer der KOMMER fra Hørkrams katalog, men forkert for enhver anden
+ * leverandør der også bruger tal. Kalderen ved hvor nummeret kommer fra; det
+ * gør denne funktion ikke.
+ */
+async function _ibLinkBarcode(productId, varenr, name, locationId, msgEl) {
     if (_ibBusy) return;
     _ibBusy = true;
 
     try {
-        // Determine shopping_location_id:
-        // If varenr is numeric (Hørkram catalog), use the first Hørkram shopping_location
-        // so the barcode lands in the right group and can be added to cart.
-        // Otherwise (INT-nr), use the current group's location.
-        var entry = _ibFindEntry(productId);
-        var groupKey = _ibFindGroupForEntry(entry);
-        var locId = parseInt(groupKey) || null;
-
-        var isNumericVarenr = /^\d+$/.test(String(varenr));
-        if (isNumericVarenr) {
-            // Find first Hørkram shopping_location
-            for (var hi = 0; hi < _ibHandelssteder.length; hi++) {
-                if (_ibHandelssteder[hi].integration_type === 'api' && _ibHandelssteder[hi].grocy_location_id) {
-                    locId = _ibHandelssteder[hi].grocy_location_id;
-                    break;
-                }
-            }
-        }
-
         await createProductBarcode({
             product_id: parseInt(productId),
             barcode: String(varenr),
-            shopping_location_id: locId,
+            shopping_location_id: locationId || null,
             note: name,
         });
 
         _ibLinkPanelId = null;
-        _ibToast('Barcode koblet: ' + name);
+        delete _ibLinkDraft[productId];
+        _ibToast('Varenr. ' + varenr + ' koblet til ' + name);
 
         // Refresh
         _ibBarcodes = await fetchProductBarcodes();
@@ -2091,7 +2208,13 @@ async function _ibLinkBarcode(productId, varenr, name) {
         _ibRender();
         _ibEnrichSnapshots();
     } catch (err) {
-        _ibToast('Fejl: ' + (err.message || 'Kunne ikke koble'), true);
+        var dup = err.code === 'BARCODE_DUPLICATE' || err.status === 409;
+        var msg = dup ? 'Varenummeret er allerede koblet til en vare'
+                      : (err.message || 'Kunne ikke koble');
+        // Panelet er stadig åbent — vis fejlen dér, ikke kun i en toast der
+        // forsvinder af sig selv mens man står med varen.
+        if (msgEl) msgEl.innerHTML = '<span class="ib-lp-err">' + _ibEsc(msg) + '</span>';
+        _ibToast(msg, true);
     } finally {
         _ibBusy = false;
     }

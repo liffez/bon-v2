@@ -835,6 +835,21 @@ body.zone-office .ib-toolbar { top: 0; }
     font-family: inherit;
     font-weight: 700;
 }
+.ib-lp-block { margin-bottom: 12px; }
+.ib-lp-block:last-of-type { margin-bottom: 8px; }
+.ib-lp-note b { color: var(--color-text, #333); }
+.ib-lp-msg:empty { display: none; }
+.ib-lp-msg { margin-top: -4px; margin-bottom: 4px; }
+.ib-lp-err { font-size: 11px; color: #bc181b; font-weight: 700; }
+.ib-lp-foot {
+    font-size: 11px; color: var(--color-text-dim, #777);
+    padding-top: 8px; border-top: .5px solid var(--color-border-light, #e8e4e0);
+}
+.ib-lp-link {
+    background: none; border: none; padding: 0;
+    font-family: inherit; font-size: 11px; font-weight: 700;
+    color: var(--ib-purple, #5040b0); cursor: pointer; text-decoration: underline;
+}
 .ib-lp-source { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--color-text-dim, #999); margin-bottom: 8px; }
 .ib-lp-note { font-size: 11px; color: var(--color-text-dim, #777); margin-bottom: 6px; }
 .ib-lp-note a { color: var(--brand-primary); font-weight: 700; }
