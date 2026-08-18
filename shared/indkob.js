@@ -51,6 +51,9 @@ var _ibLinkPanelId     = null;
    udløser en render sekunder efter at panelet er åbnet. Uden dette forsvinder
    teksten mens man skriver; fokus og markør blev gendannet, men ikke værdien. */
 var _ibLinkDraft       = {};
+/* Sat når panelet retter et EKSISTERENDE varenummer (chippens ✎) i stedet for
+   at lægge et nyt til. Holder barcode-id'et, ikke produktets. */
+var _ibLinkEditBcId    = null;
 var _ibMoOpen          = null;
 var _ibBusy            = false;
 var _ibFocusGroup      = null;  // grocy_location_id in focus mode
@@ -1119,6 +1122,8 @@ function _ibRenderItem(entry, group, showSupplier) {
             h += '<button class="ib-cp-star' + (uf.is_preferred === '1' ? ' on' : '') + '"' +
                  ' data-ib="toggle-preferred" data-product-id="' + p.id + '" data-bc-id="' + bc.id + '"' +
                  ' title="' + (uf.is_preferred === '1' ? 'Fjern som foretrukken' : 'Gør til foretrukken leverandør for denne vare') + '">★</button>';
+            h += '<button class="ib-cp-edit" data-ib="edit-varenr" data-product-id="' + p.id + '"' +
+                 ' data-bc-id="' + bc.id + '" title="Ret eller fjern dette varenummer">✎</button>';
             h += '</div>';
             h += '<div class="ib-cp-name">' + _ibEsc(_ibChipLabel(bc)) + '</div>';
 
@@ -1284,20 +1289,42 @@ function _ibRenderLinkPanel(entry) {
     var isHokaGroup = group.integrationType === 'api';
     var hasHoka = !!_ibHokaLocationId();
 
+    // Retter vi en eksisterende chip? Så hører nummeret til DEN chips leverandør,
+    // ikke til gruppens — de kan være forskellige (Hørkram-nummer i Serviwet-gruppen).
+    var editBc = null;
+    if (_ibLinkEditBcId) {
+        editBc = entry.barcodes.filter(function(b) { return b.id === _ibLinkEditBcId; })[0] || null;
+    }
+    if (editBc) {
+        supLabel = _ibSupplierLabelForLocation(editBc.shopping_location_id) || supLabel;
+    }
+
     var h = '<div class="ib-lp" data-lp-product="' + pid + '">';
 
     // ── Leverandørens eget varenummer ──
     h += '<div class="ib-lp-block">';
-    h += '<div class="ib-lp-note"><b>Varenummer hos ' + _ibEsc(supLabel) + '</b>' +
+    h += '<div class="ib-lp-note"><b>' + (editBc ? 'Ret varenummer hos ' : 'Varenummer hos ') + _ibEsc(supLabel) + '</b>' +
          ' — nummer eller den betegnelse du skriver i bestillingen.</div>';
     h += '<div class="ib-lp-row">';
     h += '<input class="ib-lp-inp" placeholder="fx 4471 eller Hvide servietter 33x33"' +
          ' data-ib="lp-varenr" data-product-id="' + pid + '"' +
          ' value="' + _ibEsc(_ibLinkDraft[pid] || '') + '">';
     h += '<button class="ib-lp-btn" data-ib="lp-save-varenr" data-product-id="' + pid + '">Gem</button>';
+    if (editBc) {
+        h += '<button class="ib-lp-btn danger" data-ib="lp-delete-varenr" data-product-id="' + pid + '"' +
+             ' data-bc-id="' + editBc.id + '">Fjern</button>';
+        h += '<button class="ib-lp-btn ghost" data-ib="lp-cancel-edit" data-product-id="' + pid + '">Annullér</button>';
+    }
     h += '</div>';
     h += '<div class="ib-lp-msg" data-ib="lp-msg" data-product-id="' + pid + '"></div>';
     h += '</div>';
+
+    // Under redigering giver hverken katalog-søgning eller INT-generering mening
+    // — begge ville lave et NYT nummer ved siden af det man er i gang med at rette.
+    if (editBc) {
+        h += '</div>';
+        return h;
+    }
 
     // ── Hørkram-katalog ── (kun når der ER en Hørkram-kobling at lægge det på)
     if (hasHoka) {
@@ -1345,6 +1372,69 @@ function _ibHokaLocationId() {
         }
     }
     return null;
+}
+
+/* Åbn panelet med et eksisterende varenummer i feltet. */
+function _ibOpenEditVarenr(productId, barcodeId) {
+    var entry = _ibFindEntry(productId);
+    if (!entry) return;
+    var bc = entry.barcodes.filter(function(b) { return b.id === barcodeId; })[0];
+    if (!bc) return;
+
+    // Samme chip igen ⇒ luk (samme toggle-adfærd som "+ Varenr.").
+    if (_ibLinkPanelId === productId && _ibLinkEditBcId === barcodeId) {
+        _ibLinkEditBcId = null;
+        _ibLinkPanelId = null;
+        delete _ibLinkDraft[productId];
+        _ibRender();
+        return;
+    }
+
+    _ibLinkPanelId = productId;
+    _ibLinkEditBcId = barcodeId;
+    _ibLinkDraft[productId] = bc.barcode || '';
+    _ibRender();
+    var inp = _ibContainer && _ibContainer.querySelector('[data-ib="lp-varenr"][data-product-id="' + productId + '"]');
+    if (inp) { inp.focus(); inp.select(); }
+}
+
+/* Fjern et varenummer helt. Varen mister leverandøren, ikke omvendt — så hvis
+   det var den sidste chip, falder varen tilbage til "Mangler barcode". */
+async function _ibDeleteVarenr(productId, barcodeId) {
+    if (_ibBusy) return;
+    var entry = _ibFindEntry(productId);
+    if (!entry) return;
+    var bc = entry.barcodes.filter(function(b) { return b.id === barcodeId; })[0];
+    if (!bc) return;
+
+    var sup = _ibSupplierLabelForLocation(bc.shopping_location_id);
+    var msg = 'Fjern varenummeret "' + bc.barcode + '"' + (sup ? ' hos ' + sup : '') +
+              ' fra ' + (entry.product.name || 'varen') + '?';
+    if (entry.barcodes.length === 1) {
+        msg += '\n\nDet er det eneste varenummer på varen — den kan ikke bestilles bagefter.';
+    }
+    if (!window.confirm(msg)) return;
+
+    var msgEl = _ibContainer && _ibContainer.querySelector('[data-ib="lp-msg"][data-product-id="' + productId + '"]');
+    _ibBusy = true;
+    try {
+        await deleteProductBarcode(barcodeId);
+        _ibLinkEditBcId = null;
+        _ibLinkPanelId = null;
+        delete _ibLinkDraft[productId];
+        _ibToast('Varenr. ' + bc.barcode + ' fjernet');
+
+        _ibBarcodes = await fetchProductBarcodes();
+        _ibBuildGroups();
+        _ibRender();
+        _ibEnrichSnapshots();
+    } catch (err) {
+        var t = 'Kunne ikke fjerne: ' + (err.message || '');
+        if (msgEl) msgEl.innerHTML = '<span class="ib-lp-err">' + _ibEsc(t) + '</span>';
+        _ibToast(t, true);
+    } finally {
+        _ibBusy = false;
+    }
 }
 
 /*
@@ -1404,10 +1494,57 @@ async function _ibSaveFreeVarenr(productId) {
 
     var entry = _ibFindEntry(productId);
     if (!entry) return;
+
+    // Rettelse af et eksisterende nummer — ikke et nyt ved siden af.
+    if (_ibLinkEditBcId) {
+        await _ibUpdateVarenr(productId, _ibLinkEditBcId, varenr, msgEl);
+        return;
+    }
+
     var groupKey = _ibFindGroupForEntry(entry);
     var locId = parseInt(groupKey) || null;
 
     await _ibLinkBarcode(productId, varenr, entry.product.name || '', locId, msgEl);
+}
+
+/* Ret et eksisterende varenummer. Lokationen røres ikke — det er stadig samme
+   leverandørs nummer, det er bare skrevet om. */
+async function _ibUpdateVarenr(productId, barcodeId, varenr, msgEl) {
+    if (_ibBusy) return;
+    var entry = _ibFindEntry(productId);
+    var bc = entry && entry.barcodes.filter(function(b) { return b.id === barcodeId; })[0];
+    if (!bc) return;
+
+    if (String(bc.barcode) === String(varenr)) {
+        _ibLinkEditBcId = null;
+        _ibLinkPanelId = null;
+        delete _ibLinkDraft[productId];
+        _ibRender();
+        return;
+    }
+
+    _ibBusy = true;
+    try {
+        await updateProductBarcode(barcodeId, { barcode: String(varenr) });
+
+        _ibLinkEditBcId = null;
+        _ibLinkPanelId = null;
+        delete _ibLinkDraft[productId];
+        _ibToast('Varenr. ændret til ' + varenr);
+
+        _ibBarcodes = await fetchProductBarcodes();
+        _ibBuildGroups();
+        _ibRender();
+        _ibEnrichSnapshots();
+    } catch (err) {
+        var dup = err.code === 'BARCODE_DUPLICATE' || err.status === 409;
+        var t = dup ? 'Varenummeret er allerede koblet til en vare'
+                    : (err.message || 'Kunne ikke gemme');
+        if (msgEl) msgEl.innerHTML = '<span class="ib-lp-err">' + _ibEsc(t) + '</span>';
+        _ibToast(t, true);
+    } finally {
+        _ibBusy = false;
+    }
 }
 
 /* ── Manual order dialog ───────────────────────────────────── */
@@ -1621,8 +1758,12 @@ function _ibHandleClick(e) {
             break;
 
         case 'open-link':
-            if (_ibLinkPanelId === parseInt(productId)) delete _ibLinkDraft[productId];
-            _ibLinkPanelId = _ibLinkPanelId === parseInt(productId) ? null : parseInt(productId);
+            // Stod panelet i rette-tilstand, skal "+ Varenr." lægge et NYT til —
+            // ikke fortsætte med at rette det forrige.
+            if (_ibLinkPanelId === parseInt(productId) && !_ibLinkEditBcId) delete _ibLinkDraft[productId];
+            if (_ibLinkEditBcId) delete _ibLinkDraft[productId];
+            _ibLinkPanelId = (_ibLinkPanelId === parseInt(productId) && !_ibLinkEditBcId) ? null : parseInt(productId);
+            _ibLinkEditBcId = null;
             _ibRender();
             // Fokus i varenr-feltet: panelet åbnes netop for at skrive dér.
             if (_ibLinkPanelId) {
@@ -1633,6 +1774,21 @@ function _ibHandleClick(e) {
 
         case 'skip-item':
             e.target.closest('.ib-item').style.opacity = '0.3';
+            break;
+
+        case 'edit-varenr':
+            _ibOpenEditVarenr(parseInt(productId), parseInt(btn.getAttribute('data-bc-id')));
+            break;
+
+        case 'lp-cancel-edit':
+            _ibLinkEditBcId = null;
+            _ibLinkPanelId = null;
+            delete _ibLinkDraft[productId];
+            _ibRender();
+            break;
+
+        case 'lp-delete-varenr':
+            _ibDeleteVarenr(parseInt(productId), parseInt(btn.getAttribute('data-bc-id')));
             break;
 
         case 'toggle-preferred':
