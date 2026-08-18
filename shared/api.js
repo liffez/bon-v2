@@ -1103,6 +1103,11 @@ function createLeadFromUnmatchedMail(id, useParsed) {
     });
 }
 
+// Fortryd en arkivering — mailen ryger tilbage i den ufordelte indbakke
+function restoreUnmatchedMail(id) {
+    return apiFetch('/mail/unmatched/' + id + '/restore', { method: 'POST' });
+}
+
 // Hent en ufordelt mail igen fra serveren (body_html + inline-billeder)
 function refetchUnmatchedMail(id) {
     return apiFetch('/mail/unmatched/' + id + '/refetch', { method: 'POST' });

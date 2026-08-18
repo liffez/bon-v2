@@ -22,12 +22,17 @@ let _inbReplyUseParsed = false; // svar går til den videresendte afsender, ikke
 // 'ufordelt' = den gamle triage-visning (bounces + ukendt) — uændret maskineri.
 let _inbView = 'aabne';
 let _inbQ = '';               // søgetekst (tråd-mode)
+let _inbUmQ = '';             // søgetekst (ufordelt/arkiv-mode — egen, så de to ikke smitter)
+let _inbCrossHits = 0;        // træffere i ufordelt/arkiv mens man søger i tråde
 let _inbThreads = [];
 let _inbThreadSel = null;     // åben tråd { thread, messages }
-let _inbCounts = { aabne: 0, udsat: 0, kunde: 0, luk: 0, alle: 0, ufordelt: 0 };
+let _inbCounts = { aabne: 0, udsat: 0, kunde: 0, luk: 0, alle: 0, ufordelt: 0, arkiv: 0 };
 
 const _INB_LIFECYCLE = ['aabne', 'udsat', 'kunde', 'luk', 'alle'];
-function _inbIsThreadMode() { return _inbView !== 'ufordelt'; }
+// 'ufordelt' og 'arkiv' er samme maskineri (mail_unmatched) — kun statusfilteret
+// adskiller dem. Alt andet (liste, preview, handlinger) er fælles.
+const _INB_UNMATCHED_VIEWS = ['ufordelt', 'arkiv'];
+function _inbIsThreadMode() { return !_INB_UNMATCHED_VIEWS.includes(_inbView); }
 
 function initCrmInbox(containerEl, opts) {
     _inbContainer = containerEl;
@@ -149,6 +154,27 @@ function _inbRenderShell() {
                 margin: 12px 0; padding: 10px 12px; font-size: 13px;
                 background: var(--brand-primary-light, #f1e6b2);
                 border: 1px solid var(--color-border); border-radius: 8px;
+            }
+            .inb-arch-bar {
+                margin: 12px 0; padding: 8px 12px; font-size: 12.5px;
+                color: var(--color-text-dim); background: var(--color-background, #f5f4f2);
+                border: 1px dashed var(--color-border); border-radius: 8px;
+            }
+            /* Krydshenvisning fra tråd-søgningen til ufordelt/arkiv. */
+            .inb-cross-hint {
+                display: flex; align-items: center; gap: 8px; cursor: pointer;
+                padding: 9px 12px; margin: 0 0 6px; font-size: 12.5px;
+                background: var(--brand-primary-light, #f1e6b2);
+                border-bottom: 1px solid var(--color-border);
+            }
+            .inb-cross-hint:hover { filter: brightness(0.97); }
+            .inb-cross-go { margin-left: auto; font-weight: 700; color: var(--brand-primary); }
+            /* Arkiverede rækker i listen: dæmpet, så de ikke ligner nyt arbejde. */
+            .inb-mail-row.archived { opacity: .72; }
+            .inb-arch-tag {
+                font-size: 10.5px; padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+                background: var(--color-background); border: 1px solid var(--color-border);
+                color: var(--color-text-dim);
             }
             .inb-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
             .inb-action-btn {
@@ -318,7 +344,7 @@ function _inbRenderShell() {
             <span style="font-size:13px;font-weight:600" id="inbBulkCount">0 valgt</span>
             <button class="inb-filter-btn" onclick="_inbBulkSelectAll()">Vælg alle synlige</button>
             <button class="inb-filter-btn" onclick="_inbBulkClear()">Fravælg alle</button>
-            <button class="inb-action-btn danger" onclick="_inbBulkIgnore()" id="inbBulkIgnoreBtn" style="margin-left:auto" disabled>Ignorer valgte</button>
+            <button class="inb-action-btn danger" onclick="_inbBulkIgnore()" id="inbBulkIgnoreBtn" style="margin-left:auto" disabled>Arkivér valgte</button>
         </div>
         <div class="inb-layout">
             <div class="inb-list-panel">
@@ -352,6 +378,7 @@ function _inbRenderChips() {
     html += chip('alle', 'Alle', null);
     html += '<span class="inb-sep"></span>';
     html += chip('ufordelt', '⚠ Ufordelt', c.ufordelt, 'ufordelt');
+    html += chip('arkiv', '🗄 Arkiv', c.arkiv);
     html += '<span class="inb-sep"></span>';
     html += `<button class="inb-chip src ${_inbMailbox === 'bon' ? 'on' : ''}" onclick="_inbSetMailbox('${_inbMailbox === 'bon' ? '' : 'bon'}')">bon@</button>`;
     html += `<button class="inb-chip src ${_inbMailbox === 'kontakt' ? 'on' : ''}" onclick="_inbSetMailbox('${_inbMailbox === 'kontakt' ? '' : 'kontakt'}')">kontakt@</button>`;
@@ -360,7 +387,12 @@ function _inbRenderChips() {
         html += `<input class="inb-search2" id="inbSearch2" placeholder="🔍 Søg al mail (også afsluttet)…" value="${_inbEscapeAttr(_inbQ)}">`;
     } else {
         html += '<span style="flex:1"></span>';
-        html += `<button class="inb-filter-btn ${_inbBulkMode ? 'active' : ''}" onclick="_inbToggleBulk()">${_inbBulkMode ? '✕ Afslut markering' : '✓ Vælg flere'}</button>`;
+        // Søgning i arkivet går gennem ALT arkiveret — også det spamfilteret tog.
+        // Listen viser kun det et menneske selv har lagt væk; søgningen skal kunne
+        // finde en mail filteret ramte forkert.
+        const ph = _inbView === 'arkiv' ? '🔍 Søg i alt arkiveret…' : '🔍 Søg i ufordelt…';
+        html += `<input class="inb-search2" id="inbSearchUm" placeholder="${ph}" value="${_inbEscapeAttr(_inbUmQ)}">`;
+        html += `<button class="inb-filter-btn ${_inbBulkMode ? 'active' : ''}" onclick="_inbToggleBulk()" style="margin-left:6px">${_inbBulkMode ? '✕ Afslut markering' : '✓ Vælg flere'}</button>`;
         html += `<input type="date" id="inbFromDate" value="${_inbFromDate}" onchange="_inbSetFromDate(this.value)" style="font-size:12px;padding:4px 8px;border:1px solid var(--color-border);border-radius:6px;margin-left:6px">`;
     }
     el.innerHTML = html;
@@ -370,6 +402,14 @@ function _inbRenderChips() {
         s.addEventListener('input', () => {
             clearTimeout(deb);
             deb = setTimeout(() => { _inbQ = s.value.trim(); _inbLoadThreads(); }, 300);
+        });
+    }
+    const su = document.getElementById('inbSearchUm');
+    if (su) {
+        let debU = null;
+        su.addEventListener('input', () => {
+            clearTimeout(debU);
+            debU = setTimeout(() => { _inbUmQ = su.value.trim(); _inbLoadData(); }, 300);
         });
     }
 }
@@ -391,7 +431,17 @@ window._inbSetView = _inbSetView;
 async function _inbLoadCounts() {
     try {
         _inbCounts = await fetchMailThreadCounts();
+        // Tællerne opdateres bl.a. af SSE. Søgefelterne bor i chip-baren, så en
+        // rå innerHTML-genrendering ville rive fokus og markør ud af hænderne på
+        // den der skriver (samme fælde som indkøbslistens søgefelt havde).
+        const act = document.activeElement;
+        const keep = act && (act.id === 'inbSearch2' || act.id === 'inbSearchUm')
+            ? { id: act.id, start: act.selectionStart, end: act.selectionEnd } : null;
         _inbRenderChips();
+        if (keep) {
+            const el = document.getElementById(keep.id);
+            if (el) { el.focus(); try { el.setSelectionRange(keep.start, keep.end); } catch {} }
+        }
     } catch (e) { /* badge er kosmetisk */ }
 }
 
@@ -413,6 +463,9 @@ async function _inbLoadThreads() {
         if (_inbMailbox) params.mailbox = _inbMailbox;
         if (_inbQ) params.q = _inbQ;
         _inbThreads = await fetchMailThreads(params);
+        // Tråd-søgningen ser kun tråde. Uden dette led lovede feltet "Søg al mail"
+        // mere end det holdt: mail 1458 lå i arkivet og kunne ikke findes herfra.
+        _inbCrossHits = _inbQ ? await _inbCountUnmatchedHits(_inbQ) : 0;
         _inbRenderThreadList();
         const head = document.getElementById('inbListHead');
         if (head) head.textContent = _inbQ ? ('Søgning · ' + _inbThreads.length + ' træffere') : (_INB_HEAD[_inbView] || 'Tråde');
@@ -428,6 +481,28 @@ async function _inbLoadThreads() {
         _inbShowLoadError(err, 'mailtråde');
     }
 }
+
+// Hvor mange træffere ligger der uden for trådene (ufordelt + alt arkiveret)?
+async function _inbCountUnmatchedHits(q) {
+    try {
+        const hits = await apiFetch('/mail/inbox?status=all&q=' + encodeURIComponent(q));
+        return hits.filter(m => m.kind === 'unmatched').length;
+    } catch { return 0; }
+}
+
+// Vis søgningen hvad den ikke selv kan vise — med en vej derhen.
+function _inbCrossHintHtml() {
+    if (!_inbQ || !_inbCrossHits) return '';
+    return '<div class="inb-cross-hint" onclick="_inbGotoUnmatchedSearch()">'
+        + '🗄 ' + _inbCrossHits + ' træffer' + (_inbCrossHits === 1 ? '' : 'e')
+        + ' i ufordelt og arkiv <span class="inb-cross-go">vis →</span></div>';
+}
+
+function _inbGotoUnmatchedSearch() {
+    _inbUmQ = _inbQ;
+    _inbSetView('arkiv');
+}
+window._inbGotoUnmatchedSearch = _inbGotoUnmatchedSearch;
 
 function _inbThreadTime(iso) {
     return (window.MailThread && MailThread.fmtDate) ? MailThread.fmtDate(iso) : _inbFmtReceivedAt(iso);
@@ -457,11 +532,12 @@ function _inbRenderThreadList() {
     const el = document.getElementById('inbList');
     if (!el) return;
     if (!_inbThreads.length) {
-        el.innerHTML = '<div class="inb-empty">🎉 Intet her</div>';
+        el.innerHTML = _inbCrossHintHtml()
+            + '<div class="inb-empty">' + (_inbQ ? 'Ingen tråde matcher' : '🎉 Intet her') + '</div>';
         return;
     }
     const ST = { aaben:'Åben', afventer_kunde:'Afventer kunde', afsluttet:'Afsluttet' };
-    el.innerHTML = _inbThreads.map(t => {
+    el.innerHTML = _inbCrossHintHtml() + _inbThreads.map(t => {
         const sent = (t.handling_status !== 'aaben' && t.last_outbound_at)
             ? `<div class="inb-th-sent">↗ Sendt ${_inbThreadTime(t.last_outbound_at)}${t.last_outbound_by ? ' · ' + _inbEscape(t.last_outbound_by) : ''}</div>` : '';
         const linkTag = _inbLinkChip(t.link);
@@ -631,10 +707,15 @@ async function _inbLoadData() {
     if (!_inbActive) return;
     // Overskriften siger hvilken visning man står i — sæt den FØR hentningen,
     // så en fejl ikke efterlader forrige visnings overskrift over beskeden.
+    const isArchive = _inbView === 'arkiv';
     const head0 = document.getElementById('inbListHead');
-    if (head0) head0.textContent = 'Ufordelt — bounces + ukendt afsender';
+    if (head0) head0.textContent = isArchive
+        ? 'Arkiv — mails I selv har lagt væk'
+        : 'Ufordelt — bounces + ukendt afsender';
     try {
         const params = new URLSearchParams();
+        if (isArchive) params.set('status', 'archived');
+        if (_inbUmQ) params.set('q', _inbUmQ);
         if (_inbFromDate) params.set('from_date', _inbFromDate);
         if (_inbMailbox) params.set('mailbox', _inbMailbox);
         // Ufordelt-mode: kun ufordelte mails (bounces + ukendt). Tråd-svar lever nu i
@@ -643,6 +724,9 @@ async function _inbLoadData() {
         _inbMails = all.filter(m => m.kind === 'unmatched');
         _inbRenderList();
         document.getElementById('inbCount').textContent = _inbMails.length;
+        const h = document.getElementById('inbListHead');
+        if (h && _inbUmQ) h.textContent = 'Søgning · ' + _inbMails.length + ' træffere'
+            + (isArchive ? ' i arkivet' : ' i ufordelt');
         if (_inbComposing) {
             // Svar-komposer er åben — behold preview, opdatér kun liste/tæller
         } else if (_inbSelected) {
@@ -677,7 +761,10 @@ function _inbRenderList() {
     if (!el) return;
 
     if (!_inbMails.length) {
-        el.innerHTML = '<div class="inb-empty">Ingen ufordelte mails</div>';
+        const txt = _inbUmQ ? 'Ingen træffere'
+                  : _inbView === 'arkiv' ? 'Arkivet er tomt'
+                  : 'Ingen ufordelte mails';
+        el.innerHTML = '<div class="inb-empty">' + txt + '</div>';
         return;
     }
 
@@ -713,7 +800,13 @@ function _inbRenderList() {
         const checkboxHtml = canBulk
             ? '<div class="inb-mail-check"><input type="checkbox" data-um-id="' + m.id + '"' + (isChecked ? ' checked' : '') + '></div>'
             : (_inbBulkMode && isThread ? '<div class="inb-mail-check"></div>' : '');
+        // Et søgeresultat i arkivet skal kunne skelnes fra en levende mail — og
+        // "jeg lagde den væk" fra "filteret tog den".
+        const archTag = m.archived_by_human ? '<span class="inb-arch-tag">🗄 arkiveret</span>'
+                      : m.auto_filtered     ? '<span class="inb-arch-tag">filtreret</span>'
+                      : '';
         const rowClasses = 'inb-mail-row'
+            + (m.status === 'ignored' ? ' archived' : '')
             + (_inbSelected && _inbSelected.key === m.key ? ' selected' : '')
             + (isThread ? ' is-thread' : '')
             + (m.is_bounce ? ' is-bounce' : '')
@@ -727,7 +820,7 @@ function _inbRenderList() {
                 '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
                 '<div class="inb-mail-meta">' +
                     '<span>' + (m.from_email || '') + '</span>' +
-                    '<span>' + _inbFmtReceivedAt(m.received_at) + attBadge + '</span>' +
+                    '<span>' + _inbFmtReceivedAt(m.received_at) + attBadge + archTag + '</span>' +
                 '</div>' +
                 bounceSubtitle +
                 _inbForwardLine(m) +
@@ -870,6 +963,17 @@ function _inbRenderPreview(mail) {
           '<button class="inb-action-btn" id="inbRefetchBtn" onclick="_inbRefetch()">Hent billeder fra serveren</button></div>'
         : '';
 
+    // Arkiv-spor: hvem lagde den væk, og hvornår. Oplysningen har ligget i
+    // handled_by_user_id/handled_at hele tiden uden at blive vist — så kunne
+    // ingen se hvad der var sket med en mail der manglede. Delvis #480.
+    const archBar = mail.status === 'ignored'
+        ? '<div class="inb-arch-bar">🗄 ' + (mail.handled_by_user_id
+            ? 'Arkiveret af ' + _inbEscape(mail.handled_by_name || ('bruger ' + mail.handled_by_user_id))
+              + (mail.handled_at ? ' · ' + _inbFmtReceivedAt(mail.handled_at) : '')
+            : 'Frafiltreret automatisk som spam eller auto-svar')
+          + '</div>'
+        : '';
+
     // Videresendt mail: afsenderen er kollegaen der trykkede videresend, mens
     // kunden står inde i beskeden. Uden dette panel er det den forkerte af de to
     // man kommer til at oprette og svare.
@@ -898,6 +1002,7 @@ function _inbRenderPreview(mail) {
             '<div class="inb-preview-subject">' + (mail.subject || '(intet emne)') + '</div>' +
             '<div class="inb-preview-date">' + _inbFmtReceivedAt(mail.received_at) + ' · ' + (mail.mailbox || '') + '</div>' +
         '</div>' +
+        archBar +
         bouncePanel +
         forwardPanel +
         refetchBar +
@@ -907,7 +1012,9 @@ function _inbRenderPreview(mail) {
             '<button class="inb-action-btn" onclick="_inbCreateLead()">+ Opret lead' + (fwd ? ' af afsender' : '') + '</button>' +
             '<button class="inb-action-btn" onclick="_inbShowLinkBon()">Link til Bon</button>' +
             '<button class="inb-action-btn" onclick="_inbShowLinkKunde()">Link til Kunde</button>' +
-            '<button class="inb-action-btn danger" onclick="_inbIgnore()">Ignorer</button>' +
+            (mail.status === 'ignored'
+                ? '<button class="inb-action-btn" onclick="_inbRestore()">↩ Tilbage til ufordelt</button>'
+                : '<button class="inb-action-btn danger" onclick="_inbIgnore()">🗄 Arkivér</button>') +
         '</div>' +
         '<div id="inbLinkForm"></div>';
 
@@ -1134,16 +1241,36 @@ async function _inbLinkToCustomer(customerId) {
 
 async function _inbIgnore() {
     if (!_inbSelected) return;
-    if (!confirm('Ignorer denne mail?')) return;
+    if (!confirm('Arkivér denne mail?\n\nDen flyttes til Arkiv og kan hentes tilbage derfra.')) return;
     try {
         await patchUnmatchedMail(_inbSelected.id, { status: 'ignored' });
         _inbSelected = null;
         _inbLoadData();
-        document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Mail ignoreret</div>';
+        _inbLoadCounts();
+        // Sig HVOR den tog hen. Da beskeden bare sagde "ignoreret", troede folk
+        // rimeligvis at mailen var væk — og en bestilling blev væk (#479).
+        document.getElementById('inbPreview').innerHTML =
+            '<div class="inb-empty">Arkiveret — ligger under <strong>🗄 Arkiv</strong></div>';
     } catch (err) {
         alert('Fejl: ' + err.message);
     }
 }
+
+// Fortryd en arkivering. Findes fordi arkivering ellers var en envejsdør.
+async function _inbRestore() {
+    if (!_inbSelected) return;
+    try {
+        await restoreUnmatchedMail(_inbSelected.id);
+        _inbSelected = null;
+        _inbLoadData();
+        _inbLoadCounts();
+        document.getElementById('inbPreview').innerHTML =
+            '<div class="inb-empty">Hentet tilbage — ligger under <strong>⚠ Ufordelt</strong></div>';
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+window._inbRestore = _inbRestore;
 
 // ─── Svar + opret lead ──────────────────────────────────────
 
@@ -1301,21 +1428,22 @@ function _inbUpdateBulkBar() {
     if (countEl) countEl.textContent = n + ' valgt';
     if (btnEl) {
         btnEl.disabled = n === 0;
-        btnEl.textContent = n > 0 ? 'Ignorer ' + n + ' valgte' : 'Ignorer valgte';
+        btnEl.textContent = n > 0 ? 'Arkivér ' + n + ' valgte' : 'Arkivér valgte';
     }
 }
 
 async function _inbBulkIgnore() {
     const ids = Array.from(_inbBulkSelected);
     if (!ids.length) return;
-    if (!confirm('Ignorer ' + ids.length + ' mails?\n\nDe forsvinder fra ufordelt-listen og kan ikke nemt hentes tilbage.')) return;
+    if (!confirm('Arkivér ' + ids.length + ' mails?\n\nDe flyttes til Arkiv og kan hentes tilbage derfra.')) return;
     try {
         const res = await bulkIgnoreUnmatchedMails(ids);
         _inbBulkSelected = new Set();
         _inbBulkMode = false;
         _inbRenderShell();
         await _inbLoadData();
-        console.log('[inbox] bulk-ignored:', res.updated);
+        _inbLoadCounts();
+        console.log('[inbox] bulk-arkiveret:', res.updated);
     } catch (err) {
         alert('Fejl: ' + err.message);
     }
