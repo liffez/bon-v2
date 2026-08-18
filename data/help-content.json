@@ -34,7 +34,8 @@
       }
     },
     "_include": [
-      "modal"
+      "modal",
+      "bon-kort"
     ]
   },
   "kitchen-later": {
@@ -47,7 +48,8 @@
       }
     },
     "_include": [
-      "modal"
+      "modal",
+      "bon-kort"
     ]
   },
   "kitchen-dashboard": {
@@ -80,7 +82,8 @@
       }
     },
     "_include": [
-      "modal"
+      "modal",
+      "bon-drawer"
     ]
   },
   "kitchen-planning": {
@@ -360,27 +363,116 @@
         "label": "Kobl varenummer",
         "text": "To veje, fordi de fører til hver sit sted:\n\n· Leverandørens eget varenummer — fri tekst. Har leverandøren ikke numre, så skriv den betegnelse du bruger i bestillingen ('Hvide servietter 33x33'). Det er dét køkkenet og leverandøren genkender.\n· Grossistens katalog — søg på navn eller varenummer. Nummeret lander hos grossisten, så varen kan lægges i deres kurv, uanset hvilken gruppe den ellers står i.\n\nHar varen hverken nummer eller fast betegnelse, kan der genereres et internt nummer (INT-xxxx). Det er en nødløsning — erstat det med det rigtige, når leverandøren melder tilbage."
       }
+    },
+    "bon-kort": {
+      "kort-status": {
+        "selector": ".bon-status-bar",
+        "label": "Statusknapper",
+        "text": "Bonens vej gennem dagen. Tryk en knap for at flytte den — der gemmes med det samme, ingen bekræftelse.\n\nMan behøver ikke gå i rækkefølge: en bon kan sendes direkte til LEV uden at have været IGANG og KLAR.\n\nLEVERET er ikke bare en markering — er automatisk lagertræk slået til, trækkes råvarerne fra HQ i samme greb. Kortet fader ud med 8 sekunders fortrydelse."
+      },
+      "kort-prep": {
+        "selector": ".bon-prep",
+        "label": "Råvarer / Emballage",
+        "text": "To flueben til at holde styr på forberedelsen: er råvarerne fundet frem, og er emballagen pakket.\n\nDe er kun til jer selv — de flytter ikke bonens status og udløser ingenting. Til gengæld kan alle skærme se dem med det samme."
+      },
+      "kort-kokkeninfo": {
+        "selector": ".kitchen-pill",
+        "label": "Køkkeninfo",
+        "text": "Beskeder til dem der laver maden. Klik på teksten for at rette den, × for at folde den sammen når den er læst.\n\nSammenfoldningen gælder kun denne skærm og denne dag — den fjerner ikke noget, og de andre skærme ser stadig beskeden."
+      },
+      "kort-menu": {
+        "selector": ".bon-menu",
+        "label": "Varelinjer",
+        "text": "Ens varer er slået sammen, så der står '3× Kartoflen slider' i stedet for tre linjer med 1×.\n\nSærønsker slås aldrig sammen — heller ikke to ens. Et særønske er en selvstændig besked til køkkenet og skal ses for sig."
+      },
+      "kort-grupper": {
+        "selector": ".select-toggle-btn",
+        "label": "Gruppér linjer",
+        "text": "Del bonen op som den skal pakkes eller serveres — fx Formiddag / Frokost / Eftermiddag.\n\nVælg linjerne, tryk Gruppér, giv gruppen navn og evt. en note. Grupperingen gemmes automatisk og følger bonen på alle skærme.\n\nTræk grupper og linjer for at flytte dem. × på en gruppe opløser den; linjerne bliver."
+      },
+      "kort-sammentaelling": {
+        "selector": ".summary-toggle",
+        "label": "Sammentælling",
+        "text": "Kategori lægger sammen pr. varegruppe. Vare lægger sammen pr. produktnavn og ser bort fra særønsker — så 20 'Grisen på Rug' og 1 'Grisen på Rug (minus tomat)' bliver til 21.\n\nDit valg huskes til næste gang.\n\nKun kategorier der tæller som enheder indgår i totalen; resten står dæmpet med."
+      },
+      "kort-levering": {
+        "selector": ".delivery-line",
+        "label": "Leveringslinje",
+        "text": "Hvem der henter og bringer. Står der 'Ikke planlagt endnu', er der ikke bestilt bud til bonen.\n\nKlik på linjen for at åbne bonen dér hvor buddet bestilles."
+      },
+      "kort-co2": {
+        "selector": ".bon-co2",
+        "label": "CO₂",
+        "text": "Bonens klimaaftryk, låst fast da bonen blev oprettet — så et tal på en gammel bon ikke ændrer sig fordi en faktor er opdateret siden.\n\nKun retter med komplet data tæller med. Mangler noget, står der mindre end virkeligheden — aldrig et gæt."
+      }
+    },
+    "bon-drawer": {
+      "drawer-status": {
+        "selector": ".drawer-status-hint",
+        "label": "To slags gem",
+        "text": "Status gemmes i det øjeblik du klikker en statusknap — der er ingen fortrydelse og intet 'Gem' bagefter.\n\nAlle andre felter gemmes først når du trykker Gem nederst. Lukker du med ugemte ændringer, bliver du spurgt."
+      },
+      "drawer-flags": {
+        "selector": ".drawer-flags",
+        "label": "Påmindelser",
+        "text": "Ting man skal huske om netop denne kunde eller dette firma — 'fakturaer skal til Anne', 'tjek altid leveringstidspunktet'.\n\n'Forstået' kvitterer for DENNE bon; påmindelsen lever videre til næste. 'Færdig — fjern' slukker den for altid.\n\nEn påmindelse på firmaet vises på alle bons under firmaet."
+      },
+      "drawer-varer": {
+        "selector": ".drawer-lines-list",
+        "label": "Varer",
+        "text": "Her vises linjerne råt — ens varer er IKKE slået sammen, i modsætning til bon-kortet og mailen. Det er bevidst: man skal kunne slette eller rette den enkelte linje.\n\nPrisen låses da linjen blev lagt på. Ændres prisen i Grocy bagefter, følger den ikke med — det bonen lovede kunden, står fast."
+      },
+      "drawer-bestil-bud": {
+        "selector": ".drawer-delivery-section",
+        "label": "Bestil bud",
+        "text": "Herfra bestilles transporten. Knappen åbner et vindue med felterne klar til at kopiere over i leverandørens egen side.\n\n'Marker som booket' registrerer kun at DU har sendt bestillingen — leverandøren har ikke bekræftet noget. Ring hvis det er vigtigt.\n\nFaktisk pris skrives ind bagefter og er den der bruges i regnskabet."
+      },
+      "drawer-mail": {
+        "selector": ".drawer-mail-history",
+        "label": "Mail",
+        "text": "Al korrespondance på bonen, nyeste nederst. Klik en lang besked for at folde den ud; en ulæst indgående markeres som læst når du åbner den.\n\nSvar herfra havner i samme tråd, fordi bonnummeret sidder i emnefeltet. Fjernes det, kan svaret ikke findes tilbage til bonen."
+      },
+      "drawer-co2": {
+        "selector": ".drawer-co2-section",
+        "label": "CO₂",
+        "text": "Aftrykket fordelt på varer, plus transporten. Fold ud for at se hvad der vejer tungest.\n\nStår der varer under 'mangler data', er totalen lavere end virkeligheden. Vi gætter aldrig et tal — vi siger hellere at det ikke er dækket."
+      },
+      "drawer-historik": {
+        "selector": ".drawer-history",
+        "label": "Historik",
+        "text": "Hele sporet: hvem ændrede hvad hvornår, inkl. statusskift, mails og bookinger. Kan ikke redigeres."
+      }
     }
   },
   "office-calendar": {
     "_pageName": "Office — Kalender",
     "elements": {},
     "_include": [
-      "modal"
+      "modal",
+      "bon-drawer"
     ]
   },
   "office-planning": {
     "_pageName": "Office — Planlægning",
     "elements": {},
     "_include": [
-      "modal"
+      "modal",
+      "bon-drawer"
     ]
   },
   "office-bons": {
     "_pageName": "Office — Bonliste",
     "elements": {},
     "_include": [
-      "modal"
+      "modal",
+      "bon-drawer"
+    ]
+  },
+  "office-fakturering": {
+    "_pageName": "Office — Fakturering",
+    "elements": {},
+    "_include": [
+      "bon-drawer"
     ]
   }
 }
