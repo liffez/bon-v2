@@ -27,9 +27,13 @@
 }
 
 /* ── Overlay ─────────────────────────────────── */
+/* Dæmpning, ikke tilsløring: hjælpen forklarer noget man skal kunne SE imens.
+   blur(2px) gjorde teksten bagved ulæselig, så man ikke kunne følge med i hvad
+   punktet handlede om. Badges + den brune outline signalerer tilstanden; den
+   lette dæmpning er kun til at løfte panelet fra fladen. */
 #help-overlay {
   position: fixed; inset: 0; z-index: 8000;
-  background: rgba(0,0,0,0.25); backdrop-filter: blur(2px);
+  background: rgba(0,0,0,0.10);
   opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
 }
 #help-overlay.visible { opacity: 1; pointer-events: all; }
