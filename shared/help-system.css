@@ -121,7 +121,10 @@
   font-size: 12px; font-weight: 700; color: var(--color-text-dim, #888);
   text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px;
 }
-.help-entry-text { font-size: 13px; color: var(--color-text, #333); line-height: 1.5; }
+/* pre-line: teksterne skrives i JSON med linjeskift for at kunne have afsnit og
+   punktopstilling. De escapes (aldrig HTML fra JSON), så linjeskiftene skal
+   respekteres af CSS — ellers klasker en flerpunkts-forklaring sammen til én blok. */
+.help-entry-text { font-size: 13px; color: var(--color-text, #333); line-height: 1.5; white-space: pre-line; }
 
 /* ── Tooltip ─────────────────────────────────── */
 .help-tooltip {

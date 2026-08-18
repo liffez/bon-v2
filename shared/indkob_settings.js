@@ -436,13 +436,11 @@ function _isRenderSuppliers(body) {
 
     // Grocy-location linking section
     html += '<div class="is-gloc-section"><div class="is-section-title">Grocy-lokationer — kobling til leverandør</div>';
-    html += '<div class="is-gloc-help">' +
-        '<b>Grocy-lokationen</b> er stedet varen købes — den oprettes i Grocy og sættes på produktet. ' +
-        '<b>Leverandøren</b> er den vi skriver til, og den bor her i Bon. ' +
-        'Koblingen herunder binder de to sammen, så en vare fra lokationen ved hvem bestillingen skal sendes til.' +
-        '<br>Visningsnavnet er det gruppen hedder i indkøbslisten. Lad det stå tomt for at bruge ' +
-        'Grocy-lokationens eget navn — udfyld det når lokationen er en fælles kanal (fx "Emballage") ' +
-        'der reelt bestilles hos én leverandør.</div>';
+    // Selve forklaringen af de to begreber ligger i hjælpesystemet (H) — her står
+    // kun det man skal bruge for at udfylde felterne.
+    html += '<div class="is-gloc-help">Binder stedet varen købes (Grocy) sammen med ' +
+        'den vi sender bestillingen til (Bon). Visningsnavnet er det gruppen hedder i ' +
+        'indkøbslisten — tomt = lokationens eget navn. <b>Tryk H</b> for hele forklaringen.</div>';
     _isGrocyLocs.forEach(function(loc) {
         html += '<div class="is-gloc-row">';
         html += '<span class="is-gloc-name">' + _isEsc(loc.grocy_location_name) + '</span>';
