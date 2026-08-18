@@ -1113,6 +1113,12 @@ function _ibRenderItem(entry, group, showSupplier) {
             h += '<div class="ib-cp-top">';
             if (uf.is_preferred === '1') h += '<span class="ib-cp-fav">Foretrukket</span>';
             if (uf.is_agreement_item === '1' || (bc._hoka && bc._hoka.isAgreementItem)) h += '<span class="ib-cp-aftale">Aftale</span>';
+            // Stjernen gør valget permanent. Uden den er et klik på chippen kun
+            // for DENNE bestilling — og en leverandør uden pris i systemet
+            // sorterer bagerst, så den ville skulle vælges forfra hver gang.
+            h += '<button class="ib-cp-star' + (uf.is_preferred === '1' ? ' on' : '') + '"' +
+                 ' data-ib="toggle-preferred" data-product-id="' + p.id + '" data-bc-id="' + bc.id + '"' +
+                 ' title="' + (uf.is_preferred === '1' ? 'Fjern som foretrukken' : 'Gør til foretrukken leverandør for denne vare') + '">★</button>';
             h += '</div>';
             h += '<div class="ib-cp-name">' + _ibEsc(_ibChipLabel(bc)) + '</div>';
 
@@ -1125,14 +1131,20 @@ function _ibRenderItem(entry, group, showSupplier) {
             priceParts.push('Nr. ' + bc.barcode);
             h += '<div class="ib-cp-price">' + priceParts.join(' · ') + '</div>';
 
-            // Supplier meta (delivery info etc)
-            var locName = _ibLocations[bc.shopping_location_id] ? _ibLocations[bc.shopping_location_id].name : '';
+            // Hvem kan levere denne chip. Samme label-opløsning som gruppe-
+            // headeren (visningsnavn → lokationsnavn), ellers stod der "Emballage"
+            // over for "Hørkram" — og det er præcis dét man skal kunne skelne.
+            var locName = _ibSupplierLabelForLocation(bc.shopping_location_id);
             if (locName && entry.barcodes.length > 1) {
                 h += '<div class="ib-cp-meta">' + _ibEsc(locName) + '</div>';
             }
 
             h += '</div>';
         }
+        // Et produkt kan købes hos flere — chips-rækken er bygget til det, men
+        // indtil nu kunne man kun lægge det FØRSTE varenummer ind (kobl-panelet
+        // fandtes kun på varer helt uden stregkode).
+        h += '<button class="ib-chip-add" data-ib="open-link" data-product-id="' + p.id + '">+ Varenr.</button>';
         h += '</div>';
 
         // Calc line
@@ -1312,6 +1324,19 @@ function _ibRenderLinkPanel(entry) {
     return h;
 }
 
+/* Leverandør-label for en Grocy-lokation: koblingens visningsnavn, ellers
+   lokationens eget navn. Samme rækkefølge som _ibBuildGroups bruger. */
+function _ibSupplierLabelForLocation(locId) {
+    if (!locId) return '';
+    for (var i = 0; i < _ibHandelssteder.length; i++) {
+        var hs = _ibHandelssteder[i];
+        if (String(hs.grocy_location_id) === String(locId)) {
+            return hs.grocy_location_display_name || (_ibLocations[locId] ? _ibLocations[locId].name : '') || hs.supplier_name || '';
+        }
+    }
+    return _ibLocations[locId] ? _ibLocations[locId].name : '';
+}
+
 /* Hørkram-lokationen (første api-handelssted) — null hvis ingen er koblet. */
 function _ibHokaLocationId() {
     for (var i = 0; i < _ibHandelssteder.length; i++) {
@@ -1320,6 +1345,48 @@ function _ibHokaLocationId() {
         }
     }
     return null;
+}
+
+/*
+ * Marker ét varenummer som det foretrukne for produktet — og ryd de øvrige.
+ * "Foretrukken leverandør for dette produkt" er entydig; to markerede ville
+ * gøre sorteringen tilfældig. Settings' egen toggle rører kun én række ad
+ * gangen (og kender kun Hørkram-koblinger), så oprydningen sker her.
+ */
+async function _ibTogglePreferred(productId, barcodeId) {
+    if (_ibBusy) return;
+    var entry = _ibFindEntry(productId);
+    if (!entry) return;
+    var target = entry.barcodes.filter(function(b) { return b.id === barcodeId; })[0];
+    if (!target) return;
+
+    var turningOn = !(target.userfields && target.userfields.is_preferred === '1');
+    _ibBusy = true;
+    try {
+        // Ryd først de andre, så der aldrig er to markerede undervejs.
+        for (var i = 0; i < entry.barcodes.length; i++) {
+            var bc = entry.barcodes[i];
+            if (bc.id === barcodeId) continue;
+            if (bc.userfields && bc.userfields.is_preferred === '1') {
+                await updateProductBarcodeUserfields(bc.id, { is_preferred: '' });
+                bc.userfields.is_preferred = '';
+            }
+        }
+        await updateProductBarcodeUserfields(barcodeId, { is_preferred: turningOn ? '1' : '' });
+        if (!target.userfields) target.userfields = {};
+        target.userfields.is_preferred = turningOn ? '1' : '';
+
+        _ibToast(turningOn ? 'Foretrukket: ' + _ibChipLabel(target) : 'Foretrukket fjernet');
+
+        _ibBarcodes = await fetchProductBarcodes();
+        _ibBuildGroups();
+        _ibRender();
+        _ibEnrichSnapshots();
+    } catch (err) {
+        _ibToast('Kunne ikke gemme foretrukket: ' + (err.message || ''), true);
+    } finally {
+        _ibBusy = false;
+    }
 }
 
 /* Gemmer leverandørens eget varenummer på gruppens egen lokation. */
@@ -1566,6 +1633,10 @@ function _ibHandleClick(e) {
 
         case 'skip-item':
             e.target.closest('.ib-item').style.opacity = '0.3';
+            break;
+
+        case 'toggle-preferred':
+            _ibTogglePreferred(parseInt(productId), parseInt(btn.getAttribute('data-bc-id')));
             break;
 
         case 'lp-save-varenr':
