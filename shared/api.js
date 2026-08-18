@@ -1236,6 +1236,12 @@ function linkGrocyLocation(data) {
     });
 }
 
+function patchGrocyLocationName(grocyLocationId, displayName) {
+    return apiFetch('/purchasing/suppliers/grocy-locations/' + grocyLocationId, {
+        method: 'PATCH', body: JSON.stringify({ display_name: displayName }),
+    });
+}
+
 function unlinkGrocyLocation(grocyLocationId) {
     return apiFetch('/purchasing/suppliers/grocy-locations/' + grocyLocationId, { method: 'DELETE' });
 }

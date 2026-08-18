@@ -27,9 +27,13 @@
 }
 
 /* ── Overlay ─────────────────────────────────── */
+/* Dæmpning, ikke tilsløring: hjælpen forklarer noget man skal kunne SE imens.
+   blur(2px) gjorde teksten bagved ulæselig, så man ikke kunne følge med i hvad
+   punktet handlede om. Badges + den brune outline signalerer tilstanden; den
+   lette dæmpning er kun til at løfte panelet fra fladen. */
 #help-overlay {
   position: fixed; inset: 0; z-index: 8000;
-  background: rgba(0,0,0,0.25); backdrop-filter: blur(2px);
+  background: rgba(0,0,0,0.10);
   opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
 }
 #help-overlay.visible { opacity: 1; pointer-events: all; }
@@ -121,7 +125,10 @@
   font-size: 12px; font-weight: 700; color: var(--color-text-dim, #888);
   text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px;
 }
-.help-entry-text { font-size: 13px; color: var(--color-text, #333); line-height: 1.5; }
+/* pre-line: teksterne skrives i JSON med linjeskift for at kunne have afsnit og
+   punktopstilling. De escapes (aldrig HTML fra JSON), så linjeskiftene skal
+   respekteres af CSS — ellers klasker en flerpunkts-forklaring sammen til én blok. */
+.help-entry-text { font-size: 13px; color: var(--color-text, #333); line-height: 1.5; white-space: pre-line; }
 
 /* ── Tooltip ─────────────────────────────────── */
 .help-tooltip {

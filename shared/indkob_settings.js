@@ -182,6 +182,10 @@ function _isHandleClick(e) {
     if (action === 'sup-save')    { _isSaveSupplier(); return; }
     if (action === 'sup-cancel')  { _isEditId = null; _isRenderTab(0); return; }
     if (action === 'sup-add')     { _isAddSupplier(); return; }
+    if (action === 'gloc-create-supplier') {
+        _isCreateSupplierForLocation(parseInt(t.dataset.locid), t.dataset.locname);
+        return;
+    }
     if (action === 'sup-mail')    { _isOpenSupplierMail(id); return; }
 
     // ─── Tab 2: Products ───
@@ -225,6 +229,10 @@ function _isHandleChange(e) {
 
     if (action === 'gloc-select') {
         _isGlocChange(parseInt(t.dataset.locid), t.value);
+        return;
+    }
+    if (action === 'gloc-name') {
+        _isGlocNameChange(parseInt(t.dataset.locid), t.value);
         return;
     }
     if (action === 'prod-supplier' || action === 'prod-minstock') {
@@ -346,6 +354,12 @@ function _isRenderTab(idx) {
    TAB 1 — LEVERANDØRER
    ══════════════════════════════════════════════════════════════ */
 function _isRenderSuppliers(body) {
+    // Grocy-lokationsnavne pr. id — /purchasing/suppliers leverer kun koblingens
+    // display_name, så uden dette opslag ender en kobling uden eget visningsnavn
+    // som "Lok 7" i stedet for "Emballage".
+    var locNames = {};
+    _isGrocyLocs.forEach(function(l) { locNames[l.grocy_location_id] = l.grocy_location_name; });
+
     // Group suppliers (deduplicate by supplier_id, collect grocy_location_ids)
     var supMap = {};
     var supOrder = [];
@@ -362,7 +376,8 @@ function _isRenderSuppliers(body) {
         if (r.grocy_location_id) {
             supMap[r.supplier_id].locs.push({
                 id: r.grocy_location_id,
-                name: r.grocy_location_display_name || ('Lok ' + r.grocy_location_id)
+                name: r.grocy_location_display_name || locNames[r.grocy_location_id]
+                    || ('Lok ' + r.grocy_location_id)
             });
         }
     });
@@ -421,6 +436,11 @@ function _isRenderSuppliers(body) {
 
     // Grocy-location linking section
     html += '<div class="is-gloc-section"><div class="is-section-title">Grocy-lokationer — kobling til leverandør</div>';
+    // Selve forklaringen af de to begreber ligger i hjælpesystemet (H) — her står
+    // kun det man skal bruge for at udfylde felterne.
+    html += '<div class="is-gloc-help">Binder stedet varen købes (Grocy) sammen med ' +
+        'den vi sender bestillingen til (Bon). Visningsnavnet er det gruppen hedder i ' +
+        'indkøbslisten — tomt = lokationens eget navn. <b>Tryk H</b> for hele forklaringen.</div>';
     _isGrocyLocs.forEach(function(loc) {
         html += '<div class="is-gloc-row">';
         html += '<span class="is-gloc-name">' + _isEsc(loc.grocy_location_name) + '</span>';
@@ -436,6 +456,21 @@ function _isRenderSuppliers(body) {
             html += '<option value="' + s.id + '"' + sel + '>' + _isEsc(s.name) + ' (' + s.integration_type + ')</option>';
         });
         html += '</select>';
+        // Ukoblet lokation: lav leverandøren herfra i stedet for at sende folk op
+        // i tabellen, oprette den, og finde vejen tilbage hertil. Navnet er
+        // næsten altid det samme som lokationens.
+        if (!loc.linked_supplier_id) {
+            html += '<button class="is-gloc-new" data-is="gloc-create-supplier"' +
+                ' data-locid="' + loc.grocy_location_id + '"' +
+                ' data-locname="' + _isEsc(loc.grocy_location_name) + '">+ Opret leverandør</button>';
+        }
+        // Visningsnavn — kun meningsfuldt når lokationen faktisk er koblet.
+        if (loc.linked_supplier_id) {
+            html += '<input class="is-gloc-nm" data-is="gloc-name" data-locid="' + loc.grocy_location_id + '"' +
+                ' placeholder="' + _isEsc(loc.grocy_location_name) + '"' +
+                ' title="Vises som gruppenavn i indkøbslisten"' +
+                ' maxlength="80" value="' + _isEsc(loc.display_name || '') + '">';
+        }
         html += '</div>';
     });
     html += '</div></div>';
@@ -569,6 +604,60 @@ function _isAddSupplier() {
     _isRenderTab(0);
 }
 
+/* Gemmer visningsnavnet på en kobling. Kaldes fra 'change' (blur/Enter), ikke
+   fra 'input' — ellers ville hvert tastetryk blive et PATCH-kald. */
+/*
+ * Opret leverandøren ud fra en ukoblet Grocy-lokation og kobl dem med det samme.
+ * De to ting hedder næsten altid det samme ("Trykkeri Friheden" som butik i
+ * Grocy, "Trykkeri Friheden" som den vi mailer til), men de LEVER to steder —
+ * og det var dét der var uklart: lokationen dukkede op i listen uden nogen vej
+ * til at gøre den til en leverandør.
+ *
+ * Typen sættes til 'manual' som det forsigtige udgangspunkt; formularen åbnes
+ * bagefter, så mail og type kan udfyldes med det samme.
+ */
+async function _isCreateSupplierForLocation(locId, locName) {
+    var name = (locName || '').trim();
+    if (!name) return;
+
+    var existing = _isSupDropdown.filter(function(s) {
+        return (s.name || '').trim().toLowerCase() === name.toLowerCase();
+    })[0];
+
+    try {
+        var sup = existing;
+        if (!sup) {
+            sup = await createSupplier({ name: name, integration_type: 'manual' });
+        }
+        await linkGrocyLocation({ grocy_location_id: locId, supplier_id: sup.id });
+        await _isReloadSuppliers();
+        _isToast(existing ? ('Koblet til eksisterende leverandør ' + name)
+                          : ('Leverandør "' + name + '" oprettet og koblet'));
+        // Åbn formularen, så mail/telefon/type kan udfyldes nu frem for senere.
+        _isEditId = sup.id;
+        _isRenderTab(0);
+    } catch (err) {
+        _isToast('Kunne ikke oprette leverandør: ' + (err.message || ''), true);
+    }
+}
+
+async function _isGlocNameChange(locId, value) {
+    try {
+        var res = await patchGrocyLocationName(locId, value);
+        // Hold den lokale kopi i sync, så en re-render (fx efter en anden
+        // kobling) ikke viser den gamle værdi igen.
+        for (var i = 0; i < _isGrocyLocs.length; i++) {
+            if (_isGrocyLocs[i].grocy_location_id === locId) {
+                _isGrocyLocs[i].display_name = res.display_name || null;
+                break;
+            }
+        }
+        _isToast(res.display_name ? ('Visningsnavn: ' + res.display_name) : 'Visningsnavn ryddet');
+    } catch (err) {
+        _isToast('Kunne ikke gemme visningsnavn: ' + (err.message || ''), true);
+    }
+}
+
 async function _isGlocChange(locId, supplierIdStr) {
     try {
         if (supplierIdStr) {
@@ -582,7 +671,9 @@ async function _isGlocChange(locId, supplierIdStr) {
             _isToast('Kobling fjernet');
         }
         await _isReloadSuppliers();
-        // Don't re-render — dropdown already shows correct value
+        // Re-render: rækken får (eller mister) visningsnavn-feltet sammen med
+        // koblingen. Uden det dukker feltet først op ved næste sideindlæsning.
+        _isRenderTab(0);
     } catch (err) {
         _isToast('Fejl: ' + (err.message || 'Ukendt'), true);
         _isRenderTab(0); // revert UI
