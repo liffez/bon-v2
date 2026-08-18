@@ -98,7 +98,9 @@ function _inbRenderShell() {
             .inb-mail-row:focus { box-shadow: inset 0 0 0 2px var(--brand-primary, #8e631f); }
             .inb-mail-from { font-size: 14px; font-weight: 600; }
             .inb-mail-subject { font-size: 13px; color: var(--color-text, #333); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .inb-mail-meta { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 4px; display: flex; justify-content: space-between; }
+            .inb-mail-meta { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 4px; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+            .inb-mail-meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .inb-mail-meta-r { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
             .inb-mail-parsed { font-size: 11px; color: var(--brand-primary); margin-top: 2px; font-weight: 600; }
             .inb-mail-att { color: var(--brand-primary, #8e631f); font-weight: 600; margin-left: 6px; }
 
@@ -155,6 +157,20 @@ function _inbRenderShell() {
                 background: var(--brand-primary-light, #f1e6b2);
                 border: 1px solid var(--color-border); border-radius: 8px;
             }
+            .inb-sug-bar {
+                display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+                margin: 12px 0; padding: 10px 12px; font-size: 13px;
+                background: var(--brand-primary-light, #f1e6b2);
+                border: 1px solid var(--brand-primary); border-radius: 8px;
+            }
+            .inb-sug-txt { flex: 1; min-width: 180px; }
+            .inb-sug-sub { font-size: 11px; color: var(--color-text-dim); margin-top: 2px; }
+            .inb-sug-tag {
+                font-size: 10.5px; padding: 1px 6px; border-radius: 8px;
+                background: var(--brand-primary-light, #f1e6b2);
+                border: 1px solid var(--brand-primary); color: var(--brand-primary);
+                white-space: nowrap;
+            }
             .inb-arch-bar {
                 margin: 12px 0; padding: 8px 12px; font-size: 12.5px;
                 color: var(--color-text-dim); background: var(--color-background, #f5f4f2);
@@ -172,7 +188,7 @@ function _inbRenderShell() {
             /* Arkiverede rækker i listen: dæmpet, så de ikke ligner nyt arbejde. */
             .inb-mail-row.archived { opacity: .72; }
             .inb-arch-tag {
-                font-size: 10.5px; padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+                font-size: 10.5px; padding: 1px 6px; border-radius: 8px; white-space: nowrap;
                 background: var(--color-background); border: 1px solid var(--color-border);
                 color: var(--color-text-dim);
             }
@@ -802,6 +818,9 @@ function _inbRenderList() {
             : (_inbBulkMode && isThread ? '<div class="inb-mail-check"></div>' : '');
         // Et søgeresultat i arkivet skal kunne skelnes fra en levende mail — og
         // "jeg lagde den væk" fra "filteret tog den".
+        const sugTag = m.suggested_customer
+            ? '<span class="inb-sug-tag" title="Afsenderen er allerede kunde — kan kobles med ét klik">👤 kendt kunde</span>'
+            : '';
         const archTag = m.archived_by_human ? '<span class="inb-arch-tag">🗄 arkiveret</span>'
                       : m.auto_filtered     ? '<span class="inb-arch-tag">filtreret</span>'
                       : '';
@@ -820,7 +839,7 @@ function _inbRenderList() {
                 '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
                 '<div class="inb-mail-meta">' +
                     '<span>' + (m.from_email || '') + '</span>' +
-                    '<span>' + _inbFmtReceivedAt(m.received_at) + attBadge + archTag + '</span>' +
+                    '<span class="inb-mail-meta-r">' + _inbFmtReceivedAt(m.received_at) + attBadge + sugTag + archTag + '</span>' +
                 '</div>' +
                 bounceSubtitle +
                 _inbForwardLine(m) +
@@ -963,6 +982,22 @@ function _inbRenderPreview(mail) {
           '<button class="inb-action-btn" id="inbRefetchBtn" onclick="_inbRefetch()">Hent billeder fra serveren</button></div>'
         : '';
 
+    // Kender vi afsenderen? Så sig det HER, hvor beslutningen træffes — og gør
+    // koblingen til ét klik i stedet for en manuel søgning (#482).
+    const sug = mail.suggested_customer;
+    const sugPanel = sug
+        ? '<div class="inb-sug-bar">'
+            + '<div class="inb-sug-txt">👤 Afsenderen er kunde: <strong>'
+            + _inbEscape(sug.name || '(uden navn)') + '</strong>'
+            + (sug.company_name ? ' · ' + _inbEscape(sug.company_name) : '')
+            + (sug.via === 'forwarded'
+                ? '<div class="inb-sug-sub">Fundet på den videresendte afsender ' + _inbEscape(sug.email) + '</div>'
+                : '')
+            + '</div>'
+            + '<button class="inb-action-btn primary" onclick="_inbLinkToCustomer(' + sug.id + ')">Kobl til ' + _inbEscape((sug.name || '').split(' ')[0] || 'kunden') + '</button>'
+          + '</div>'
+        : '';
+
     // Arkiv-spor: hvem lagde den væk, og hvornår. Oplysningen har ligget i
     // handled_by_user_id/handled_at hele tiden uden at blive vist — så kunne
     // ingen se hvad der var sket med en mail der manglede. Delvis #480.
@@ -1002,6 +1037,7 @@ function _inbRenderPreview(mail) {
             '<div class="inb-preview-subject">' + (mail.subject || '(intet emne)') + '</div>' +
             '<div class="inb-preview-date">' + _inbFmtReceivedAt(mail.received_at) + ' · ' + (mail.mailbox || '') + '</div>' +
         '</div>' +
+        sugPanel +
         archBar +
         bouncePanel +
         forwardPanel +
@@ -1241,7 +1277,17 @@ async function _inbLinkToCustomer(customerId) {
 
 async function _inbIgnore() {
     if (!_inbSelected) return;
-    if (!confirm('Arkivér denne mail?\n\nDen flyttes til Arkiv og kan hentes tilbage derfra.')) return;
+    // Er afsenderen kunde, så sig det inden. Ikke en spærring — en kundemail kan
+    // godt være støj — men valget skal være bevidst. Det var netop dét klik der
+    // sendte to bestillinger ud af systemet i august.
+    const sug = _inbSelected.suggested_customer;
+    const msg = sug
+        ? 'Afsenderen er kunde: ' + (sug.name || '(uden navn)')
+            + (sug.company_name ? ' · ' + sug.company_name : '')
+            + '\n\nVil du arkivere alligevel?\n'
+            + 'Tryk Annuller for at koble mailen til kunden i stedet.'
+        : 'Arkivér denne mail?\n\nDen flyttes til Arkiv og kan hentes tilbage derfra.';
+    if (!confirm(msg)) return;
     try {
         await patchUnmatchedMail(_inbSelected.id, { status: 'ignored' });
         _inbSelected = null;
@@ -1435,7 +1481,17 @@ function _inbUpdateBulkBar() {
 async function _inbBulkIgnore() {
     const ids = Array.from(_inbBulkSelected);
     if (!ids.length) return;
-    if (!confirm('Arkivér ' + ids.length + ' mails?\n\nDe flyttes til Arkiv og kan hentes tilbage derfra.')) return;
+    // Et bulk-klik kan ramme mange på én gang — sig hvor mange af dem der er
+    // kunder, ellers forsvinder den ene bestilling i bunken.
+    const known = _inbMails.filter(m => ids.includes(m.id) && m.suggested_customer);
+    let msg = 'Arkivér ' + ids.length + ' mails?\n\nDe flyttes til Arkiv og kan hentes tilbage derfra.';
+    if (known.length) {
+        msg = '⚠ ' + known.length + ' af dem er fra kendte kunder:\n'
+            + known.slice(0, 5).map(m => '  · ' + (m.suggested_customer.name || m.from_email)).join('\n')
+            + (known.length > 5 ? '\n  · … og ' + (known.length - 5) + ' mere' : '')
+            + '\n\n' + msg;
+    }
+    if (!confirm(msg)) return;
     try {
         const res = await bulkIgnoreUnmatchedMails(ids);
         _inbBulkSelected = new Set();

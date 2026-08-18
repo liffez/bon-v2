@@ -235,6 +235,62 @@ async function main() {
         assert(mailSvc.findCustomerByEmail(db, 'nyt.lead@example.invalid')?.id === lead.data.customer_id,
             'og næste mail fra leadet rammer det');
 
+        // ── 11) #482: indbakken foreslår kunden når afsenderen matcher ─────
+        console.log('\n— Forslag: kender vi afsenderen? —');
+        const inbox = (q) => http('GET', '/api/mail/inbox?status=all' + (q ? '&q=' + encodeURIComponent(q) : ''))
+            .then(r => (r.data || []).filter(m => m.kind === 'unmatched'));
+
+        const um10 = seedUnmatched({ from: 'LHA@cap-partner.eu', subject: 'Endnu en mail' });
+        let rows = await inbox('Endnu en mail');
+        let row = rows.find(m => m.id === um10);
+        assert(row?.suggested_customer?.id === laerke,
+            'ufordelt mail fra en kendt adresse foreslår kunden');
+        assert(row?.suggested_customer?.via === 'sender', 'markeret som fundet på afsenderen');
+        assert((row?.suggested_customer?.name || '').includes('Lærke'), 'forslaget bærer kundens navn');
+
+        // Videresendt: kunden inde i beskeden er den interessante, ikke kollegaen
+        const um11 = seedUnmatched({
+            from: 'info@ristetrug.dk', parsedEmail: 'LHA@cap-partner.eu',
+            parsedName: 'Lærke Haumann Andersen', subject: 'Videresendt sag',
+        });
+        row = (await inbox('Videresendt sag')).find(m => m.id === um11);
+        assert(row?.suggested_customer?.id === laerke,
+            'videresendt mail foreslår kunden inde i beskeden');
+        assert(row?.suggested_customer?.via === 'forwarded', 'markeret som fundet via videresendelsen');
+
+        // Vi foreslår aldrig os selv — huset står som kunde (info@ = kunde 3005 i drift)
+        const husetId = Number(db.prepare(
+            `INSERT INTO customers (first_name, last_name, email) VALUES ('Ristet','Rug','info@ristetrug.dk')`
+        ).run().lastInsertRowid);
+        db.prepare(`INSERT INTO contact_points (entity_type,entity_id,kind,value,is_primary,is_public,source)
+                    VALUES ('customer',?,'email','info@ristetrug.dk',1,0,'manual')`).run(husetId);
+        const um12 = seedUnmatched({ from: 'info@ristetrug.dk', subject: 'Intern videresendelse' });
+        row = (await inbox('Intern videresendelse')).find(m => m.id === um12);
+        assert(!row?.suggested_customer,
+            'en intern afsender foreslås ALDRIG som kunde — heller ikke når huset selv står i kundetabellen');
+
+        // Ukendt afsender → intet forslag
+        const um13 = seedUnmatched({ from: 'helt.ukendt@example.invalid', subject: 'Ukendt afsender' });
+        row = (await inbox('Ukendt afsender')).find(m => m.id === um13);
+        assert(!row?.suggested_customer, 'ukendt afsender giver intet forslag');
+
+        // Lukket kunde (sammenlagt dublet) må ikke foreslås
+        const lukket = Number(db.prepare(
+            `INSERT INTO customers (first_name, last_name, email, is_active) VALUES ('Lukket','Dublet','dublet@example.invalid',0)`
+        ).run().lastInsertRowid);
+        db.prepare(`INSERT INTO contact_points (entity_type,entity_id,kind,value,is_primary,is_public,source)
+                    VALUES ('customer',?,'email','dublet@example.invalid',1,0,'manual')`).run(lukket);
+        const um14 = seedUnmatched({ from: 'dublet@example.invalid', subject: 'Til en lukket kunde' });
+        row = (await inbox('Til en lukket kunde')).find(m => m.id === um14);
+        assert(!row?.suggested_customer, 'en lukket kunde foreslås ikke');
+
+        // Forslaget skal også følge med i arkivet — det er dér de tabte mails ligger
+        await http('PATCH', `/api/mail/unmatched/${um10}`, { status: 'ignored' });
+        const arch = (await http('GET', '/api/mail/inbox?status=archived&q=' + encodeURIComponent('Endnu en mail'))).data
+            .filter(m => m.kind === 'unmatched');
+        assert(arch.find(m => m.id === um10)?.suggested_customer?.id === laerke,
+            'en arkiveret mail bærer stadig forslaget, så den kan reddes derfra');
+
     } finally {
         if (serverProc) serverProc.kill();
         try { db.close(); } catch {}

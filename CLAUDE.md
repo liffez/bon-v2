@@ -4510,6 +4510,46 @@ mailklient-forventninger — Leifs pointe om at folk skal føle sig hjemme),
 #482 (foreslå kunden automatisk + advar før en kundemail arkiveres),
 #483 (ryd de 9 arkiverede kundemails op).
 
+### Indbakken foreslår kunden — og advarer før en kundemail arkiveres (#482, 18. august 2026)
+
+#478 sørger for at en kobling **husker** adressen. Men kun anden gang. Første gang
+en kendt kunde skriver fra en adresse vi ikke har på dem, står man med præcis det
+valg Anne stod med: koble manuelt eller arkivere. Systemet vidste faktisk hvem det
+var — det sagde bare ingenting.
+
+- **`suggestCustomerFor()`** ([routes/mail.js](routes/mail.js)) hænger
+  `suggested_customer` på hvert ufordelt item i `/mail/inbox` og `/mail/unmatched`.
+  Slår op på afsenderen, og på den **videresendte** afsender når mailen kom via en
+  kollega. `via` fortæller hvilken af de to der ramte. Opslagene caches pr. request —
+  en arkiv-søgning kan give hundredvis af rækker fra de samme få afsendere.
+- **Vi foreslår aldrig os selv.** Huset står som kunde (`info@` = 3005), så uden
+  intern-værnet ville hver videresendelse foreslå Ristet Rug — nøjagtig den fejl
+  #426 rettede i routingen.
+- **`lookupCustomerByEmail` fik `is_active`-filtre** på både kunde og kontaktpunkt.
+  En sammenlagt dublet er *lukket*, ikke slettet, og måtte ikke kunne foreslås.
+  Rettelsen gælder også bounce-berigelsen, som brugte samme funktion.
+- **UI**: gult panel i previewet (*"👤 Afsenderen er kunde: Lærke Haumann Andersen ·
+  CAP PARTNER ApS"* + `Kobl til Lærke`) og et `👤 kendt kunde`-mærke i listen.
+- **Arkivering advarer**: *"Afsenderen er kunde: … Vil du arkivere alligevel? Tryk
+  Annuller for at koble mailen til kunden i stedet."* Ikke en spærring — en kundemail
+  kan godt være støj — men valget skal være bevidst. Bulk-arkivering navngiver de
+  første fem kunder i bunken, så den ene bestilling ikke forsvinder i mængden.
+
+> ⚠️ **Et mærke i `.inb-mail-subject` er usynligt på lange emner.** Emne-linjen har
+> `text-overflow: ellipsis`, så mærket lå i DOM'en men blev klippet væk på 5 af 12
+> rækker — kun synligt ved at måle `getBoundingClientRect().width`. Mærkerne bor nu
+> i meta-linjen med `flex-shrink: 0`.
+
+**Målt på driftsdata:** 9 af de 12 menneske-arkiverede mails får nu et forslag —
+præcis de 9 der viste sig at være kundekorrespondance. De tre uden (Hungarian
+Embassy, Luca Mateo, kbh-el-service) er reelt ukendte afsendere.
+
+**Tests:** `npm run test:inbox-learn` udvidet 25 → **34 asserts**. Mutations-testet:
+intern-værnet, `is_active`-filteret og forward-fallbacken fælder hver sin navngivne
+assert. Verificeret ende-til-ende mod en kopi af driftsdata, hele kæden i ét forløb:
+kobl Mortens første mail manuelt → adressen læres (#478) → hans anden mail får
+automatisk et forslag (#482). Kopien slettet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -4958,7 +4998,7 @@ PATCH  /api/users/:id                                   routes/users.js (admin)
 POST   /api/users/:id/password                          routes/users.js (admin)
 GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
-GET    /api/mail/inbox?status=open|archived|all&q=       routes/mail.js (samlet indbakke + arkiv-søgning)
+GET    /api/mail/inbox?status=open|archived|all&q=       routes/mail.js (samlet indbakke + arkiv-søgning + suggested_customer)
 POST   /api/mail/unmatched/:id/restore                   routes/mail.js (fortryd arkivering)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js

@@ -21,6 +21,38 @@ function markParsedInternal(db, row) {
     return row.parsed_email && isInternalEmail(db, row.parsed_email) ? 1 : 0;
 }
 
+// Kender vi allerede afsenderen? (#482)
+//
+// #478 sørger for at en kobling HUSKER adressen — men kun anden gang. Første
+// gang en kendt kunde skriver fra en adresse vi ikke har på dem, står man med
+// præcis det valg Anne stod med: koble manuelt eller arkivere. Systemet ved
+// faktisk hvem det er; det sagde bare ingenting.
+//
+// Slår op på afsenderen, og på den VIDERESENDTE afsender når mailen kom via en
+// kollega — dér er det kunden inde i beskeden der er interessant, ikke kollegaen.
+// Vi foreslår aldrig en intern adresse: huset står selv som kunde (info@ = 3005),
+// så uden det værn ville hver videresendelse foreslå Ristet Rug.
+//
+// `cache` deles inden for ét request — en arkiv-søgning kan give hundredvis af
+// rækker fra de samme få afsendere.
+function suggestCustomerFor(db, um, cache) {
+    const tryOne = (email, via) => {
+        if (!email || isInternalEmail(db, email)) return null;
+        const key = email.toLowerCase();
+        if (!cache.has(key)) cache.set(key, lookupCustomerByEmail(db, key) || null);
+        const c = cache.get(key);
+        if (!c) return null;
+        return {
+            id: c.customer_id,
+            name: [c.first_name, c.last_name].filter(Boolean).join(' ').trim(),
+            company_name: c.company_name || null,
+            email,
+            via,
+        };
+    };
+    return tryOne(um.from_email, 'sender') || tryOne(um.parsed_email, 'forwarded') || null;
+}
+
 function broadcastUnmatchedCount(db) {
     const row = db.prepare(`SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'`).get();
     broadcast('mail_unmatched', { count: row?.c || 0 });
@@ -636,6 +668,7 @@ function lookupCustomerByEmail(db, email) {
         WHERE cp.entity_type = 'customer'
           AND cp.kind = 'email'
           AND LOWER(cp.value) = ?
+          AND cp.is_active = 1 AND c.is_active = 1
         LIMIT 1
     `).get(email.toLowerCase());
     if (cp) return cp;
@@ -646,7 +679,7 @@ function lookupCustomerByEmail(db, email) {
                co.name AS company_name
         FROM customers c
         LEFT JOIN companies co ON co.id = c.company_id
-        WHERE LOWER(c.email) = ?
+        WHERE LOWER(c.email) = ? AND c.is_active = 1
         LIMIT 1
     `).get(email.toLowerCase());
     return c || null;
@@ -678,10 +711,12 @@ router.get('/unmatched', requireModule('crm'), handle(async (req, res) => {
     );
 
     // Enrich bounces med fejlet modtager + kunde-lookup
+    const sugCache = new Map();
     for (const item of items) {
         item.attachments = attStmt.all(item.id);
         item.has_attachments = item.attachments.length > 0 ? 1 : 0;
         item.parsed_is_internal = markParsedInternal(db, item);
+        item.suggested_customer = suggestCustomerFor(db, item, sugCache);
         if (isBounceMail(item.from_email)) {
             item.is_bounce = true;
             const recipient = parseBouncedRecipient(item.body_text);
@@ -750,10 +785,12 @@ router.get('/inbox', requireModule('crm'), handle((req, res) => {
         `SELECT id, filename, mime_type, size_bytes, content_id, is_inline
          FROM mail_attachments WHERE unmatched_id = ? ORDER BY id`
     );
+    const sugCache = new Map();
     for (const m of unmatched) {
         m.attachments = attUm.all(m.id);
         m.has_attachments = m.attachments.length ? 1 : 0;
         m.parsed_is_internal = markParsedInternal(db, m);
+        m.suggested_customer = suggestCustomerFor(db, m, sugCache);
         if (isBounceMail(m.from_email)) {
             m.is_bounce = true;
             const recipient = parseBouncedRecipient(m.body_text);
