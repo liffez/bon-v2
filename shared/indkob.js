@@ -1311,8 +1311,6 @@ function _ibRenderLinkPanel(entry) {
          ' value="' + _ibEsc(_ibLinkDraft[pid] || '') + '">';
     h += '<button class="ib-lp-btn" data-ib="lp-save-varenr" data-product-id="' + pid + '">Gem</button>';
     if (editBc) {
-        h += '<button class="ib-lp-btn danger" data-ib="lp-delete-varenr" data-product-id="' + pid + '"' +
-             ' data-bc-id="' + editBc.id + '">Fjern</button>';
         h += '<button class="ib-lp-btn ghost" data-ib="lp-cancel-edit" data-product-id="' + pid + '">Annullér</button>';
     }
     h += '</div>';
@@ -1322,6 +1320,15 @@ function _ibRenderLinkPanel(entry) {
     // Under redigering giver hverken katalog-søgning eller INT-generering mening
     // — begge ville lave et NYT nummer ved siden af det man er i gang med at rette.
     if (editBc) {
+        // Sletningen står som en stille linje, ikke som en rød knap ved siden af
+        // "Gem": den er sjældnere end at rette, og en fyldt rød knap dér læses som
+        // hovedhandlingen. Den navngiver også sit eget omfang — "Fjern" alene kunne
+        // lige så godt betyde varen eller hele linjen på indkøbslisten.
+        h += '<div class="ib-lp-foot">Skal nummeret slet ikke stå her? ' +
+             '<button class="ib-lp-link danger" data-ib="lp-delete-varenr" data-product-id="' + pid + '"' +
+             ' data-bc-id="' + editBc.id + '">Fjern varenummeret hos ' + _ibEsc(supLabel) + '</button>' +
+             '<div class="ib-lp-foot-sub">Varen bliver på indkøbslisten — den mister kun koblingen til ' + _ibEsc(supLabel) + '.</div>' +
+             '</div>';
         h += '</div>';
         return h;
     }
