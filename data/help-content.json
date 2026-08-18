@@ -32,7 +32,10 @@
         "label": "Bon-oversigt",
         "text": "Her vises alle dagens bons som kort. Hvert kort har status, kunde, leveringstid og menuliste. Klik på statusknapperne for at rykke bonnen videre."
       }
-    }
+    },
+    "_include": [
+      "modal"
+    ]
   },
   "kitchen-later": {
     "_pageName": "Køkken — Senere",
@@ -42,7 +45,10 @@
         "label": "Kommende bons",
         "text": "Viser bons for de næste 4 uger, grupperet efter leveringsdato. Tilbud vises i en separat sektion nederst."
       }
-    }
+    },
+    "_include": [
+      "modal"
+    ]
   },
   "kitchen-dashboard": {
     "_pageName": "Køkken — Dashboard",
@@ -72,7 +78,10 @@
         "label": "Statusfiltre",
         "text": "Filtrér kalendervisningen efter bon-status. Klik for at slå et filter til eller fra. Farvet = aktiv."
       }
-    }
+    },
+    "_include": [
+      "modal"
+    ]
   },
   "kitchen-planning": {
     "_pageName": "Køkken — Planlægning",
@@ -112,7 +121,10 @@
         "label": "Vagtplan",
         "text": "Fold ud for at se Smartplan-vagter i perioden. Viser hvem der arbejder hvilke dage med møde- og sluttider."
       }
-    }
+    },
+    "_include": [
+      "modal"
+    ]
   },
   "kitchen-purchasing": {
     "_pageName": "Køkken — Indkøb",
@@ -121,33 +133,11 @@
         "selector": ".purch-tabs",
         "label": "Faner",
         "text": "Skift mellem Indkøb (bestilling af varer), Varemodtagelse (modtag leverancer) og Post (kommunikation med leverandører)."
-      },
-      "ib-chips": {
-        "selector": ".ib-chips",
-        "label": "Varenumre (chips)",
-        "text": "Hver chip er ét varenummer hos én leverandør. Samme vare kan sagtens købes flere steder — så ligger der en chip pr. sted, og den valgte (grøn) er den bestillingen laves på.\n\nRækkefølgen er: foretrukken først, så aftalevarer, så billigst pr. kg. Et klik på en chip vælger den for DENNE bestilling; stjernen gør valget permanent."
-      },
-      "ib-chip-star": {
-        "selector": ".ib-cp-star",
-        "label": "★ Foretrukken",
-        "text": "Markerer hvem vi helst køber varen hos. Den foretrukne sorteres altid først og vælges automatisk — også næste gang varen dukker op på listen.\n\nDet er nødvendigt når leverandøren ikke har priser i systemet: uden markering sorterer den bagerst og skulle vælges forfra hver gang.\n\nKun én pr. vare — markerer du en ny, ryddes den gamle."
-      },
-      "ib-chip-edit": {
-        "selector": ".ib-cp-edit",
-        "label": "✎ Ret varenummer",
-        "text": "Retter eller fjerner netop dette varenummer. Nyttigt når et internt nummer (INT-xxxx) skal erstattes af leverandørens rigtige, når nummeret er skrevet forkert, eller når varen ikke længere købes dér.\n\nAt fjerne et varenummer sletter kun koblingen — varen bliver på indkøbslisten."
-      },
-      "ib-chip-add": {
-        "selector": ".ib-chip-add",
-        "label": "+ Varenr.",
-        "text": "Lægger endnu et varenummer på varen, hos en anden leverandør. Brug den når vi kan købe det samme sted to steder og vil kunne vælge.\n\nNummeret lander hos den leverandør varen står under. Skal det være grossistens nummer, så brug katalog-søgningen i panelet i stedet — så lander det det rigtige sted og varen kan lægges i deres kurv."
-      },
-      "ib-linkpanel": {
-        "selector": ".ib-lp",
-        "label": "Kobl varenummer",
-        "text": "To veje, fordi de fører til hver sit sted:\n\n· Leverandørens eget varenummer — fri tekst. Har leverandøren ikke numre, så skriv den betegnelse du bruger i bestillingen ('Hvide servietter 33x33'). Det er dét køkkenet og leverandøren genkender.\n· Grossistens katalog — søg på navn eller varenummer. Nummeret lander hos grossisten, så varen kan lægges i deres kurv, uanset hvilken gruppe den ellers står i.\n\nHar varen hverken nummer eller fast betegnelse, kan der genereres et internt nummer (INT-xxxx). Det er en nødløsning — erstat det med det rigtige, når leverandøren melder tilbage."
       }
-    }
+    },
+    "_include": [
+      "indkob-chips"
+    ]
   },
   "kitchen-stock": {
     "_pageName": "Køkken — Lager",
@@ -276,6 +266,75 @@
         "label": "Efter kategori / Efter leverandør",
         "text": "Samme liste, to grupperinger. Efter kategori er til at tjekke listen igennem; efter leverandør er til at bestille. Begge er fuldt handlingsbare — du kan lægge i kurv fra begge."
       },
+      "ib-umatched": {
+        "selector": ".ib-shdr",
+        "label": "Ingen barcode",
+        "text": "Varer der hører til leverandøren, men mangler et varenummer. De kan ikke bestilles før de har et — brug 'Kobl varenr.'."
+      }
+    },
+    "_include": [
+      "indkob-chips"
+    ]
+  },
+  "_shared": {
+    "modal": {
+      "modal-historik": {
+        "selector": ".changelog-list",
+        "label": "Historik",
+        "text": "Alt hvad der er sket med bonen, nyeste øverst — hvem, hvornår og hvad der blev ændret fra og til.\n\nBåde mennesker og maskiner skriver her. Et automatisk lagertræk lægger fx en linje med hvilke varer der blev trukket; den kan foldes ud hvis du vil se listen.\n\nHistorikken kan ikke redigeres. Er noget forkert, retter man bonen — sporet bliver stående."
+      },
+      "modal-info-priser": {
+        "selector": ".info-total-row",
+        "label": "Priser",
+        "text": "Linjepriser og totaler vises INKLUSIVE moms — det er sådan de er gemt på bonen, og det er beløbet kunden ser.\n\nKostprisen er derimod uden moms. De to må ikke sammenlignes direkte; dækningsbidrag regnes på salg uden moms mod kostpris uden moms."
+      },
+      "modal-info-noter": {
+        "selector": ".info-note",
+        "label": "Noter",
+        "text": "Fire slags, med hver sin modtager:\n\n· Kundeønsker — det kunden har skrevet til os\n· Køkkeninfo — beskeder til dem der laver maden\n· Leveringsnoter — etage, port, kode, hvem der tager imod\n· Intern note — vores egne, kunden ser dem aldrig\n\nRedigeres i bon-draweren, ikke her. Info-visningen er til at læse."
+      },
+      "modal-rav-toggle": {
+        "selector": ".ing-level-toggle",
+        "label": "Produktion / Råvarer",
+        "text": "To måder at se det samme behov:\n\n· Produktion — sådan som køkkenet arbejder. Blandinger (dressinger, salater) står som ÉN færdig vare med sin vægt, ikke som deres enkeltdele.\n· Råvarer — alt pillet helt fra hinanden ned til den enkelte råvare. Det er den liste man køber ind efter.\n\nSamme bon, to detaljeniveauer. Skift frem og tilbage uden at hente data igen."
+      },
+      "modal-rav-status": {
+        "selector": ".ing-row",
+        "label": "Lagerstatus pr. råvare",
+        "text": "Prikken viser om der er nok på lageret til dét behov:\n\n🟢 der er nok · 🟡 tæt på · 🔴 der mangler\n\nTallene er behov over for beholdning i Grocy. En blanding får den værste status blandt sine egne råvarer — kan én ting ikke skaffes, kan blandingen ikke laves. Klik på blandingen for at se hvad der mangler."
+      },
+      "modal-rav-cart": {
+        "selector": ".ing-btn-cart",
+        "label": "🛒 Sæt på indkøbslisten",
+        "text": "Lægger råvaren på indkøbslisten i den enhed man køber ind i — ikke i den enhed opskriften bruger. Købes der kasser, står der kasser.\n\nDerfra vælges leverandør og varenummer på Indkøb-siden."
+      },
+      "modal-pakke-toggle": {
+        "selector": ".pakke-toggle",
+        "label": "Pak ned / Skal laves",
+        "text": "· Pak ned — det du fysisk skal have med fra HQ. Blandinger er lavet hjemmefra og pakkes som færdige varer.\n· Skal laves — det der skal kunne produceres ude på stedet.\n\nDet er to forskellige lister til to forskellige opgaver, ikke to visninger af den samme."
+      },
+      "modal-pakke-juster": {
+        "selector": ".pakke-qty",
+        "label": "Justér mængde",
+        "text": "Klik på et tal for at ændre det. Tag hellere lidt for meget med end for lidt — det er dét tal der bliver trukket fra HQ-lageret når bonen sættes til LEVERET.\n\nEr bonen allerede leveret, er tallene låst: lageret er trukket, og en ændring bagefter ville betyde at lageret og listen ikke længere passer sammen."
+      },
+      "modal-pakke-extras": {
+        "selector": ".pakke-extras",
+        "label": "Tag ekstra med",
+        "text": "Varer der ikke står i nogen opskrift, men skal med alligevel — ekstra emballage, en flaske olie, en reserve.\n\nDe lægges oveni og trækkes fra HQ sammen med resten ved levering."
+      },
+      "modal-pakke-preview": {
+        "selector": ".pakke-preview",
+        "label": "Forhåndsvis lagertræk",
+        "text": "Viser præcis hvad LEVERET ville trække fra HQ — med dine justeringer og ekstra-varer regnet med. Den rører ikke lageret.\n\nBrug den når du er i tvivl om en justering rammer det rigtige. Det er samme beregning som selve trækket bruger, ikke et skøn."
+      },
+      "modal-pakke-lever": {
+        "selector": ".pakke-deliver",
+        "label": "Pakket & afsted",
+        "text": "Sætter bonen til LEVERET og trækker mængderne fra HQ-lageret i samme greb.\n\nDet er den handling der flytter lageret, så tjek listen igennem først. Bagefter er mængderne låst."
+      }
+    },
+    "indkob-chips": {
       "ib-chips": {
         "selector": ".ib-chips",
         "label": "Varenumre (chips)",
@@ -300,12 +359,28 @@
         "selector": ".ib-lp",
         "label": "Kobl varenummer",
         "text": "To veje, fordi de fører til hver sit sted:\n\n· Leverandørens eget varenummer — fri tekst. Har leverandøren ikke numre, så skriv den betegnelse du bruger i bestillingen ('Hvide servietter 33x33'). Det er dét køkkenet og leverandøren genkender.\n· Grossistens katalog — søg på navn eller varenummer. Nummeret lander hos grossisten, så varen kan lægges i deres kurv, uanset hvilken gruppe den ellers står i.\n\nHar varen hverken nummer eller fast betegnelse, kan der genereres et internt nummer (INT-xxxx). Det er en nødløsning — erstat det med det rigtige, når leverandøren melder tilbage."
-      },
-      "ib-umatched": {
-        "selector": ".ib-shdr",
-        "label": "Ingen barcode",
-        "text": "Varer der hører til leverandøren, men mangler et varenummer. De kan ikke bestilles før de har et — brug 'Kobl varenr.'."
       }
     }
+  },
+  "office-calendar": {
+    "_pageName": "Office — Kalender",
+    "elements": {},
+    "_include": [
+      "modal"
+    ]
+  },
+  "office-planning": {
+    "_pageName": "Office — Planlægning",
+    "elements": {},
+    "_include": [
+      "modal"
+    ]
+  },
+  "office-bons": {
+    "_pageName": "Office — Bonliste",
+    "elements": {},
+    "_include": [
+      "modal"
+    ]
   }
 }

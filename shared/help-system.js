@@ -247,9 +247,35 @@ var HelpSystem = (function() {
   function getPageKey() { return _pageKey; }
   function getPageName() { return _pageName; }
 
+  /*
+   * Sidens egne punkter + eventuelle delte sæt.
+   *
+   * Delte komponenter (modal, bon-kort, indkøbs-chips) optræder på mange sider.
+   * Uden dette skulle deres hjælpetekster kopieres ind under hver eneste
+   * sidenøgle — og så driver kopierne fra hinanden, præcis som hjælpetekster
+   * plejer. En side skriver i stedet "_include": ["modal"], og teksterne bor ét
+   * sted under "_shared".
+   *
+   * Sidens egne punkter vinder ved navnesammenfald, så en side kan skrive en
+   * delt tekst om uden at røre de andre. MapMode gemmer altid i sidens egne
+   * elements — den kan ikke komme til at overskrive et delt sæt.
+   */
   function getPageContent() {
     if (!_pageKey || !_helpContent[_pageKey]) return {};
-    return _helpContent[_pageKey].elements || {};
+    var page = _helpContent[_pageKey];
+    var own = page.elements || {};
+    var include = page._include;
+    if (!include || !include.length) return own;
+
+    var shared = _helpContent._shared || {};
+    var merged = {};
+    include.forEach(function(name) {
+      var set = shared[name];
+      if (!set) return;
+      Object.keys(set).forEach(function(k) { merged[k] = set[k]; });
+    });
+    Object.keys(own).forEach(function(k) { merged[k] = own[k]; });
+    return merged;
   }
 
   function toggle() { active ? hide() : show(); }
