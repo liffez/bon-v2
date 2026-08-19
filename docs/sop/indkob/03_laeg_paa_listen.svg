@@ -1,0 +1,59 @@
+<svg viewBox="0 0 1300 910" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img">
+  <defs><marker id="mb0a493" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0a493"/></marker></defs>
+  <rect x="0" y="0" width="1300" height="910" fill="#ffffff"/>
+  <text x="40" y="24" font-size="26" fill="#8e631f" text-anchor="start"><tspan x="40" dy="26">Læg en vare på indkøbslisten — de mange steder</tspan></text>
+  <text x="41" y="60" font-size="15" fill="#7a6c58" text-anchor="start"><tspan x="41" dy="15">Uanset hvorfra: varen lander samme sted — den fælles indkøbsliste</tspan></text>
+  <rect x="335" y="150" width="525" height="84" rx="14" fill="#ffffff" stroke="#3d6ea5" stroke-width="2"/>
+  <rect x="335" y="150" width="7" height="84" rx="0" fill="#3d6ea5" stroke="#3d6ea5" stroke-width="2"/>
+  <text x="357" y="162" font-size="15" fill="#402d15" text-anchor="start"><tspan x="357" dy="15">📉  Manglende</tspan></text>
+  <text x="357" y="186" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="357" dy="11">Hvor:  Indkøb → banner "Manglende (N)" → vælg → "Tilføj valgte til listen"</tspan></text>
+  <text x="357" y="208" font-size="11.5" fill="#3d6ea5" text-anchor="start"><tspan x="357" dy="11.5">Når:  varer under minimumsbeholdning</tspan></text>
+  <polyline points="860,192 900,192" fill="none" stroke="#b0a493" stroke-width="2" marker-end="url(#mb0a493)"/>
+  <rect x="335" y="249" width="525" height="84" rx="14" fill="#ffffff" stroke="#3d6ea5" stroke-width="2"/>
+  <rect x="335" y="249" width="7" height="84" rx="0" fill="#3d6ea5" stroke="#3d6ea5" stroke-width="2"/>
+  <text x="357" y="261" font-size="15" fill="#402d15" text-anchor="start"><tspan x="357" dy="15">⏰  Udløbende</tspan></text>
+  <text x="357" y="285" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="357" dy="11">Hvor:  Indkøb → banner "Udløbende (N)" → vælg → "Tilføj valgte til listen"</tspan></text>
+  <text x="357" y="307" font-size="11.5" fill="#3d6ea5" text-anchor="start"><tspan x="357" dy="11.5">Når:  varer der snart udløber</tspan></text>
+  <polyline points="860,291 900,291" fill="none" stroke="#b0a493" stroke-width="2" marker-end="url(#mb0a493)"/>
+  <text x="55" y="219.5" font-size="15" fill="#3d6ea5" text-anchor="start"><tspan x="55" dy="15">①  Systemet</tspan><tspan x="55" dy="18.75">     foreslår</tspan></text>
+  <rect x="335" y="366" width="525" height="84" rx="14" fill="#ffffff" stroke="#8e631f" stroke-width="2"/>
+  <rect x="335" y="366" width="7" height="84" rx="0" fill="#8e631f" stroke="#8e631f" stroke-width="2"/>
+  <text x="357" y="378" font-size="15" fill="#402d15" text-anchor="start"><tspan x="357" dy="15">➕  Tilføj vare</tspan></text>
+  <text x="357" y="402" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="357" dy="11">Hvor:  Indkøb → værktøjslinje → "+ Tilføj vare" → søg i Grocy → antal</tspan></text>
+  <text x="357" y="424" font-size="11.5" fill="#8e631f" text-anchor="start"><tspan x="357" dy="11.5">Når:  varen findes allerede i Grocy</tspan></text>
+  <polyline points="860,408 900,408" fill="none" stroke="#b0a493" stroke-width="2" marker-end="url(#mb0a493)"/>
+  <rect x="335" y="465" width="525" height="84" rx="14" fill="#ffffff" stroke="#8e631f" stroke-width="2"/>
+  <rect x="335" y="465" width="7" height="84" rx="0" fill="#8e631f" stroke="#8e631f" stroke-width="2"/>
+  <text x="357" y="477" font-size="15" fill="#402d15" text-anchor="start"><tspan x="357" dy="15">🔗  Opret / kobl</tspan></text>
+  <text x="357" y="501" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="357" dy="11">Hvor:  Indkøb → "+ Opret/kobl" → søg Hørkram-varenr. eller opret ny vare</tspan></text>
+  <text x="357" y="523" font-size="11.5" fill="#8e631f" text-anchor="start"><tspan x="357" dy="11.5">Når:  helt ny vare / mangler leverandør-varenr.</tspan></text>
+  <polyline points="860,507 900,507" fill="none" stroke="#b0a493" stroke-width="2" marker-end="url(#mb0a493)"/>
+  <text x="55" y="435.5" font-size="15" fill="#8e631f" text-anchor="start"><tspan x="55" dy="15">②  Du</tspan><tspan x="55" dy="18.75">     tilføjer selv</tspan></text>
+  <rect x="335" y="582" width="525" height="84" rx="14" fill="#ffffff" stroke="#2f7d4f" stroke-width="2"/>
+  <rect x="335" y="582" width="7" height="84" rx="0" fill="#2f7d4f" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="357" y="594" font-size="15" fill="#402d15" text-anchor="start"><tspan x="357" dy="15">🛒  Fra Råvarer på en bon</tspan></text>
+  <text x="357" y="618" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="357" dy="11">Hvor:  åbn en bon → Råvarer → 🛒 ud for en manglende vare</tspan></text>
+  <text x="357" y="640" font-size="11.5" fill="#2f7d4f" text-anchor="start"><tspan x="357" dy="11.5">Når:  du tjekker råvarer til en konkret bon</tspan></text>
+  <polyline points="860,624 900,624" fill="none" stroke="#b0a493" stroke-width="2" marker-end="url(#mb0a493)"/>
+  <rect x="335" y="681" width="525" height="84" rx="14" fill="#ffffff" stroke="#2f7d4f" stroke-width="2"/>
+  <rect x="335" y="681" width="7" height="84" rx="0" fill="#2f7d4f" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="357" y="693" font-size="15" fill="#402d15" text-anchor="start"><tspan x="357" dy="15">📖  Fra Opskrifter</tspan></text>
+  <text x="357" y="717" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="357" dy="11">Hvor:  Opskrifter → åbn en opskrift → "🛒 Tilføj manglende til indkøb"</tspan></text>
+  <text x="357" y="739" font-size="11.5" fill="#2f7d4f" text-anchor="start"><tspan x="357" dy="11.5">Når:  du gennemgår eller laver en opskrift</tspan></text>
+  <polyline points="860,723 900,723" fill="none" stroke="#b0a493" stroke-width="2" marker-end="url(#mb0a493)"/>
+  <rect x="335" y="780" width="525" height="84" rx="14" fill="#ffffff" stroke="#2f7d4f" stroke-width="2"/>
+  <rect x="335" y="780" width="7" height="84" rx="0" fill="#2f7d4f" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="357" y="792" font-size="15" fill="#402d15" text-anchor="start"><tspan x="357" dy="15">📊  Fra Lager / optælling</tspan></text>
+  <text x="357" y="816" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="357" dy="11">Hvor:  Lager → vælg vare(r) → "+ Indkøbsliste"</tspan></text>
+  <text x="357" y="838" font-size="11.5" fill="#2f7d4f" text-anchor="start"><tspan x="357" dy="11.5">Når:  du opdager en mangel under optælling</tspan></text>
+  <polyline points="860,822 900,822" fill="none" stroke="#b0a493" stroke-width="2" marker-end="url(#mb0a493)"/>
+  <text x="55" y="701" font-size="15" fill="#2f7d4f" text-anchor="start"><tspan x="55" dy="15">③  Undervejs</tspan><tspan x="55" dy="18.75">     i arbejdet</tspan></text>
+  <rect x="900" y="150" width="360" height="729" rx="14" fill="#eef6f0" stroke="#b8dcc6" stroke-width="2"/>
+  <text x="1080" y="364.5" font-size="30" fill="#1e1e1e" text-anchor="middle"><tspan x="1080" dy="30">🧾</tspan></text>
+  <text x="1080" y="412.5" font-size="22" fill="#2f7d4f" text-anchor="middle"><tspan x="1080" dy="22">Indkøbslisten</tspan></text>
+  <text x="1080" y="446.5" font-size="13" fill="#7a6c58" text-anchor="middle"><tspan x="1080" dy="13">ét samlet sted</tspan></text>
+  <text x="1080" y="526.5" font-size="12" fill="#4a5a44" text-anchor="middle"><tspan x="1080" dy="12">Herfra fortsætter rejsen:</tspan></text>
+  <text x="1080" y="552.5" font-size="15" fill="#402d15" text-anchor="middle"><tspan x="1080" dy="15">Justér → Bestil → Modtag</tspan></text>
+  <text x="1080" y="578.5" font-size="11" fill="#7a6c58" text-anchor="middle"><tspan x="1080" dy="11">(se oversigten — diagram 1)</tspan></text>
+  <text x="40" y="884" font-size="12" fill="#a89a83" text-anchor="start"><tspan x="40" dy="12">Bon v2 · Indkøb — køkken · Læg på listen (3/5)</tspan></text>
+</svg>

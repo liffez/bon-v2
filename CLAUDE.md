@@ -4432,6 +4432,124 @@ linjerne på den?"). Bevidst udskudt: Enter-fælden var kilden til de observered
 dubletter, så værnet ville kun fange det tilfælde hvor nogen bevidst åbner modalen to
 gange. Tages op hvis det viser sig i drift alligevel.
 
+### Indbakken: en kobling lærer afsenderen, og et arkiv kan findes igen (#478 + #479, 18. august 2026)
+
+Lærke skrev to mails 11. august — den ene med selve bestillingen (43 kuverter,
+8 madhensyn). Begge landede i den ufordelte indbakke, blev arkiveret to dage
+senere, og var derefter **ikke til at finde nogen steder** i Bon v2.
+
+**Årsagskæden.** Kunden blev oprettet gennem tilbuds-flowet med telefon men
+**uden email** (feltet er valgfrit). En videresendt mail blev koblet til hende —
+og koblingen skrev ikke afsenderens adresse på kunden. Da hun svarede dagen
+efter uden `#k-`-tag, havde trin 3a i `processInboundMail` intet at slå op på,
+og mailen faldt ud igen. Systemet **fik adressen serveret og kastede den væk.**
+
+Fejlklassen er den samme som #305/#319 (memory `project_silent_sideeffect_failures`):
+handlingen sagde den lykkedes, den nødvendige bivirkning fyrede aldrig, og
+intet sted mødtes de to.
+
+**#478 — koblingen husker nu.** `learnSenderEmail()` i [routes/mail.js](routes/mail.js)
+opretter afsenderens adresse som kontaktpunkt (`source='mail'`, `is_public=0`)
+når en ufordelt mail kobles til en kunde. Fem tilfælde hvor vi holder os væk,
+hver med sin grund: **ugyldig** · **intern** (vores egne adresser må aldrig blive
+en kundes kontaktpunkt — det var #426-fejlen) · **findes** · **deaktiveret**
+(nogen har fjernet den bevidst) · **optaget** (adressen står på en ANDEN kunde;
+to ejere gør `findCustomerByEmail` tvetydig, og en ufordelt mail er bedre end en
+stille fejlrouting).
+
+- **Vi tilføjer, vi flytter aldrig.** Har kunden allerede en primær email, bliver
+  den lærte ikke-primær. Kun når kunden ingen har — situationen der forårsagede
+  fejlen — bliver den primær og synkes til `customers.email`.
+- **`learnFromUnmatched()`** vælger den rigtige adresse: normalt afsenderen, men
+  ved en intern videresendelse den **videresendte**. Spejler `resolveEffectiveSender`
+  i mailService, så de to ikke driver fra hinanden.
+- Gælder alle koblingsveje: Link til Kunde, **Link til Bon** (bonen kender sin
+  kunde), Opret lead og Svar.
+- Changelog-linje viser hvor adressen kom fra.
+
+**#479 — arkivet er ikke længere en blindgyde.** `status='ignored'` betød indtil nu
+"usynlig overalt": indbakken hentede kun `open`, og søgefeltet der hedder
+*"Søg al mail (også afsluttet)"* kiggede aldrig i `mail_unmatched`.
+
+- **"Ignorer" hedder nu "Arkivér"**, og kvitteringen siger hvor mailen tog hen.
+  Ordet lovede det forkerte: i enhver mailklient betyder arkivér "gem den".
+- **Ny chip 🗄 Arkiv** med eget søgefelt. Listen viser **kun de menneske-arkiverede**
+  (12 stk.) — af 1.434 arkiverede er de 1.422 spamfiltreret automatisk og ville
+  drukne resten. **Søgningen** går derimod gennem alt arkiveret, så en mail
+  filteret ramte forkert stadig kan findes. Rækkerne mærkes `🗄 arkiveret` mod
+  `filtreret`, så "jeg lagde den væk" kan skelnes fra "filteret tog den".
+- **`POST /unmatched/:id/restore`** — fortryd. `requireAuth()`, ikke admin: den der
+  arkiverede skal kunne rette op med det samme.
+- **Tråd-søgningen krydshenviser**: `🗄 N træffere i ufordelt og arkiv — vis →`
+  fører over i arkivet med søgeteksten i behold. Feltets løfte holder nu.
+- **Arkiv-sporet vises**: *"🗄 Arkiveret af Anne · 13/8 09:11"*. `handled_by_user_id`
+  og `handled_at` har ligget der hele tiden uden at blive vist nogen steder — så
+  kunne ingen se hvad der var sket med en mail der manglede. (Delvis #480; en
+  rigtig historik med flere handlinger mangler stadig.)
+
+> ⚠️ `/mail/inbox` joiner nu `users` for at vise hvem der arkiverede. Både
+> `mail_unmatched` og `users` har `created_at`, så **alle** where-klausuler i den
+> forespørgsel skal prefixes `um.` — ellers er datofilteret tvetydigt.
+
+**Omfanget var ikke teoretisk.** Af de 12 ufordelte mails der nogensinde er
+arkiveret af et menneske, er **9 fra afsendere der ER kunder** — flere er
+bestillinger (Læderstræde, kbh-el-service, mortenw ×2, cap-partner ×2).
+Oprydningen af dem er #483.
+
+**Tests:** `npm run test:inbox-learn` — 25 asserts mod de ægte endpoints over HTTP
+(isoleret temp-DB, spawned server), inkl. at afsender-opslaget bagefter faktisk
+finder kunden. **Mutations-testet:** fjernes læringen falder 11 asserts; hvert af
+de tre værn (intern, optaget, ikke-primær) fælder sin egen navngivne assert.
+Regression grøn: inbox_handling 29, inbox-link 21, mail-send-truth 13,
+mail_signature 24. Browser-verificeret mod en kopi af driftsdata — den fulde
+drifts-repro (kunde uden email → kobling → adressen læres → næste mail rammer)
+kørt igennem; kopien slettet efter brug.
+
+**Åbne opfølgninger:** #480 (rigtig mail-historik i changelog), #481 (kortlæg
+mailklient-forventninger — Leifs pointe om at folk skal føle sig hjemme),
+#482 (foreslå kunden automatisk + advar før en kundemail arkiveres),
+#483 (ryd de 9 arkiverede kundemails op).
+
+### Indbakken foreslår kunden — og advarer før en kundemail arkiveres (#482, 18. august 2026)
+
+#478 sørger for at en kobling **husker** adressen. Men kun anden gang. Første gang
+en kendt kunde skriver fra en adresse vi ikke har på dem, står man med præcis det
+valg Anne stod med: koble manuelt eller arkivere. Systemet vidste faktisk hvem det
+var — det sagde bare ingenting.
+
+- **`suggestCustomerFor()`** ([routes/mail.js](routes/mail.js)) hænger
+  `suggested_customer` på hvert ufordelt item i `/mail/inbox` og `/mail/unmatched`.
+  Slår op på afsenderen, og på den **videresendte** afsender når mailen kom via en
+  kollega. `via` fortæller hvilken af de to der ramte. Opslagene caches pr. request —
+  en arkiv-søgning kan give hundredvis af rækker fra de samme få afsendere.
+- **Vi foreslår aldrig os selv.** Huset står som kunde (`info@` = 3005), så uden
+  intern-værnet ville hver videresendelse foreslå Ristet Rug — nøjagtig den fejl
+  #426 rettede i routingen.
+- **`lookupCustomerByEmail` fik `is_active`-filtre** på både kunde og kontaktpunkt.
+  En sammenlagt dublet er *lukket*, ikke slettet, og måtte ikke kunne foreslås.
+  Rettelsen gælder også bounce-berigelsen, som brugte samme funktion.
+- **UI**: gult panel i previewet (*"👤 Afsenderen er kunde: Lærke Haumann Andersen ·
+  CAP PARTNER ApS"* + `Kobl til Lærke`) og et `👤 kendt kunde`-mærke i listen.
+- **Arkivering advarer**: *"Afsenderen er kunde: … Vil du arkivere alligevel? Tryk
+  Annuller for at koble mailen til kunden i stedet."* Ikke en spærring — en kundemail
+  kan godt være støj — men valget skal være bevidst. Bulk-arkivering navngiver de
+  første fem kunder i bunken, så den ene bestilling ikke forsvinder i mængden.
+
+> ⚠️ **Et mærke i `.inb-mail-subject` er usynligt på lange emner.** Emne-linjen har
+> `text-overflow: ellipsis`, så mærket lå i DOM'en men blev klippet væk på 5 af 12
+> rækker — kun synligt ved at måle `getBoundingClientRect().width`. Mærkerne bor nu
+> i meta-linjen med `flex-shrink: 0`.
+
+**Målt på driftsdata:** 9 af de 12 menneske-arkiverede mails får nu et forslag —
+præcis de 9 der viste sig at være kundekorrespondance. De tre uden (Hungarian
+Embassy, Luca Mateo, kbh-el-service) er reelt ukendte afsendere.
+
+**Tests:** `npm run test:inbox-learn` udvidet 25 → **34 asserts**. Mutations-testet:
+intern-værnet, `is_active`-filteret og forward-fallbacken fælder hver sin navngivne
+assert. Verificeret ende-til-ende mod en kopi af driftsdata, hele kæden i ét forløb:
+kobl Mortens første mail manuelt → adressen læres (#478) → hans anden mail får
+automatisk et forslag (#482). Kopien slettet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -4880,6 +4998,8 @@ PATCH  /api/users/:id                                   routes/users.js (admin)
 POST   /api/users/:id/password                          routes/users.js (admin)
 GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
+GET    /api/mail/inbox?status=open|archived|all&q=       routes/mail.js (samlet indbakke + arkiv-søgning + suggested_customer)
+POST   /api/mail/unmatched/:id/restore                   routes/mail.js (fortryd arkivering)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js
 GET    /api/settings/internal-senders                    routes/settings.js (admin — interne mail-afsendere + ramte kunder)

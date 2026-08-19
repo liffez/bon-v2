@@ -7,6 +7,8 @@ const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../service
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
 const { isInternalEmail } = require('../services/internalIdentity');
+const { logChange } = require('../db/helpers');
+const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
 
 // Er den videresendte afsender vores egen adresse?
 //
@@ -17,6 +19,38 @@ const { isInternalEmail } = require('../services/internalIdentity');
 // afgøres det her.
 function markParsedInternal(db, row) {
     return row.parsed_email && isInternalEmail(db, row.parsed_email) ? 1 : 0;
+}
+
+// Kender vi allerede afsenderen? (#482)
+//
+// #478 sørger for at en kobling HUSKER adressen — men kun anden gang. Første
+// gang en kendt kunde skriver fra en adresse vi ikke har på dem, står man med
+// præcis det valg Anne stod med: koble manuelt eller arkivere. Systemet ved
+// faktisk hvem det er; det sagde bare ingenting.
+//
+// Slår op på afsenderen, og på den VIDERESENDTE afsender når mailen kom via en
+// kollega — dér er det kunden inde i beskeden der er interessant, ikke kollegaen.
+// Vi foreslår aldrig en intern adresse: huset står selv som kunde (info@ = 3005),
+// så uden det værn ville hver videresendelse foreslå Ristet Rug.
+//
+// `cache` deles inden for ét request — en arkiv-søgning kan give hundredvis af
+// rækker fra de samme få afsendere.
+function suggestCustomerFor(db, um, cache) {
+    const tryOne = (email, via) => {
+        if (!email || isInternalEmail(db, email)) return null;
+        const key = email.toLowerCase();
+        if (!cache.has(key)) cache.set(key, lookupCustomerByEmail(db, key) || null);
+        const c = cache.get(key);
+        if (!c) return null;
+        return {
+            id: c.customer_id,
+            name: [c.first_name, c.last_name].filter(Boolean).join(' ').trim(),
+            company_name: c.company_name || null,
+            email,
+            via,
+        };
+    };
+    return tryOne(um.from_email, 'sender') || tryOne(um.parsed_email, 'forwarded') || null;
 }
 
 function broadcastUnmatchedCount(db) {
@@ -373,9 +407,13 @@ router.get('/threads/counts', requireAuth(), handle((req, res) => {
         FROM mail_threads mt WHERE mt.handling_status IS NOT NULL
     `).get();
     const um = db.prepare(`SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'`).get();
+    // Kun menneske-arkiverede — se /mail/inbox for hvorfor spamfilteret holdes ude.
+    const ark = db.prepare(
+        `SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'ignored' AND handled_by_user_id IS NOT NULL`
+    ).get();
     res.json({
         aabne: row.aabne || 0, udsat: row.udsat || 0, kunde: row.kunde || 0,
-        luk: row.luk || 0, alle: row.alle || 0, ufordelt: um.c || 0,
+        luk: row.luk || 0, alle: row.alle || 0, ufordelt: um.c || 0, arkiv: ark.c || 0,
     });
 }));
 
@@ -630,6 +668,7 @@ function lookupCustomerByEmail(db, email) {
         WHERE cp.entity_type = 'customer'
           AND cp.kind = 'email'
           AND LOWER(cp.value) = ?
+          AND cp.is_active = 1 AND c.is_active = 1
         LIMIT 1
     `).get(email.toLowerCase());
     if (cp) return cp;
@@ -640,7 +679,7 @@ function lookupCustomerByEmail(db, email) {
                co.name AS company_name
         FROM customers c
         LEFT JOIN companies co ON co.id = c.company_id
-        WHERE LOWER(c.email) = ?
+        WHERE LOWER(c.email) = ? AND c.is_active = 1
         LIMIT 1
     `).get(email.toLowerCase());
     return c || null;
@@ -672,10 +711,12 @@ router.get('/unmatched', requireModule('crm'), handle(async (req, res) => {
     );
 
     // Enrich bounces med fejlet modtager + kunde-lookup
+    const sugCache = new Map();
     for (const item of items) {
         item.attachments = attStmt.all(item.id);
         item.has_attachments = item.attachments.length > 0 ? 1 : 0;
         item.parsed_is_internal = markParsedInternal(db, item);
+        item.suggested_customer = suggestCustomerFor(db, item, sugCache);
         if (isBounceMail(item.from_email)) {
             item.is_bounce = true;
             const recipient = parseBouncedRecipient(item.body_text);
@@ -705,24 +746,51 @@ router.get('/inbox', requireModule('crm'), handle((req, res) => {
     const db = getDb();
     const mailbox = req.query.mailbox;      // 'bon' | 'kontakt' | undefined
     const fromDate = req.query.from_date;
+    const q = (req.query.q || '').trim();
     const items = [];
 
-    // ── 1. Ufordelte (open) ──
-    const umWhere = ["status = 'open'"];
+    // ── 1. Ufordelte / arkiverede ──
+    //
+    // `status` (open | archived | all) styrer hvad listen viser. Arkivet er med
+    // vilje IKKE alt med status='ignored': af 1.434 arkiverede er de 1.422
+    // spamfiltreret automatisk (migration 066 + shouldAutoIgnore), og de ville
+    // drukne de 12 en kollega selv har lagt væk. Listen viser derfor kun det et
+    // menneske har arkiveret — men SØGNINGEN går gennem alt, så en mail der er
+    // frafiltreret ved en fejl stadig kan findes (#479).
+    // Kolonner prefixes med um. — joinet til users deler bl.a. created_at.
+    const HUMAN_ARCHIVED = "um.status = 'ignored' AND um.handled_by_user_id IS NOT NULL";
+    const isArchive = req.query.status === 'archived';
+    const umStatus = isArchive              ? HUMAN_ARCHIVED
+                   : req.query.status === 'all' ? '1=1'
+                   : "um.status = 'open'";
+    // Søger man i arkivet, åbnes der for ALT arkiveret — også det spamfilteret tog.
+    const umWhere = [q && isArchive ? "um.status = 'ignored'" : umStatus];
     const umArgs = [];
-    if (fromDate) { umWhere.push('COALESCE(received_at, created_at) >= ?'); umArgs.push(fromDate); }
-    if (mailbox)  { umWhere.push('mailbox LIKE ?'); umArgs.push('%' + mailbox + '%'); }
+    if (q) {
+        const like = '%' + q + '%';
+        umWhere.push('(um.subject LIKE ? OR um.from_email LIKE ? OR um.from_name LIKE ? OR um.body_text LIKE ?)');
+        umArgs.push(like, like, like, like);
+    }
+    if (fromDate) { umWhere.push('COALESCE(um.received_at, um.created_at) >= ?'); umArgs.push(fromDate); }
+    if (mailbox)  { umWhere.push('um.mailbox LIKE ?'); umArgs.push('%' + mailbox + '%'); }
+    // Hvem lagde den væk? Findes allerede i handled_by_user_id, men blev aldrig
+    // vist nogen steder — så var det umuligt at spørge hinanden hvad der skete.
     const unmatched = db.prepare(
-        `SELECT * FROM mail_unmatched WHERE ${umWhere.join(' AND ')}`
+        `SELECT um.*, u.name AS handled_by_name
+           FROM mail_unmatched um
+           LEFT JOIN users u ON u.id = um.handled_by_user_id
+          WHERE ${umWhere.join(' AND ')}`
     ).all(...umArgs);
     const attUm = db.prepare(
         `SELECT id, filename, mime_type, size_bytes, content_id, is_inline
          FROM mail_attachments WHERE unmatched_id = ? ORDER BY id`
     );
+    const sugCache = new Map();
     for (const m of unmatched) {
         m.attachments = attUm.all(m.id);
         m.has_attachments = m.attachments.length ? 1 : 0;
         m.parsed_is_internal = markParsedInternal(db, m);
+        m.suggested_customer = suggestCustomerFor(db, m, sugCache);
         if (isBounceMail(m.from_email)) {
             m.is_bounce = true;
             const recipient = parseBouncedRecipient(m.body_text);
@@ -737,10 +805,21 @@ router.get('/inbox', requireModule('crm'), handle((req, res) => {
                 }
             }
         }
+        // Frontenden skal kunne skelne "jeg lagde den væk" fra "filteret tog den" —
+        // ellers ligner et fejlfiltreret spamfund en bevidst beslutning.
+        m.archived_by_human = m.status === 'ignored' && m.handled_by_user_id != null ? 1 : 0;
+        m.auto_filtered = m.status === 'ignored' && m.handled_by_user_id == null ? 1 : 0;
         items.push({ kind: 'unmatched', key: 'u' + m.id, sort_at: m.received_at || m.created_at, ...m });
     }
 
     // ── 2. Ulæste tråd-svar (indgående, ulæst, aktiv tråd) ──
+    //
+    // Springes over når kalderen kigger i arkivet: dér er spørgsmålet "hvor blev
+    // den mail af", og ulæste tråd-svar er en anden slags arbejde.
+    if (isArchive) {
+        items.sort((a, b) => String(b.sort_at || '').localeCompare(String(a.sort_at || '')));
+        return res.json(items);
+    }
     const tWhere = ["mm.direction = 'in'", 'mm.is_read = 0', "mt.status = 'active'"];
     const tArgs = [];
     if (fromDate) { tWhere.push('COALESCE(mm.received_at, mm.created_at) >= ?'); tArgs.push(fromDate); }
@@ -828,8 +907,20 @@ router.patch('/unmatched/:id', requireModule('crm'), handle(async (req, res) => 
         // Beskeden er indsat ulæst → tråden er nyt, uhåndteret arbejde i indbakken.
         markThreadInbound(db, Number(threadId), um.received_at);
 
+        // Husk hvem adressen tilhører (#478). "Link til Bon" tæller også: bonen
+        // kender sin kunde, og det er kunden mailen reelt handler om.
+        let learnFor = linked_customer_id || null;
+        if (!learnFor && linked_bon_id) {
+            learnFor = db.prepare('SELECT customer_id FROM bons WHERE id = ?')
+                .get(linked_bon_id)?.customer_id || null;
+        }
+        const learned = learnFor
+            ? learnFromUnmatched(db, um, learnFor, userId,
+                linked_customer_id ? 'kobling fra indbakken' : 'kobling til bon fra indbakken')
+            : { learned: false, reason: 'ingen_kunde' };
+
         broadcastUnmatchedCount(db);
-        res.json({ ok: true, thread_id: Number(threadId) });
+        res.json({ ok: true, thread_id: Number(threadId), learned_email: learned.learned ? learned.email : null });
     } else if (status === 'ignored') {
         db.prepare(`
             UPDATE mail_unmatched SET status = 'ignored', handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP WHERE id = ?
@@ -856,6 +947,33 @@ router.post('/unmatched/:id/dismiss', requireAuth(), handle((req, res) => {
     db.prepare(`
         UPDATE mail_unmatched SET status = 'ignored', handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(userId, id);
+    broadcastUnmatchedCount(db);
+    res.json({ ok: true });
+}));
+
+// POST /api/mail/unmatched/:id/restore — fortryd en arkivering (#479).
+//
+// Uden den var arkivering en envejsdør: mail 1458 (en bestilling på 43 kuverter
+// med 8 madhensyn) blev arkiveret ved et fejlklik og kunne kun hentes tilbage
+// med SQL. Enhver mailklient kan fortryde; det skal denne også.
+//
+// requireAuth() og ikke admin — den der arkiverede skal kunne rette op med det
+// samme, ikke vente på nogen. Auto-filtreret spam kan også gendannes: filteret
+// tager fejl indimellem, og det er billigere at få en spam-mail tilbage i
+// indbakken end at miste en kundemail.
+router.post('/unmatched/:id/restore', requireAuth(), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    const db = getDb();
+    const um = db.prepare(`SELECT id, status, subject FROM mail_unmatched WHERE id = ?`).get(id);
+    if (!um) return res.status(404).json({ error: 'Mail ikke fundet' });
+    if (um.status === 'linked') {
+        return res.status(400).json({ error: 'Mailen er koblet til en kunde eller bon og ligger allerede i en tråd' });
+    }
+    if (um.status === 'open') return res.json({ ok: true, already: true });
+
+    db.prepare(
+        `UPDATE mail_unmatched SET status = 'open', handled_by_user_id = NULL, handled_at = NULL WHERE id = ?`
+    ).run(id);
     broadcastUnmatchedCount(db);
     res.json({ ok: true });
 }));
@@ -942,6 +1060,106 @@ function insertMessageFromUnmatched(db, um, threadId, { isRead = 0 } = {}) {
     return Number(newMsgId);
 }
 
+// Lær afsenderens adresse på kunden.
+//
+// En kobling er den eneste gang et menneske fortæller systemet at DENNE adresse
+// hører til DENNE kunde. Indtil #478 blev den viden kastet væk: kunde 4520 blev
+// oprettet uden email, en videresendt mail blev koblet til hende — og hendes to
+// egne svar dagen efter (det ene med hele bestillingen) faldt ud i den ufordelte
+// indbakke igen, fordi afsender-opslaget i mailService trin 3a intet havde at
+// slå op på.
+//
+// Konservativt med vilje. Vi TILFØJER en adresse, vi flytter aldrig en nogen
+// har valgt: har kunden allerede en primær email, bliver den nye ikke-primær.
+// Fem tilfælde hvor vi holder os helt væk — hver med sin grund:
+//
+//   ugyldig       vi gemmer ikke noget vi ikke kan sende til
+//   intern        vores egne adresser må aldrig blive en kundes kontaktpunkt
+//                 (det var netop dét der sendte kundemail ind på Ristet Rug selv)
+//   findes        allerede lært; intet at gøre
+//   deaktiveret   nogen har fjernet den bevidst — det skal respekteres
+//   optaget       adressen står på en ANDEN kunde; to ejere gør routingen
+//                 tvetydig (findCustomerByEmail tager LIMIT 1), så hellere lade
+//                 mailen være ufordelt end at rute den forkert i stilhed
+//
+// Returnerer { learned, reason } — kalderen kan sige det videre, men skal aldrig
+// vælte koblingen af den grund. At lære adressen er en gevinst, ikke en betingelse.
+function learnSenderEmail(db, customerId, rawEmail, userId, sourceLabel) {
+    if (!customerId || !rawEmail) return { learned: false, reason: 'ingen_data' };
+
+    const v = validateContactValue('email', rawEmail);
+    if (!v.ok) return { learned: false, reason: 'ugyldig' };
+    const email = v.normalized;
+
+    if (isInternalEmail(db, email)) return { learned: false, reason: 'intern' };
+
+    const existing = db.prepare(
+        `SELECT id, is_active FROM contact_points
+          WHERE entity_type = 'customer' AND entity_id = ? AND kind = 'email'
+            AND LOWER(value) = ? LIMIT 1`
+    ).get(customerId, email);
+    if (existing) {
+        return { learned: false, reason: existing.is_active ? 'findes' : 'deaktiveret' };
+    }
+
+    const owner = db.prepare(
+        `SELECT cp.entity_id AS id FROM contact_points cp
+           JOIN customers c ON c.id = cp.entity_id
+          WHERE cp.entity_type = 'customer' AND cp.kind = 'email'
+            AND LOWER(cp.value) = ? AND cp.is_active = 1 AND c.is_active = 1
+            AND cp.entity_id != ?
+          LIMIT 1`
+    ).get(email, customerId)
+      || db.prepare(
+        `SELECT id FROM customers
+          WHERE LOWER(email) = ? AND is_active = 1 AND id != ? LIMIT 1`
+    ).get(email, customerId);
+    if (owner) return { learned: false, reason: 'optaget', otherCustomerId: owner.id };
+
+    // Primær kun hvis kunden ingen har — den situation der forårsagede #478.
+    const hasPrimary = db.prepare(
+        `SELECT 1 FROM contact_points
+          WHERE entity_type = 'customer' AND entity_id = ? AND kind = 'email'
+            AND is_primary = 1 AND is_active = 1 LIMIT 1`
+    ).get(customerId);
+    const isPrimary = hasPrimary ? 0 : 1;
+
+    db.prepare(
+        `INSERT INTO contact_points (entity_type, entity_id, kind, value, source, is_public, is_primary, notes)
+         VALUES ('customer', ?, 'email', ?, 'mail', 0, ?, ?)`
+    ).run(customerId, email, isPrimary, 'Lært da en mail blev koblet til kunden');
+
+    if (isPrimary) syncPrimaryCache(db, 'customer', customerId, 'email');
+
+    logChange({
+        entityType: 'customer', entityId: customerId,
+        action: 'contact_point_create', fieldName: 'email',
+        newValue: email, userId,
+        notes: `lært fra ${sourceLabel || 'indbakke-kobling'}`
+            + ` source=mail public=0 primary=${isPrimary}`,
+    });
+
+    return { learned: true, primary: !!isPrimary, email };
+}
+
+// Hvilken adresse på en ufordelt mail hører til kunden?
+//
+// Normalt afsenderen. Undtagelsen er den interne videresendelse: står kollegaen
+// som afsender, er det den VIDERESENDTE adresse der er kundens — spejler
+// resolveEffectiveSender i mailService, så de to steder ikke driver fra hinanden.
+// learnSenderEmail afviser interne adresser i forvejen; her vælger vi bare den
+// rigtige at tilbyde den.
+function learnFromUnmatched(db, um, customerId, userId, sourceLabel) {
+    const first = learnSenderEmail(db, customerId, um.from_email, userId, sourceLabel);
+    if (first.learned || first.reason === 'findes') return first;
+    if (um.parsed_email) {
+        const viaForward = learnSenderEmail(db, customerId, um.parsed_email, userId,
+            (sourceLabel || 'indbakke-kobling') + ' (videresendt afsender)');
+        if (viaForward.learned || viaForward.reason === 'findes') return viaForward;
+    }
+    return first;
+}
+
 function linkUnmatchedToCustomer(db, um, customerId, userId) {
     let thread = db.prepare(
         `SELECT id FROM mail_threads WHERE customer_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
@@ -970,6 +1188,9 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
         // stadig have en handling_status for at være synlig i indbakken.
         // markRead=true → et allerede sendt svar ('afventer_kunde') bevares.
         markThreadInbound(db, Number(threadId), um.received_at, { markRead: true });
+
+        // Koblingen fortæller os hvem adressen tilhører — husk den (#478).
+        learnFromUnmatched(db, um, customerId, userId, 'kobling fra indbakken');
     }
 
     return Number(threadId);

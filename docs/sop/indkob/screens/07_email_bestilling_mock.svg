@@ -1,0 +1,56 @@
+<svg viewBox="0 0 1210 560" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img">
+  <defs></defs>
+  <rect x="0" y="0" width="1210" height="560" fill="#ffffff"/>
+  <text x="20" y="16" font-size="20" fill="#8e631f" text-anchor="start"><tspan x="20" dy="20">Bestil hos email-leverandør — "Registrér bestilling"  (rekonstruktion, annoteret)</tspan></text>
+  <text x="20" y="44" font-size="12" fill="#7a6c58" text-anchor="start"><tspan x="20" dy="12">Ingen email-leverandør med klar-varer i grocytest lige nu. Tro rekonstruktion af dialogen — kan erstattes med et rigtigt screenshot.</tspan></text>
+  <rect x="300" y="100" width="520" height="250" rx="14" fill="#ffffff" stroke="#8e631f" stroke-width="2"/>
+  <text x="322" y="118" font-size="16" fill="#5a3f14" text-anchor="start"><tspan x="322" dy="16">Registrér bestilling — Inco</tspan></text>
+  <text x="322" y="142" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="322" dy="11.5">3 varer</tspan></text>
+  <text x="330" y="170" font-size="13" fill="#402d15" text-anchor="start"><tspan x="330" dy="13">Burgerlommer</tspan></text>
+  <text x="620" y="170" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="620" dy="12.5">5 ks</tspan></text>
+  <text x="700" y="170" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="700" dy="11.5">Nr. 12345</tspan></text>
+  <rect x="322" y="190" width="476" height="1" rx="0" fill="#eee7dc" stroke="#eee7dc" stroke-width="2"/>
+  <text x="330" y="204" font-size="13" fill="#402d15" text-anchor="start"><tspan x="330" dy="13">Kaffefiltre</tspan></text>
+  <text x="620" y="204" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="620" dy="12.5">2 ks</tspan></text>
+  <text x="700" y="204" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="700" dy="11.5">Nr. 67890</tspan></text>
+  <rect x="322" y="224" width="476" height="1" rx="0" fill="#eee7dc" stroke="#eee7dc" stroke-width="2"/>
+  <text x="330" y="238" font-size="13" fill="#402d15" text-anchor="start"><tspan x="330" dy="13">Rengøringsmiddel</tspan></text>
+  <text x="620" y="238" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="620" dy="12.5">1 stk</tspan></text>
+  <text x="700" y="238" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="700" dy="11.5">Nr. 11223</tspan></text>
+  <rect x="322" y="258" width="476" height="1" rx="0" fill="#eee7dc" stroke="#eee7dc" stroke-width="2"/>
+  <rect x="322" y="292" width="120" height="40" rx="14" fill="#f4efe7" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="382" y="304" font-size="12.5" fill="#402d15" text-anchor="middle"><tspan x="382" dy="12.5">📋 Kopiér liste</tspan></text>
+  <rect x="452" y="292" width="74" height="40" rx="14" fill="#f4efe7" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="489" y="304" font-size="12.5" fill="#402d15" text-anchor="middle"><tspan x="489" dy="12.5">📞 Ring</tspan></text>
+  <rect x="536" y="292" width="140" height="40" rx="14" fill="#3d8b5e" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="606" y="304" font-size="12.5" fill="#fff" text-anchor="middle"><tspan x="606" dy="12.5">📧 Send &amp; bestil</tspan></text>
+  <rect x="686" y="292" width="120" height="40" rx="14" fill="#fff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="746" y="304" font-size="12" fill="#402d15" text-anchor="middle"><tspan x="746" dy="12">✓ Bekræft bestilt</tspan></text>
+  <ellipse cx="382" cy="280" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="382" y="270" font-size="13" fill="#fff" text-anchor="middle"><tspan x="382" dy="13">1</tspan></text>
+  <ellipse cx="489" cy="280" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="489" y="270" font-size="13" fill="#fff" text-anchor="middle"><tspan x="489" dy="13">2</tspan></text>
+  <ellipse cx="606" cy="280" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="606" y="270" font-size="13" fill="#fff" text-anchor="middle"><tspan x="606" dy="13">3</tspan></text>
+  <ellipse cx="746" cy="280" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="746" y="270" font-size="13" fill="#fff" text-anchor="middle"><tspan x="746" dy="13">4</tspan></text>
+  <rect x="850" y="100" width="340" height="236" rx="14" fill="#faf6ea" stroke="#e3d08f" stroke-width="2"/>
+  <text x="870" y="116" font-size="15" fill="#5a3f14" text-anchor="start"><tspan x="870" dy="15">Registrér bestilling — knapperne</tspan></text>
+  <ellipse cx="881" cy="156" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="147" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">1</tspan></text>
+  <text x="902" y="143" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">📋 Kopiér liste</tspan></text>
+  <text x="902" y="161" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">kopiér varelisten (til mail/SMS)</tspan></text>
+  <ellipse cx="881" cy="200" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="191" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">2</tspan></text>
+  <text x="902" y="187" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">📞 Ring</tspan></text>
+  <text x="902" y="205" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">ring til leverandøren (tel:)</tspan></text>
+  <ellipse cx="881" cy="244" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="235" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">3</tspan></text>
+  <text x="902" y="231" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">📧 Send &amp; bestil</tspan></text>
+  <text x="902" y="249" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">send bestillingen som mail (kontakt@)</tspan></text>
+  <ellipse cx="881" cy="288" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="279" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">4</tspan></text>
+  <text x="902" y="275" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">✓ Bekræft bestilt</tspan></text>
+  <text x="902" y="293" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">registrér uden mail (fx hvis du ringede)</tspan></text>
+  <text x="20" y="538" font-size="12" fill="#a89a83" text-anchor="start"><tspan x="20" dy="12">Bon v2 · Indkøb — køkken · Email-bestilling (07)</tspan></text>
+</svg>
