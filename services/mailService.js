@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { getDb } = require('../db/database');
+const { sqlTime } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { parseSubject, parseForwardedSender, isBonV1, getPrefixes, buildTag } = require('../utils/mail-parser');
 const { isInternalEmail } = require('./internalIdentity');
@@ -190,7 +191,7 @@ function generateBookingToken({ customer_id, sales_user_id = null, flow = 'smagn
     const token = crypto.randomBytes(8).toString('hex'); // 16 hex-tegn
 
     const customer = db.prepare('SELECT company_id FROM customers WHERE id = ?').get(customer_id);
-    const expiresAt = new Date(Date.now() + ttl_days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+    const expiresAt = sqlTime(new Date(Date.now() + ttl_days * 86400000));
 
     db.prepare(`
         INSERT INTO booking_tokens (token, customer_id, company_id, sales_user_id, flow,
@@ -665,7 +666,7 @@ async function processInboundMail(parsed, uid, mailbox) {
     const fromAddr    = parsed.from?.value?.[0]?.address || '';
     const fromName    = parsed.from?.value?.[0]?.name || null;
     const toAddr      = parsed.to?.value?.[0]?.address || '';
-    const receivedAt  = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
+    const receivedAt  = sqlTime(parsed.date) || sqlTime();
     const bodyText    = parsed.text || '';
     const bodyHtml    = parsed.html || null;
     const attachments = parsed.attachments || [];
@@ -816,7 +817,7 @@ async function processInboundMail(parsed, uid, mailbox) {
             uid, mailbox, messageId, fromAddr, fromName, subject, bodyText, bodyHtml, receivedAt,
             forwardInfo?.email || null, forwardInfo?.name || null, forwardInfo?.company || null,
             autoIgnore ? 'ignored' : 'open',
-            autoIgnore ? new Date().toISOString() : null
+            autoIgnore ? sqlTime() : null
         );
 
         if (autoIgnore) {

@@ -484,6 +484,26 @@ function offsetISO(days) {
     return d.toISOString().slice(0, 10);
 }
 
+// ─── TIDSSTEMPEL TIL DATABASEN ────────────────────────────
+// Databasen gemmer tidsstempler i UTC, i SQLites eget format:
+// `YYYY-MM-DD HH:MM:SS` — det `datetime('now')` producerer.
+//
+// Her er UTC altså RIGTIGT, modsat todayISO() ovenfor. Fælden er en anden:
+// blandes de to skrivemåder i samme kolonnefamilie, sammenlignes de som TEKST,
+// og `'T'` (0x54) sorterer efter `' '` (0x20). Inbound-mails blev gemt med
+// `toISOString()` og outbound med `datetime('now')`, så en tråd med indgående
+// som seneste aktivitet lagde sig over enhver tråd med udgående fra samme dag,
+// uanset klokkeslæt. "Nyeste øverst" holdt kun på tværs af dage (#488).
+//
+// Brug denne til ethvert tidsstempel der skal kunne sammenlignes med
+// `datetime('now')`-skrevne kolonner.
+function sqlTime(date = new Date()) {
+    const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return null;
+    // utc-ok: databasens tidsstempler ER UTC — samme skala som datetime('now')
+    return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // ─── ENHEDER-TÆLLING ──────────────────────────────────────
 // Kun kategorier i settings.unit_count_categories tæller med i bons.total_units.
 // Grocy `grupper`-userfield er master for hvilke kategorier der findes;
@@ -837,7 +857,7 @@ module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, getStatusId, getDefaultLocationId,
     createBon,
-    todayISO, offsetISO,
+    todayISO, offsetISO, sqlTime,
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,

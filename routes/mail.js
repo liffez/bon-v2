@@ -7,7 +7,7 @@ const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../service
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
 const { isInternalEmail } = require('../services/internalIdentity');
-const { logChange } = require('../db/helpers');
+const { logChange, sqlTime } = require('../db/helpers');
 const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
 
 // Er den videresendte afsender vores egen adresse?
@@ -78,7 +78,7 @@ function markThreadInbound(db, threadId, receivedAt, { markRead = false } = {}) 
     if (!t) return;
     if (t.purchase_order_id || t.supplier_id) return;
 
-    const at = receivedAt || new Date().toISOString();
+    const at = receivedAt || sqlTime();
     if (markRead) {
         db.prepare(`
             UPDATE mail_threads

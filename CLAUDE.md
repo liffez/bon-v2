@@ -4612,6 +4612,53 @@ rigtige, begge kunders egne `manual`-adresser urørte. Kopien slettet.
 (markér som ulæst igen, videresend, vedhæft i tråd-svar, ret emne, sorteringen
 i #488). Talgrundlaget ligger som kommentar på issuet.
 
+### Ét tidsstempel-format i mail-tabellerne (#488, 19. august 2026)
+
+Trådlisten sorterede forkert **inden for samme dag**: to tråde fra kl. 17:25 og
+17:16 stod under en fra 15:49. Ikke tabt data — men "nyeste øverst" var ikke
+sandt, og en liste hvis rækkefølge ikke kan stoles på undergraver hele
+indbakken (fundet under kortlægningen til #481).
+
+**Årsagen var to skrivemåder for samme ting.** Indgående tidsstempler blev
+skrevet med `toISOString()` (`2026-08-10T15:49:24.000Z`), udgående med
+`datetime('now')` (`2026-08-10 15:53:19`). Begge er UTC — men de sammenlignes
+som **tekst**, og `'T'` (0x54) sorterer efter `' '` (0x20). Derfor lagde enhver
+tråd med indgående som seneste aktivitet sig over enhver tråd med udgående fra
+samme dag. Datodelen er ens-formateret, så det holdt på tværs af dage; kun
+inden for en dag skred det — hvilket typisk er dér man kigger.
+
+- **`sqlTime(date)`** i [db/helpers.js](db/helpers.js) giver
+  `YYYY-MM-DD HH:MM:SS` i UTC — samme skala og form som `datetime('now')`.
+  Her er UTC **rigtigt**, modsat `todayISO()` lige ovenfor, fordi databasens
+  tidsstempler ER UTC; derfor `// utc-ok`-markeringen. Ugyldig dato → `null`
+  frem for strengen `"Invalid Date"`.
+- **Migration 150** normaliserer de eksisterende rækker (`mail_messages.received_at`,
+  `mail_unmatched.received_at` + `handled_at`, `mail_threads.last_inbound_at`).
+  Idempotent — `WHERE ... LIKE '%T%'` rammer kun det der mangler.
+- **Skrivestierne** i `mailService.processInboundMail` og `markThreadInbound`
+  bruger nu `sqlTime()`. Alle øvrige skrivesteder brugte i forvejen
+  `CURRENT_TIMESTAMP`/`datetime('now')` eller kopierede en allerede normaliseret
+  værdi.
+
+> **At begge sider var UTC er efterprøvet, ikke antaget.** Afstanden mellem en
+> mails `received_at` (ISO) og dens `created_at` (mellemrum) på samme række er
+> 0–7 minutter i drift — nøjagtigt IMAP-pollingens interval. Var den ene lokal
+> tid, ville forskellen have været ±1–2 timer. Derfor er konverteringen ren
+> formatering, og migrationen kan køre uden risiko for at flytte tider.
+
+**Tests:** `npm run test:mail-tid` — 20 asserts mod en temp-DB bygget af de
+rigtige migrations. Den viser fejlen begge veje: med det normaliserede format
+ligger nyeste øverst, og sættes ISO-formatet tilbage vender rækkefølgen om.
+**Mutations-testet** — fire mutationer, alle fanget. To huller blev fundet og
+lukket undervejs: testen rørte hverken den ægte skrivesti
+(`processInboundMail`) eller `mail_threads`/`handled_at`-grenene med data i,
+så begge kunne fjernes uden at noget fejlede.
+
+Verificeret mod en kopi af driftsdata: alle 181 + 1.465 tidspunkter uændrede
+målt som epoch, rækketal uændret, ingen ISO-rester, anden kørsel ændrer intet.
+Efter server-start (migrationen kører automatisk) er alle 185 tråde
+kronologisk korrekt sorteret i UI'et.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
