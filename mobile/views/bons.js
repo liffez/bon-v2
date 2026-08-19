@@ -998,15 +998,8 @@ async function _mbShowDetail(bonId, opts) {
     if (bon.lines && bon.lines.length) {
         html += '<div class="m-detail-section">';
         html += '<div class="m-detail-label">Varer</div>';
-        html += '<ul class="m-detail-lines">';
-        // Ens linjer slås sammen — se shared/bon_lines.js.
-        BonLines.mergeLines(bon.lines).forEach(function(line) {
-            html += '<li class="m-detail-line">' +
-                '<span class="m-detail-line-name">' + _mbEsc(line.product_name || line.name || '?') + '</span>' +
-                '<span class="m-detail-line-qty">' + (line.quantity || '') + ' ' + (line.unit || '') + '</span>' +
-            '</li>';
-        });
-        html += '</ul></div>';
+        html += _mbRenderMenu(bon);
+        html += '</div>';
     }
 
     if (bon.kitchen_info) {
@@ -1069,6 +1062,85 @@ async function _mbShowDetail(bonId, opts) {
     }
 
     _mbLoadTransitions(bon);
+}
+
+/* ──────────────────────────────────────────────────────────
+ * Varelisten på bon-detaljen.
+ *
+ * Bruger mapApiBonToCardData() fra shared/utils.js, så mobilen viser
+ * samme menu som køkken-kortet: menu-grupperne (FORMIDDAG/FROKOST/…)
+ * med titel og note, særønsket under varen ("1 skal være laktosefri"),
+ * emballage dæmpet nederst, og ens varer slået sammen.
+ *
+ * Mobilen viste før kun navn + antal fra de rå linjer, så gruppering og
+ * særønsker faldt ud — man kunne ikke se hvem der skulle have glutenfri.
+ * Data har hele tiden været med i GET /api/bons/:id (bon.menu_groups +
+ * linjernes menu_group_id/special_request); kun visningen manglede.
+ *
+ * Falder tilbage til den rå (sammenlagte) liste hvis mapperen ikke er loadet.
+ * ────────────────────────────────────────────────────────── */
+function _mbRenderMenu(bon) {
+    var menu = null;
+    if (typeof mapApiBonToCardData === 'function') {
+        try { menu = mapApiBonToCardData(bon).menu; } catch (err) { menu = null; }
+    }
+    if (!Array.isArray(menu)) {
+        // Ens linjer slås sammen — se shared/bon_lines.js.
+        return _mbRenderMenuItems(BonLines.mergeLines(bon.lines || []).map(function(l) {
+            return {
+                qty: l.quantity, name: l.product_name,
+                unit: l.unit, special_request: l.special_request,
+            };
+        }));
+    }
+
+    // Enheden ("antal", "kg") følger ikke med kort-mapperen — slå den op på
+    // linje-id'erne bag den sammenlagte vare. Er de uenige, vises ingen enhed.
+    var unitById = {};
+    (bon.lines || []).forEach(function(l) { unitById[l.id] = l.unit || ''; });
+    function unitFor(item) {
+        var ids = item.line_ids || [];
+        var unit = null;
+        for (var i = 0; i < ids.length; i++) {
+            var cur = unitById[ids[i]] || '';
+            if (unit === null) unit = cur;
+            else if (unit !== cur) return '';
+        }
+        return unit || '';
+    }
+
+    var out = '';
+    var loose = [];
+    menu.forEach(function(entry) {
+        if (!entry || entry.type === 'divider') return;
+        if (entry.type === 'group') {
+            out += '<div class="m-menu-group">' +
+                '<div class="m-menu-group-title">' + _mbEsc(entry.title || 'Gruppe') + '</div>' +
+                (entry.note ? '<div class="m-menu-group-note">' + _mbEsc(entry.note) + '</div>' : '') +
+                _mbRenderMenuItems(entry.items, unitFor) +
+            '</div>';
+        } else {
+            loose.push(entry);
+        }
+    });
+    return out + _mbRenderMenuItems(loose, unitFor);
+}
+
+function _mbRenderMenuItems(items, unitFor) {
+    if (!items || !items.length) return '';
+    var html = '<ul class="m-detail-lines">';
+    items.forEach(function(item) {
+        var unit = unitFor ? unitFor(item) : (item.unit || '');
+        var qty  = (item.qty == null ? '' : String(item.qty));
+        var note = item.special_request
+            ? '<span class="m-detail-line-note">' + _mbEsc(item.special_request) + '</span>'
+            : '';
+        html += '<li class="m-detail-line' + (item.style === 'emballage' ? ' is-packaging' : '') + '">' +
+            '<span class="m-detail-line-name">' + _mbEsc(item.name || '?') + note + '</span>' +
+            '<span class="m-detail-line-qty">' + _mbEsc(qty) + (unit ? ' ' + _mbEsc(unit) : '') + '</span>' +
+        '</li>';
+    });
+    return html + '</ul>';
 }
 
 /* ──────────────────────────────────────────────────────────
