@@ -45,5 +45,23 @@ t('parkeret panel bag scrollbaren',        _isVisible(mkEl({ left: 1385, w: 520 
 vw = 0; cw = 0;  // browseren rapporterer 0 (fx skjult panel) — så må vi ikke filtrere alt væk
 t('ukendt viewport → antag synlig',        _isVisible(mkEl({ left: 5000, w: 100 })), true);
 
+
+/* ── _autoDock: vælger panelet den side der skjuler mindst? ── */
+const ad = src.match(/function _skjulteVed[\s\S]*?function _autoDock\(entries\) \{[\s\S]*?\n  \}/);
+if (!ad) { console.error('FEJL: _autoDock ikke fundet'); process.exit(1); }
+vw = 1400; cw = 1400;
+const _autoDock = eval('(function(){ const PANEL_W = 360, SKJULT_ANDEL = 0.6;'
+    + ad[0].replace(/^\s*var PANEL_W[\s\S]*?SKJULT_ANDEL = [\d.]+;/m, '')
+    + '; return _autoDock; })()');
+const e = (left, w = 100) => ({ el: mkEl({ left, w }) });
+
+t('intet at vise → højre',                 _autoDock([]), 'right');
+t('alt i venstre halvdel → højre',         _autoDock([e(20), e(200), e(500)]), 'right');
+t('åben drawer i højre → venstre',         _autoDock([e(880, 520), e(900, 400), e(950, 300)]), 'left');
+t('bredt grid tæller ikke som skjult',     _autoDock([e(20, 1340)]), 'right');
+t('køkken: kort til venstre, filtre til højre → højre',
+   _autoDock([e(20, 360), e(20, 360), e(20, 360), e(1120, 80), e(1200, 80)]), 'right');
+t('uafgjort → højre (vanen)',              _autoDock([e(0, 100), e(1300, 100)]), 'right');
+
 console.log(`\n${pass} ok · ${fail} fejl`);
 process.exit(fail ? 1 : 0);

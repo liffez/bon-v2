@@ -35,7 +35,8 @@
     },
     "_include": [
       "modal",
-      "bon-kort"
+      "bon-kort",
+      "bon-drawer"
     ]
   },
   "kitchen-later": {
@@ -49,7 +50,8 @@
     },
     "_include": [
       "modal",
-      "bon-kort"
+      "bon-kort",
+      "bon-drawer"
     ]
   },
   "kitchen-dashboard": {

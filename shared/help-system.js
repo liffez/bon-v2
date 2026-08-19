@@ -118,6 +118,7 @@ function _helpInjectDOM() {
       '<div id="help-panel-header">' +
         '<div class="help-panel-top">' +
           '<div class="help-panel-title">Hjælp <span class="help-kbd">H</span></div>' +
+          '<button class="help-dock-btn" onclick="HelpSystem.flipDock()" title="Flyt panelet til den anden side">⇄</button>' +
           '<button class="help-close-btn" onclick="HelpSystem.hide()">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
           '</button>' +
@@ -179,6 +180,7 @@ function _helpUpdateKeyPreview() {
 var HelpSystem = (function() {
   var active = false;
   var badges = [];
+  var _dock = 'right';
   var tooltip = null;
   var tooltipTimeout = null;
   var _pageKey = null;
@@ -364,6 +366,9 @@ var HelpSystem = (function() {
       }
     });
 
+    // Vælg side FØR badges placeres, så et auto-flip ikke får dem til at hoppe.
+    _applyDock(_savedDock() || _autoDock(entries));
+
     if (!entries.length) {
       body.innerHTML = '<div class="help-empty">Ingen hjælpetekster på denne side endnu.<br><br>' +
         '<span style="font-size:12px;color:#aaa">Tryk <strong>Ctrl+Shift+H</strong> for at tilføje.</span></div>';
@@ -465,6 +470,69 @@ var HelpSystem = (function() {
     _updatePanel();
   }
 
+  /* ── Dock: hvilken side panelet ligger i ──────────────────
+   *
+   * Panelet dækkede det det forklarede. Værst når dét man kigger på SELV er
+   * et højre-panel — bon-draweren ligger lige under hjælpen, og så er både
+   * badges og felter usynlige.
+   *
+   * Løsningen er ikke at gøre panelet smallere; det er at lægge det i den
+   * side hvor der ikke er noget at se. Siden vælges ud fra hvor de omtalte
+   * elementer faktisk ligger, og kan altid vendes i hånden med ⇄.
+   */
+  var DOCK_KEY = 'bon_v2_help_dock';
+
+  function _savedDock() {
+    try {
+      var v = localStorage.getItem(DOCK_KEY);
+      return (v === 'left' || v === 'right') ? v : null;
+    } catch (e) { return null; }
+  }
+
+  /*
+   * Vælg den side der skjuler mindst. Begge sider vurderes — ikke kun den ene,
+   * for der findes sider hvor begge er dårlige og man skal tage den mindst
+   * ringe (køkkenets kort fylder hele bredden).
+   *
+   * Et element tælles kun som skjult hvis panelet dækker det MESTE af det.
+   * Ellers ville et grid der spænder hele skærmen tælle med hver gang, selv om
+   * det stadig er fint læsbart med 360px dækket i den ene side.
+   */
+  var PANEL_W = 360;
+  var SKJULT_ANDEL = 0.6;
+
+  function _skjulteVed(entries, side, vw) {
+    var zoneStart = (side === 'right') ? vw - PANEL_W : 0;
+    var zoneSlut  = (side === 'right') ? vw : PANEL_W;
+    var n = 0;
+    entries.forEach(function(e) {
+      var r = e.el.getBoundingClientRect();
+      if (!r.width) return;
+      var overlap = Math.min(r.right, zoneSlut) - Math.max(r.left, zoneStart);
+      if (overlap > 0 && (overlap / r.width) > SKJULT_ANDEL) n++;
+    });
+    return n;
+  }
+
+  function _autoDock(entries) {
+    var vw = document.documentElement.clientWidth || window.innerWidth || 0;
+    if (!vw || !entries.length) return 'right';
+    // Uafgjort → højre: det er den vante side, og et skift skal have en grund.
+    return _skjulteVed(entries, 'left', vw) < _skjulteVed(entries, 'right', vw) ? 'left' : 'right';
+  }
+
+  function _applyDock(side) {
+    _dock = side;
+    var panel = document.getElementById('help-panel');
+    if (panel) panel.classList.toggle('dock-left', side === 'left');
+  }
+
+  function flipDock() {
+    var side = _dock === 'left' ? 'right' : 'left';
+    try { localStorage.setItem(DOCK_KEY, side); } catch (e) { /* privat browsing */ }
+    _applyDock(side);
+  }
+
   function isActive() { return active; }
 
   function _esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -474,7 +542,7 @@ var HelpSystem = (function() {
     init: init, show: show, hide: hide, toggle: toggle,
     setPage: setPage, getPageKey: getPageKey, getPageName: getPageName,
     getPageContent: getPageContent, scrollTo: scrollTo,
-    refresh: refresh, isActive: isActive
+    refresh: refresh, isActive: isActive, flipDock: flipDock
   };
 })();
 
