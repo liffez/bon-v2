@@ -305,18 +305,59 @@ var HelpSystem = (function() {
     _placeBadges();
   }
 
+  /*
+   * Er elementet faktisk fremme på skærmen?
+   *
+   * querySelector finder også skjulte elementer, og flere flader mountes
+   * permanent i DOM'en og skjules med display:none — bon-draweren ligger fx
+   * i office-shellen hele tiden. Uden denne test dukkede drawerens syv punkter
+   * op på hver eneste office-side, også når draweren slet ikke var åben.
+   *
+   * getClientRects() frem for offsetParent: draweren og modalerne er
+   * position:fixed, og dér er offsetParent null selv når de ER synlige.
+   */
+  function _isVisible(el) {
+    if (!el) return false;
+    var r = el.getBoundingClientRect();
+    // display:none / detached → ingen rects og nul areal
+    if (!el.getClientRects().length) return false;
+    // Begge dimensioner skal være der. En tom strip (fx flag-strippen uden
+    // påmindelser) har fuld bredde og højde 0 — den viser intet.
+    if (r.width === 0 || r.height === 0) return false;
+    // Lukkede paneler parkeres uden for skærmen vandret (transform:
+    // translateX(100%) — bon-draweren, indkøbsindstillinger). De har både
+    // rects og areal, så kun positionen afslører dem.
+    //
+    // Kun VANDRET: noget under fold'en er legitimt på siden, og hjælpen skal
+    // kunne pege på det (klik i panelet scroller derhen).
+    // clientWidth FØRST: innerWidth tæller scrollbaren med, så et panel parkeret
+    // på translateX(100%) lander ~15px inde i "viewporten" og slap igennem.
+    var vw = document.documentElement.clientWidth || window.innerWidth || 0;
+    if (vw && (r.right <= 0 || r.left >= vw)) return false;
+    return true;
+  }
+
+  /* Første SYNLIGE match for en selector — ikke bare første match. */
+  function _findVisible(selector) {
+    var list;
+    try { list = document.querySelectorAll(selector); } catch (e) { return null; }
+    for (var i = 0; i < list.length; i++) {
+      if (_isVisible(list[i])) return list[i];
+    }
+    return null;
+  }
+
   function _renderPanel() {
     var body = document.getElementById('help-panel-body');
     var content = getPageContent();
     var keys = Object.keys(content);
 
-    // Filtrér til elementer der faktisk er på siden
+    // Filtrér til elementer der faktisk er SYNLIGE på siden
     var entries = [];
     var n = 0;
     keys.forEach(function(key) {
       var entry = content[key];
-      var el = null;
-      try { el = document.querySelector(entry.selector); } catch(e) {}
+      var el = _findVisible(entry.selector);
       if (el) {
         n++;
         entries.push({ key: key, num: n, el: el, label: entry.label, text: entry.text, selector: entry.selector });
@@ -346,8 +387,7 @@ var HelpSystem = (function() {
     var n = 0;
     Object.keys(content).forEach(function(key) {
       var entry = content[key];
-      var el = null;
-      try { el = document.querySelector(entry.selector); } catch(e) {}
+      var el = _findVisible(entry.selector);
       if (!el) return;
       n++;
       if (window.getComputedStyle(el).position === 'static') el.style.position = 'relative';

@@ -470,9 +470,110 @@
   },
   "office-fakturering": {
     "_pageName": "Office — Fakturering",
-    "elements": {},
+    "elements": {
+      "fakt-summary": {
+        "selector": ".fakt-summary",
+        "label": "Nøgletal",
+        "text": "Afventer = leverede bons med betalingstype faktura, som endnu ikke er faktureret. Beløbet er inkl. moms.\n\nEAN tæller dem der skal sendes elektronisk til det offentlige — de kræver et EAN-nummer på firmaet, ellers afvises fakturaen af modtagerens system."
+      },
+      "fakt-liste": {
+        "selector": ".fakt-list",
+        "label": "Arbejdslisten",
+        "text": "Ældste øverst — det er dem der haster. Prikken viser alderen: grøn 0–3 dage, orange 4–7, rød 8 eller flere.\n\nListen er drevet af bonens STATUS. Sætter nogen en bon til FAKTURERET i hånden, forsvinder den herfra — også selvom der aldrig blev sendt en faktura. Derfor findes advarslen om aldrig-sendte fakturaer."
+      },
+      "fakt-age": {
+        "selector": ".fakt-age-dot",
+        "label": "Alder",
+        "text": "Dage siden bonen blev leveret. Jo længere den ligger, jo længere er der til pengene — og jo sværere er det for kunden at genkende hvad fakturaen dækker."
+      },
+      "fakt-economic-nr": {
+        "selector": ".fakt-eco-field",
+        "label": "E-conomic-numre",
+        "text": "Kunden skal findes i e-conomic, før der kan laves et udkast. Firmaer har et debitornummer; privatkunder har deres eget kundenummer.\n\nNummeret skrives ind her og huskes på kunden — næste bon slipper for opslaget.\n\nStår der intet nummer, blokerer udkastet. Det er med vilje: en faktura på den forkerte debitor er værre end ingen faktura."
+      },
+      "fakt-eco-preview": {
+        "selector": ".fakt-eco-pv-table",
+        "label": "Forhåndsvisning af kladden",
+        "text": "Præcis de linjer der ville blive sendt. Priserne er UDEN moms — det er sådan e-conomic vil have dem, mens bonen regner med moms.\n\nIntet er sendt på dette tidspunkt, og bonen er urørt."
+      },
+      "fakt-eco-excluded": {
+        "selector": ".fakt-eco-excluded",
+        "label": "Udeladte linjer",
+        "text": "Linjer til 0 kr kommer ikke med på fakturaen — prep, emballage der følger gratis med, smagsprøver.\n\nDe vises alligevel, så du kan se hvad kunden IKKE bliver opkrævet for. En linje med en pris bliver aldrig udeladt; den blokerer i stedet, indtil den har et varenummer."
+      },
+      "fakt-eco-blokeret": {
+        "selector": ".fakt-eco-block-list",
+        "label": "Hvorfor kladden blokerer",
+        "text": "En vare skal have et varenummer i e-conomic for at kunne faktureres. Mangler det, standser hele fakturaen — vi sender aldrig en faktura hvor en linje bare er forsvundet.\n\nLøsningen er som regel at koble opskriften til et varenummer i Grocy. Er varen slettet i Grocy, eller er det en fritekst-linje, kan den ikke kobles — brug engangsbeløb."
+      },
+      "fakt-eco-oneoff": {
+        "selector": ".fakt-eco-oneoff",
+        "label": "Fakturér som engangsbeløb",
+        "text": "Nødudgangen når varenumre er det eneste der mangler. Linjerne samles på en Diverse-vare, så fakturaen kan komme afsted.\n\nDen vises kun når den faktisk kan hjælpe. Er det en vare I sælger igen, så giv den hellere sit eget varenummer — ellers forsvinder den fra regnskabets varefordeling hver gang."
+      },
+      "fakt-markeer": {
+        "selector": ".fakt-btn-green",
+        "label": "Markér faktureret",
+        "text": "Flytter bonen til FAKTURERET og ud af listen. Fakturanummeret er valgfrit, men gør det muligt at finde tilbage senere.\n\nBrug den når fakturaen er sendt uden om systemet. Har du lavet et e-conomic-udkast, sker det automatisk."
+      }
+    },
     "_include": [
       "bon-drawer"
     ]
+  },
+  "office-tilbud": {
+    "_pageName": "Office — Tilbud",
+    "elements": {
+      "tilbud-liste": {
+        "selector": ".tilbud-filters",
+        "label": "Status på et tilbud",
+        "text": "Kladde er ikke sendt endnu. Sendt er hos kunden. Vundet er blevet til en bon. Tabt er lukket.\n\nStatus skifter ikke af sig selv: sender du tilbuddet herfra, sættes Sendt automatisk — sender du det uden om systemet, må du sætte den selv. Et tilbud der bliver liggende som Kladde, dukker op på Ringelisten som uopfulgt, længe efter kunden har valgt noget andet."
+      },
+      "tilbud-steps": {
+        "selector": ".tilbud-steps",
+        "label": "Trinnene",
+        "text": "Du kan hoppe frit mellem trinnene på et gemt tilbud — rækkefølgen er en anbefaling, ikke en lås.\n\nGem undervejs: 'Gem kladde' findes fra trin 1, så et halvfærdigt tilbud ikke går tabt hvis du bliver afbrudt."
+      },
+      "tilbud-blokke": {
+        "selector": ".tilbud-block-chips",
+        "label": "Tidsblokke",
+        "text": "Deler dagen op — morgenmad, frokost, eftermiddag. Hver blok kan have sit eget antal kuverter; står feltet tomt, bruges tilbuddets.\n\nSlukker du en blok, tælles dens varer ikke med i prisen og kommer ikke på kundens tilbud — men indholdet bliver gemt. Tallet på chippen viser hvor meget der ligger bag. Tænd den igen, og varerne er der."
+      },
+      "tilbud-import": {
+        "selector": ".tilbud-import-bar",
+        "label": "Hent menu fra…",
+        "text": "Genbrug en menu fra et tidligere tilbud, en ordre eller et event — også på tværs af kunder.\n\nDen tager MÆNGDERNE med, men henter PRISERNE på ny efter tilbuddets priskategori. En ordre fra sidste år giver altså ikke sidste års priser.\n\nDen tilføjer, den rydder ikke. Har en vare ingen pris i Grocy længere, kommer den med til den gamle pris og markeres med ⚠."
+      },
+      "tilbud-prismode": {
+        "selector": ".tilbud-pm",
+        "label": "Prisvisning",
+        "text": "Hvad kunden ser:\n\n· Kun total — én sum for det hele\n· Pr. blok — en pris pr. tidsblok\n· Linje — pris ud for hver vare\n\nDet ændrer kun visningen. Totalen er den samme uanset hvad, og alle varer regnes med."
+      },
+      "tilbud-rabat": {
+        "selector": ".tilbud-discount",
+        "label": "Rabat",
+        "text": "Trækkes fra hele tilbuddet. Har kunden eller firmaet en fast rabat, er den allerede sat ind da tilbuddet blev oprettet."
+      },
+      "tilbud-dage": {
+        "selector": ".tilbud-days",
+        "label": "Flere dage",
+        "text": "En konference med levering hver dag kan stå på ét bilag. Tomme felter på en dag arver tilbuddets værdi — skriv kun det der afviger.\n\nVed accept bliver hver dag sin egen bon, mens tilbuddet bliver liggende som bilaget."
+      },
+      "tilbud-preview": {
+        "selector": ".tilbud-preview",
+        "label": "Sådan ser kunden det",
+        "text": "Nøjagtig hvad der kommer på PDF'en.\n\nNogle varekategorier er sat til at stå nederst eller slet ikke vises — typisk emballage. Det er kun visningen: linjerne følger stadig med over på bonen, så køkkenet ser dem, og totalen er uændret. Reglerne sættes i Indstillinger."
+      },
+      "tilbud-konverter": {
+        "selector": ".tilbud-status-strip",
+        "label": "Opret som bon",
+        "text": "Laver tilbuddet om til en rigtig bon — én pr. dag ved fler-dags-tilbud.\n\nTilbuddet forsvinder ikke: det bliver liggende som bilag på hvad kunden sagde ja til, og låses derfor mod redigering. Skal der genforhandles, kan låsen tages af — det er en bevidst handling med sit eget spor i historikken."
+      },
+      "tilbud-laast": {
+        "selector": ".tilbud-lock-note",
+        "label": "🔒 Låst bilag",
+        "text": "Tilbuddet er blevet til en bon, og indholdet er derfor låst — ellers dokumenterer det ikke længere hvad der blev aftalt.\n\nPDF og afsendelse virker stadig: den accepterede aftale skal kunne sendes igen."
+      }
+    }
   }
 }
