@@ -141,7 +141,8 @@
       }
     },
     "_include": [
-      "indkob-chips"
+      "indkob-chips",
+      "varemodtagelse"
     ]
   },
   "kitchen-stock": {
@@ -443,6 +444,73 @@
         "selector": ".drawer-history",
         "label": "Historik",
         "text": "Hele sporet: hvem ændrede hvad hvornår, inkl. statusskift, mails og bookinger. Kan ikke redigeres."
+      }
+    },
+    "varemodtagelse": {
+      "vm-hvad": {
+        "selector": ".vm-section-divider",
+        "label": "To ting på én gang",
+        "text": "Øverste halvdel er FØDEVAREKONTROL — lovpligtig dokumentation af at leverancen blev tjekket. Nederste halvdel er LAGER — det der lægges ind i Grocy.\n\nDe to dele gemmes hver for sig. Går lagerdelen galt (Grocy nede, en enhed der ikke kan omregnes), bliver kontrollen registreret alligevel. Dokumentationen må aldrig afhænge af om et andet system svarer."
+      },
+      "vm-bruger": {
+        "selector": ".vm-user-avatar",
+        "label": "Hvem modtager",
+        "text": "Navnet står på registreringen som den der stod med varerne. Listen er dagens vagter fra vagtplanen plus dem der er oprettet i hånden under Indstillinger.\n\nDet er en underskrift, ikke en indstilling — vælg den der faktisk tog imod."
+      },
+      "vm-leverandoer": {
+        "selector": ".vm-supplier-card",
+        "label": "Leverandør",
+        "text": "Vælg hvem leverancen kom fra. Varelisten nedenfor fyldes med det der er bestilt hos netop dem — ikke hele indkøbslisten.\n\nStår leverandøren ikke på listen, er der ikke registreret nogen bestilling hos dem. Varer kan stadig tilføjes i hånden."
+      },
+      "vm-temp": {
+        "selector": ".vm-temp-row-item",
+        "label": "Temperaturer",
+        "text": "Køl og frost måles hver for sig. Slå den fra der ikke er relevant — en leverance uden frostvarer skal ikke have en frost-temperatur.\n\nBadgen skifter til FEJL når målingen er uden for det tilladte. Så åbner afvigelsesfeltet af sig selv: en for varm leverance skal begrundes, ikke bare noteres."
+      },
+      "vm-fvst": {
+        "selector": ".vm-toggle-row",
+        "label": "Dato, mærkning, emballage",
+        "text": "De tre kontroller Fødevarestyrelsen forventer: holdbarhed, at varen er mærket rigtigt, og at emballagen er hel.\n\nSlår du én fra, betyder det at kontrollen IKKE var i orden — ikke at du sprang den over. Derfor åbner afvigelsen automatisk."
+      },
+      "vm-foto": {
+        "selector": ".vm-photo-btn",
+        "label": "Foto",
+        "text": "Et billede af leverancen, følgesedlen eller skaden. Gemmes sammen med registreringen og kan findes frem igen i loggen.\n\nDet er den nemmeste måde at dokumentere en skade på — et foto taget på stedet er svært at diskutere bagefter."
+      },
+      "vm-afvigelse": {
+        "selector": ".vm-deviation-box",
+        "label": "Afvigelse",
+        "text": "Åbner automatisk når en temperatur er for høj eller en kontrol slås fra. Kan også åbnes i hånden hvis noget var galt uden at systemet fangede det.\n\nSkriv hvad der var galt og hvad I gjorde ved det. Det er dén tekst der står tilbage hvis nogen spørger et halvt år senere."
+      },
+      "vm-enhed-advarsel": {
+        "selector": ".vm-unit-warn-banner",
+        "label": "⚠ Enhed mangler omregning",
+        "text": "Du bestiller i kasser, men lageret regner i kilo — og systemet ved ikke hvor meget én kasse vejer.\n\nUden det tal ville varen blive skrevet ind som om kasser var kilo. Derfor nægter systemet at gætte: skriv omregningen ind her, så gemmes den i Grocy og spørgsmålet stilles aldrig igen for den vare.\n\nAdvarslen kommer FØR du taster, ikke efter du har trykket Godkend."
+      },
+      "vm-godkend-alt": {
+        "selector": ".vm-godkend-alt-banner",
+        "label": "Godkend alt",
+        "text": "Den normale vej: kom alt som bestilt, så er ét tryk nok.\n\nBrug 'Juster enkeltvis' når noget mangler eller der kom en anden mængde end bestilt."
+      },
+      "vm-varekort": {
+        "selector": ".vm-item-card",
+        "label": "Én vare",
+        "text": "Tre udfald, og de gør forskellige ting:\n\n· OK — hele mængden lægges på lager, og varen fjernes fra indkøbslisten\n· Delvis — det modtagne lægges på lager, og RESTEN bliver stående på indkøbslisten, så den kommer med næste bestilling\n· Mangler — intet lægges på lager, varen bliver stående\n\nMængden skrives i den enhed du bestiller i. Systemet regner selv om til lager-enheden."
+      },
+      "vm-tilfoej": {
+        "selector": ".vm-add-item-btn",
+        "label": "Tilføj vare manuelt",
+        "text": "Til varer der kom med uden at være bestilt — en erstatningsvare, en prøve, noget chaufføren havde med.\n\nFindes varen slet ikke i Grocy, kan den oprettes derfra; siden åbner i en ny fane, så det du har tastet her ikke går tabt."
+      },
+      "vm-gem": {
+        "selector": ".vm-bottom-bar",
+        "label": "Registrér",
+        "text": "Gemmer kontrollen, lægger varerne på lager og sender besked til køkkentavlen — i den rækkefølge.\n\nFejler en enkelt vare i Grocy, gemmes resten alligevel, og registreringen markeres som delvist godkendt. Du får at vide præcis hvilken vare der drillede."
+      },
+      "vm-log": {
+        "selector": ".vm-hist-list",
+        "label": "Modtagelseslog",
+        "text": "Alle tidligere registreringer med temperaturer, kontroller, foto og varer.\n\nDet er her dokumentationen findes frem ved et kontrolbesøg. Loggen virker også når Grocy er nede — kun oprettelsen af nye registreringer kræver lageradgang.\n\nEn registrering der ikke nåede frem til køkkentavlen, er markeret og kan sendes igen."
       }
     }
   },
