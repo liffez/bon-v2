@@ -1,0 +1,73 @@
+<svg viewBox="0 0 1300 860" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img">
+  <defs><marker id="mb0a493" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0a493"/></marker><marker id="m2f7d4f" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f7d4f"/></marker><marker id="m8a6cb0" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a6cb0"/></marker></defs>
+  <rect x="0" y="0" width="1300" height="860" fill="#ffffff"/>
+  <text x="40" y="24" font-size="26" fill="#8e631f" text-anchor="start"><tspan x="40" dy="26">Bestil hos leverandøren — trin 3</tspan></text>
+  <text x="41" y="60" font-size="15" fill="#7a6c58" text-anchor="start"><tspan x="41" dy="15">Samme liste — fire måder at bestille på, afhængigt af leverandøren</tspan></text>
+  <rect x="40" y="86" width="1220" height="42" rx="14" fill="#faf3df" stroke="#e3d08f" stroke-width="2"/>
+  <text x="58" y="99" font-size="13" fill="#6a5a3a" text-anchor="start"><tspan x="58" dy="13">🔗  Mangler en vare en leverandør?  Kobl den først (Kobl varenr. / generér INT-nr) — så dukker den op i et af sporene herunder.</tspan></text>
+  <rect x="40" y="158" width="175" height="590" rx="14" fill="#f7edcb" stroke="#e3d08f" stroke-width="2"/>
+  <text x="55" y="188" font-size="17" fill="#5a3f14" text-anchor="start"><tspan x="55" dy="17">Varer klar</tspan><tspan x="55" dy="21.25">til bestilling</tspan></text>
+  <text x="55" y="250" font-size="12" fill="#7a6c58" text-anchor="start"><tspan x="55" dy="12">Vælg spor efter</tspan><tspan x="55" dy="15">leverandøren</tspan></text>
+  <text x="55" y="300" font-size="11" fill="#9a8a6a" text-anchor="start"><tspan x="55" dy="11">(Efter leverandør-</tspan><tspan x="55" dy="13.75">visning)</tspan></text>
+  <polyline points="215,213 235,213" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <polyline points="215,361 235,361" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <polyline points="215,509 235,509" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <polyline points="215,657 235,657" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="235" y="173" width="150" height="74" rx="14" fill="#f6e0c4" stroke="#e0b483" stroke-width="2"/>
+  <text x="310" y="194" font-size="13.5" fill="#402d15" text-anchor="middle"><tspan x="310" dy="13.5">🟠 Hørkram /</tspan><tspan x="310" dy="16.875">Convifood</tspan></text>
+  <text x="310" y="224" font-size="10.5" fill="#7a6c58" text-anchor="middle"><tspan x="310" dy="10.5">(kurv via hoka.dk)</tspan></text>
+  <rect x="235" y="321" width="150" height="74" rx="14" fill="#dbe7f3" stroke="#a9c6e0" stroke-width="2"/>
+  <text x="310" y="349" font-size="13.5" fill="#402d15" text-anchor="middle"><tspan x="310" dy="13.5">✉️ Email-</tspan><tspan x="310" dy="16.875">leverandør</tspan></text>
+  <rect x="235" y="469" width="150" height="74" rx="14" fill="#d6ece8" stroke="#a3d2cb" stroke-width="2"/>
+  <text x="310" y="497" font-size="13.5" fill="#402d15" text-anchor="middle"><tspan x="310" dy="13.5">🌐 Webshop</tspan></text>
+  <rect x="235" y="617" width="150" height="74" rx="14" fill="#e7deef" stroke="#c3aede" stroke-width="2"/>
+  <text x="310" y="638" font-size="13.5" fill="#402d15" text-anchor="middle"><tspan x="310" dy="13.5">🏭 RR Produktion</tspan></text>
+  <text x="310" y="668" font-size="10.5" fill="#7a6c58" text-anchor="middle"><tspan x="310" dy="10.5">(intern)</tspan></text>
+  <polyline points="385,210 410,210" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="410" y="173" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="495" y="201" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="495" dy="14">Læg i kurv</tspan></text>
+  <polyline points="580,210 610,210" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="610" y="173" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="695" y="196" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="695" dy="14">Gå til kurv →</tspan></text>
+  <text x="695" y="216" font-size="11" fill="#7a6c58" text-anchor="middle"><tspan x="695" dy="11">åbner hoka.dk</tspan></text>
+  <polyline points="780,210 810,210" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="810" y="173" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="895" y="201" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="895" dy="14">Du godkender</tspan><tspan x="895" dy="17.5">ordren på hoka.dk</tspan></text>
+  <text x="410" y="262" font-size="11" fill="#c47a2b" text-anchor="start"><tspan x="410" dy="11">⚠ Appen bestiller ikke selv · gul advarsel hvis minimumsbeløb ikke er nået</tspan></text>
+  <polyline points="385,358 410,358" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="410" y="321" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="495" y="349" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="495" dy="14">Registrér bestilling</tspan></text>
+  <polyline points="580,358 610,358" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="610" y="321" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="695" y="344" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="695" dy="14">Send &amp; bestil</tspan></text>
+  <text x="695" y="364" font-size="11" fill="#7a6c58" text-anchor="middle"><tspan x="695" dy="11">mail via kontakt@</tspan></text>
+  <text x="410" y="410" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="410" dy="11">eller: 📋 Kopiér liste / 📞 Ring  →  Bekræft bestilt</tspan></text>
+  <polyline points="385,506 410,506" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="410" y="469" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="495" y="497" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="495" dy="14">Åbn webshop →</tspan></text>
+  <polyline points="580,506 610,506" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="610" y="469" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="695" y="497" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="695" dy="14">Bestil på</tspan><tspan x="695" dy="17.5">deres side</tspan></text>
+  <polyline points="780,506 810,506" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="810" y="469" width="170" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="895" y="497" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="895" dy="14">Bekræft bestilt</tspan></text>
+  <polyline points="385,654 410,654" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="410" y="617" width="570" height="74" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="695" y="640" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="695" dy="14">Opret produktionsbon →</tspan></text>
+  <text x="695" y="660" font-size="11" fill="#7a6c58" text-anchor="middle"><tspan x="695" dy="11">bliver til en køkken-produktion · fjernes fra listen</tspan></text>
+  <rect x="1035" y="173" width="225" height="400" rx="14" fill="#e8f3ec" stroke="#b8dcc6" stroke-width="2"/>
+  <text x="1147.5" y="250" font-size="20" fill="#2f7d4f" text-anchor="middle"><tspan x="1147.5" dy="20">✅ Bestilt</tspan></text>
+  <text x="1147.5" y="288" font-size="13" fill="#33402f" text-anchor="middle"><tspan x="1147.5" dy="13">venter på</tspan><tspan x="1147.5" dy="16.25">Varemodtagelse</tspan></text>
+  <text x="1055" y="360" font-size="12" fill="#4a5a44" text-anchor="start"><tspan x="1055" dy="12">"Bestilt" = registreret,</tspan><tspan x="1055" dy="15">ikke leveret.</tspan><tspan x="1055" dy="15"></tspan><tspan x="1055" dy="15">Forsvinder først når</tspan><tspan x="1055" dy="15">du modtager varen</tspan><tspan x="1055" dy="15">(næste diagram).</tspan></text>
+  <polyline points="980,210 1035,210" fill="none" stroke="#2f7d4f" stroke-width="2.5" marker-end="url(#m2f7d4f)"/>
+  <polyline points="780,358 1035,358" fill="none" stroke="#2f7d4f" stroke-width="2.5" marker-end="url(#m2f7d4f)"/>
+  <polyline points="980,506 1035,506" fill="none" stroke="#2f7d4f" stroke-width="2.5" marker-end="url(#m2f7d4f)"/>
+  <rect x="1035" y="620" width="225" height="74" rx="14" fill="#efe7f6" stroke="#c3aede" stroke-width="2"/>
+  <text x="1147.5" y="640" font-size="13" fill="#4a3a5e" text-anchor="middle"><tspan x="1147.5" dy="13">🏭 Produktionsbon</tspan><tspan x="1147.5" dy="16.25">i køkkenet</tspan></text>
+  <text x="1147.5" y="676" font-size="10.5" fill="#7a6c58" text-anchor="middle"><tspan x="1147.5" dy="10.5">fjernet fra listen</tspan></text>
+  <polyline points="980,654 1035,654" fill="none" stroke="#8a6cb0" stroke-width="2.5" marker-end="url(#m8a6cb0)"/>
+  <rect x="235" y="748" width="1025" height="60" rx="14" fill="#fbe7cf" stroke="#e3b877" stroke-width="2"/>
+  <text x="255" y="762" font-size="13" fill="#7a4d18" text-anchor="start"><tspan x="255" dy="13">❗ Husk:  Hørkram / Convifood afgiver IKKE ordren for dig — du trykker "Bestil" på hoka.dk selv.</tspan></text>
+  <text x="255" y="784" font-size="12.5" fill="#8a6a3a" text-anchor="start"><tspan x="255" dy="12.5">     "Bestilt"-badge betyder registreret hos os — ikke at varen er leveret endnu.</tspan></text>
+  <text x="40" y="832" font-size="12" fill="#a89a83" text-anchor="start"><tspan x="40" dy="12">Bon v2 · Indkøb — køkken · Bestil (2/5)</tspan></text>
+</svg>

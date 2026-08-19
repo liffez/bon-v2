@@ -118,6 +118,7 @@ function _helpInjectDOM() {
       '<div id="help-panel-header">' +
         '<div class="help-panel-top">' +
           '<div class="help-panel-title">Hjælp <span class="help-kbd">H</span></div>' +
+          '<button class="help-dock-btn" onclick="HelpSystem.flipDock()" title="Flyt panelet til den anden side">⇄</button>' +
           '<button class="help-close-btn" onclick="HelpSystem.hide()">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
           '</button>' +
@@ -179,6 +180,7 @@ function _helpUpdateKeyPreview() {
 var HelpSystem = (function() {
   var active = false;
   var badges = [];
+  var _dock = 'right';
   var tooltip = null;
   var tooltipTimeout = null;
   var _pageKey = null;
@@ -247,9 +249,35 @@ var HelpSystem = (function() {
   function getPageKey() { return _pageKey; }
   function getPageName() { return _pageName; }
 
+  /*
+   * Sidens egne punkter + eventuelle delte sæt.
+   *
+   * Delte komponenter (modal, bon-kort, indkøbs-chips) optræder på mange sider.
+   * Uden dette skulle deres hjælpetekster kopieres ind under hver eneste
+   * sidenøgle — og så driver kopierne fra hinanden, præcis som hjælpetekster
+   * plejer. En side skriver i stedet "_include": ["modal"], og teksterne bor ét
+   * sted under "_shared".
+   *
+   * Sidens egne punkter vinder ved navnesammenfald, så en side kan skrive en
+   * delt tekst om uden at røre de andre. MapMode gemmer altid i sidens egne
+   * elements — den kan ikke komme til at overskrive et delt sæt.
+   */
   function getPageContent() {
     if (!_pageKey || !_helpContent[_pageKey]) return {};
-    return _helpContent[_pageKey].elements || {};
+    var page = _helpContent[_pageKey];
+    var own = page.elements || {};
+    var include = page._include;
+    if (!include || !include.length) return own;
+
+    var shared = _helpContent._shared || {};
+    var merged = {};
+    include.forEach(function(name) {
+      var set = shared[name];
+      if (!set) return;
+      Object.keys(set).forEach(function(k) { merged[k] = set[k]; });
+    });
+    Object.keys(own).forEach(function(k) { merged[k] = own[k]; });
+    return merged;
   }
 
   function toggle() { active ? hide() : show(); }
@@ -279,23 +307,67 @@ var HelpSystem = (function() {
     _placeBadges();
   }
 
+  /*
+   * Er elementet faktisk fremme på skærmen?
+   *
+   * querySelector finder også skjulte elementer, og flere flader mountes
+   * permanent i DOM'en og skjules med display:none — bon-draweren ligger fx
+   * i office-shellen hele tiden. Uden denne test dukkede drawerens syv punkter
+   * op på hver eneste office-side, også når draweren slet ikke var åben.
+   *
+   * getClientRects() frem for offsetParent: draweren og modalerne er
+   * position:fixed, og dér er offsetParent null selv når de ER synlige.
+   */
+  function _isVisible(el) {
+    if (!el) return false;
+    var r = el.getBoundingClientRect();
+    // display:none / detached → ingen rects og nul areal
+    if (!el.getClientRects().length) return false;
+    // Begge dimensioner skal være der. En tom strip (fx flag-strippen uden
+    // påmindelser) har fuld bredde og højde 0 — den viser intet.
+    if (r.width === 0 || r.height === 0) return false;
+    // Lukkede paneler parkeres uden for skærmen vandret (transform:
+    // translateX(100%) — bon-draweren, indkøbsindstillinger). De har både
+    // rects og areal, så kun positionen afslører dem.
+    //
+    // Kun VANDRET: noget under fold'en er legitimt på siden, og hjælpen skal
+    // kunne pege på det (klik i panelet scroller derhen).
+    // clientWidth FØRST: innerWidth tæller scrollbaren med, så et panel parkeret
+    // på translateX(100%) lander ~15px inde i "viewporten" og slap igennem.
+    var vw = document.documentElement.clientWidth || window.innerWidth || 0;
+    if (vw && (r.right <= 0 || r.left >= vw)) return false;
+    return true;
+  }
+
+  /* Første SYNLIGE match for en selector — ikke bare første match. */
+  function _findVisible(selector) {
+    var list;
+    try { list = document.querySelectorAll(selector); } catch (e) { return null; }
+    for (var i = 0; i < list.length; i++) {
+      if (_isVisible(list[i])) return list[i];
+    }
+    return null;
+  }
+
   function _renderPanel() {
     var body = document.getElementById('help-panel-body');
     var content = getPageContent();
     var keys = Object.keys(content);
 
-    // Filtrér til elementer der faktisk er på siden
+    // Filtrér til elementer der faktisk er SYNLIGE på siden
     var entries = [];
     var n = 0;
     keys.forEach(function(key) {
       var entry = content[key];
-      var el = null;
-      try { el = document.querySelector(entry.selector); } catch(e) {}
+      var el = _findVisible(entry.selector);
       if (el) {
         n++;
         entries.push({ key: key, num: n, el: el, label: entry.label, text: entry.text, selector: entry.selector });
       }
     });
+
+    // Vælg side FØR badges placeres, så et auto-flip ikke får dem til at hoppe.
+    _applyDock(_savedDock() || _autoDock(entries));
 
     if (!entries.length) {
       body.innerHTML = '<div class="help-empty">Ingen hjælpetekster på denne side endnu.<br><br>' +
@@ -320,8 +392,7 @@ var HelpSystem = (function() {
     var n = 0;
     Object.keys(content).forEach(function(key) {
       var entry = content[key];
-      var el = null;
-      try { el = document.querySelector(entry.selector); } catch(e) {}
+      var el = _findVisible(entry.selector);
       if (!el) return;
       n++;
       if (window.getComputedStyle(el).position === 'static') el.style.position = 'relative';
@@ -399,6 +470,69 @@ var HelpSystem = (function() {
     _updatePanel();
   }
 
+  /* ── Dock: hvilken side panelet ligger i ──────────────────
+   *
+   * Panelet dækkede det det forklarede. Værst når dét man kigger på SELV er
+   * et højre-panel — bon-draweren ligger lige under hjælpen, og så er både
+   * badges og felter usynlige.
+   *
+   * Løsningen er ikke at gøre panelet smallere; det er at lægge det i den
+   * side hvor der ikke er noget at se. Siden vælges ud fra hvor de omtalte
+   * elementer faktisk ligger, og kan altid vendes i hånden med ⇄.
+   */
+  var DOCK_KEY = 'bon_v2_help_dock';
+
+  function _savedDock() {
+    try {
+      var v = localStorage.getItem(DOCK_KEY);
+      return (v === 'left' || v === 'right') ? v : null;
+    } catch (e) { return null; }
+  }
+
+  /*
+   * Vælg den side der skjuler mindst. Begge sider vurderes — ikke kun den ene,
+   * for der findes sider hvor begge er dårlige og man skal tage den mindst
+   * ringe (køkkenets kort fylder hele bredden).
+   *
+   * Et element tælles kun som skjult hvis panelet dækker det MESTE af det.
+   * Ellers ville et grid der spænder hele skærmen tælle med hver gang, selv om
+   * det stadig er fint læsbart med 360px dækket i den ene side.
+   */
+  var PANEL_W = 360;
+  var SKJULT_ANDEL = 0.6;
+
+  function _skjulteVed(entries, side, vw) {
+    var zoneStart = (side === 'right') ? vw - PANEL_W : 0;
+    var zoneSlut  = (side === 'right') ? vw : PANEL_W;
+    var n = 0;
+    entries.forEach(function(e) {
+      var r = e.el.getBoundingClientRect();
+      if (!r.width) return;
+      var overlap = Math.min(r.right, zoneSlut) - Math.max(r.left, zoneStart);
+      if (overlap > 0 && (overlap / r.width) > SKJULT_ANDEL) n++;
+    });
+    return n;
+  }
+
+  function _autoDock(entries) {
+    var vw = document.documentElement.clientWidth || window.innerWidth || 0;
+    if (!vw || !entries.length) return 'right';
+    // Uafgjort → højre: det er den vante side, og et skift skal have en grund.
+    return _skjulteVed(entries, 'left', vw) < _skjulteVed(entries, 'right', vw) ? 'left' : 'right';
+  }
+
+  function _applyDock(side) {
+    _dock = side;
+    var panel = document.getElementById('help-panel');
+    if (panel) panel.classList.toggle('dock-left', side === 'left');
+  }
+
+  function flipDock() {
+    var side = _dock === 'left' ? 'right' : 'left';
+    try { localStorage.setItem(DOCK_KEY, side); } catch (e) { /* privat browsing */ }
+    _applyDock(side);
+  }
+
   function isActive() { return active; }
 
   function _esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -408,7 +542,7 @@ var HelpSystem = (function() {
     init: init, show: show, hide: hide, toggle: toggle,
     setPage: setPage, getPageKey: getPageKey, getPageName: getPageName,
     getPageContent: getPageContent, scrollTo: scrollTo,
-    refresh: refresh, isActive: isActive
+    refresh: refresh, isActive: isActive, flipDock: flipDock
   };
 })();
 

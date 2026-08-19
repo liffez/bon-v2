@@ -1,0 +1,68 @@
+<svg viewBox="0 0 1210 620" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img">
+  <defs></defs>
+  <rect x="0" y="0" width="1210" height="620" fill="#ffffff"/>
+  <text x="20" y="16" font-size="20" fill="#8e631f" text-anchor="start"><tspan x="20" dy="20">Varemodtagelse — Lager-trinnet  (rekonstruktion, annoteret)</tspan></text>
+  <text x="20" y="44" font-size="12" fill="#7a6c58" text-anchor="start"><tspan x="20" dy="12">Live-screenshot af dette trin kunne ikke fanges (ligger under scroll). Tro rekonstruktion af UI'et — kan erstattes med et rigtigt screenshot.</tspan></text>
+  <rect x="300" y="100" width="440" height="72" rx="14" fill="#eef6f0" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="320" y="116" font-size="14" fill="#2f7d4f" text-anchor="start"><tspan x="320" dy="14">✓ Alt modtaget som bestilt</tspan></text>
+  <text x="320" y="138" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="320" dy="11">Alle varer lægges på lager med forventet mængde</tspan></text>
+  <rect x="600" y="118" width="122" height="36" rx="14" fill="#3d8b5e" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="661" y="128" font-size="13" fill="#fff" text-anchor="middle"><tspan x="661" dy="13">Godkend alt</tspan></text>
+  <text x="320" y="190" font-size="13" fill="#8e631f" text-anchor="start"><tspan x="320" dy="13">▾  Juster enkeltvis — ret pr. vare hvis noget afviger</tspan></text>
+  <rect x="300" y="218" width="440" height="180" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="320" y="234" font-size="15" fill="#402d15" text-anchor="start"><tspan x="320" dy="15">Kylling - BBQ</tspan></text>
+  <text x="320" y="258" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="320" dy="11.5">Forventet: 39 Kilo</tspan></text>
+  <text x="320" y="296" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="320" dy="12.5">Modtaget:</tspan></text>
+  <rect x="410" y="288" width="30" height="30" rx="14" fill="#f4efe7" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="425" y="295" font-size="16" fill="#402d15" text-anchor="middle"><tspan x="425" dy="16">−</tspan></text>
+  <rect x="446" y="288" width="54" height="30" rx="14" fill="#fff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="473" y="296" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="473" dy="14">39</tspan></text>
+  <rect x="506" y="288" width="30" height="30" rx="14" fill="#f4efe7" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="521" y="295" font-size="16" fill="#402d15" text-anchor="middle"><tspan x="521" dy="16">+</tspan></text>
+  <text x="544" y="296" font-size="12" fill="#7a6c58" text-anchor="start"><tspan x="544" dy="12">Kilo</tspan></text>
+  <rect x="320" y="344" width="84" height="30" rx="14" fill="#e8f3ec" stroke="#b8dcc6" stroke-width="2"/>
+  <text x="362" y="352" font-size="12.5" fill="#2f7d4f" text-anchor="middle"><tspan x="362" dy="12.5">✓ OK</tspan></text>
+  <rect x="412" y="344" width="96" height="30" rx="14" fill="#fbeee0" stroke="#e3b877" stroke-width="2"/>
+  <text x="460" y="352" font-size="12.5" fill="#b06a1a" text-anchor="middle"><tspan x="460" dy="12.5">− Mangler</tspan></text>
+  <rect x="516" y="344" width="92" height="30" rx="14" fill="#dbe7f3" stroke="#a9c6e0" stroke-width="2"/>
+  <text x="562" y="352" font-size="12.5" fill="#3d6ea5" text-anchor="middle"><tspan x="562" dy="12.5">↔ Forkert</tspan></text>
+  <rect x="616" y="344" width="88" height="30" rx="14" fill="#f6e0dd" stroke="#e0aaa2" stroke-width="2"/>
+  <text x="660" y="352" font-size="12.5" fill="#b3453a" text-anchor="middle"><tspan x="660" dy="12.5">✕ Skadet</tspan></text>
+  <rect x="300" y="420" width="100" height="40" rx="14" fill="#fff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="350" y="432" font-size="13" fill="#7a6c58" text-anchor="middle"><tspan x="350" dy="13">Annuller</tspan></text>
+  <rect x="412" y="420" width="328" height="40" rx="14" fill="#c47a2b" stroke="#a5641c" stroke-width="2"/>
+  <text x="576" y="432" font-size="14" fill="#fff" text-anchor="middle"><tspan x="576" dy="14">✓ Registrér varemodtagelse</tspan></text>
+  <ellipse cx="288" cy="136" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="288" y="126" font-size="13" fill="#fff" text-anchor="middle"><tspan x="288" dy="13">1</tspan></text>
+  <ellipse cx="305" cy="190" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="305" y="180" font-size="13" fill="#fff" text-anchor="middle"><tspan x="305" dy="13">2</tspan></text>
+  <ellipse cx="392" cy="303" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="392" y="293" font-size="13" fill="#fff" text-anchor="middle"><tspan x="392" dy="13">4</tspan></text>
+  <ellipse cx="305" cy="359" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="305" y="349" font-size="13" fill="#fff" text-anchor="middle"><tspan x="305" dy="13">3</tspan></text>
+  <ellipse cx="398" cy="440" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="398" y="430" font-size="13" fill="#fff" text-anchor="middle"><tspan x="398" dy="13">5</tspan></text>
+  <rect x="800" y="100" width="390" height="280" rx="14" fill="#faf6ea" stroke="#e3d08f" stroke-width="2"/>
+  <text x="820" y="116" font-size="15" fill="#5a3f14" text-anchor="start"><tspan x="820" dy="15">Lager-trinnet — sådan gør du</tspan></text>
+  <ellipse cx="831" cy="156" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="831" y="147" font-size="12" fill="#fff" text-anchor="middle"><tspan x="831" dy="12">1</tspan></text>
+  <text x="852" y="143" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="852" dy="13.5">Godkend alt</tspan></text>
+  <text x="852" y="161" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="852" dy="11">alt modtaget som bestilt — ét klik</tspan></text>
+  <ellipse cx="831" cy="200" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="831" y="191" font-size="12" fill="#fff" text-anchor="middle"><tspan x="831" dy="12">2</tspan></text>
+  <text x="852" y="187" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="852" dy="13.5">Juster enkeltvis</tspan></text>
+  <text x="852" y="205" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="852" dy="11">fold varelisten ud og ret pr. vare</tspan></text>
+  <ellipse cx="831" cy="244" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="831" y="235" font-size="12" fill="#fff" text-anchor="middle"><tspan x="831" dy="12">3</tspan></text>
+  <text x="852" y="231" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="852" dy="13.5">Status pr. vare</tspan></text>
+  <text x="852" y="249" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="852" dy="11">✓ OK / − Mangler / ↔ Forkert / ✕ Skadet</tspan></text>
+  <ellipse cx="831" cy="288" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="831" y="279" font-size="12" fill="#fff" text-anchor="middle"><tspan x="831" dy="12">4</tspan></text>
+  <text x="852" y="275" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="852" dy="13.5">Antal modtaget</tspan></text>
+  <text x="852" y="293" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="852" dy="11">justér med − / + pr. vare</tspan></text>
+  <ellipse cx="831" cy="332" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="831" y="323" font-size="12" fill="#fff" text-anchor="middle"><tspan x="831" dy="12">5</tspan></text>
+  <text x="852" y="319" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="852" dy="13.5">Registrér varemodtagelse</tspan></text>
+  <text x="852" y="337" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="852" dy="11">udløser det automatiske (lager + liste)</tspan></text>
+  <text x="20" y="598" font-size="12" fill="#a89a83" text-anchor="start"><tspan x="20" dy="12">Bon v2 · Indkøb — køkken · Varemodtagelse Lager-trin (06)</tspan></text>
+</svg>
