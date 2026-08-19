@@ -282,6 +282,15 @@ bestillingsmail (`contact_email`), telefon, webshop_url, noter. Nederst: Grocy-l
 - **Uoverensstemmelser:** `integration_type='form'` er gyldig i backend men mangler i frontend-dropdownen.
   `api_config_json` findes i skemaet men har **intet UI-felt** — kun 6 felter kan redigeres.
 
+> **Opdateret 19.08.2026 (#477):** koblingen har nu også et **visningsnavn**-felt
+> (`supplier_grocy_locations.display_name` via `PATCH /api/purchasing/suppliers/grocy-locations/:id`).
+> Feltet har eksisteret siden migration 030 og blev allerede brugt af label-opløsningen, men kunne
+> før kun sættes med SQL. Det er dét der gør at en gruppe kan hedde "Serviwet" selvom den ligger på
+> Grocy-lokationen "Emballage" — en fælles kanal for flere emballage-leverandører. Placeholder =
+> Grocy-navnet, så tomt felt er tydeligt. Samme sted: leverandørtabellen skrev "Lok 2 / Lok 5 /
+> Lok 9" og viser nu lokationsnavnene (Hørkram · Drikkevarer · Convifood), hvilket samtidig gør
+> synligt at én leverandør kan dække flere kanaler.
+
 ### Tab 2 — Produkter (batch-editor)
 Konfigurerbar tabel over Grocy-produkter med kolonne-chips (præferencer i localStorage
 `ib_settings_product_cols`). Filter på søgning + leverandør. Redigerbare felter pr. produkt:
@@ -380,6 +389,17 @@ tilføj-knapper gør noget andet:
 Modellen forudsætter at alt går gennem "Grocy siger vi mangler → foreslå leverandør-vare". Et
 rent engangskøb ("jeg vil bare have dette ene bundt") har ingen naturlig indgang.
 
+> **Delvist afhjulpet 19.08.2026 (#477)** — for *koblingen*, ikke for engangskøbet. Kobl-panelet
+> i en leverandørgruppe kan nu gemme leverandørens **eget** varenummer eller faste betegnelse som
+> fri tekst (fx "Hvide servietter 33x33"), i stedet for at eneste virkende vej var et opdigtet
+> INT-nummer. `_ibLinkBarcode` gætter ikke længere leverandøren ud fra om nummeret er numerisk.
+> Man kan desuden nu rette, slette og markere foretrukket **direkte på listen** — det lå før kun i
+> Indstillinger → Hørkram → "Alle koblinger" (§9).
+>
+> Selve engangskøbet — bestil en vare uden at den først skal være et *behov* i Grocy — er uændret
+> og hører til Fase C. Og `Uden leverandør`-blokken bruger stadig `+ Opret/kobl`-draweren med den
+> gamle numeriske Hørkram-regel; rettes som del af A9.
+
 ### 12.2 Tilføjede varer fejler — leveringsdato + kurv-format
 **Oplevelse:** "de varer jeg har tilføjet fejler — noget er fordi det er den forkerte dag; det
 kan naturligvis ikke leveres samme dag som jeg bestiller."
@@ -415,7 +435,35 @@ leverandøren og opdaterer priserne."
   steder end netop den tabel**. Aldrig på selve indkøbslisten.
 - Der er **intet erstatnings-flow** overhovedet — ingen "find lignende vare" når noget er udgået.
 
-### 12.5 Yderligere strukturelle observationer (fundet under kortlægningen)
+### 12.5 Varemodtagelsen matcher på leverandørens navn — ikke på et id
+
+**Rod:** `_vmBuildItemsFromShoppingList()` bygger varelisten ved at matche Grocys
+`shopping_list` på userfields `ordered_supplier` + `ordered_varenr` (§4, §7).
+`ordered_supplier` er leverandørens **navn** som fritekst. Det samme gælder
+`goods_receipts.supplier_name`, der også er en streng uden FK til `suppliers`.
+
+Leverandørnavnet er frit redigerbart i Indstillinger → Tab 1 (§9).
+
+**Konsekvens ved omdøbning med udestående bestillinger:**
+- Varemodtagelsens leverandør-dropdown viser "0 varer klar" for den leverandør
+- De bestilte varer lægges aldrig på lager
+- `ordered_*` nulstilles aldrig, så linjerne bliver hængende som "bestilt" på
+  indkøbslisten og bestilles ikke igen — men de kommer heller aldrig ind
+- Der udløses ingen fejl noget sted. Tabet er tavst
+
+Samme problem opstår ved stavevariation mellem leverandørnavnet i `suppliers` og
+det navn der blev skrevet i `ordered_supplier` på bestillingstidspunktet — de to
+kan divergere uden at nogen opdager det.
+
+**Bemærk rækkefølgen:** dette er også en binding på Fase C. Beslutningen om at
+`purchase_order_lines` bliver eneste sandhed om "bestilt", og at `ordered_*`
+degraderes til en projektion vi skriver men aldrig læser, kan ikke gennemføres
+alene. Varemodtagelsen *læser* `ordered_*` — ikke kun til oprydning, men til at
+bygge selve varelisten. De to moduler skal migreres i samme deploy.
+
+> Rettes i `indkob/CLAUDE_INDKOB_FASE_A.md` §10 (A7). Sporet som issue #461.
+
+### 12.6 Yderligere strukturelle observationer (fundet under kortlægningen)
 - **Behov lander fra 8 steder uden fælles model (§5).** En vare på listen bærer ingen viden om
   *hvorfor* den er der (bon-mangel? optælling? manuel?). Der er intet "kilde"-felt. Det gør det svært
   at ræsonnere om listen og umuligt at spore et behov tilbage til dets ophav.
@@ -433,6 +481,16 @@ leverandøren og opdaterer priserne."
   der aldrig kaldes, `integration_type='form'`/`api_config` uden UI, health-felt-mismatch (session-tid
   vises aldrig).
 - **To shells med forskellige tabs** (køkken 3-tab vs office 5-pill) → "hvor gør jeg X" afhænger af zone.
+
+- **Leverandør refereres ved navn tre steder** (`ordered_supplier`,
+  `goods_receipts.supplier_name`, matchningen imellem dem) uden FK til `suppliers`.
+  Se 12.5.
+- **Salgsenheden vælges aldrig af brugeren.** Frontenden sender altid
+  `salesUnits[0]`, som ikke er Hokas default. For varer hvor kartonen listes først,
+  bestilles der i kartoner uden at nogen har valgt det — og enheden persisteres
+  i Grocys `supplier_unit_*`-userfields. Se `indkob/CLAUDE_INDKOB_FASE_A.md` §1.1.
+- **`ordered_qty` bærer ingen enhed.** Varemodtagelsen sammenligner modtaget mod
+  `ordered_qty` uden at vide om tallet tæller kartoner eller poser (§7).
 
 ---
 
@@ -493,6 +551,16 @@ Materiale til at strukturere modulet om (fx på claude.ai). Ikke svar — spørg
 9. **Hvad er den autoritative sandhed om "bestilt"** — `purchase_orders` eller `ordered_*`-userfields?
 10. **Skal de tre kilder til sandhed have ét samlende overblik**, eller er den re-samling i browseren
     acceptabel?
+11. **Skal leverandør refereres ved id i stedet for navn** i `ordered_supplier` og
+    `goods_receipts.supplier_name`, så en omdøbning ikke taber udestående bestillinger? (§12.5)
+
+> **Spørgsmål 2 og 8 er ét spørgsmål.** Uden et kildefelt på `shopping_list`-linjen kan forecast
+> aldrig skrive til listen forsvarligt — to kørsler kan ikke skelnes fra hinanden, og der er intet
+> at afstemme mod. Med `source` + `source_ref` bliver et forecast-push idempotent: slet mine egne
+> tidligere forecast-linjer i vinduet, skriv de nye, rør intet andet.
+>
+> De beholder deres numre, fordi `indkob/CLAUDE_INDKOB_FASE_B.md` og
+> `indkob/HUSKELISTE_indkob_fase_c.md` refererer til dem som "spm. 2 + 8".
 
 ---
 

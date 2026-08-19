@@ -1,4 +1,9 @@
 # CLAUDE_INDKOB_6E.md
+> ⚠️ **HISTORISK — implementeret og deployet. Beskriver IKKE nuværende tilstand.**
+> Aktuel tilstand: [`CLAUDE_INDKOB_ASIS.md`](CLAUDE_INDKOB_ASIS.md).
+> Igangværende arbejde: [`indkob/`](indkob/) (Fase A = epic #471, Fase B, Fase C-skitse).
+> Linjenumre i dette dokument er forældede — brug `grep`.
+
 > Spec for Fase 6e — Indkøb: bugfixes, sporbarhed og forberedelse til varemodtagelse
 > Læs `CLAUDE_INDKOB.md` og `CLAUDE_SETTINGS_INDKOB.md` FØR du begynder.
 > Berørte filer: `shared/indkob.js`, `routes/orders.js`, `routes/horkram.js`,
