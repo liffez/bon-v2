@@ -254,3 +254,33 @@
 .help-empty {
   padding: 24px 22px; color: var(--color-text-dim, #888); font-size: 13px;
 }
+
+
+/* ══════════════════════════════════════
+   MOBIL
+   Panelet er 360px bredt på desktop — det er næsten hele skærmen på en
+   telefon, og et halvt panel er ubrugeligt. Her fylder det hele bredden.
+   ══════════════════════════════════════ */
+.zone-mobile #help-panel { width: 100%; }
+/* Badges hører til når man kan se panelet OG elementet samtidig. Det kan man
+   ikke på en telefon, hvor panelet dækker alt — så flyder de bare ovenpå og
+   forstyrrer læsningen. Punkterne står i samme rækkefølge som på siden, og et
+   klik lukker panelet og scroller derhen. */
+.zone-mobile .help-badge { display: none; }
+.zone-mobile .help-highlight { outline: none !important; }
+/* Docking giver ingen mening når panelet dækker hele bredden — der er ingen
+   side at lægge det i. Knappen skjules i stedet for at gøre ingenting. */
+.zone-mobile .help-dock-btn { display: none; }
+.zone-mobile #help-panel.dock-left { border-right: none; }
+
+/* ?-knappen må ikke ligge oven i bundnavigationen. */
+.zone-mobile #help-hint {
+  bottom: calc(56px + 18px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  width: 38px; height: 38px;
+}
+/* Modtag-visningen skjuler bundnav'en for at give plads — så kan knappen
+   flytte ned igen. */
+.zone-mobile.m-modtag-active #help-hint {
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+}

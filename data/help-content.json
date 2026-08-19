@@ -645,5 +645,12 @@
         "text": "Tilbuddet er blevet til en bon, og indholdet er derfor låst — ellers dokumenterer det ikke længere hvad der blev aftalt.\n\nPDF og afsendelse virker stadig: den accepterede aftale skal kunne sendes igen."
       }
     }
+  },
+  "mobile-modtag": {
+    "_pageName": "Mobil — Modtag",
+    "elements": {},
+    "_include": [
+      "varemodtagelse"
+    ]
   }
 }

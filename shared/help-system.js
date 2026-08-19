@@ -420,9 +420,12 @@ var HelpSystem = (function() {
   }
 
   function scrollTo(selector) {
-    var el = null;
-    try { el = document.querySelector(selector); } catch(e) {}
+    var el = _findVisible(selector);
     if (!el) return;
+    // På mobil dækker panelet hele skærmen, så at scrolle til et element bag
+    // det er meningsløst. Luk panelet og vis elementet — man kan altid trykke
+    // ? igen. På desktop bliver panelet stående ved siden af.
+    if (document.body.classList.contains('zone-mobile')) hide();
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     var orig = el.style.outlineColor;
     el.style.outlineColor = '#fff';
