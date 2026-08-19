@@ -1144,7 +1144,7 @@
             if (typeof initIndkob === 'function') initIndkob(contentEl);
             else contentEl.innerHTML = '<div style="padding:24px;color:#888">Indkøbsmodul ikke indlæst</div>';
           },
-          cleanup: () => {},
+          cleanup: () => { if (typeof cleanupIndkob === 'function') cleanupIndkob(); },
         },
         'indkob-lev': {
           init: () => {
@@ -1500,7 +1500,11 @@
           'crm-kundeindsigt':'Office — Kundeindsigt',
           'crm-reaktivering':'Office — Re-aktivering',
           'crm-ringeliste':'Office — Ringeliste',
-          'crm-prospekter':'Office — Prospekter'
+          'crm-prospekter':'Office — Prospekter',
+          'indkob-liste':'Office — Indkøb · Indkøbsliste',
+          'indkob-lev':'Office — Indkøb · Leverandører',
+          'indkob-forecast':'Office — Indkøb · Forecast',
+          'supplier-inbox':'Office — Leverandørpost'
         };
         if (typeof HelpSystem !== 'undefined') {
           HelpSystem.setPage('office-' + viewName, helpNames[viewName] || 'Office — ' + viewName);

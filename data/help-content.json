@@ -121,6 +121,31 @@
         "selector": ".purch-tabs",
         "label": "Faner",
         "text": "Skift mellem Indkøb (bestilling af varer), Varemodtagelse (modtag leverancer) og Post (kommunikation med leverandører)."
+      },
+      "ib-chips": {
+        "selector": ".ib-chips",
+        "label": "Varenumre (chips)",
+        "text": "Hver chip er ét varenummer hos én leverandør. Samme vare kan sagtens købes flere steder — så ligger der en chip pr. sted, og den valgte (grøn) er den bestillingen laves på.\n\nRækkefølgen er: foretrukken først, så aftalevarer, så billigst pr. kg. Et klik på en chip vælger den for DENNE bestilling; stjernen gør valget permanent."
+      },
+      "ib-chip-star": {
+        "selector": ".ib-cp-star",
+        "label": "★ Foretrukken",
+        "text": "Markerer hvem vi helst køber varen hos. Den foretrukne sorteres altid først og vælges automatisk — også næste gang varen dukker op på listen.\n\nDet er nødvendigt når leverandøren ikke har priser i systemet: uden markering sorterer den bagerst og skulle vælges forfra hver gang.\n\nKun én pr. vare — markerer du en ny, ryddes den gamle."
+      },
+      "ib-chip-edit": {
+        "selector": ".ib-cp-edit",
+        "label": "✎ Ret varenummer",
+        "text": "Retter eller fjerner netop dette varenummer. Nyttigt når et internt nummer (INT-xxxx) skal erstattes af leverandørens rigtige, når nummeret er skrevet forkert, eller når varen ikke længere købes dér.\n\nAt fjerne et varenummer sletter kun koblingen — varen bliver på indkøbslisten."
+      },
+      "ib-chip-add": {
+        "selector": ".ib-chip-add",
+        "label": "+ Varenr.",
+        "text": "Lægger endnu et varenummer på varen, hos en anden leverandør. Brug den når vi kan købe det samme sted to steder og vil kunne vælge.\n\nNummeret lander hos den leverandør varen står under. Skal det være grossistens nummer, så brug katalog-søgningen i panelet i stedet — så lander det det rigtige sted og varen kan lægges i deres kurv."
+      },
+      "ib-linkpanel": {
+        "selector": ".ib-lp",
+        "label": "Kobl varenummer",
+        "text": "To veje, fordi de fører til hver sit sted:\n\n· Leverandørens eget varenummer — fri tekst. Har leverandøren ikke numre, så skriv den betegnelse du bruger i bestillingen ('Hvide servietter 33x33'). Det er dét køkkenet og leverandøren genkender.\n· Grossistens katalog — søg på navn eller varenummer. Nummeret lander hos grossisten, så varen kan lægges i deres kurv, uanset hvilken gruppe den ellers står i.\n\nHar varen hverken nummer eller fast betegnelse, kan der genereres et internt nummer (INT-xxxx). Det er en nødløsning — erstat det med det rigtige, når leverandøren melder tilbage."
       }
     }
   },
@@ -205,6 +230,81 @@
         "selector": ".ki-stage-btn",
         "label": "Stadie-filter",
         "text": "Vis kun firmaer i et bestemt stadie: VIP, Aktive, Sovende eller Leads. Stadier beregnes ud fra tærsklerne i sidebaren."
+      }
+    }
+  },
+  "office-indkob-lev": {
+    "_pageName": "Office — Indkøb · Leverandører",
+    "elements": {
+      "lev-tabs": {
+        "selector": ".is-tabs",
+        "label": "Faner",
+        "text": "Leverandører: hvem vi køber hos og hvordan vi bestiller. Produkter: hvilken leverandør hver vare hører til. Hørkram: opslag i grossistens katalog. Duplikater: varer der ser ud til at være oprettet to gange."
+      },
+      "lev-tabel": {
+        "selector": ".is-sup-table",
+        "label": "Leverandør-tabellen",
+        "text": "Leverandøren er den vi skriver til, og den findes kun her i Bon. Typen styrer hvordan der bestilles: api = varerne lægges i grossistens kurv · webshop = vi åbner deres side · email = der sendes en bestillingsmail · manual = vi ringer eller skriver selv · intern = det laves i vores eget køkken.\n\nKolonnen Grocy-lokationer viser hvilke steder-at-købe leverandøren dækker. Én leverandør kan sagtens dække flere."
+      },
+      "gloc-sektion": {
+        "selector": ".is-gloc-section",
+        "label": "Kobling: lokation ↔ leverandør",
+        "text": "De to ting er ikke det samme, og det er med vilje:\n\n· Grocy-lokationen er STEDET varen købes. Den oprettes i Grocy og sættes på selve produktet — den afgør hvilken gruppe varen havner i på indkøbslisten.\n· Leverandøren er DEN VI SKRIVER TIL: mail, telefon, bestillingsmåde. Den bor i Bon.\n\nKoblingen binder dem sammen, så en vare fra lokationen ved hvem bestillingen skal sendes til. Uden kobling står varen i en gruppe der ikke kan bestille noget.\n\nEn lokation kan være en fælles kanal — fx Emballage, hvor flere små leverandører deler ét sted. Så vælger man den man reelt bestiller hos, og giver koblingen et visningsnavn."
+      },
+      "gloc-ny": {
+        "selector": ".is-gloc-new",
+        "label": "+ Opret leverandør",
+        "text": "Vises kun på lokationer der ikke er koblet endnu. Opretter leverandøren med lokationens navn, kobler dem, og åbner formularen så mail og bestillingsmåde kan udfyldes med det samme.\n\nTypen sættes til 'manual' indtil du vælger andet — en leverandør uden mailadresse må ikke se ud som om der kan sendes bestillinger til den.\n\nFindes navnet allerede som leverandør, kobles den eksisterende i stedet for at lave en dublet."
+      },
+      "gloc-navn": {
+        "selector": ".is-gloc-nm",
+        "label": "Visningsnavn",
+        "text": "Det navn gruppen får i indkøbslisten. Står feltet tomt, bruges Grocy-lokationens eget navn.\n\nUdfyld det når lokationen hedder noget andet end den man bestiller hos — fx lokationen 'Emballage' der reelt købes hos Serviwet. Så hedder gruppen Serviwet, med Emballage som kanal nedenunder."
+      },
+      "prod-supplier": {
+        "selector": ".is-prod-tbl",
+        "label": "Produkter → Leverandør",
+        "text": "Her sættes hvilket sted hver vare købes. Det er dét der afgør hvilken gruppe varen står i på indkøbslisten — og dermed hvem bestillingen sendes til.\n\nÆndringer samles op og skrives først til Grocy når du trykker 'Gem i Grocy'."
+      }
+    }
+  },
+  "office-indkob-liste": {
+    "_pageName": "Office — Indkøb · Indkøbsliste",
+    "elements": {
+      "ib-view-toggle": {
+        "selector": ".ib-view-toggle",
+        "label": "Efter kategori / Efter leverandør",
+        "text": "Samme liste, to grupperinger. Efter kategori er til at tjekke listen igennem; efter leverandør er til at bestille. Begge er fuldt handlingsbare — du kan lægge i kurv fra begge."
+      },
+      "ib-chips": {
+        "selector": ".ib-chips",
+        "label": "Varenumre (chips)",
+        "text": "Hver chip er ét varenummer hos én leverandør. Samme vare kan sagtens købes flere steder — så ligger der en chip pr. sted, og den valgte (grøn) er den bestillingen laves på.\n\nRækkefølgen er: foretrukken først, så aftalevarer, så billigst pr. kg. Et klik på en chip vælger den for DENNE bestilling; stjernen gør valget permanent."
+      },
+      "ib-chip-star": {
+        "selector": ".ib-cp-star",
+        "label": "★ Foretrukken",
+        "text": "Markerer hvem vi helst køber varen hos. Den foretrukne sorteres altid først og vælges automatisk — også næste gang varen dukker op på listen.\n\nDet er nødvendigt når leverandøren ikke har priser i systemet: uden markering sorterer den bagerst og skulle vælges forfra hver gang.\n\nKun én pr. vare — markerer du en ny, ryddes den gamle."
+      },
+      "ib-chip-edit": {
+        "selector": ".ib-cp-edit",
+        "label": "✎ Ret varenummer",
+        "text": "Retter eller fjerner netop dette varenummer. Nyttigt når et internt nummer (INT-xxxx) skal erstattes af leverandørens rigtige, når nummeret er skrevet forkert, eller når varen ikke længere købes dér.\n\nAt fjerne et varenummer sletter kun koblingen — varen bliver på indkøbslisten."
+      },
+      "ib-chip-add": {
+        "selector": ".ib-chip-add",
+        "label": "+ Varenr.",
+        "text": "Lægger endnu et varenummer på varen, hos en anden leverandør. Brug den når vi kan købe det samme sted to steder og vil kunne vælge.\n\nNummeret lander hos den leverandør varen står under. Skal det være grossistens nummer, så brug katalog-søgningen i panelet i stedet — så lander det det rigtige sted og varen kan lægges i deres kurv."
+      },
+      "ib-linkpanel": {
+        "selector": ".ib-lp",
+        "label": "Kobl varenummer",
+        "text": "To veje, fordi de fører til hver sit sted:\n\n· Leverandørens eget varenummer — fri tekst. Har leverandøren ikke numre, så skriv den betegnelse du bruger i bestillingen ('Hvide servietter 33x33'). Det er dét køkkenet og leverandøren genkender.\n· Grossistens katalog — søg på navn eller varenummer. Nummeret lander hos grossisten, så varen kan lægges i deres kurv, uanset hvilken gruppe den ellers står i.\n\nHar varen hverken nummer eller fast betegnelse, kan der genereres et internt nummer (INT-xxxx). Det er en nødløsning — erstat det med det rigtige, når leverandøren melder tilbage."
+      },
+      "ib-umatched": {
+        "selector": ".ib-shdr",
+        "label": "Ingen barcode",
+        "text": "Varer der hører til leverandøren, men mangler et varenummer. De kan ikke bestilles før de har et — brug 'Kobl varenr.'."
       }
     }
   }

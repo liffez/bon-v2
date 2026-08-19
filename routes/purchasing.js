@@ -305,6 +305,50 @@ router.post('/suppliers/grocy-locations', handle((req, res) => {
     res.json({ ok: true, grocy_location_id, supplier_id });
 }));
 
+/* ── PATCH /suppliers/grocy-locations/:id ────────────────── */
+
+/**
+ * Sæt visningsnavnet på en kobling. :id er grocy_location_id (ikke tabel-PK).
+ *
+ * Hvorfor et eget navn: en Grocy-lokation kan være en fælles kanal — "Emballage"
+ * dækker flere mini-leverandører — så lokationsnavnet er ikke altid det navn
+ * køkkenet bestiller under. Uden dette felt hedder gruppen i indkøbslisten
+ * "Emballage", selv om varerne købes hos Serviwet.
+ *
+ * Tom streng rydder feltet, så label-opløsningen falder tilbage til
+ * Grocy-lokationsnavnet (jf. _ibBuildGroups i shared/indkob.js).
+ */
+router.patch('/suppliers/grocy-locations/:id', handle((req, res) => {
+    const db = getDb();
+    const grocyLocId = parseInt(req.params.id);
+
+    if (!grocyLocId) {
+        return res.status(400).json({ error: 'Ugyldigt grocy_location_id' });
+    }
+    if (!('display_name' in req.body)) {
+        return res.status(400).json({ error: 'display_name er påkrævet' });
+    }
+
+    const raw = req.body.display_name;
+    if (raw !== null && typeof raw !== 'string') {
+        return res.status(400).json({ error: 'display_name skal være tekst' });
+    }
+    const name = raw === null ? '' : raw.trim();
+    if (name.length > 80) {
+        return res.status(400).json({ error: 'display_name er for langt (max 80 tegn)' });
+    }
+
+    const result = db.prepare(`
+        UPDATE supplier_grocy_locations SET display_name = ? WHERE grocy_location_id = ?
+    `).run(name || null, grocyLocId);
+
+    if (result.changes === 0) {
+        return res.status(404).json({ error: 'Kobling ikke fundet' });
+    }
+
+    res.json({ ok: true, grocy_location_id: grocyLocId, display_name: name || null });
+}));
+
 /* ── DELETE /suppliers/grocy-locations/:id ───────────────── */
 
 /**
