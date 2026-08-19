@@ -4550,6 +4550,68 @@ assert. Verificeret ende-til-ende mod en kopi af driftsdata, hele kæden i ét f
 kobl Mortens første mail manuelt → adressen læres (#478) → hans anden mail får
 automatisk et forslag (#482). Kopien slettet.
 
+### Retteventilen: en mailtråd kan flyttes til den rigtige kunde (#481, 19. august 2026)
+
+Kortlægningen til #481 fandt otte mailklient-forventninger indbakken ikke holdt.
+Syv af dem har en omvej. Den ottende var en ægte blindgyde: **en tråd der sad på
+den forkerte kunde kunne ikke flyttes.** `PATCH /threads/:id` tager status,
+udsættelse og tildeling — ikke ejerskab. Opdagede man fejlen, var der intet at
+gøre ved den.
+
+- **`POST /api/mail/threads/:id/move`** med `{customer_id}` eller `{bon_id}`.
+  `requireAuth()`, ikke admin: den der opdager fejlen skal kunne rette den med
+  det samme. Leverandør- og indkøbsordre-tråde afvises — de har deres egen
+  tilknytning og hører ikke til en kunde.
+- **Flyt til en bon arver bonens kunde**, så tråden også ses på kundekortet.
+  Flyt til en kunde rydder `bon_id` — en kundetråd hænger ikke fast i den
+  gamle bon.
+
+**Den lærte adresse følger med — ellers retter flytningen ingenting.**
+#478 skrev afsenderens adresse på kunden da tråden blev koblet. Blev den
+koblet forkert, står gættet på den forkerte kunde, og næste mail fra samme
+person ville lande samme forkerte sted igen — nu *helt uden* at nogen rørte
+den. En retteventil der lader fejlkilden stå, cementerer fejlen i stedet for
+at rette den.
+
+- Kun kontaktpunkter med `source = 'mail'` flyttes. Manuelt indtastede, fra CVR
+  eller fra en formular står et menneske eller en ekstern kilde inde for, og de
+  er ikke vores at flytte rundt på. Verificeret mod driftsdata: Lærkes egen
+  `manual`-adresse er urørt gennem flytninger i begge retninger.
+- Den gamle adresse **deaktiveres**, slettes ikke — sporet skal kunne ses, og
+  #478 genopliver ikke en deaktiveret adresse af sig selv.
+- `learnSenderEmail` fik derfor `{ reactivate }` (default `false` = uændret):
+  ved en flytning HAR nogen sagt at adressen hører til her, så en tidligere
+  deaktiveret række genaktiveres i stedet for at blive sprunget over.
+- Interne adresser springes over, som alle andre steder.
+- Kvitteringen siger det højt: *"Flyttet til Lærke Haumann Andersen · 1 lært
+  adresse fulgte med, så næste mail lander samme sted"* — adresse-delen er den
+  man ikke kan se på skærmen.
+
+**UI**: `⇄ Flyt` i trådens handlingsrække åbner et panel der søger kunde på navn
+eller bon på nummer. Tråden **genindlæses** efter flytningen i stedet for at
+blive lukket væk, så man kan se at den nu sidder rigtigt.
+
+`changelog` får en `entity_type='mail_thread'` / `action='thread_moved'`-linje
+pr. flytning — første skridt af #480.
+
+> ⚠️ **En assert der kaster er et dårligere signal end en der fejler.**
+> `findCustomerByEmail(...).id === x` kastede `TypeError` da mutationstesten
+> fjernede rettelsen, i stedet for at fælde sin navngivne assert — så mutationen
+> så ud til at slippe igennem. Optional chaining i alle opslag der kan give null.
+
+**Tests:** `npm run test:inbox-learn` udvidet 34 → **53 asserts**.
+Mutations-testet: fjernes adresse-flytningen, falder 2 navngivne asserts;
+fjernes oprydningen på den gamle kunde, falder 4; fjernes `source='mail'`-
+filteret, fældes fredningen af manuelle adresser. Regression grøn
+(inbox_handling 29, inbox-link 21, mail-send-truth 13, mail_signature 24).
+Verificeret mod en kopi af driftsdata: mail koblet til forkert kunde →
+adressen lært dér → flytning → adressen væk fra den forkerte og på den
+rigtige, begge kunders egne `manual`-adresser urørte. Kopien slettet.
+
+**Stadig åbent i #481:** de øvrige syv forventninger afventer samtalen med Anne
+(markér som ulæst igen, videresend, vedhæft i tråd-svar, ret emne, sorteringen
+i #488). Talgrundlaget ligger som kommentar på issuet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -5000,6 +5062,7 @@ GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 GET    /api/mail/inbox?status=open|archived|all&q=       routes/mail.js (samlet indbakke + arkiv-søgning + suggested_customer)
 POST   /api/mail/unmatched/:id/restore                   routes/mail.js (fortryd arkivering)
+POST   /api/mail/threads/:id/move  {customer_id|bon_id}  routes/mail.js (flyt fejlkoblet tråd + lærte adresser)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js
 GET    /api/settings/internal-senders                    routes/settings.js (admin — interne mail-afsendere + ramte kunder)
