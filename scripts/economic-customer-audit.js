@@ -39,6 +39,20 @@ const MED_CVR  = argv.includes('--cvr');
 const ALLE     = argv.includes('--alle');
 
 const cif = (s) => String(s || '').replace(/\D/g, '');
+
+/**
+ * EAN-13 har et kontrolciffer, så en tastefejl kan påvises — ikke bare mistænkes.
+ * Da Bon og e-conomic var uenige om Rigshospitalet -Neurocenters EAN, var det
+ * dette der afgjorde hvem der havde ret: de to numre skiltes ved ét ciffer, og
+ * kun det ene gik op. Uden tjekket kan man kun gætte på hvilken side der fejler.
+ */
+function eanGyldig(ean) {
+    const e = cif(ean);
+    if (e.length !== 13) return null;                       // ikke et EAN-13 — intet at sige
+    let sum = 0;
+    for (let i = 0; i < 12; i++) sum += Number(e[i]) * (i % 2 === 0 ? 1 : 3);
+    return (10 - sum % 10) % 10 === Number(e[12]);
+}
 const LEGAL = /\b(a\/s|aps|ivs|i\/s|p\/s|k\/s|amba|holding|fonden|danmark|denmark|afd|afdeling)\b/gi;
 const norm = (s) => String(s || '').toLowerCase().replace(LEGAL, '').replace(/[^a-zæøå0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 function bigrams(s) { const m = new Map(); for (let i = 0; i < s.length - 1; i++) { const g = s.slice(i, i + 2); m.set(g, (m.get(g) || 0) + 1); } return m; }
@@ -103,6 +117,22 @@ const meld = (niveau, bons, navn, tekst) => fund[niveau].push({ bons, navn, teks
             if (!r.pagination?.nextPage || ++skip > 30) break;
         }
         const vedNr = new Map(kunder.map(k => [String(k.customerNumber), k]));
+
+        /**
+         * Findes der en e-conomic-kunde der passer BEDRE end den vi er koblet til?
+         * Uden det siger rapporten kun "det her ser forkert ud" og lader én lede
+         * manuelt — og så overser man at 735 "Rigshospitalet - Neurocenter" står
+         * lige der, mens koblingen peger på bipolar-gruppen.
+         */
+        const forslag = (f, nuværende) => {
+            const bedre = kunder
+                .map(k => ({ k, s: dice(f.name, k.name) }))
+                .filter(x => x.k.customerNumber !== nuværende?.customerNumber && x.s >= 0.75)
+                .sort((a, b) => b.s - a.s).slice(0, 3);
+            if (!bedre.length) return '';
+            return `\n              mente du: ` + bedre.map(x =>
+                `${x.k.customerNumber} "${String(x.k.name).slice(0, 40)}"${cif(x.k.ean) ? ` EAN ${cif(x.k.ean)}` : ''}`).join(' · ');
+        };
         console.log(`e-conomic: ${kunder.length} kunder · Bon: ${firmaer.length} firmaer (${koblede.length} koblede)\n`);
 
         for (const f of koblede) {
@@ -113,7 +143,13 @@ const meld = (niveau, bons, navn, tekst) => fund[niveau].push({ bons, navn, teks
             // EAN styrer hvor en offentlig faktura leveres. Er de uenige, går den
             // et andet sted hen — med det rigtige beløb og den forkerte modtager.
             const a = cif(f.ean), b = cif(k.ean);
-            if (a && b && a !== b) meld('kritisk', f.bons, f.name, `EAN ${a} ≠ e-conomic ${f.nr} "${k.name}" EAN ${b} — offentlig faktura leveres til det andet EAN`);
+            if (a && b && a !== b) {
+                // Kontrolcifferet afgør ofte striden uden at nogen skal gætte.
+                const dom = eanGyldig(a) === false ? ' — BONS er ugyldigt (tastefejl), e-conomics ser rigtigt ud'
+                          : eanGyldig(b) === false ? ' — E-CONOMICS er ugyldigt (tastefejl), Bons ser rigtigt ud'
+                          : ' — begge er gyldige EAN, så det er to forskellige modtagere';
+                meld('kritisk', f.bons, f.name, `EAN ${a} ≠ e-conomic ${f.nr} "${k.name}" EAN ${b}${dom}` + forslag(f, k));
+            }
             else if (a && !b)      meld('advarsel', f.bons, f.name, `har EAN ${a}, men e-conomic ${f.nr} "${k.name}" har intet — e-faktura kan ikke leveres`);
 
             const ca = cif(f.cvr), cb = cif(k.corporateIdentificationNumber);
@@ -123,8 +159,17 @@ const meld = (niveau, bons, navn, tekst) => fund[niveau].push({ bons, navn, teks
             // Tekniske Videnskaber), så det melder kun når intet andet holder dem sammen.
             const lighed = dice(f.name, k.name);
             if (lighed < 0.35 && !(ca && cb && ca === cb) && !(a && b && a === b))
-                meld('advarsel', f.bons, f.name, `navnet ligner ikke e-conomic ${f.nr} "${k.name}" (lighed ${lighed.toFixed(2)}) og hverken CVR eller EAN binder dem sammen`);
+                meld('advarsel', f.bons, f.name, `navnet ligner ikke e-conomic ${f.nr} "${k.name}" (lighed ${lighed.toFixed(2)}) og hverken CVR eller EAN binder dem sammen`
+                    + forslag(f, k));
         }
+    }
+
+    // ── 1b. EAN: er nummeret overhovedet gyldigt? ─────────────────────
+    for (const f of firmaer) {
+        const e = cif(f.ean);
+        if (!e) continue;
+        if (e.length !== 13) { meld('advarsel', f.bons, f.name, `EAN ${e} er ${e.length} cifre — et EAN-13 har 13`); continue; }
+        if (eanGyldig(e) === false) meld('kritisk', f.bons, f.name, `EAN ${e} har et ugyldigt kontrolciffer — tastefejl, e-fakturaen kan ikke leveres`);
     }
 
     // ── 2. CVR: peger nummeret på den virksomhed vi tror? ──────────────
