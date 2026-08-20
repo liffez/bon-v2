@@ -51,6 +51,15 @@ const STRUKTUR = new Set(['institut', 'institute', 'center', 'centre', 'centret'
     'afd', 'department', 'dept', 'sektion', 'section', 'for', 'och', 'the', 'of', 'and',
     'fakultet', 'faculty', 'skole', 'school', 'universitetshospitalet', 'union', 'forening']);
 
+const cif = (v) => String(v || '').replace(/\D/g, '');
+function eanGyldig(ean) {
+    const e = cif(ean);
+    if (e.length !== 13) return null;
+    let sum = 0;
+    for (let i = 0; i < 12; i++) sum += Number(e[i]) * (i % 2 === 0 ? 1 : 3);
+    return (10 - sum % 10) % 10 === Number(e[12]);
+}
+
 const db = new DatabaseSync(`file:${DB_PATH}?mode=ro`, { readOnly: true });
 if (Number.isInteger(FIRMA) && !FAMILIE && !CVR) {
     FAMILIE = db.prepare('SELECT name FROM companies WHERE id = ?').get(FIRMA)?.name || '';
@@ -193,6 +202,25 @@ for (const c of iFamilien.slice().sort((a, b) => b.bons - a.bons)) {
     else klynger.push({ noegle: s, med: [{ ...c, s }] });
 }
 
+// e-conomic-siden: hvad hedder kunden vi er koblet til, og passer CVR og EAN?
+// Det er dét spørgsmål hele oprydningen handler om, så det hører hjemme her og
+// ikke i et separat værktøj man skal huske at køre bagefter.
+let ecoVedNr = new Map();
+(async () => {
+    const eco = require('../services/economicAdapter');
+    if (!eco.isConfigured()) { console.log('(e-conomic ikke konfigureret — kun Bon-siden vises)'); return; }
+    try {
+        let alle = [], skip = 0;
+        while (true) {
+            const r = await eco.rest('/customers?pagesize=100&skippages=' + skip);
+            alle = alle.concat(r.collection || []);
+            if (!r.pagination?.nextPage || ++skip > 30) break;
+        }
+        ecoVedNr = new Map(alle.map(k => [String(k.customerNumber), k]));
+    } catch (e) { console.log(`(kunne ikke hente e-conomic-kunder: ${e.message})`); }
+})().then(() => rapportér());
+
+function rapportér() {
 const vis = klynger.filter(k => ALLE || k.med.length > 1)
     .sort((a, b) => b.med.reduce((n, c) => n + c.bons, 0) - a.med.reduce((n, c) => n + c.bons, 0));
 
@@ -201,7 +229,10 @@ console.log(`${paraplyer.length} paraply-række(r) · ${klynger.length} navngivn
 
 if (paraplyer.length) {
     console.log('── Paraply-rækker (bærer selve familienavnet) ──');
-    for (const p of paraplyer) console.log(`   ${String(p.id).padStart(4)}  ${String(p.name).slice(0, 46).padEnd(48)} ${String(p.bons).padStart(3)} bons · ${p.kontakter} kontakter · e-conomic ${p.nr || '—'}`);
+    for (const p of paraplyer) {
+        console.log(`   ${String(p.id).padStart(4)}  ${String(p.name).slice(0, 46).padEnd(48)} ${String(p.bons).padStart(3)} bons · ${p.kontakter} kontakter · e-conomic ${p.nr || '—'}`);
+        for (const note of sammenhaeng(p, String(p.ean || '').trim())) console.log(`         ${note}`);
+    }
     console.log('');
 }
 
@@ -221,8 +252,8 @@ for (const k of vis) {
     for (const c of k.med.sort((a, b) => b.bons - a.bons)) {
         const mærke = c.id === beholdes.id ? '←  behold' : '   læg ind i ' + beholdes.id;
         const ean = String(c.ean || '').trim();
-        const eanNote = ean && !/^\d{13}$/.test(ean) ? `  ⚠ EAN "${ean}" er ikke 13 cifre` : '';
-        console.log(`   ${String(c.id).padStart(4)}  ${String(c.name).slice(0, 44).padEnd(46)} ${String(c.bons).padStart(3)} bons · ${String(c.kontakter).padStart(2)} kont. · e-conomic ${String(c.nr || '—').padEnd(5)} ${mærke}${eanNote}`);
+        console.log(`   ${String(c.id).padStart(4)}  ${String(c.name).slice(0, 44).padEnd(46)} ${String(c.bons).padStart(3)} bons · ${String(c.kontakter).padStart(2)} kont. · e-conomic ${String(c.nr || '—').padEnd(5)} ${mærke}`);
+        for (const note of sammenhaeng(c, ean)) console.log(`         ${note}`);
     }
     console.log('');
 }
@@ -235,3 +266,26 @@ console.log('for at du kan se hvad der ikke passer.\n');
 console.log('Sammenlægning gøres i CRM → Værktøjer → Sammenlæg firmaer (den flytter kunder,');
 console.log('bons og kontaktinfo med). Læg dubletterne sammen FØR en paraply deles op —');
 console.log('ellers flyttes bons ind i endnu en ny række ved siden af dem der findes.');
+}
+
+/** Hænger Bons CVR/EAN sammen med den e-conomic-kunde vi peger på? */
+function sammenhaeng(c, ean) {
+    const ud = [];
+    // Tjek den RÅ værdi: "EAN 5790000299379" har 13 cifre når bogstaverne strippes,
+    // men det er dét der står i feltet, og andet kode stripper ikke nødvendigvis.
+    if (ean && !/^\d{13}$/.test(ean)) {
+        ud.push(cif(ean).length === 13
+            ? `⚠ EAN-feltet indeholder "${ean}" — cifrene er rigtige, men etiketten er tastet med`
+            : `⚠ EAN "${ean}" er ikke 13 cifre`);
+    } else if (ean && eanGyldig(ean) === false) ud.push(`⚠ EAN ${ean} har ugyldigt kontrolciffer — tastefejl`);
+    const k = c.nr ? ecoVedNr.get(String(c.nr).trim()) : null;
+    if (c.nr && !k) { ud.push(`⚠ kundenr ${c.nr} findes ikke i e-conomic`); return ud; }
+    if (!k) return ud;
+    const eb = cif(ean), ee = cif(k.ean);
+    if (eb && ee && eb !== ee) ud.push(`⚠ EAN ${eb} ≠ e-conomic "${String(k.name).slice(0, 34)}" EAN ${ee}`);
+    else if (eb && !ee) ud.push(`e-conomic "${String(k.name).slice(0, 34)}" har intet EAN — e-faktura kan ikke leveres`);
+    const cb = cif(c.cvr), ce = cif(k.corporateIdentificationNumber);
+    if (cb && ce && cb !== ce) ud.push(`⚠ CVR ${cb} ≠ e-conomic CVR ${ce}`);
+    if (!ud.length) ud.push(`= e-conomic "${String(k.name).slice(0, 40)}"${ee ? ` EAN ${ee}` : ''}`);
+    return ud;
+}
