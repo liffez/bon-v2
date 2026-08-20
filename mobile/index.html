@@ -13,9 +13,10 @@
     <link rel="stylesheet" href="/shared/varemodtagelse.css">
     <link rel="stylesheet" href="/shared/inventory_check.css">
     <link rel="stylesheet" href="/shared/mail_thread.css">
+    <link rel="stylesheet" href="/shared/help-system.css">
     <link rel="stylesheet" href="/mobile/mobile.css?v=2026-08-19-1">
 </head>
-<body class="zone-mobile">
+<body class="zone-mobile" data-help-page="mobile-bons" data-help-page-name="Mobil — Bons">
 
     <!-- Header -->
     <header class="m-header">
@@ -62,6 +63,7 @@
     <script src="/mobile/views/crm.js?v=2026-06-06-1"></script>
     <script src="/mobile/views/oversigt.js?v=2026-06-06-1"></script>
     <script src="/mobile/views/levering.js?v=2026-06-08-1"></script>
+    <script src="/shared/help-system.js"></script>
     <script>
     (async function() {
         /* ── Auth ── */
@@ -198,6 +200,13 @@
             // Remove bon detail param when switching views
             if (name !== 'bons') params.delete('bon');
             history.replaceState(null, '', '?' + params.toString());
+
+            // Hjælpesystemets side-kontekst. Mobilen har ingen tastatur-genvej,
+            // så ?-knappen er eneste indgang — men indholdet er det samme.
+            if (typeof HelpSystem !== 'undefined') {
+                var _hNavn = (NAV_DEFS.filter(function(d) { return d.view === name; })[0] || {}).label || name;
+                HelpSystem.setPage('mobile-' + name, 'Mobil — ' + _hNavn);
+            }
 
             // Init
             if (_mViews[name]) {
