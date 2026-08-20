@@ -131,9 +131,11 @@ const csv = (v) => { const s = String(v ?? '').replace(/[\r\n]+/g, ' ').trim(); 
         else if (!k.length) console.log(`      intet belæg for et match — vælg blandt de ${familie.length} kunder i familien (se listen nederst)`);
         for (const c of k) console.log(`      ${String(c.k.customerNumber).padStart(4)}  ${String(c.k.name).slice(0, 46).padEnd(48)} EAN ${cif(c.k.ean) || '—'}  (${c.score.toFixed(2)})`);
         console.log('');
+        // Private adresser er folk fra afdelingerne der har bestilt til sig selv.
+        // De skal ikke have en egen firma-række — derfor "-" på forhånd.
         ud.push([r.domaene, r.kontakter, r.bons, r.kr, r.seneste || '',
                  k[0]?.k.customerNumber ?? '', k[0]?.k.name ?? '', cif(k[0]?.k.ean) || '',
-                 k[0] ? k[0].score.toFixed(2) : '', ''].map(csv).join(';'));
+                 k[0] ? k[0].score.toFixed(2) : '', privat ? '-' : ''].map(csv).join(';'));
     }
 
     // Opslagsliste: de grupper uden belæg skal kunne udfyldes uden at slå op i e-conomic.
@@ -149,6 +151,7 @@ const csv = (v) => { const s = String(v ?? '').replace(/[\r\n]+/g, ' ').trim(); 
     console.log(`→ Skrev ${rækker.length} rækker til ${fil}`);
     console.log('   godkendt_nr er TOM med vilje — forslagene er gæt, og flere kunder deler ofte EAN.');
     console.log('   Udfyld kundenummeret pr. domæne (eller "-" for at lade gruppen blive på paraply-rækken).');
+    console.log('   Private adresser er sat til "-" på forhånd — de er folk fra afdelingerne, ikke egne firmaer.');
     console.log('\n   Scriptet skriver ikke. Selve opdelingen — nye firma-rækker, flytning af');
     console.log('   kontakter og bons — bygges når planen er godkendt.');
 })().catch(e => { console.error('\n' + e.stack); process.exit(1); });
