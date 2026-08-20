@@ -141,7 +141,8 @@
       }
     },
     "_include": [
-      "indkob-chips"
+      "indkob-chips",
+      "varemodtagelse"
     ]
   },
   "kitchen-stock": {
@@ -152,7 +153,10 @@
         "label": "Faner",
         "text": "Skift mellem Lageroversigt (søg og rediger beholdning) og Optælling (fysisk lageroptælling)."
       }
-    }
+    },
+    "_include": [
+      "optaelling"
+    ]
   },
   "kitchen-recipes": {
     "_pageName": "Køkken — Opskrifter",
@@ -444,6 +448,120 @@
         "label": "Historik",
         "text": "Hele sporet: hvem ændrede hvad hvornår, inkl. statusskift, mails og bookinger. Kan ikke redigeres."
       }
+    },
+    "varemodtagelse": {
+      "vm-hvad": {
+        "selector": ".vm-section-divider",
+        "label": "To ting på én gang",
+        "text": "Øverste halvdel er FØDEVAREKONTROL — lovpligtig dokumentation af at leverancen blev tjekket. Nederste halvdel er LAGER — det der lægges ind i Grocy.\n\nDe to dele gemmes hver for sig. Går lagerdelen galt (Grocy nede, en enhed der ikke kan omregnes), bliver kontrollen registreret alligevel. Dokumentationen må aldrig afhænge af om et andet system svarer."
+      },
+      "vm-bruger": {
+        "selector": ".vm-user-avatar",
+        "label": "Hvem modtager",
+        "text": "Navnet står på registreringen som den der stod med varerne. Listen er dagens vagter fra vagtplanen plus dem der er oprettet i hånden under Indstillinger.\n\nDet er en underskrift, ikke en indstilling — vælg den der faktisk tog imod."
+      },
+      "vm-leverandoer": {
+        "selector": ".vm-supplier-card",
+        "label": "Leverandør",
+        "text": "Vælg hvem leverancen kom fra. Varelisten nedenfor fyldes med det der er bestilt hos netop dem — ikke hele indkøbslisten.\n\nStår leverandøren ikke på listen, er der ikke registreret nogen bestilling hos dem. Varer kan stadig tilføjes i hånden."
+      },
+      "vm-temp": {
+        "selector": ".vm-temp-row-item",
+        "label": "Temperaturer",
+        "text": "Køl og frost måles hver for sig. Slå den fra der ikke er relevant — en leverance uden frostvarer skal ikke have en frost-temperatur.\n\nBadgen skifter til FEJL når målingen er uden for det tilladte. Så åbner afvigelsesfeltet af sig selv: en for varm leverance skal begrundes, ikke bare noteres."
+      },
+      "vm-fvst": {
+        "selector": ".vm-toggle-row",
+        "label": "Dato, mærkning, emballage",
+        "text": "De tre kontroller Fødevarestyrelsen forventer: holdbarhed, at varen er mærket rigtigt, og at emballagen er hel.\n\nSlår du én fra, betyder det at kontrollen IKKE var i orden — ikke at du sprang den over. Derfor åbner afvigelsen automatisk."
+      },
+      "vm-foto": {
+        "selector": ".vm-photo-btn",
+        "label": "Foto",
+        "text": "Et billede af leverancen, følgesedlen eller skaden. Gemmes sammen med registreringen og kan findes frem igen i loggen.\n\nDet er den nemmeste måde at dokumentere en skade på — et foto taget på stedet er svært at diskutere bagefter."
+      },
+      "vm-afvigelse": {
+        "selector": ".vm-deviation-box",
+        "label": "Afvigelse",
+        "text": "Åbner automatisk når en temperatur er for høj eller en kontrol slås fra. Kan også åbnes i hånden hvis noget var galt uden at systemet fangede det.\n\nSkriv hvad der var galt og hvad I gjorde ved det. Det er dén tekst der står tilbage hvis nogen spørger et halvt år senere."
+      },
+      "vm-enhed-advarsel": {
+        "selector": ".vm-unit-warn-banner",
+        "label": "⚠ Enhed mangler omregning",
+        "text": "Du bestiller i kasser, men lageret regner i kilo — og systemet ved ikke hvor meget én kasse vejer.\n\nUden det tal ville varen blive skrevet ind som om kasser var kilo. Derfor nægter systemet at gætte: skriv omregningen ind her, så gemmes den i Grocy og spørgsmålet stilles aldrig igen for den vare.\n\nAdvarslen kommer FØR du taster, ikke efter du har trykket Godkend."
+      },
+      "vm-godkend-alt": {
+        "selector": ".vm-godkend-alt-banner",
+        "label": "Godkend alt",
+        "text": "Den normale vej: kom alt som bestilt, så er ét tryk nok.\n\nBrug 'Juster enkeltvis' når noget mangler eller der kom en anden mængde end bestilt."
+      },
+      "vm-varekort": {
+        "selector": ".vm-item-card",
+        "label": "Én vare",
+        "text": "Tre udfald, og de gør forskellige ting:\n\n· OK — hele mængden lægges på lager, og varen fjernes fra indkøbslisten\n· Delvis — det modtagne lægges på lager, og RESTEN bliver stående på indkøbslisten, så den kommer med næste bestilling\n· Mangler — intet lægges på lager, varen bliver stående\n\nMængden skrives i den enhed du bestiller i. Systemet regner selv om til lager-enheden."
+      },
+      "vm-tilfoej": {
+        "selector": ".vm-add-item-btn",
+        "label": "Tilføj vare manuelt",
+        "text": "Til varer der kom med uden at være bestilt — en erstatningsvare, en prøve, noget chaufføren havde med.\n\nFindes varen slet ikke i Grocy, kan den oprettes derfra; siden åbner i en ny fane, så det du har tastet her ikke går tabt."
+      },
+      "vm-gem": {
+        "selector": ".vm-bottom-bar",
+        "label": "Registrér",
+        "text": "Gemmer kontrollen, lægger varerne på lager og sender besked til køkkentavlen — i den rækkefølge.\n\nFejler en enkelt vare i Grocy, gemmes resten alligevel, og registreringen markeres som delvist godkendt. Du får at vide præcis hvilken vare der drillede."
+      },
+      "vm-log": {
+        "selector": ".vm-hist-list",
+        "label": "Modtagelseslog",
+        "text": "Alle tidligere registreringer med temperaturer, kontroller, foto og varer.\n\nDet er her dokumentationen findes frem ved et kontrolbesøg. Loggen virker også når Grocy er nede — kun oprettelsen af nye registreringer kræver lageradgang.\n\nEn registrering der ikke nåede frem til køkkentavlen, er markeret og kan sendes igen."
+      }
+    },
+    "optaelling": {
+      "ic-lokation": {
+        "selector": ".ic-location-bar",
+        "label": "Hvor tælles der",
+        "text": "Vælg det lager du står ved. Listen fyldes med de varer der hører til dér — ikke hele lageret."
+      },
+      "ic-enheder": {
+        "selector": ".ic-unit-chips",
+        "label": "Fysiske enheder",
+        "text": "Køl-1, Frys-2, tørlager. Samme vare kan sagtens ligge flere steder, og tællingen holdes adskilt pr. sted — så du kan tælle køleskabet nu og fryseren i morgen uden at det ene overskriver det andet.\n\nTallet på chippen viser hvor mange varer du har talt dér."
+      },
+      "ic-taelleenhed": {
+        "selector": ".ic-count-units",
+        "label": "Tæl i det du kan se",
+        "text": "Tæl i bøtter, kasser eller poser — det du fysisk kan tælle — og lad systemet regne om til kilo.\n\nUnder feltet står hvad tallet bliver til på lageret. Enheden huskes til næste gang for netop den vare på netop det sted; det er et forslag, ikke en låsning."
+      },
+      "ic-brok": {
+        "selector": ".ic-qty-fractions",
+        "label": "¼ ½ ¾",
+        "text": "Til det man ikke kan tælle præcist. Om en halv betyder en halv pakke eller halvdelen af det forventede lager, afhænger af varen — kig på tallet der kommer frem, ikke på knappen."
+      },
+      "ic-godkend": {
+        "selector": ".ic-btn-accept",
+        "label": "✔ Godkend",
+        "text": "Ét tryk når lagerets tal passer. Varen stemples som tjekket i dag, og tallet står uændret.\n\nDet er den normale vej — de fleste varer passer."
+      },
+      "ic-spring": {
+        "selector": ".ic-btn-skip",
+        "label": "⏭ Spring over",
+        "text": "Til varer du ikke kan komme til lige nu. De forsvinder ikke — de dæmpes med 'Sprunget over · Fortryd', og tælleren siger hvor mange der står tilbage.\n\nEn sprunget vare kan stadig findes ved at søge."
+      },
+      "ic-menu": {
+        "selector": ".ic-card-menu",
+        "label": "⋯ Beslutninger",
+        "text": "To valg der gælder fremover, ikke bare i dag:\n\n· 'Skal ikke tælles fast' — varen holder op med at dukke op i den faste rytme\n· 'Varen findes ikke mere' — lageret sættes til nul og varen deaktiveres\n\nDe ligger bag ⋯ fordi de er sjældne og svære at fortryde. Det du gør tit — godkend og spring over — ligger på kortet."
+      },
+      "ic-genoptag": {
+        "selector": ".ic-resume",
+        "label": "Genoptag optælling",
+        "text": "En påbegyndt optælling kasseres ikke ved midnat. Kom du ikke igennem i går, ligger tællingen der stadig, og du kan vælge at fortsætte eller starte forfra.\n\nIntet er skrevet til lageret før du gemmer."
+      },
+      "ic-gem": {
+        "selector": ".ic-btn-finish",
+        "label": "Gem og luk",
+        "text": "Først her skrives der til lageret. Du får en opsummering af hvad der ændrer sig, og hvilke beslutninger du har truffet undervejs, inden noget gemmes.\n\nHar nogen ændret lageret mens du talte, får du besked og vælger selv hvilket tal der gælder."
+      }
     }
   },
   "office-calendar": {
@@ -575,6 +693,115 @@
         "selector": ".tilbud-lock-note",
         "label": "🔒 Låst bilag",
         "text": "Tilbuddet er blevet til en bon, og indholdet er derfor låst — ellers dokumenterer det ikke længere hvad der blev aftalt.\n\nPDF og afsendelse virker stadig: den accepterede aftale skal kunne sendes igen."
+      }
+    }
+  },
+  "mobile-modtag": {
+    "_pageName": "Mobil — Modtag",
+    "elements": {},
+    "_include": [
+      "varemodtagelse"
+    ]
+  },
+  "mobile-bons": {
+    "_pageName": "Mobil — Bons",
+    "elements": {
+      "mb-faner": {
+        "selector": ".m-tabs",
+        "label": "Faner",
+        "text": "I dag, i morgen og overmorgen viser bons på leveringsdatoen.\n\nNye er noget andet: det er en huskeliste over hvad der ikke er håndteret endnu — nye bestillinger og ulæst post. Den tømmer sig selv efterhånden som tingene bliver taget hånd om, uanset hvem der gør det."
+      },
+      "mb-nye": {
+        "selector": ".m-tab-badge",
+        "label": "Tallet på Nye",
+        "text": "Antal ting der venter. Det falder når en bon får en status eller en mail bliver læst — også hvis det sker på en anden skærm.\n\nDer er ingen 'marker alt læst': listen er ikke en indbakke, den er en arbejdsliste."
+      },
+      "mb-kort": {
+        "selector": ".m-bon-item",
+        "label": "Bon-kortet",
+        "text": "Tid, kunde, bonnummer, status og antal enheder. Tryk for at åbne hele bonen.\n\nTidspunktet er leveringen — eller afhentningen, hvis kunden selv henter."
+      },
+      "mb-detalje": {
+        "selector": ".m-detail-header",
+        "label": "Bon-detaljen",
+        "text": "Hele bonen: kunde med klikbart telefonnummer og adresse der åbner i kort, leveringsinfo, varer og køkkeninfo.\n\nStatus kan skiftes herfra, og det slår igennem på alle skærme med det samme."
+      }
+    }
+  },
+  "mobile-lager": {
+    "_pageName": "Mobil — Lager",
+    "elements": {},
+    "_include": [
+      "optaelling"
+    ]
+  },
+  "mobile-crm": {
+    "_pageName": "Mobil — CRM",
+    "elements": {
+      "mc-servicekald": {
+        "selector": ".m-crm-item",
+        "label": "Service-kald",
+        "text": "Kunder der har fået leveret, og som er værd at ringe til bagefter. Listen bygger sig selv ud fra hvem der har handlet — den skal ikke vedligeholdes.\n\nRing åbner telefonen. Udført fjerner kunden fra listen uden at skrive en note; brug det når samtalen ikke gav noget at huske."
+      },
+      "mc-log": {
+        "selector": ".m-crm-form-slot",
+        "label": "Log samtalen",
+        "text": "Skriv hvad der blev sagt, og hvordan stemningen var. Det er dét der dukker op næste gang nogen ringer til kunden — også hvis det er en anden end dig.\n\nEn kort note er bedre end ingen. 'Tilfreds, vil gerne have samme til september' er nok."
+      },
+      "mc-kunder": {
+        "selector": ".m-cust-item",
+        "label": "Kundelisten",
+        "text": "Alle kunder, søgbare på navn og firma. Tryk for kontaktinfo, seneste ordrer og mulighed for at logge en samtale.\n\nBrug den når nogen ringer ind og du skal vide hvem de er, inden du har svaret."
+      }
+    }
+  },
+  "mobile-levering": {
+    "_pageName": "Mobil — Levering",
+    "elements": {
+      "ml-tur": {
+        "selector": ".m-lv-route",
+        "label": "Dagens tur",
+        "text": "De stop du skal køre, i den rækkefølge ruten er lagt. Vises kun hvis du er sat på som chauffør — er turen tom, er der ingen tildelt dig."
+      },
+      "ml-afgang": {
+        "selector": ".m-lv-depart-btn",
+        "label": "Kør fra HQ",
+        "text": "Tryk når du kører. Så kan køkkenet og kontoret se at turen er i gang, uden at ringe og spørge.\n\nEt fejltryk kan fortrydes med det samme."
+      },
+      "ml-stop": {
+        "selector": ".m-lv-stop",
+        "label": "Stoppet",
+        "text": "Adresse, hvem der tager imod på dagen, leveringsinstruks og hvad der skal med ind.\n\nNaviger-knappen åbner kortet med adressen — du skal ikke skrive den af."
+      },
+      "ml-leveret": {
+        "selector": ".m-lv-confirm",
+        "label": "Marker som leveret",
+        "text": "Sætter samtidig bonen til LEVERET, så køkkenet ikke skal gøre det bagefter.\n\nEr det sidste stop, afsluttes turen af sig selv."
+      },
+      "ml-problem": {
+        "selector": ".m-lv-problem",
+        "label": "Problem",
+        "text": "Til når noget ikke gik som planlagt — ingen tog imod, forkert adresse, noget gik i stykker.\n\nTre trin: hvad skete der, foto og note, bekræft. Positionen fanges i baggrunden og forsinker aldrig noget.\n\nMeld det hellere med det samme end at forklare det bagefter."
+      }
+    }
+  },
+  "mobile-oversigt": {
+    "_pageName": "Mobil — Overblik",
+    "elements": {
+      "mo-periode": {
+        "selector": ".m-overview-period-tabs",
+        "label": "14 dage / Måned",
+        "text": "Hvor langt frem du kigger. Valget huskes til næste gang.\n\n◀ ▶ flytter perioden — brug dem til at se hvornår der er pres på, ikke bare hvad der sker i denne uge."
+      },
+      "mo-dag": {
+        "selector": ".m-overview-day-head",
+        "label": "Dagen",
+        "text": "Antal bons, enheder og kuverter. Tryk på dagen for at se de enkelte bons.\n\nEnheder er det tal der siger noget om travlheden i køkkenet — ikke antallet af bons. En stor bon fylder mere end tre små."
+      },
+      "mo-vagter": {
+        "selector": ".m-overview-day-shifts",
+        "label": "Vagter",
+        "text": "Hvem der er på, og hvornår de møder. Kommer fra vagtplanen.\n\nSammenholdt med enhederne ovenfor giver det et hurtigt billede af om dagen hænger sammen."
       }
     }
   }

@@ -323,9 +323,13 @@ var HelpSystem = (function() {
     var r = el.getBoundingClientRect();
     // display:none / detached → ingen rects og nul areal
     if (!el.getClientRects().length) return false;
-    // Begge dimensioner skal være der. En tom strip (fx flag-strippen uden
-    // påmindelser) har fuld bredde og højde 0 — den viser intet.
-    if (r.width === 0 || r.height === 0) return false;
+    // Højde 0 = viser intet (fx flag-strippen uden påmindelser).
+    if (r.height === 0) return false;
+    // Bredde 0 bruges IKKE som skjulthedskriterium. Et browservindue kan
+    // rapportere bredde 0 for hele siden (kollapset/baggrundsfane), og så ville
+    // hver eneste hjælpetekst forsvinde. Ingen hjælp er værre end lidt for
+    // meget hjælp — så ved bredde 0 antager vi synlig og springer
+    // positions-testen over, for den kan alligevel ikke beregnes.
     // Lukkede paneler parkeres uden for skærmen vandret (transform:
     // translateX(100%) — bon-draweren, indkøbsindstillinger). De har både
     // rects og areal, så kun positionen afslører dem.
@@ -335,7 +339,7 @@ var HelpSystem = (function() {
     // clientWidth FØRST: innerWidth tæller scrollbaren med, så et panel parkeret
     // på translateX(100%) lander ~15px inde i "viewporten" og slap igennem.
     var vw = document.documentElement.clientWidth || window.innerWidth || 0;
-    if (vw && (r.right <= 0 || r.left >= vw)) return false;
+    if (vw && r.width && (r.right <= 0 || r.left >= vw)) return false;
     return true;
   }
 
@@ -416,9 +420,12 @@ var HelpSystem = (function() {
   }
 
   function scrollTo(selector) {
-    var el = null;
-    try { el = document.querySelector(selector); } catch(e) {}
+    var el = _findVisible(selector);
     if (!el) return;
+    // På mobil dækker panelet hele skærmen, så at scrolle til et element bag
+    // det er meningsløst. Luk panelet og vis elementet — man kan altid trykke
+    // ? igen. På desktop bliver panelet stående ved siden af.
+    if (document.body.classList.contains('zone-mobile')) hide();
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     var orig = el.style.outlineColor;
     el.style.outlineColor = '#fff';

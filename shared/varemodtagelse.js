@@ -409,7 +409,9 @@ function _vmBuildDateCard() {
 
 function _vmBuildSupplierCard() {
     var card = document.createElement('div');
-    card.className = 'vm-card';
+    // Egen klasse ud over vm-card: hjælpesystemet peger på elementer via
+    // CSS-selectorer, og alle kortene på siden delte ellers samme klasse.
+    card.className = 'vm-card vm-supplier-card';
 
     var label = document.createElement('div');
     label.className = 'vm-field-label';
