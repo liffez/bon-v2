@@ -97,14 +97,11 @@ async function send(receipt, userName) {
     // bonv2_only mode — registreringen ligger kun i Bon v2.
     if (!webhookUrl) return { ok: false, skipped: true, reason: 'not_configured' };
 
-    // Map Bon v2's deviation_type til Whiteboard-skemaets select-options
-    const deviationMap = {
-        returned:           'returned',
-        no_risk:            'accepted_no_risk',
-        discarded:          'discarded',
-        supplier_contacted: 'supplier_contacted',
-        other:              'other',
-    };
+    // Map Bon v2's deviation_type til Whiteboard-skemaets select-options.
+    // Tabellen bor i receiptSchema.js sammen med den modsatte retning —
+    // frontenden bruger samme oversættelse når den bygger valgene fra skemaet,
+    // og to kopier ville før eller siden blive to forskellige tabeller.
+    const deviationMap = require('./receiptSchema').DEVIATION_TO_WHITEBOARD;
 
     const data = {
         date_ok:         !!receipt.date_check_ok,
@@ -123,11 +120,41 @@ async function send(receipt, userName) {
 
     // Temperaturer sendes kun når toggle er aktiv — Whiteboard beregner
     // temperature_ok/_status selv via limit_max i skemaet.
+    //
+    // Produktnavnet følger sin temperatur: er toggle slået fra, er der intet
+    // målt og dermed heller ikke noget at have målt PÅ. Feltnavnene er
+    // tavlens egne id'er (whiteboard migration 026), så FVST-loggen viser
+    // dem uden at nogen skal oversætte noget.
     if (receipt.temperature_cool_enabled) {
         data.temperature = receipt.temperature_cool_value;
+        if (receipt.temperature_cool_product) {
+            data.temp_product = receipt.temperature_cool_product;
+        }
     }
     if (receipt.temperature_frozen_enabled) {
         data.temperature_freezer = receipt.temperature_frozen_value;
+        if (receipt.temperature_frozen_product) {
+            data.temp_product_freezer = receipt.temperature_frozen_product;
+        }
+    }
+
+    // Felter tavlen har i skemaet, som Bon v2 ikke har en egen kolonne til.
+    // De blev filtreret mod skemaet ved modtagelsen, så det er tavlens egne
+    // felt-id'er der står her — derfor kan de lægges direkte i data.
+    //
+    // Skrives FØR de kendte felter ville de kunne overskrive dem; derfor
+    // sættes de kun hvor der ikke allerede står noget. Et defekt skema skal
+    // ikke kunne slette en temperatur på vej til FVST-loggen.
+    if (receipt.extra_fields_json) {
+        try {
+            const extra = JSON.parse(receipt.extra_fields_json);
+            for (const [key, value] of Object.entries(extra || {})) {
+                if (!(key in data)) data[key] = value;
+            }
+        } catch (err) {
+            console.warn('[webhook] extra_fields_json kunne ikke læses for receipt',
+                receipt.id, '—', err.message);
+        }
     }
 
     const payload = {

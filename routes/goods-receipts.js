@@ -27,6 +27,7 @@ const { requireAuth, userCan } = require('../shared/auth');
 const grocy           = require('../services/grocyAdapter');
 const webhook         = require('../services/goodsReceiptWebhook');
 const { resolveToStockAmount } = require('../services/quConvert');
+const receiptSchema   = require('../services/receiptSchema');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'uploads', 'receipts');
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -38,6 +39,22 @@ router.get('/users', requireAuth(), handle((req, res) => {
         `SELECT id, name FROM users WHERE is_active = 1 ORDER BY name`
     ).all();
     res.json(rows);
+}));
+
+/* ── GET /schema — FVST-skemaet, som tavlen definerer det ───
+ *
+ * Skemaet var før skrevet af i hånden i shared/varemodtagelse.js, så en
+ * rettelse i Whiteboards admin aldrig nåede herover. Nu er tavlen eneste
+ * kilde, og frontenden bygger formularen ud fra dette svar.
+ *
+ * Svarer ALTID med et brugbart skema. `source` fortæller hvor det kom fra
+ * (whiteboard / cache / builtin) og `error` hvorfor, hvis det ikke er
+ * friskt — så en tavle der er nede er synlig frem for tavs.
+ *
+ * Skal stå FØR '/:id', ellers fanger den generiske rute den. */
+
+router.get('/schema', requireAuth(), handle(async (req, res) => {
+    res.json(await receiptSchema.getSchemaFresh());
 }));
 
 /* ── GET /webhook-log — er koblingen til Whiteboard i live? ─
@@ -151,10 +168,14 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         temperature_cool_enabled,
         temperature_cool_value,
         temperature_cool_ok,
+        temperature_cool_product,
 
         temperature_frozen_enabled,
         temperature_frozen_value,
         temperature_frozen_ok,
+        temperature_frozen_product,
+
+        extra_fields,
 
         date_check_ok,
         labeling_check_ok,
@@ -201,6 +222,23 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             });
         }
     }
+
+    // Produktnavnene og de skema-drevne ekstrafelter er fri tekst fra
+    // brugeren. Trim + længdegrænse så en fejlagtig indsætning ikke lander
+    // i FVST-loggen som en roman.
+    const cleanText = (v, max = 200) => {
+        if (v === null || v === undefined) return null;
+        const t = String(v).trim().slice(0, max);
+        return t || null;
+    };
+
+    // Felter tavlen har i skemaet, men som Bon v2 ikke har en kolonne til.
+    // Filtreres mod skemaet, så et felt der er fjernet i admin holder op med
+    // at blive gemt — og så kolonnen ikke kan fyldes af en klient.
+    const extraFieldsJson = receiptSchema.sanitizeExtraFields(
+        extra_fields,
+        receiptSchema.getSchema().fields
+    );
 
     // Backdatering af modtagedato er admin-only. received_at repræsenterer den
     // ægte modtage-/kontroldato (fra følgeseddlen); created_at forbliver "nu"
@@ -301,17 +339,17 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         const grResult = db.prepare(`
             INSERT INTO goods_receipts (
                 receipt_number, supplier_name, location_id, received_by, received_by_name, received_at,
-                temperature_cool_enabled, temperature_cool_value, temperature_cool_ok,
-                temperature_frozen_enabled, temperature_frozen_value, temperature_frozen_ok,
+                temperature_cool_enabled, temperature_cool_value, temperature_cool_ok, temperature_cool_product,
+                temperature_frozen_enabled, temperature_frozen_value, temperature_frozen_ok, temperature_frozen_product,
                 date_check_ok, labeling_check_ok, packaging_check_ok,
                 has_deviation, deviation_type, deviation_note,
-                photo_path, notes, status
+                photo_path, notes, extra_fields_json, status
             ) VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')),
+                      ?, ?, ?, ?,
+                      ?, ?, ?, ?,
                       ?, ?, ?,
                       ?, ?, ?,
-                      ?, ?, ?,
-                      ?, ?, ?,
-                      ?, ?, 'approved')
+                      ?, ?, ?, 'approved')
         `).run(
             receiptNumber,
             supplier_name,
@@ -323,9 +361,11 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             // F40: '?? null' (ikke '|| null') så 0°C ikke clampes til null
             temperature_cool_enabled ? (temperature_cool_value ?? null) : null,
             temperature_cool_enabled ? (temperature_cool_ok ? 1 : 0) : null,
+            temperature_cool_enabled ? (cleanText(temperature_cool_product)) : null,
             temperature_frozen_enabled ? 1 : 0,
             temperature_frozen_enabled ? (temperature_frozen_value ?? null) : null,
             temperature_frozen_enabled ? (temperature_frozen_ok ? 1 : 0) : null,
+            temperature_frozen_enabled ? (cleanText(temperature_frozen_product)) : null,
             date_check_ok ? 1 : 0,
             labeling_check_ok ? 1 : 0,
             packaging_check_ok ? 1 : 0,
@@ -334,7 +374,8 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             has_deviation ? (deviation_type || null) : null,
             has_deviation ? (deviation_note || null) : null,
             photo_path || null,
-            notes || null
+            notes || null,
+            extraFieldsJson
         );
         receiptId = grResult.lastInsertRowid;
 

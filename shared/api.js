@@ -1443,6 +1443,16 @@ function fetchGoodsReceipts(params) {
     return apiFetch('/goods-receipts' + qs);
 }
 
+/**
+ * FVST-skemaet, som Whiteboard definerer det.
+ *
+ * Svarer altid med et brugbart skema — `source` fortæller om det er friskt
+ * fra tavlen, fra cachen, eller Bon v2's indbyggede kopi.
+ */
+function fetchGoodsReceiptSchema() {
+    return apiFetch('/goods-receipts/schema');
+}
+
 function fetchGoodsReceiptUsers() {
     return apiFetch('/goods-receipts/users');
 }

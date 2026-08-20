@@ -151,6 +151,7 @@ bon-v2/
 │   ├── smartplanAdapter.js   ← Smartplan OAuth2 adapter (shifts + worklogs + employees)
 │   ├── mailService.js        ← SMTP afsendelse + IMAP polling + tag-routing
 │   ├── goodsReceiptWebhook.js ← Whiteboard webhook for varemodtagelse (fire-and-forget)
+│   ├── receiptSchema.js      ← FVST-skemaet hentet fra Whiteboard (tavle → cache → indbygget)
 │   ├── booking_template.js   ← Render template + variabler + cost-estimat (Spor 1)
 │   ├── delivery_log.js       ← Booking-events + actual cost + sync delivery_method (Spor 1)
 │   ├── routing.js            ← ORS vej-routing (getDistance/getRoute) + geo_calculations-cache (Spor 2)
@@ -4659,6 +4660,96 @@ målt som epoch, rækketal uændret, ingen ISO-rester, anden kørsel ændrer int
 Efter server-start (migrationen kører automatisk) er alle 185 tråde
 kronologisk korrekt sorteret i UI'et.
 
+### Varemodtagelsen henter sit FVST-skema fra tavlen (#495, 20. august 2026)
+
+Driften savnede et felt: *hvilket produkt målte du temperaturen på?* Det viste sig
+aldrig at have været der — men jagten på det afdækkede en større fejl.
+
+**Skemaet fandtes to steder.** Whiteboard ejer FVST-definitionen i
+`registration_types.fields` og kan redigeres i admin. Bon v2 havde en **håndskrevet
+kopi** i `shared/varemodtagelse.js`:
+
+```js
+_vmBuildTempRow('koel', '🧊', 'Kølevarer', 'max. 5°C', 4.5, 0.1, true, 4.7, 5)
+```
+
+De tal ER tavlens skema, skrevet af i hånden. Rettede man en grænseværdi i admin,
+skete der ingenting i bon, og ingen fik det at vide. Fejlklassen er den samme som
+#305/#319 (memory `project_silent_sideeffect_failures`): to systemer var uenige, og
+uenigheden var usynlig. FVST-dokumentation er ikke et sted at have to sandheder.
+
+> Bevis for driften: bons kopi havde `warn=4,7`, tavlens skema `warn_above=4`. De var
+> allerede skredet fra hinanden. Efter koblingen viser standardværdien 4,5 °C nu
+> **OBS** i stedet for **OK** — det er tavlens skema der gælder. Vil kontoret have den
+> gamle tærskel tilbage, rettes `warn_above` i admin; det kræver ikke kode.
+
+**Tavlen er nu eneste kilde.** Bon henter skemaet gennem en maskindør og renderer
+formularen ud fra det.
+
+- **Whiteboard**: `GET /api/registration-types/schema?key=…` (`X-Webhook-Secret`,
+  uden for login-gaten) + `server/helpers/machineAuth.js` — `requireWebhookSecret`
+  udtrukket så webhooken ind og skemaet ud deler **én** adgangskontrol. Migration 026
+  lægger produktfelterne i skemaet **additivt** (020 nulstillede alt og slettede
+  dermed folks admin-ændringer; denne springer over hvis feltet findes, bevarer
+  egne felter og placerer hvert produktfelt lige efter sin temperatur).
+- **nginx**: `location = /api/registration-types/schema` med `auth_request off`.
+  Egen sti frem for at åbne `/api/registration-types` — nginx matcher på sti, ikke
+  metode, så en undtagelse på listen ville også åbne POST/PATCH for internettet.
+- **`services/receiptSchema.js`**: tavle → cache (`settings`) → indbygget kopi.
+  Cachen er **ikke en optimering, men en garanti**: fødevarekontrol er lovpligtig og
+  må aldrig blokeres af at tavlen er nede. `getSchema()` venter aldrig på nettet
+  (stale-while-revalidate); kun en helt kold start kan vente, og højst 8 s.
+- **Migration 151**: `temperature_cool_product`, `temperature_frozen_product` +
+  `extra_fields_json` på `goods_receipts`.
+
+**`extra_fields_json` er det der gør koblingen ægte.** Uden den ville "tavlen ejer
+skemaet" kun gælde halvt: labels og grænser ville slå igennem, men et **helt nyt**
+felt i admin ville kræve kode og en migration i bon. Ukendte felter renderes nu
+generisk, gemmes som JSON og sendes videre til FVST-loggen under tavlens egne
+felt-id'er. Kendte felter havner **aldrig** der — de har egne kolonner, så rapporter
+og tests er upåvirkede. Klientens input filtreres mod skemaet, så et fjernet felt
+holder op med at blive gemt og kolonnen ikke kan fyldes af en klient.
+
+**Produktvalget** fik egne kolonner frem for `extra_fields`, fordi bon kan rendere
+det rigere end tavlen: `<input list>` med varerne på **netop den leverance** som
+forslag, og fri tekst hvis der blev målt på noget andet. Værdien er varenavnet som
+tekst — ikke et Grocy-id — så tavlen kan tage imod uden også at kende Grocy.
+Feltet følger sin temperatur: er toggle slået fra, ryddes og deaktiveres det, og
+serveren gemmer det ikke.
+
+> ⚠️ **Fandt undervejs:** en frost-række der starter slukket (`toggle_default_off`)
+> viste et grønt **OK** for en måling der aldrig blev taget, og talfeltet var
+> skrivbart. `_vmUpdateTempBadge()` beregnede badgen uden at se på om rækken var
+> slået til. Starttilstanden går nu gennem `_vmOnTempEnabled()` — samme kode som et
+> klik på toggle — så badge, talfelt og produktfelt altid følges ad.
+
+**Oversættelsen ét sted:** tavlen skriver `accepted_no_risk`, bon gemmer `no_risk`
+(låst af CHECK-constraint i migration 036). Tabellen bor i `receiptSchema.js`;
+webhooken importerer den, og `/schema` leverer allerede oversatte værdier, så
+frontenden ikke får en tredje kopi.
+
+**Tests:** `test-receipt-schema.js` (38 — degradering: slukket kobling, manglende
+hemmelighed, tavle nede, **login-redirect tolkes ikke som skema**, tomt skema, 401,
+samtidige kald, filtrering) + `test-receipt-schema-e2e.js` (22 — hele kæden over HTTP
+mod ægte endpoints) + whiteboards `api-test.js` (+13). Mutations-testet: fire
+kernerettelser rulles tilbage og fælder hver sin navngivne assert. Regression grøn:
+goods-receipt-webhook 47, consume-hardening 40, packing-units 18, whiteboard 161+10.
+Browser-verificeret ende-til-ende mod en kopi af driftsdata: skema hentet fra tavlen,
+forslag fra leverancen, registrering gemt, `målt på Spidskål` læsbar i
+modtagelsesloggen, og `temp_product` fremme i tavlens FVST-log. Kopien slettet.
+
+**Deploy — rækkefølgen betyder noget:** whiteboard-PR'en (rute + migration 026) skal
+være ude **før** nginx-undtagelsen, og nginx før bon-PR'en. Indtil alle tre er på
+plads svarer `/schema` med `source: 'builtin'`, og varemodtagelsen kører præcis som
+i dag — koblingen er inert, ikke i stykker. `GOODS_RECEIPT_WEBHOOK_SECRET` skal stå
+i **begge** `.env`-filer (den gør den allerede, til webhooken).
+
+**Ikke løst:** tavlen kan stadig ikke lægge varer på lager — dét kræver at den kender
+indkøbslisten, Grocy-enheder og QU-konvertering. Whiteboard #19's valg (tavlens
+formular *viger* for bon når de er koblet) står ved magt. Denne opgave løser den
+anden halvdel: at bon ikke længere har sin egen forældede kopi af FVST-delen.
+
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -5183,6 +5274,7 @@ PATCH  /api/orders/pending/:id/mail/read                   routes/orders.js
 GET    /api/orders/mail-threads?unread_only=               routes/orders.js
 POST   /api/receiving/complete                             routes/receiving.js (legacy)
 GET    /api/receiving/log                                  routes/receiving.js (legacy)
+GET    /api/goods-receipts/schema                          routes/goods-receipts.js (FVST-skema fra Whiteboard)
 GET    /api/goods-receipts/users                           routes/goods-receipts.js
 POST   /api/goods-receipts/photo                           routes/goods-receipts.js
 POST   /api/goods-receipts                                 routes/goods-receipts.js
