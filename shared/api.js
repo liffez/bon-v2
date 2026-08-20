@@ -1103,6 +1103,15 @@ function createLeadFromUnmatchedMail(id, useParsed) {
     });
 }
 
+// Flyt en tråd til den rigtige kunde eller bon. De adresser systemet selv har
+// lært af mailen følger med, så næste mail ikke ruter forkert igen.
+function moveMailThread(id, target) {
+    return apiFetch('/mail/threads/' + id + '/move', {
+        method: 'POST',
+        body: JSON.stringify(target),
+    });
+}
+
 // Fortryd en arkivering — mailen ryger tilbage i den ufordelte indbakke
 function restoreUnmatchedMail(id) {
     return apiFetch('/mail/unmatched/' + id + '/restore', { method: 'POST' });

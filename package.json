@@ -13,6 +13,7 @@
     "seed": "node --experimental-sqlite db/seed.js",
     "setup": "node --experimental-sqlite db/migrate.js && node --experimental-sqlite db/seed.js",
     "dev-admin": "node --experimental-sqlite scripts/dev-admin.js",
+    "test:help": "node scripts/test-help-visibility.js",
     "test:check": "node --env-file=.env.test tests/scripts/safety_check.js --skip-db-check",
     "test:migrate": "node --env-file=.env.test --experimental-sqlite db/migrate.js --require-test-env",
     "test:fixture": "node --env-file=.env.test --experimental-sqlite tests/scripts/apply_fixture.js tests/fixtures/seed_planning.sql",
@@ -62,6 +63,7 @@
     "test:inbox": "node --env-file=.env.test --experimental-sqlite tests/inbox_handling.test.js",
     "test:inbox-link": "node --experimental-sqlite scripts/test-inbox-link-visibility.js",
     "test:inbox-learn": "node --experimental-sqlite scripts/test-inbox-learn-sender.js",
+    "test:mail-tid": "node --experimental-sqlite scripts/test-mail-timestamp-format.js",
     "test:mail-signature": "node --env-file=.env.test --experimental-sqlite tests/mail_signature.test.js",
     "test:economic": "node --experimental-sqlite scripts/test-economic-invoice.js && node scripts/test-fakturering-render.js && node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js",
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js"

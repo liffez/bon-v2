@@ -1,5 +1,5 @@
 -- =============================================
--- Migration 150: varemodtagelsens skema kommer fra tavlen
+-- Migration 151: varemodtagelsens skema kommer fra tavlen
 --
 -- ── Hvorfor ──
 -- FVST-skemaet fandtes to steder. Whiteboard ejer definitionen i

@@ -4551,7 +4551,116 @@ assert. Verificeret ende-til-ende mod en kopi af driftsdata, hele kæden i ét f
 kobl Mortens første mail manuelt → adressen læres (#478) → hans anden mail får
 automatisk et forslag (#482). Kopien slettet.
 
-### Varemodtagelsen henter sit FVST-skema fra tavlen (19. august 2026)
+### Retteventilen: en mailtråd kan flyttes til den rigtige kunde (#481, 19. august 2026)
+
+Kortlægningen til #481 fandt otte mailklient-forventninger indbakken ikke holdt.
+Syv af dem har en omvej. Den ottende var en ægte blindgyde: **en tråd der sad på
+den forkerte kunde kunne ikke flyttes.** `PATCH /threads/:id` tager status,
+udsættelse og tildeling — ikke ejerskab. Opdagede man fejlen, var der intet at
+gøre ved den.
+
+- **`POST /api/mail/threads/:id/move`** med `{customer_id}` eller `{bon_id}`.
+  `requireAuth()`, ikke admin: den der opdager fejlen skal kunne rette den med
+  det samme. Leverandør- og indkøbsordre-tråde afvises — de har deres egen
+  tilknytning og hører ikke til en kunde.
+- **Flyt til en bon arver bonens kunde**, så tråden også ses på kundekortet.
+  Flyt til en kunde rydder `bon_id` — en kundetråd hænger ikke fast i den
+  gamle bon.
+
+**Den lærte adresse følger med — ellers retter flytningen ingenting.**
+#478 skrev afsenderens adresse på kunden da tråden blev koblet. Blev den
+koblet forkert, står gættet på den forkerte kunde, og næste mail fra samme
+person ville lande samme forkerte sted igen — nu *helt uden* at nogen rørte
+den. En retteventil der lader fejlkilden stå, cementerer fejlen i stedet for
+at rette den.
+
+- Kun kontaktpunkter med `source = 'mail'` flyttes. Manuelt indtastede, fra CVR
+  eller fra en formular står et menneske eller en ekstern kilde inde for, og de
+  er ikke vores at flytte rundt på. Verificeret mod driftsdata: Lærkes egen
+  `manual`-adresse er urørt gennem flytninger i begge retninger.
+- Den gamle adresse **deaktiveres**, slettes ikke — sporet skal kunne ses, og
+  #478 genopliver ikke en deaktiveret adresse af sig selv.
+- `learnSenderEmail` fik derfor `{ reactivate }` (default `false` = uændret):
+  ved en flytning HAR nogen sagt at adressen hører til her, så en tidligere
+  deaktiveret række genaktiveres i stedet for at blive sprunget over.
+- Interne adresser springes over, som alle andre steder.
+- Kvitteringen siger det højt: *"Flyttet til Lærke Haumann Andersen · 1 lært
+  adresse fulgte med, så næste mail lander samme sted"* — adresse-delen er den
+  man ikke kan se på skærmen.
+
+**UI**: `⇄ Flyt` i trådens handlingsrække åbner et panel der søger kunde på navn
+eller bon på nummer. Tråden **genindlæses** efter flytningen i stedet for at
+blive lukket væk, så man kan se at den nu sidder rigtigt.
+
+`changelog` får en `entity_type='mail_thread'` / `action='thread_moved'`-linje
+pr. flytning — første skridt af #480.
+
+> ⚠️ **En assert der kaster er et dårligere signal end en der fejler.**
+> `findCustomerByEmail(...).id === x` kastede `TypeError` da mutationstesten
+> fjernede rettelsen, i stedet for at fælde sin navngivne assert — så mutationen
+> så ud til at slippe igennem. Optional chaining i alle opslag der kan give null.
+
+**Tests:** `npm run test:inbox-learn` udvidet 34 → **53 asserts**.
+Mutations-testet: fjernes adresse-flytningen, falder 2 navngivne asserts;
+fjernes oprydningen på den gamle kunde, falder 4; fjernes `source='mail'`-
+filteret, fældes fredningen af manuelle adresser. Regression grøn
+(inbox_handling 29, inbox-link 21, mail-send-truth 13, mail_signature 24).
+Verificeret mod en kopi af driftsdata: mail koblet til forkert kunde →
+adressen lært dér → flytning → adressen væk fra den forkerte og på den
+rigtige, begge kunders egne `manual`-adresser urørte. Kopien slettet.
+
+**Stadig åbent i #481:** de øvrige syv forventninger afventer samtalen med Anne
+(markér som ulæst igen, videresend, vedhæft i tråd-svar, ret emne, sorteringen
+i #488). Talgrundlaget ligger som kommentar på issuet.
+
+### Ét tidsstempel-format i mail-tabellerne (#488, 19. august 2026)
+
+Trådlisten sorterede forkert **inden for samme dag**: to tråde fra kl. 17:25 og
+17:16 stod under en fra 15:49. Ikke tabt data — men "nyeste øverst" var ikke
+sandt, og en liste hvis rækkefølge ikke kan stoles på undergraver hele
+indbakken (fundet under kortlægningen til #481).
+
+**Årsagen var to skrivemåder for samme ting.** Indgående tidsstempler blev
+skrevet med `toISOString()` (`2026-08-10T15:49:24.000Z`), udgående med
+`datetime('now')` (`2026-08-10 15:53:19`). Begge er UTC — men de sammenlignes
+som **tekst**, og `'T'` (0x54) sorterer efter `' '` (0x20). Derfor lagde enhver
+tråd med indgående som seneste aktivitet sig over enhver tråd med udgående fra
+samme dag. Datodelen er ens-formateret, så det holdt på tværs af dage; kun
+inden for en dag skred det — hvilket typisk er dér man kigger.
+
+- **`sqlTime(date)`** i [db/helpers.js](db/helpers.js) giver
+  `YYYY-MM-DD HH:MM:SS` i UTC — samme skala og form som `datetime('now')`.
+  Her er UTC **rigtigt**, modsat `todayISO()` lige ovenfor, fordi databasens
+  tidsstempler ER UTC; derfor `// utc-ok`-markeringen. Ugyldig dato → `null`
+  frem for strengen `"Invalid Date"`.
+- **Migration 150** normaliserer de eksisterende rækker (`mail_messages.received_at`,
+  `mail_unmatched.received_at` + `handled_at`, `mail_threads.last_inbound_at`).
+  Idempotent — `WHERE ... LIKE '%T%'` rammer kun det der mangler.
+- **Skrivestierne** i `mailService.processInboundMail` og `markThreadInbound`
+  bruger nu `sqlTime()`. Alle øvrige skrivesteder brugte i forvejen
+  `CURRENT_TIMESTAMP`/`datetime('now')` eller kopierede en allerede normaliseret
+  værdi.
+
+> **At begge sider var UTC er efterprøvet, ikke antaget.** Afstanden mellem en
+> mails `received_at` (ISO) og dens `created_at` (mellemrum) på samme række er
+> 0–7 minutter i drift — nøjagtigt IMAP-pollingens interval. Var den ene lokal
+> tid, ville forskellen have været ±1–2 timer. Derfor er konverteringen ren
+> formatering, og migrationen kan køre uden risiko for at flytte tider.
+
+**Tests:** `npm run test:mail-tid` — 20 asserts mod en temp-DB bygget af de
+rigtige migrations. Den viser fejlen begge veje: med det normaliserede format
+ligger nyeste øverst, og sættes ISO-formatet tilbage vender rækkefølgen om.
+**Mutations-testet** — fire mutationer, alle fanget. To huller blev fundet og
+lukket undervejs: testen rørte hverken den ægte skrivesti
+(`processInboundMail`) eller `mail_threads`/`handled_at`-grenene med data i,
+så begge kunne fjernes uden at noget fejlede.
+
+Verificeret mod en kopi af driftsdata: alle 181 + 1.465 tidspunkter uændrede
+målt som epoch, rækketal uændret, ingen ISO-rester, anden kørsel ændrer intet.
+Efter server-start (migrationen kører automatisk) er alle 185 tråde
+kronologisk korrekt sorteret i UI'et.
+
+### Varemodtagelsen henter sit FVST-skema fra tavlen (#495, 20. august 2026)
 
 Driften savnede et felt: *hvilket produkt målte du temperaturen på?* Det viste sig
 aldrig at have været der — men jagten på det afdækkede en større fejl.
@@ -4590,7 +4699,7 @@ formularen ud fra det.
   Cachen er **ikke en optimering, men en garanti**: fødevarekontrol er lovpligtig og
   må aldrig blokeres af at tavlen er nede. `getSchema()` venter aldrig på nettet
   (stale-while-revalidate); kun en helt kold start kan vente, og højst 8 s.
-- **Migration 150**: `temperature_cool_product`, `temperature_frozen_product` +
+- **Migration 151**: `temperature_cool_product`, `temperature_frozen_product` +
   `extra_fields_json` på `goods_receipts`.
 
 **`extra_fields_json` er det der gør koblingen ægte.** Uden den ville "tavlen ejer
@@ -4639,6 +4748,7 @@ i **begge** `.env`-filer (den gør den allerede, til webhooken).
 indkøbslisten, Grocy-enheder og QU-konvertering. Whiteboard #19's valg (tavlens
 formular *viger* for bon når de er koblet) står ved magt. Denne opgave løser den
 anden halvdel: at bon ikke længere har sin egen forældede kopi af FVST-delen.
+
 
 ## Næste opgave
 
@@ -5090,6 +5200,7 @@ GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 GET    /api/mail/inbox?status=open|archived|all&q=       routes/mail.js (samlet indbakke + arkiv-søgning + suggested_customer)
 POST   /api/mail/unmatched/:id/restore                   routes/mail.js (fortryd arkivering)
+POST   /api/mail/threads/:id/move  {customer_id|bon_id}  routes/mail.js (flyt fejlkoblet tråd + lærte adresser)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js
 GET    /api/settings/internal-senders                    routes/settings.js (admin — interne mail-afsendere + ramte kunder)

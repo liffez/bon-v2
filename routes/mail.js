@@ -7,7 +7,7 @@ const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../service
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
 const { isInternalEmail } = require('../services/internalIdentity');
-const { logChange } = require('../db/helpers');
+const { logChange, sqlTime } = require('../db/helpers');
 const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
 
 // Er den videresendte afsender vores egen adresse?
@@ -78,7 +78,7 @@ function markThreadInbound(db, threadId, receivedAt, { markRead = false } = {}) 
     if (!t) return;
     if (t.purchase_order_id || t.supplier_id) return;
 
-    const at = receivedAt || new Date().toISOString();
+    const at = receivedAt || sqlTime();
     if (markRead) {
         db.prepare(`
             UPDATE mail_threads
@@ -557,6 +557,39 @@ router.patch('/threads/:id', requireAuth(), handle((req, res) => {
     const updated = db.prepare(`SELECT mt.*, ${SNOOZED_SQL} AS snoozed FROM mail_threads mt WHERE mt.id = ?`).get(id);
     broadcast('mail_thread_updated', { thread_id: id, handling_status: updated.handling_status, has_unread: !!updated.has_unread });
     res.json({ ok: true, thread: formatThreadRow(db, updated) });
+}));
+
+// POST /api/mail/threads/:id/move   { customer_id } | { bon_id }
+//
+// Retteventilen. requireAuth() og ikke admin: den der opdager at en mail sidder
+// forkert, skal kunne rette det med det samme — ikke vente på nogen.
+router.post('/threads/:id/move', requireAuth(), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    const db = getDb();
+    const t = db.prepare('SELECT * FROM mail_threads WHERE id = ?').get(id);
+    if (!t || t.handling_status == null) return res.status(404).json({ error: 'Tråd ikke fundet' });
+
+    // Leverandør- og indkøbsordre-tråde har deres egen tilknytning og hører
+    // ikke til en kunde. De flyttes ikke herfra.
+    if (t.purchase_order_id || t.supplier_id) {
+        return res.status(400).json({ error: 'Leverandør- og ordretråde kan ikke flyttes til en kunde' });
+    }
+
+    const { customer_id, bon_id } = req.body || {};
+    // moveThreadOwner validerer FØR den skriver, så en afvisning efterlader
+    // transaktionen tom — der er intet at rulle tilbage.
+    let result;
+    transaction(db, () => {
+        result = moveThreadOwner(db, t, {
+            customerId: customer_id != null ? parseInt(customer_id) : null,
+            bonId:      bon_id      != null ? parseInt(bon_id)      : null,
+        }, getUserId(req));
+    });
+    if (result.error) return res.status(400).json({ error: result.error });
+
+    broadcast('mail_thread_updated', { thread_id: id, handling_status: t.handling_status, has_unread: !!t.has_unread });
+    const updated = db.prepare(`SELECT mt.*, ${SNOOZED_SQL} AS snoozed FROM mail_threads mt WHERE mt.id = ?`).get(id);
+    res.json({ ...result, thread: formatThreadRow(db, updated) });
 }));
 
 // POST /api/mail/threads/:id/create-bon — prefill til bon-draweren (+ valgfri knytning)
@@ -1084,7 +1117,7 @@ function insertMessageFromUnmatched(db, um, threadId, { isRead = 0 } = {}) {
 //
 // Returnerer { learned, reason } — kalderen kan sige det videre, men skal aldrig
 // vælte koblingen af den grund. At lære adressen er en gevinst, ikke en betingelse.
-function learnSenderEmail(db, customerId, rawEmail, userId, sourceLabel) {
+function learnSenderEmail(db, customerId, rawEmail, userId, sourceLabel, { reactivate = false } = {}) {
     if (!customerId || !rawEmail) return { learned: false, reason: 'ingen_data' };
 
     const v = validateContactValue('email', rawEmail);
@@ -1099,6 +1132,20 @@ function learnSenderEmail(db, customerId, rawEmail, userId, sourceLabel) {
             AND LOWER(value) = ? LIMIT 1`
     ).get(customerId, email);
     if (existing) {
+        // En deaktiveret adresse er bevidst fjernet og genoplives ikke af sig selv.
+        // Undtagelsen er en flytning: dér HAR nogen sagt at adressen hører til her.
+        if (!existing.is_active && reactivate) {
+            db.prepare(
+                `UPDATE contact_points SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+            ).run(existing.id);
+            logChange({
+                entityType: 'customer', entityId: customerId,
+                action: 'contact_point_update', fieldName: 'email',
+                newValue: email, userId,
+                notes: `genaktiveret ved ${sourceLabel || 'flytning'}`,
+            });
+            return { learned: true, reactivated: true, email, primary: false };
+        }
         return { learned: false, reason: existing.is_active ? 'findes' : 'deaktiveret' };
     }
 
@@ -1194,6 +1241,117 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
     }
 
     return Number(threadId);
+}
+
+// ── Flyt en tråd til den rigtige kunde eller bon (#481) ──────────────
+//
+// Den eneste ægte blindgyde i indbakken: en tråd der er havnet forkert kunne
+// ikke flyttes. `PATCH /threads/:id` tager status, udsættelse og tildeling —
+// ikke ejerskab. Opdagede man fejlen, var der intet at gøre ved den.
+//
+// Flytningen tager de LÆRTE adresser med. Uden det led ville rettelsen kun
+// virke én gang: #478 skrev afsenderens adresse på den forkerte kunde da
+// tråden blev koblet, og næste mail fra samme person ville lande samme forkerte
+// sted igen — nu helt uden at nogen rørte ved den. En retteventil der lader
+// fejlkilden stå, cementerer fejlen i stedet for at rette den.
+//
+// Kun kontaktpunkter med `source = 'mail'` flyttes. Alt andet (manuelt
+// indtastet, fra CVR, fra en formular) har et menneske eller en ekstern kilde
+// stået inde for, og det er ikke vores at flytte rundt på.
+function moveThreadOwner(db, thread, target, userId) {
+    const before = { customer_id: thread.customer_id, bon_id: thread.bon_id };
+    let customerId = null, bonId = null, label = '';
+
+    if (target.bonId != null) {
+        const bon = db.prepare(
+            `SELECT b.id, b.bon_number, b.customer_id FROM bons b WHERE b.id = ?`
+        ).get(target.bonId);
+        if (!bon) return { error: 'Bon ikke fundet' };
+        bonId = bon.id;
+        // Bonen kender sin kunde — så tråden også dukker op på kundekortet.
+        customerId = bon.customer_id || null;
+        label = 'bon ' + bon.bon_number;
+    } else if (target.customerId != null) {
+        const c = db.prepare(
+            `SELECT id, first_name, last_name FROM customers WHERE id = ? AND is_active = 1`
+        ).get(target.customerId);
+        if (!c) return { error: 'Kunde ikke fundet' };
+        customerId = c.id;
+        bonId = null;   // en kundetråd hænger ikke fast i den gamle bon
+        label = [c.first_name, c.last_name].filter(Boolean).join(' ').trim() || ('kunde ' + c.id);
+    } else {
+        return { error: 'Angiv customer_id eller bon_id' };
+    }
+
+    if (before.customer_id === customerId && before.bon_id === bonId) {
+        return { error: 'Tråden ligger allerede dér' };
+    }
+
+    db.prepare(
+        `UPDATE mail_threads SET customer_id = ?, bon_id = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(customerId, bonId, thread.id);
+
+    // ── Tag de lærte adresser med ──
+    // Den gamle ejer er kunden på tråden; var det en bon-tråd, er det bonens kunde.
+    const fromCustomerId = before.customer_id
+        || (before.bon_id
+            ? db.prepare('SELECT customer_id FROM bons WHERE id = ?').get(before.bon_id)?.customer_id
+            : null);
+
+    const senders = db.prepare(
+        `SELECT DISTINCT LOWER(from_email) AS email FROM mail_messages
+          WHERE thread_id = ? AND direction = 'in' AND from_email IS NOT NULL AND from_email != ''`
+    ).all(thread.id).map(r => r.email);
+
+    const moved = [];
+    for (const email of senders) {
+        if (isInternalEmail(db, email)) continue;
+
+        // Fjern gættet fra den gamle kunde — deaktivér, slet ikke: sporet skal
+        // kunne ses, og #478 genopliver ikke en deaktiveret adresse af sig selv.
+        let removed = false;
+        if (fromCustomerId && fromCustomerId !== customerId) {
+            const cp = db.prepare(
+                `SELECT id FROM contact_points
+                  WHERE entity_type = 'customer' AND entity_id = ? AND kind = 'email'
+                    AND LOWER(value) = ? AND source = 'mail' AND is_active = 1 LIMIT 1`
+            ).get(fromCustomerId, email);
+            if (cp) {
+                db.prepare(
+                    `UPDATE contact_points SET is_active = 0, is_primary = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+                ).run(cp.id);
+                syncPrimaryCache(db, 'customer', fromCustomerId, 'email');
+                logChange({
+                    entityType: 'customer', entityId: fromCustomerId,
+                    action: 'contact_point_update', fieldName: 'email',
+                    oldValue: email, userId,
+                    notes: `fjernet — mailtråden blev flyttet til ${label}`,
+                });
+                removed = true;
+            }
+        }
+
+        const learned = customerId
+            ? learnSenderEmail(db, customerId, email, userId, 'flytning af mailtråd', { reactivate: true })
+            : { learned: false, reason: 'ingen_kunde' };
+
+        if (removed || learned.learned) {
+            moved.push({ email, removed_from: removed ? fromCustomerId : null, added: !!learned.learned });
+        }
+    }
+
+    logChange({
+        entityType: 'mail_thread', entityId: thread.id,
+        action: 'thread_moved', fieldName: 'owner',
+        oldValue: before.bon_id ? ('bon:' + before.bon_id) : (before.customer_id ? ('kunde:' + before.customer_id) : null),
+        newValue: bonId ? ('bon:' + bonId) : ('kunde:' + customerId),
+        userId,
+        notes: moved.length
+            ? `${moved.length} lært adresse${moved.length === 1 ? '' : 'r'} fulgte med`
+            : null,
+    });
+
+    return { ok: true, customer_id: customerId, bon_id: bonId, label, moved_addresses: moved };
 }
 
 // Hvilken afsender skal en ufordelt mail behandles som?
