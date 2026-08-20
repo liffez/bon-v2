@@ -273,6 +273,89 @@ router.post('/planning/ingredients', handle(async (req, res) => {
     res.json(result);
 }));
 
+// GET /api/bons/prep-ahead?days=N
+// "Lav snart" — de mellemprodukter personalet selv skal lave i forvejen.
+//
+// Bon laver ALDRIG et RR Produktion-produkt (gris, sylt). Den kan kun sige at
+// der skal laves noget, og hvor meget. `RR produktion Hurtig` udelades med
+// vilje: dem laver Bon selv ved levering (#267), og de ville kun fylde listen
+// med arbejde ingen skal udføre.
+//
+// Vinduet tælles i KALENDERDAGE fra og med i dag — `days=3` er i dag, i morgen
+// og i overmorgen.
+router.get('/prep-ahead', handle(async (req, res) => {
+    const db = getDb();
+    const raw = parseInt(req.query.days);
+    const setting = db.prepare(`SELECT value FROM settings WHERE key = 'prep_ahead_days'`).get();
+    const days = Math.max(1, Math.min(14, raw || parseInt(setting?.value) || 3));
+
+    const from = todayISO();
+    const to   = offsetISO(days - 1);
+
+    // Samme afgrænsning som produktionsplanen: kun bons der reelt skal laves.
+    // Aflyste og ikke-vundne tilbud tæller ikke — ellers planlægger køkkenet
+    // efter mad der aldrig bliver til noget.
+    const bons = db.prepare(`
+        SELECT b.id, b.bon_number, b.delivery_date
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE b.delivery_date >= ? AND b.delivery_date <= ?
+          AND COALESCE(b.is_offer, 0) = 0
+          AND sd.code IN ('NY','VENTER','GODKENDT','IGANG','KLAR')
+        ORDER BY b.delivery_date ASC
+    `).all(from, to);
+
+    const lines = [];
+    for (const b of bons) {
+        for (const l of getBonLines(b.id)) {
+            if (l.grocy_recipe_id) lines.push(l);
+        }
+    }
+
+    if (!lines.length) {
+        return res.json({ from, to, days, bon_count: bons.length, items: [] });
+    }
+
+    const { resolveIngredients } = require('../services/ingredientResolver');
+    const { raw: rawLevel } = await resolveIngredients(lines);
+
+    const isSlowProduction = (grp) => {
+        const g = String(grp || '').toLowerCase();
+        return /rr\s*produktion/.test(g) && !/hurtig/.test(g);
+    };
+
+    const items = rawLevel.ingredients
+        .filter(i => i.producible
+                  && i.effective_status !== 'ok'
+                  && isSlowProduction(i.make_recipe_group))
+        .map(i => ({
+            product_id:   i.product_id,
+            product_name: i.product_name,
+            // Behov og lager i VISNINGS-enhed — det er de tal køkkenet læser.
+            needed:       i.amount_needed,
+            stock:        i.amount_stock,
+            unit:         i.unit,
+            stock_unit:   i.stock_unit,
+            batches:      i.make_batches,
+            recipe_id:    i.make_recipe_id,
+            recipe_name:  i.make_recipe_name,
+            estimated:    i.make_estimated,
+            // 'ukendt' = opskriftens udbytte mangler i Grocy, så batch-tallet
+            // og mangellisten er ikke til at regne med. Siges i stedet højt.
+            make_status:  i.make_status,
+            // 'kan_laves' = råvarerne er der, gå i gang.
+            // 'lav'/'mangler' = råvarerne mangler også → indkøb, ikke produktion.
+            status:       i.effective_status,
+            missing:      (i.make_shortfalls || []).map(s => s.product_name),
+        }))
+        // Det der ikke kan laves øverst — dét er den besked der haster mest,
+        // for den kræver indkøb og ikke bare tid ved bordet.
+        .sort((a, b) => (a.status === 'kan_laves' ? 1 : 0) - (b.status === 'kan_laves' ? 1 : 0)
+                     || a.product_name.localeCompare(b.product_name, 'da'));
+
+    res.json({ from, to, days, bon_count: bons.length, items });
+}));
+
 // GET /api/bons/calendar — kalender-view (bons grupperet per dato med totaler)
 router.get('/calendar', handle((req, res) => {
     const db    = getDb();

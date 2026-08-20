@@ -76,10 +76,40 @@ function computeRecipe(recipeId, ctx, memo, stack) {
         if (!product) { missing_factor.add(`#${p.product_id}`); continue; }
         if (isExcluded(product)) continue;   // §1 'na' — udelades helt, ikke en mangel
 
+        // ── Produceret mellemprodukt: rul ned i opskriften bag det (§7.3) ──
+        //
+        // Når en blanding bliver et rigtigt produkt (#268), holder menuen op med
+        // at neste den og peger i stedet på produktet. Uden det her ville
+        // remouladens CO₂ forsvinde tavst i samme øjeblik — det nye produkt har
+        // ingen `co2e_per_kg`, og et manglende bidrag ser ud som nul.
+        //
+        // En egen faktor på produktet vinder altid: den er sat af et menneske,
+        // og at lægge den oveni opskriften ville dobbelt-tælle.
+        const ownFactor = readFactor(product);
+        const producer = (ownFactor == null && ctx.producedBy)
+            ? ctx.producedBy.get(String(product.id)) : null;
+        if (producer) {
+            const perBatch = producedYieldStock(producer, product, ctx);
+            if (perBatch > 0) {
+                const sub = computeRecipe(producer.id, ctx, memo, stack);
+                // Brøkdele er rigtige her: spørgsmålet er hvor meget CO₂ der
+                // ligger bag mængden, ikke hvor mange hele batches nogen rører.
+                const scale = amount / perBatch;
+                total       += sub.total * scale;
+                covered_kg  += sub.covered_kg * scale;
+                missing_kg  += sub.missing_kg * scale;
+                sub.missing_factor.forEach(x => missing_factor.add(x));
+                sub.missing_kgvej.forEach(x => missing_kgvej.add(x));
+                continue;
+            }
+            // Uden erklæret udbytte kan bidraget ikke skaleres. Så er varen en
+            // ægte mangel — ikke et gæt.
+        }
+
         const kg = stockToKg(product, amount, ctx.conversions, ctx.kiloId);
         if (kg == null) { missing_kgvej.add(product.name); continue; }
 
-        const factor = readFactor(product);
+        const factor = ownFactor;
         if (factor == null) { missing_factor.add(product.name); missing_kg += kg; continue; }
 
         total += kg * factor;
@@ -104,6 +134,36 @@ function computeRecipe(recipeId, ctx, memo, stack) {
 }
 
 /** Nøjagtighed pr. masse: dækket kg / kendt kg. null hvis ingen kendt masse. */
+/**
+ * Udbytte for en producerende opskrift, i produktets lager-enhed.
+ * null/0 = kan ikke bestemmes → intet rulles ned.
+ *
+ * Samme fortolkning som `ingredientResolver`: `recipeunitnumber` er udbytte PR
+ * PORTION, og `recipes_pos.amount` hører til opskriften som indtastet, altså
+ * til `base_servings` portioner.
+ */
+function producedYieldStock(recipeRaw, product, ctx) {
+    const uf = recipeRaw.userfields || {};
+    const perServing = parseFloat(uf.recipeunitnumber);
+    if (!Number.isFinite(perServing) || perServing <= 0) return null;
+    const base = parseFloat(recipeRaw.base_servings);
+    const total = perServing * (Number.isFinite(base) && base > 0 ? base : 1);
+
+    const want = String(uf.recipeunit || '').trim().toLowerCase();
+    const unit = (ctx.units || []).find(u => String(u.name || '').trim().toLowerCase() === want
+        || UNIT_ALIAS[want] === String(u.name || '').trim().toLowerCase());
+    if (!unit) return null;
+    if (Number(unit.id) === Number(product.qu_id_stock)) return total;
+
+    const conv = (ctx.conversions || []).find(c =>
+        String(c.product_id) === String(product.id)
+        && Number(c.from_qu_id) === Number(unit.id)
+        && Number(c.to_qu_id) === Number(product.qu_id_stock));
+    return conv ? total * parseFloat(conv.factor) : null;
+}
+
+const UNIT_ALIAS = { kg: 'kilo', g: 'gram', l: 'liter', stk: 'antal', 'stk.': 'antal', styk: 'antal' };
+
 function accuracyPct(res) {
     const known = res.covered_kg + res.missing_kg;
     if (known > 0) return Math.round((res.covered_kg / known) * 100);
@@ -130,7 +190,18 @@ function computeAll(data) {
     const productById = new Map((data.products || []).map(p => [String(p.id), p]));
     const baseServings = new Map((data.recipes || []).map(r => [r.id, parseFloat(r.base_servings) || 1]));
 
-    const ctx = { posByRecipe, nestByRecipe, productById, conversions: data.conversions || [], kiloId, baseServings };
+    // product_id → producerende opskrift. Deterministisk ved flere producenter
+    // (Falaffel har tre), så to kørsler ikke kan give hver sit CO₂-tal.
+    const producedBy = new Map();
+    for (const r of (data.recipes || [])) {
+        const pid = Number(r.product_id);
+        if (!pid) continue;
+        const cur = producedBy.get(String(pid));
+        if (!cur || Number(r.id) < Number(cur.id)) producedBy.set(String(pid), r);
+    }
+
+    const ctx = { posByRecipe, nestByRecipe, productById, conversions: data.conversions || [], kiloId, baseServings,
+                  producedBy, units: data.units || [] };
     const memo = new Map();
 
     const out = new Map();

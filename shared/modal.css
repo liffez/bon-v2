@@ -572,6 +572,32 @@
     color: #2e7d32;
 }
 
+/* ── "Kan laves": råvarerne er der, men varen findes ikke endnu (#266) ──
+   Blå, ikke grøn. Den stiplede venstrekant siger "der mangler et skridt" —
+   en fyldt kant ville læse som en almindelig statusstribe. */
+.ing-status-kan-laves .ing-stock {
+    color: #1565c0;
+    font-weight: 600;
+}
+.ing-row.ing-status-kan-laves {
+    border-left: 3px dashed #1565c0;
+    padding-left: 5px;
+}
+.ing-sub-recipe.ing-status-kan-laves { box-shadow: inset 3px 0 0 #1565c0; }
+.ing-make-note {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #1565c0;
+    white-space: nowrap;
+}
+.ing-sub-detail-note {
+    padding: 4px 8px 4px 26px;
+    font-size: 11px;
+    color: var(--color-text-dim, #8a8580);
+    font-style: italic;
+}
+
 /* Action-kolonne */
 .ing-action {
     display: flex;
