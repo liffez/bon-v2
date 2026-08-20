@@ -69,6 +69,48 @@ const csv = (v) => { const s = String(v ?? '').replace(/[\r\n]+/g, ' ').trim(); 
         GROUP BY domaene
         ORDER BY bons DESC, kontakter DESC
     `).all(FIRMA);
+    // Adressefordelingen afslører om et domæne dækker ÉT sted eller mange. SUND er
+    // et fakultet: @sund.ku.dk deles af 13 institutter på hver sin adresse, mens
+    // bio.ku.dk har flere bygninger men én dominerende. Uden det tjek ville
+    // værktøjet foreslå at samle 13 institutter under ét kundenummer.
+    const veje = db.prepare(`
+        SELECT lower(TRIM(replace(replace(substr(c.email, instr(c.email,'@')+1), char(10), ''), char(13), ''))) AS domaene,
+               lower(TRIM(COALESCE(a.street_name,''))) AS vej, COUNT(b.id) AS bons
+        FROM customers c
+        JOIN bons b ON b.customer_id = c.id AND b.company_id = c.company_id
+        LEFT JOIN addresses a ON a.id = b.delivery_address_id
+        WHERE c.company_id = ? AND COALESCE(TRIM(c.email),'') <> ''
+        GROUP BY domaene, vej
+    `).all(FIRMA);
+    const vejePr = new Map();
+    for (const v of veje) {
+        if (!v.vej) continue;
+        const l = vejePr.get(v.domaene) || [];
+        l.push(v); vejePr.set(v.domaene, l);
+    }
+    /** Andelen af bons på den hyppigste vej. Lav andel ⇒ domænet dækker flere steder. */
+    const spredning = (domaene) => {
+        const l = vejePr.get(domaene) || [];
+        const i = l.reduce((n, v) => n + v.bons, 0);
+        if (!i) return { andel: 1, top: null, veje: l };
+        const top = l.slice().sort((a, b) => b.bons - a.bons)[0];
+        return { andel: top.bons / i, top, veje: l.sort((a, b) => b.bons - a.bons) };
+    };
+
+    // Kontakterne, så et spredt domæne kan deles pr. person i stedet for pr. domæne
+    const kontakterPr = db.prepare(`
+        SELECT lower(TRIM(c.email)) AS email, c.first_name || ' ' || COALESCE(c.last_name,'') AS navn,
+               (SELECT lower(TRIM(COALESCE(a.street_name,'')))
+                  FROM bons b2 LEFT JOIN addresses a ON a.id = b2.delivery_address_id
+                 WHERE b2.customer_id = c.id AND b2.company_id = c.company_id
+                   AND COALESCE(a.street_name,'') <> ''
+                 GROUP BY a.street_name ORDER BY COUNT(*) DESC LIMIT 1) AS vej,
+               lower(TRIM(replace(replace(substr(c.email, instr(c.email,'@')+1), char(10), ''), char(13), ''))) AS domaene,
+               (SELECT COUNT(*) FROM bons b WHERE b.customer_id = c.id AND b.company_id = c.company_id) AS bons
+        FROM customers c WHERE c.company_id = ? AND COALESCE(TRIM(c.email),'') <> ''
+        ORDER BY bons DESC
+    `).all(FIRMA);
+
     const udenMail = db.prepare(`SELECT COUNT(*) n FROM customers WHERE company_id = ? AND COALESCE(TRIM(email),'') = ''`).get(FIRMA).n;
     db.close();
 
@@ -119,21 +161,40 @@ const csv = (v) => { const s = String(v ?? '').replace(/[\r\n]+/g, ' ').trim(); 
         }).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 4);
     }
 
-    const ud = [['domaene', 'kontakter', 'bons', 'kr', 'seneste', 'forslag_nr', 'forslag_navn', 'forslag_ean', 'score', 'godkendt_nr'].join(';')];
+    const ud = [['domaene', 'kontakter', 'bons', 'kr', 'seneste', 'adresse', 'forslag_nr', 'forslag_navn', 'forslag_ean', 'score', 'godkendt_nr'].join(';')];
     console.log(`\nFirma ${firma.id} "${firma.name}"  ·  CVR ${firma.cvr || '—'}  ·  EAN ${firma.ean || '—'}  ·  e-conomic ${firma.economic_customer_id || '—'}`);
     console.log(`${rækker.length} e-mail-domæner${udenMail ? ` · ${udenMail} kontakter uden e-mail (kan ikke placeres)` : ''}\n`);
 
     for (const r of rækker) {
         const k = kandidater(r.domaene);
         const privat = /^(gmail|hotmail|outlook|live|yahoo|icloud)\./.test(r.domaene + '.');
+        const sp = spredning(r.domaene);
+        // Ingen dominerende adresse + flere personer ⇒ domænet er formentlig et
+        // fakultet, ikke ét institut. Så må det deles pr. person, ikke pr. domæne.
+        const spredt = !privat && r.kontakter > 1 && sp.top && sp.andel < 0.5;
         console.log(`  ${r.domaene.padEnd(16)} ${String(r.kontakter).padStart(3)} kontakter · ${String(r.bons).padStart(3)} bons · ${String(r.kr).padStart(8)} kr · sidst ${r.seneste || '—'}`);
+        if (spredt) {
+            console.log(`      ⚠ leverancerne er spredt over ${sp.veje.length} adresser (hyppigste kun ${Math.round(sp.andel * 100)} %)`);
+            console.log('        — domænet dækker formentlig flere institutter. Deles pr. person nedenfor:');
+            for (const kt of kontakterPr.filter(x => x.domaene === r.domaene)) {
+                console.log(`        ${kt.email.padEnd(24)} ${String(kt.bons).padStart(2)} bons  `
+                    + `${String(kt.navn).slice(0, 22).padEnd(24)}${kt.vej ? 'leverer til ' + kt.vej : 'ingen adresse'}`);
+            }
+            console.log('        Adressen er sporet: den peger på instituttet, hvor domænet kun peger på fakultetet.');
+            console.log('');
+            for (const kt of kontakterPr.filter(x => x.domaene === r.domaene)) {
+                ud.push([kt.email, 1, kt.bons, '', '', kt.vej || '', '', '', '', '', ''].map(csv).join(';'));
+            }
+            continue;
+        }
+        if (sp.top && sp.andel < 1) console.log(`      leveres oftest til ${sp.top.vej} (${Math.round(sp.andel * 100)} % af bons)`);
         if (privat) console.log('      privat mailadresse — hører formentlig til en af de andre grupper, eller er en enkeltbestilling');
         else if (!k.length) console.log(`      intet belæg for et match — vælg blandt de ${familie.length} kunder i familien (se listen nederst)`);
         for (const c of k) console.log(`      ${String(c.k.customerNumber).padStart(4)}  ${String(c.k.name).slice(0, 46).padEnd(48)} EAN ${cif(c.k.ean) || '—'}  (${c.score.toFixed(2)})`);
         console.log('');
         // Private adresser er folk fra afdelingerne der har bestilt til sig selv.
         // De skal ikke have en egen firma-række — derfor "-" på forhånd.
-        ud.push([r.domaene, r.kontakter, r.bons, r.kr, r.seneste || '',
+        ud.push([r.domaene, r.kontakter, r.bons, r.kr, r.seneste || '', sp.top?.vej || '',
                  k[0]?.k.customerNumber ?? '', k[0]?.k.name ?? '', cif(k[0]?.k.ean) || '',
                  k[0] ? k[0].score.toFixed(2) : '', privat ? '-' : ''].map(csv).join(';'));
     }

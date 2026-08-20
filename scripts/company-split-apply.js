@@ -86,9 +86,16 @@ console.log(`Plan:    ${PLAN} — ${plan.length} domæne(r) med et godkendt kund
 if (!plan.length) { console.log('Intet at gøre. Udfyld godkendt_nr i planen først.'); process.exit(0); }
 
 // ── Hvad ville der ske? Beregnes ens for dry-run og apply ─────────────
+// Nøglen i planen er enten et DOMÆNE ("bio.ku.dk") eller en ENKELT adresse
+// ("pw@sund.ku.dk"). Det sidste bruges når domænet er et fakultet — @sund.ku.dk
+// deles af 13 institutter, så dér må hver person placeres for sig.
 const DOMAENE_SQL = "lower(TRIM(replace(replace(substr(email, instr(email,'@')+1), char(10), ''), char(13), '')))";
-const findKunder = db.prepare(`SELECT id, first_name, last_name, email FROM customers
+const findPrDomaene = db.prepare(`SELECT id, first_name, last_name, email FROM customers
      WHERE company_id = ? AND ${DOMAENE_SQL} = ?`);
+const findPrEmail = db.prepare(`SELECT id, first_name, last_name, email FROM customers
+     WHERE company_id = ? AND lower(TRIM(email)) = ?`);
+const findKunder = { all: (firma, nøgle) => nøgle.includes('@')
+    ? findPrEmail.all(firma, nøgle) : findPrDomaene.all(firma, nøgle) };
 const taelBons = db.prepare('SELECT COUNT(*) n FROM bons WHERE company_id = ? AND customer_id = ?');
 const taelSendte = db.prepare(`SELECT COUNT(*) n FROM bons b JOIN status_definitions s ON s.id = b.status_id
      WHERE b.company_id = ? AND b.customer_id = ?
@@ -115,13 +122,19 @@ for (const r of plan) {
         .map(c => ({ ...c, s: dice(saerpraeg(r.forslag_navn, paraply.name), saerpraeg(c.name, paraply.name)) }))
         .filter(c => c.s >= 0.6).sort((a, b) => b.s - a.s).slice(0, 3);
 
-    trin.push({ domaene: r.domaene, nr, navn: r.forslag_navn, ean: r.forslag_ean, kunder, bons, sendte, maal, ligner });
+    // EAN arves KUN når det godkendte nummer er dét scriptet foreslog. Har et
+    // menneske valgt en anden kunde, hører forslagets EAN til nogen helt anden.
+    // Tomt er sikkert: modtagerens EAN kommer fra e-conomic ved fakturering.
+    const ean = (nr === (r.forslag_nr || '')) ? r.forslag_ean : '';
+    trin.push({ domaene: r.domaene, nr, navn: r.forslag_navn, ean, kunder, bons, sendte, maal, ligner });
     if (ligner.length) advarsler++;
 }
 
 for (const t of trin) {
     console.log(`  ${t.domaene.padEnd(16)} → e-conomic ${t.nr} "${t.navn}"`);
+    const alleredePlanlagt = !t.maal && trin.some(a => a !== t && !a.maal && a.nr === t.nr && trin.indexOf(a) < trin.indexOf(t));
     console.log(`      ${t.maal ? `flyttes ind i eksisterende firma ${t.maal.id} "${t.maal.name}"`
+        : alleredePlanlagt ? `flyttes ind i det firma en tidligere række opretter for ${t.nr}`
         : `NYT firma oprettes: "${t.navn}" (CVR ${paraply.cvr || '—'}, EAN ${t.ean || '—'})`}`);
     if (!t.kunder.length) console.log('      intet at flytte — kontakterne ligger ikke længere på paraply-rækken (allerede opdelt?)');
     else console.log(`      ${t.kunder.length} kontakt(er) · ${t.bons} bon(s)`
@@ -159,13 +172,15 @@ const logChange = db.prepare(`INSERT INTO changelog
     (entity_type, entity_id, action, field_name, old_value, new_value, user_id, notes)
     VALUES (?,?,?,?,?,?,?,?)`);
 let oprettede = 0, flyttedeK = 0, flyttedeB = 0;
+const oprettetNu = new Map();   // kundenr → firma-id, så to rækker deler ét firma
 try {
     db.exec('BEGIN');
     for (const t of trin) {
-        let maalId = t.maal?.id;
+        let maalId = t.maal?.id ?? oprettetNu.get(t.nr);
         if (!maalId) {
             maalId = db.prepare('INSERT INTO companies (name, cvr, ean, economic_customer_id) VALUES (?,?,?,?) RETURNING id')
                        .get(t.navn, paraply.cvr || null, t.ean || null, t.nr).id;
+            oprettetNu.set(t.nr, maalId);
             oprettede++;
             logChange.run('company', maalId, 'create', null, null, t.navn, BRUGER,
                 `Udskilt fra ${paraply.id} "${paraply.name}" — domæne ${t.domaene}`);
