@@ -171,6 +171,37 @@ function _inbRenderShell() {
                 border: 1px solid var(--brand-primary); color: var(--brand-primary);
                 white-space: nowrap;
             }
+            /* Flyt-panel: retteventilen når en tråd sidder forkert. */
+            .inb-move {
+                border: 1px solid var(--brand-primary); border-radius: 8px;
+                background: var(--color-surface); padding: 12px 14px; margin: 12px 0;
+                display: flex; flex-direction: column; gap: 8px;
+            }
+            .inb-move-head { display: flex; align-items: center; gap: 8px; }
+            .inb-move-head strong { font-size: 13px; }
+            .inb-move-x {
+                margin-left: auto; border: 0; background: none; cursor: pointer;
+                color: var(--color-text-dim); font-size: 14px; line-height: 1; padding: 2px 4px;
+            }
+            .inb-move-hint { font-size: 11.5px; color: var(--color-text-dim); line-height: 1.5; }
+            .inb-move-results { display: flex; flex-direction: column; max-height: 210px; overflow-y: auto; }
+            .inb-move-row {
+                display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left;
+                padding: 7px 8px; border: 0; border-bottom: 1px solid var(--color-border);
+                background: none; cursor: pointer; font-family: inherit; font-size: 13px;
+                color: var(--color-text);
+            }
+            .inb-move-row:last-child { border-bottom: 0; }
+            .inb-move-row:hover { background: var(--brand-primary-light); }
+            .inb-move-kind { flex: 0 0 auto; }
+            .inb-move-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .inb-move-sub { font-size: 11px; color: var(--color-text-dim); }
+            .inb-move-empty { font-size: 12px; color: var(--color-text-dim); padding: 6px 8px; }
+            .inb-move-done {
+                margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; font-size: 12.5px;
+                background: #eaf4ee; border: 1px solid #bcd9c8; color: #2f6b4f;
+            }
+
             .inb-arch-bar {
                 margin: 12px 0; padding: 8px 12px; font-size: 12.5px;
                 color: var(--color-text-dim); background: var(--color-background, #f5f4f2);
@@ -620,7 +651,9 @@ function _inbRenderThreadReader(data) {
             ${isBon ? `<button class="inb-action-btn" onclick="_inbThreadOpenEntity()">Åbn bon →</button>`
                     : `<button class="inb-action-btn" onclick="_inbThreadCreateBon(${t.id})">📋 Opret bon fra mail</button>`}
             ${isCust ? `<button class="inb-action-btn" onclick="_inbThreadOpenEntity()">Åbn kunde →</button>` : ''}
+            <button class="inb-action-btn" onclick="_inbShowMove(${t.id})" title="Tråden sidder på den forkerte kunde">⇄ Flyt</button>
         </div>
+        <div id="inbMoveForm"></div>
         <div id="inbThreadHost"></div>
         <div class="inb-composer">
             <textarea id="inbThreadReply" placeholder="Skriv svar…  (sendes via systemet → Afventer kunde)"></textarea>
@@ -643,6 +676,114 @@ function _inbRenderThreadReader(data) {
         host.textContent = (data.messages || []).map(m => m.body_text).join('\n\n———\n\n');
     }
 }
+
+// Flyt en tråd der sidder forkert. Søger kunde på navn eller bon på nummer —
+// samme to muligheder som en ufordelt mail har, fordi det er samme spørgsmål:
+// hvem hører den her til?
+let _inbMoveThreadId = null;
+
+function _inbShowMove(threadId) {
+    _inbMoveThreadId = threadId;
+    const el = document.getElementById('inbMoveForm');
+    if (!el) return;
+    if (el.dataset.open === '1') { _inbCloseMove(); return; }
+    el.dataset.open = '1';
+    el.innerHTML =
+        '<div class="inb-move">' +
+            '<div class="inb-move-head">' +
+                '<strong>Flyt tråden</strong>' +
+                '<button class="inb-move-x" onclick="_inbCloseMove()" aria-label="Luk">✕</button>' +
+            '</div>' +
+            '<div class="inb-move-hint">Hele tråden flytter med. De adresser systemet selv har lært af mailen følger med, så næste mail fra afsenderen lander det rigtige sted.</div>' +
+            '<input type="text" class="inb-link-input" id="inbMoveSearch" placeholder="Søg kunde, eller skriv et bonnummer…">' +
+            '<div id="inbMoveResults" class="inb-move-results"></div>' +
+        '</div>';
+
+    const input = document.getElementById('inbMoveSearch');
+    input.focus();
+    let deb = null;
+    const run = () => {
+        clearTimeout(deb);
+        deb = setTimeout(() => _inbMoveSearch(input.value.trim()), 280);
+    };
+    input.addEventListener('input', run);
+    input.addEventListener('keydown', e => { if (e.key === 'Escape') _inbCloseMove(); });
+}
+window._inbShowMove = _inbShowMove;
+
+function _inbCloseMove() {
+    const el = document.getElementById('inbMoveForm');
+    if (el) { el.dataset.open = '0'; el.innerHTML = ''; }
+    _inbMoveThreadId = null;
+}
+window._inbCloseMove = _inbCloseMove;
+
+async function _inbMoveSearch(q) {
+    const box = document.getElementById('inbMoveResults');
+    if (!box) return;
+    if (!q) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="inb-move-empty">Søger…</div>';
+    try {
+        // Tal → formentlig et bonnummer. Ellers en kunde.
+        const looksLikeBon = /^[A-Za-z]?-?\d{2,}$/.test(q);
+        const rows = [];
+        if (looksLikeBon) {
+            const bons = await apiFetch('/bons?q=' + encodeURIComponent(q) + '&limit=5');
+            for (const b of (bons.bons || bons || [])) {
+                rows.push({
+                    kind: 'bon', id: b.id,
+                    title: 'Bon ' + (b.bon_number || b.id),
+                    sub: [b.customer_name || b.contact_name_full, b.company_name].filter(Boolean).join(' · '),
+                });
+            }
+        }
+        const custs = await fetchCrmCustomers({ q: q, limit: 5 });
+        for (const c of custs) {
+            rows.push({ kind: 'customer', id: c.id, title: c.name, sub: c.company_name || '' });
+        }
+        box.innerHTML = rows.length
+            ? rows.map(r =>
+                '<button class="inb-move-row" onclick="_inbMoveTo(\'' + r.kind + '\',' + r.id + ')">' +
+                    '<span class="inb-move-kind">' + (r.kind === 'bon' ? '🧾' : '👤') + '</span>' +
+                    '<span class="inb-move-name">' + _inbEscape(r.title || '') +
+                        (r.sub ? '<span class="inb-move-sub">' + _inbEscape(r.sub) + '</span>' : '') +
+                    '</span>' +
+                '</button>').join('')
+            : '<div class="inb-move-empty">Ingen match</div>';
+    } catch (err) {
+        box.innerHTML = '<div class="inb-move-empty">Kunne ikke søge: ' + _inbEscape(err.message || '') + '</div>';
+    }
+}
+
+async function _inbMoveTo(kind, id) {
+    if (!_inbMoveThreadId) return;
+    const threadId = _inbMoveThreadId;
+    try {
+        const res = await moveMailThread(threadId, kind === 'bon' ? { bon_id: id } : { customer_id: id });
+        _inbCloseMove();
+        // Tråden forlader ikke visningen — den skifter bare ejer. Genindlæs den,
+        // så man kan SE at den nu sidder rigtigt, i stedet for at få den lukket
+        // væk med en besked om at det gik godt.
+        await _inbLoadThreads();
+        await _inbOpenThread(threadId);
+        await _inbLoadCounts();
+
+        // Adresse-flytningen er den del man ikke kan se på skærmen — sig den højt.
+        const n = (res.moved_addresses || []).length;
+        const prev = document.getElementById('inbPreview');
+        if (prev) {
+            const note = document.createElement('div');
+            note.className = 'inb-move-done';
+            note.innerHTML = '✓ Flyttet til <strong>' + _inbEscape(res.label || 'ny ejer') + '</strong>'
+                + (n ? ' · ' + n + ' lært adresse' + (n === 1 ? '' : 'r')
+                       + ' fulgte med, så næste mail lander samme sted' : '');
+            prev.prepend(note);
+        }
+    } catch (err) {
+        alert('Kunne ikke flytte: ' + err.message);
+    }
+}
+window._inbMoveTo = _inbMoveTo;
 
 function _inbThreadSnoozeMenu(e) {
     if (e) e.stopPropagation();

@@ -184,7 +184,7 @@ async function main() {
         await http('PATCH', `/api/mail/unmatched/${um5}`, { status: 'linked', linked_customer_id: anden });
         assert(emailsOn(anden).length === 0,
             'en adresse der allerede står på en anden kunde skrives ikke (tvetydig routing)');
-        assert(mailSvc.findCustomerByEmail(db, 'lha@cap-partner.eu').id === laerke,
+        assert(mailSvc.findCustomerByEmail(db, 'lha@cap-partner.eu')?.id === laerke,
             'den oprindelige ejer er urørt');
 
         // ── 7) Link til Bon lærer også ────────────────────────────────────
@@ -290,6 +290,85 @@ async function main() {
             .filter(m => m.kind === 'unmatched');
         assert(arch.find(m => m.id === um10)?.suggested_customer?.id === laerke,
             'en arkiveret mail bærer stadig forslaget, så den kan reddes derfra');
+
+        // ── 12) #481: retteventilen — en tråd kan flyttes ─────────────────
+        console.log('\n— Flyt en tråd der sidder forkert —');
+
+        // Scenariet fra drift: mailen blev koblet til den FORKERTE kunde, og
+        // #478 lærte afsenderens adresse dér. Rettelsen skal tage adressen med,
+        // ellers ruter næste mail forkert igen — helt af sig selv.
+        const forkert = Number(db.prepare(
+            `INSERT INTO customers (first_name, last_name) VALUES ('Forkert','Kunde')`
+        ).run().lastInsertRowid);
+        const rigtig = Number(db.prepare(
+            `INSERT INTO customers (first_name, last_name) VALUES ('Rigtig','Modtager')`
+        ).run().lastInsertRowid);
+
+        const um20 = seedUnmatched({ from: 'bestiller@kundefirma.invalid', subject: 'Fejlkoblet sag' });
+        const linked = await http('PATCH', `/api/mail/unmatched/${um20}`, { status: 'linked', linked_customer_id: forkert });
+        const traad = linked.data.thread_id;
+        assert(linked.data.learned_email === 'bestiller@kundefirma.invalid',
+            'adressen blev lært på den forkerte kunde (sådan opstår fejlen)');
+        assert(mailSvc.findCustomerByEmail(db, 'bestiller@kundefirma.invalid')?.id === forkert,
+            'og afsender-opslaget peger på den forkerte kunde');
+
+        const moved = await http('POST', `/api/mail/threads/${traad}/move`, { customer_id: rigtig });
+        assert(moved.status === 200, 'tråden kan flyttes');
+        assert(moved.data.customer_id === rigtig, 'tråden peger nu på den rigtige kunde');
+        assert(db.prepare('SELECT customer_id FROM mail_threads WHERE id=?').get(traad).customer_id === rigtig,
+            'og det står i databasen, ikke kun i svaret');
+
+        assert(mailSvc.findCustomerByEmail(db, 'bestiller@kundefirma.invalid')?.id === rigtig,
+            'NÆSTE mail fra afsenderen rammer nu den rigtige kunde — kernen i rettelsen');
+        assert(!emailsOn(forkert).some(r => r.value === 'bestiller@kundefirma.invalid' && r.is_active),
+            'gættet er fjernet fra den forkerte kunde');
+        assert(emailsOn(rigtig).some(r => r.value === 'bestiller@kundefirma.invalid' && r.is_active),
+            'og står nu på den rigtige');
+        assert((moved.data.moved_addresses || []).length === 1, 'svaret fortæller at én adresse fulgte med');
+
+        // Beskederne følger med — det er hele tråden der flytter
+        assert(db.prepare('SELECT COUNT(*) n FROM mail_messages WHERE thread_id=?').get(traad).n > 0,
+            'beskederne bliver i tråden');
+
+        // ── Manuelt indtastede adresser røres ALDRIG ──
+        console.log('\n— Manuelle adresser er fredede —');
+        const medManuel = Number(db.prepare(
+            `INSERT INTO customers (first_name, last_name) VALUES ('Har','Manuel')`
+        ).run().lastInsertRowid);
+        db.prepare(`INSERT INTO contact_points (entity_type,entity_id,kind,value,is_primary,is_public,source)
+                    VALUES ('customer',?,'email','manuelt@indtastet.invalid',1,0,'manual')`).run(medManuel);
+        const um21 = seedUnmatched({ from: 'manuelt@indtastet.invalid', subject: 'Manuel adresse' });
+        const l21 = await http('PATCH', `/api/mail/unmatched/${um21}`, { status: 'linked', linked_customer_id: medManuel });
+        await http('POST', `/api/mail/threads/${l21.data.thread_id}/move`, { customer_id: rigtig });
+        assert(emailsOn(medManuel).find(r => r.value === 'manuelt@indtastet.invalid')?.is_active === 1,
+            'en manuelt indtastet adresse bliver stående — vi flytter kun vores egne gæt');
+
+        // ── Flyt til en bon ──
+        console.log('\n— Flyt til en bon —');
+        const bonMove = await http('POST', `/api/mail/threads/${traad}/move`, { bon_id: bonId });
+        assert(bonMove.status === 200, 'tråden kan flyttes til en bon');
+        const efterBon = db.prepare('SELECT customer_id, bon_id FROM mail_threads WHERE id=?').get(traad);
+        assert(efterBon.bon_id === bonId, 'bon_id sat');
+        assert(efterBon.customer_id === bonKunde, 'og kunden arves fra bonen, så tråden også ses på kundekortet');
+
+        // ── Afvisninger ──
+        console.log('\n— Hvad flytningen nægter —');
+        assert((await http('POST', `/api/mail/threads/${traad}/move`, {})).status === 400,
+            'uden mål afvises');
+        assert((await http('POST', `/api/mail/threads/${traad}/move`, { customer_id: 999999 })).status === 400,
+            'ukendt kunde afvises');
+        assert((await http('POST', `/api/mail/threads/999999/move`, { customer_id: rigtig })).status === 404,
+            'ukendt tråd giver 404');
+        const lukket2 = Number(db.prepare(
+            `INSERT INTO customers (first_name, last_name, is_active) VALUES ('Lukket','Modtager',0)`
+        ).run().lastInsertRowid);
+        assert((await http('POST', `/api/mail/threads/${traad}/move`, { customer_id: lukket2 })).status === 400,
+            'en lukket kunde kan ikke modtage en tråd');
+
+        // ── Sporet ──
+        assert(db.prepare(
+            `SELECT COUNT(*) n FROM changelog WHERE entity_type='mail_thread' AND entity_id=? AND action='thread_moved'`
+        ).get(traad).n >= 2, 'hver flytning efterlader en changelog-linje');
 
     } finally {
         if (serverProc) serverProc.kill();
