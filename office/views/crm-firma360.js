@@ -179,7 +179,7 @@ function _f3RenderOversigt(el) {
                     <div class="f3-row"><span class="f3-lbl">Ansatte</span><span class="f3-val">${company.employee_count ? company.employee_count : '<span class="f3-muted">—</span>'}</span></div>
                     <div class="f3-row"><span class="f3-lbl">Adresse</span><span class="f3-val">${addr}</span></div>
                     <div class="f3-row"><span class="f3-lbl">Faktura</span><span class="f3-val">${company.invoice_method ? escapeHtml(company.invoice_method) : '<span class="f3-muted">—</span>'}</span></div>
-                    <div class="f3-row"><span class="f3-lbl">e-conomic</span><span class="f3-val">${company.economic_customer_id ? escapeHtml(company.economic_customer_id) : '<span class="f3-muted">—</span>'}</span></div>
+                    ${_f3EditableRow('e-conomic', 'economic_customer_id', company.economic_customer_id)}
 
                     <div class="f3-actions">
                         <button class="f3-btn f3-btn-primary" id="f3-enrich-btn">⟳ Berig fra CVR</button>
@@ -289,6 +289,9 @@ const _F3_FIELD_META = {
     cvr:        { label: 'CVR',     placeholder: '8 cifre',  inputmode: 'numeric' },
     ean:        { label: 'EAN',     placeholder: '13 cifre', inputmode: 'numeric' },
     legal_name: { label: 'Juridisk', placeholder: 'Juridisk navn' },
+    // Kunde-nr i e-conomic. Har sit EGET endpoint (og sin egen changelog-handling),
+    // fordi koblingen er det der afgør om firmaets bons kan faktureres.
+    economic_customer_id: { label: 'e-conomic', placeholder: 'Kunde-nr i e-conomic', inputmode: 'numeric' },
 };
 
 function _f3EditableRow(label, field, value) {
@@ -350,10 +353,17 @@ async function _f3SaveField(field, rawValue) {
         if (digits !== '' && digits.length !== 13) {
             _f3ShowToast('EAN skal være 13 cifre', 'error'); return;
         }
+    } else if (field === 'economic_customer_id') {
+        if (value !== '' && !/^\d+$/.test(value)) {
+            _f3ShowToast('e-conomic kunde-nr er et tal', 'error'); return;
+        }
     }
 
     try {
-        await patchCompanyIdentifiers(_f3State.companyId, { [field]: value });
+        // e-conomic-koblingen har sit eget endpoint — den skriver en egen
+        // changelog-handling, fordi den afgør om firmaets bons kan faktureres.
+        if (field === 'economic_customer_id') await patchCompanyEconomic(_f3State.companyId, value);
+        else await patchCompanyIdentifiers(_f3State.companyId, { [field]: value });
     } catch (err) {
         _f3ShowToast('Kunne ikke gemme: ' + (err.message || 'fejl'), 'error');
         return;
