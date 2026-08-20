@@ -56,6 +56,24 @@ var _vmConversions = [];     // grocy quantity_unit_conversions — til forhånd
 var _vmConversionsLoaded = false;  // nåede de frem? Uden dem advarer vi ikke — se _vmUnitIssue
 var _vmDom = {};             // cached DOM refs
 
+// ── FVST-skemaet ──
+//
+// Kommer fra Whiteboard (services/receiptSchema.js). Før stod det HER, skrevet
+// af i hånden:
+//
+//     _vmBuildTempRow('koel', '🧊', 'Kølevarer', 'max. 5°C', 4.5, 0.1, true, 4.7, 5)
+//
+// De tal ER tavlens skema. Rettede nogen grænseværdien i tavlens admin, skete
+// der ingenting her, og ingen fik det at vide. Nu ejer tavlen skemaet.
+//
+// _vmSchema.source siger hvor det kom fra: 'whiteboard' (friskt), 'cache'
+// (sidst hentede) eller 'builtin' (kopien i receiptSchema.js). Er det ikke
+// friskt, siges det i UI'et frem for at se ud som om alt er ajour.
+var _vmSchema = null;
+var _vmFields = {};          // felt-id → felt fra skemaet
+var _vmExtraFields = [];     // felter tavlen har, som Bon v2 ikke har en kolonne til
+var _vmExtra = {};           // deres værdier — sendes som extra_fields
+
 /* ── Entry point ─────────────────────────────────────────── */
 
 async function initVaremodtagelse(el) {
@@ -74,6 +92,7 @@ async function initVaremodtagelse(el) {
         canBackdate: false, receivedAt: '',
     };
     _vmDom = {};
+    _vmExtra = {};
 
     try {
         // Hent current user, users, suppliers, shopping list i parallel
@@ -96,6 +115,11 @@ async function initVaremodtagelse(el) {
             // kun ADVARSLEN — serveren nægter stadig at gætte. Derfor .catch og ikke
             // en fejl der forhindrer en modtagelse i at blive registreret.
             fetchGrocyQuantityUnitConversions().catch(function() { return null; }),
+            // FVST-skemaet fra tavlen. Serveren svarer ALTID med noget brugbart
+            // (tavle → cache → indbygget kopi), så et .catch her fanger kun at
+            // Bon v2's egen route er utilgængelig — og selv da skal formularen
+            // kunne bruges. Fødevarekontrol er lovpligtig.
+            fetchGoodsReceiptSchema().catch(function() { return null; }),
         ]);
 
         var localStaff = results[0] || [];
@@ -104,6 +128,7 @@ async function initVaremodtagelse(el) {
         var products = results[3] || [];
         var qus = results[4] || [];
         var spRaw = results[5];
+        _vmApplySchema(results[7]);
         var spEmployees = Array.isArray(spRaw) ? spRaw : (spRaw && spRaw.employees ? spRaw.employees : []);
         // null = kaldet fejlede. Tom liste ville ellers se ud som "ingen
         // omregninger findes" og udløse en advarsel på HVER vare med afvigende
@@ -189,7 +214,82 @@ async function initVaremodtagelse(el) {
     }
 }
 
+/* ── Skemaet ─────────────────────────────────────────────── */
+
+/**
+ * Tag imod skemaet fra serveren og læg det i opslagsform.
+ *
+ * Kom der intet (Bon v2's egen route utilgængelig), bruger vi det tomme
+ * skema — og hver _vmField() falder tilbage på sin indbyggede standard, så
+ * formularen ser ud som før. En varemodtagelse må aldrig strande på at et
+ * skema ikke kunne hentes.
+ */
+function _vmApplySchema(schema) {
+    _vmSchema = schema || null;
+    _vmFields = {};
+    _vmExtraFields = [];
+
+    var fields = (schema && Array.isArray(schema.fields)) ? schema.fields : [];
+    var known = (schema && Array.isArray(schema.known_field_ids)) ? schema.known_field_ids : [];
+
+    for (var i = 0; i < fields.length; i++) {
+        var f = fields[i];
+        if (!f || !f.id) continue;
+        _vmFields[f.id] = f;
+        // Felter Bon v2 ikke har en kolonne til. De renderes generisk og
+        // sendes videre til tavlen — så et NYT felt tilføjet i admin virker
+        // uden at nogen rører denne fil.
+        if (known.indexOf(f.id) === -1) _vmExtraFields.push(f);
+    }
+}
+
+/**
+ * Et felt fra skemaet, med indbygget standard som bund.
+ *
+ * Standarden er der for de tilfælde hvor skemaet ikke kunne hentes OG feltet
+ * er noget Bon v2 selv renderer. Den er bevidst mager: den skal holde
+ * formularen i live, ikke være en anden mening om hvad skemaet siger.
+ */
+function _vmField(id, fallback) {
+    return _vmFields[id] || fallback || {};
+}
+
+/** Er et felt slået til i skemaet? Et fjernet felt skal ikke renderes. */
+function _vmHasField(id) {
+    // Intet skema = vis alt, som før. Kun når vi FAKTISK har et skema, kan
+    // fraværet af et felt betyde "det er fjernet".
+    if (!_vmSchema || !Array.isArray(_vmSchema.fields) || !_vmSchema.fields.length) return true;
+    return !!_vmFields[id];
+}
+
+/**
+ * Linje der fortæller hvor skemaet kom fra — kun når det IKKE er friskt.
+ *
+ * Uden den ville et forældet skema se præcis ud som et ajourført. Det var
+ * hele problemet vi løste: en usynlig uenighed mellem to systemer.
+ */
+function _vmBuildSchemaNote() {
+    if (!_vmSchema || _vmSchema.source === 'whiteboard') return null;
+
+    var note = document.createElement('div');
+    note.className = 'vm-schema-note';
+
+    var txt;
+    if (_vmSchema.source === 'cache') {
+        txt = 'Skemaet er gemt fra sidste kontakt med tavlen'
+            + (_vmSchema.fetched_at ? ' (' + _vmFmtDateTime(_vmSchema.fetched_at) + ')' : '')
+            + ' — en nylig ændring i tavlens admin er måske ikke med.';
+    } else {
+        txt = 'Bruger Bon v2\u2019s indbyggede skema — ikke tavlens.'
+            + ' Ændringer i tavlens admin slår ikke igennem her.';
+    }
+    note.textContent = '\u2139\ufe0f ' + txt;
+    if (_vmSchema.error) note.title = _vmSchema.error;
+    return note;
+}
+
 /* ── Build supplier options ──────────────────────────────── */
+
 
 function _vmBuildSupplierOptions(suppliers, shoppingList) {
     // Find bestilte items: has ordered_at + ordered_varenr
@@ -270,16 +370,25 @@ function _vmBuildPage() {
     // ── Temperaturer
     content.appendChild(_vmBuildTempCard());
 
-    // ── FVST toggles
-    _vmDom.toggleDate = _vmBuildToggleRow('Dato/holdbarhed kontrolleret', _vmState.dateCheck, function(v) { _vmState.dateCheck = v; _vmCheckDeviation(); _vmUpdateBtn(); });
-    _vmDom.toggleLabel = _vmBuildToggleRow('M\u00e6rkning kontrolleret', _vmState.labelCheck, function(v) { _vmState.labelCheck = v; _vmCheckDeviation(); _vmUpdateBtn(); });
-    _vmDom.togglePack = _vmBuildToggleRow('Emballage kontrolleret', _vmState.packCheck, function(v) { _vmState.packCheck = v; _vmCheckDeviation(); _vmUpdateBtn(); });
-    content.appendChild(_vmDom.toggleDate);
-    content.appendChild(_vmDom.toggleLabel);
-    content.appendChild(_vmDom.togglePack);
+    // ── FVST toggles — labels og tilstedeværelse fra skemaet.
+    //    Et tjek der fjernes i tavlens admin forsvinder også her; state-flaget
+    //    bliver stående på true, så et fjernet tjek ikke fejler valideringen.
+    var checks = [
+        { id: 'date_ok',      fallback: 'Dato/holdbarhed kontrolleret', dom: 'toggleDate',  key: 'dateCheck'  },
+        { id: 'label_ok',     fallback: 'M\u00e6rkning kontrolleret',        dom: 'toggleLabel', key: 'labelCheck' },
+        { id: 'packaging_ok', fallback: 'Emballage kontrolleret',       dom: 'togglePack',  key: 'packCheck'  },
+    ];
+    checks.forEach(function(c) {
+        if (!_vmHasField(c.id)) return;
+        var label = _vmField(c.id).label || c.fallback;
+        _vmDom[c.dom] = _vmBuildToggleRow(label, _vmState[c.key], (function(key) {
+            return function(v) { _vmState[key] = v; _vmCheckDeviation(); _vmUpdateBtn(); };
+        })(c.key));
+        content.appendChild(_vmDom[c.dom]);
+    });
 
     // ── Foto
-    content.appendChild(_vmBuildPhotoBtn());
+    if (_vmHasField('photo')) content.appendChild(_vmBuildPhotoBtn());
 
     // ── Afvigelse
     content.appendChild(_vmBuildDeviationBox());
@@ -287,8 +396,19 @@ function _vmBuildPage() {
     // ── Manuel åbning af afvigelse (når intet trigger automatisk)
     content.appendChild(_vmBuildManualDeviationBtn());
 
+    // ── Felter tavlen har tilføjet, som Bon v2 ikke selv kender.
+    //    Uden dem ville "tavlen ejer skemaet" kun gælde halvt: et NYT felt i
+    //    admin ville kræve kode her. Nu renderes det generisk og følger med
+    //    videre til FVST-loggen.
+    var extras = _vmBuildExtraFieldsSection();
+    if (extras) content.appendChild(extras);
+
     // ── Bemærkning
     content.appendChild(_vmBuildRemarkSection());
+
+    // ── Hvor kom skemaet fra? Vises kun når det ikke er friskt.
+    var schemaNote = _vmBuildSchemaNote();
+    if (schemaNote) content.appendChild(schemaNote);
 
     // ── LAGER divider
     content.appendChild(_vmDivider('Lager'));
@@ -317,9 +437,21 @@ function _vmBuildPage() {
     _vmContainer.innerHTML = '';
     _vmContainer.appendChild(app);
 
-    // Init temp badges
-    _vmUpdateTempBadge('koel');
-    _vmUpdateTempBadge('frys');
+    // Sæt hver temperaturrække i den tilstand dens toggle faktisk står i.
+    //
+    // Før kaldte vi bare _vmUpdateTempBadge(), som beregner badgen UDEN at se
+    // på om rækken er slået til. En frost-række der starter slukket
+    // (toggle_default_off i skemaet) viste derfor et grønt "OK" for en måling
+    // der aldrig blev taget — og feltet "Målt på (frostvare)" stod skrivbart,
+    // selvom serveren kasserer værdien når toggle er fra. Et felt man kan
+    // skrive i, og som stille ikke bliver gemt, er den slags tavse tab hele
+    // denne opgave handler om at fjerne.
+    //
+    // _vmOnTempEnabled sætter badge, talfelt og produktfelt i ét — så
+    // starttilstanden og et klik på toggle går gennem samme kode.
+    ['koel', 'frys'].forEach(function(type) {
+        if (_vmDom[type + 'Input']) _vmOnTempEnabled(type, !!_vmState[type + 'Enabled']);
+    });
     _vmUpdateBtn();
 }
 
@@ -620,28 +752,91 @@ function _vmBuildTempCard() {
     var grid = document.createElement('div');
     grid.className = 'vm-temp-grid';
 
-    // Køl
-    grid.appendChild(_vmBuildTempRow('koel', '\uD83E\uDDCA', 'K\u00f8levarer', 'max. 5\u00b0C', 4.5, 0.1, true, 4.7, 5));
+    var rows = 0;
 
-    // Separator
-    var sep = document.createElement('div');
-    sep.className = 'vm-temp-separator';
-    grid.appendChild(sep);
+    // Køl og frys er skemaets 'temperature' og 'temperature_freezer'.
+    // Er et af dem fjernet i tavlens admin, forsvinder rækken her.
+    if (_vmHasField('temperature')) {
+        grid.appendChild(_vmBuildTempRow('koel', _VM_TEMP_DEFAULTS.koel));
+        rows++;
+    }
+    if (_vmHasField('temperature_freezer')) {
+        if (rows > 0) {
+            var sep = document.createElement('div');
+            sep.className = 'vm-temp-separator';
+            grid.appendChild(sep);
+        }
+        grid.appendChild(_vmBuildTempRow('frys', _VM_TEMP_DEFAULTS.frys));
+        rows++;
+    }
 
-    // Frys
-    grid.appendChild(_vmBuildTempRow('frys', '\u2744\ufe0f', 'Frysvarer', 'max. -18\u00b0C', -20, 0.5, false, -19, -18));
+    if (!rows) return document.createComment('ingen temperaturfelter i skemaet');
 
     card.appendChild(grid);
     return card;
 }
 
-function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step, startEnabled, warnLimit, actionLimit) {
+/**
+ * Standarder pr. temperatur.
+ *
+ * Værdierne her er en BUND, ikke sandheden — skemaet vinder over dem alle.
+ * De findes så formularen holder hvis skemaet ikke kunne hentes.
+ *
+ * `step` og `emoji` står bevidst kun her: de er indtastnings-ergonomi og
+ * pynt, ikke fødevarekontrol, og hører ikke hjemme i et FVST-skema.
+ */
+var _VM_TEMP_DEFAULTS = {
+    koel: {
+        fieldId: 'temperature', productFieldId: 'temp_product',
+        emoji: '\uD83E\uDDCA', step: 0.1,
+        label: 'K\u00f8levarer', hint: 'max. 5\u00b0C',
+        default_value: 4.5, warn_above: 4, action_above: 5,
+        optional_toggle: true, toggle_default_off: false,
+    },
+    frys: {
+        fieldId: 'temperature_freezer', productFieldId: 'temp_product_freezer',
+        emoji: '\u2744\ufe0f', step: 0.5,
+        label: 'Frysvarer', hint: 'max. -18\u00b0C',
+        default_value: -20, warn_above: -19, action_above: -18,
+        optional_toggle: true, toggle_default_off: true,
+    },
+};
+
+/**
+ * Én temperaturrække: overskrift + til/fra, tal + status, og "målt på".
+ *
+ * Alt der kan ses eller vurderes kommer fra skemaet — label, hint,
+ * standardværdi, om rækken starter slået fra, og de to grænser der afgør
+ * om badgen viser OK, OBS eller AFVIGELSE.
+ *
+ * Bemærk `warn_above`/`action_above`: navnene siger "over", men for frost er
+ * grænserne negative (-19 / -18) og logikken i _vmOnTempChange sammenligner
+ * stadig med >. Det er tavlens egen konvention, og den er bevaret med vilje —
+ * ellers ville de to systemer vurdere den samme måling forskelligt.
+ */
+function _vmBuildTempRow(type, def) {
+    var f = _vmField(def.fieldId, def);
+
+    var pick = function(key) { return f[key] !== undefined && f[key] !== null ? f[key] : def[key]; };
+
+    var label       = pick('label');
+    var hint        = pick('hint') || '';
+    var defaultVal  = pick('default_value');
+    var warnLimit   = pick('warn_above');
+    var actionLimit = pick('action_above');
+    // optional_toggle=false betyder at temperaturen ikke kan slås fra —
+    // så starter rækken naturligvis slået til.
+    var canToggle   = pick('optional_toggle') !== false;
+    var startEnabled = canToggle ? !pick('toggle_default_off') : true;
+
     var row = document.createElement('div');
     row.className = 'vm-temp-row-item';
-    // Persistér grænseværdier på state så _vmOnTempChange kan læse dem
+
+    // Grænserne skal med i state — _vmOnTempChange læser dem ved hvert tastetryk.
     _vmState[type + 'WarnLimit'] = warnLimit;
     _vmState[type + 'ActionLimit'] = actionLimit;
     _vmState[type + 'Enabled'] = !!startEnabled;
+    _vmState[type + 'Value'] = Number(defaultVal);
 
     // Header
     var header = document.createElement('div');
@@ -649,22 +844,24 @@ function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step, startEnable
 
     var titleEl = document.createElement('div');
     titleEl.className = 'vm-temp-row-title';
-    titleEl.innerHTML = '<span class="vm-emoji">' + emoji + '</span> ' + _vmEsc(title) +
-        ' <span class="vm-field-hint">' + _vmEsc(hint) + '</span>';
+    titleEl.innerHTML = '<span class="vm-emoji">' + def.emoji + '</span> ' + _vmEsc(_vmStripEmoji(label)) +
+        (hint ? ' <span class="vm-field-hint">' + _vmEsc(hint) + '</span>' : '');
     header.appendChild(titleEl);
 
-    var toggle = document.createElement('label');
-    toggle.className = 'vm-mini-toggle';
-    toggle.title = 'Sl\u00e5 fra hvis ingen ' + title.toLowerCase();
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = !!startEnabled;
-    cb.addEventListener('change', function() { _vmOnTempEnabled(type, this.checked); });
-    toggle.appendChild(cb);
-    var slider = document.createElement('span');
-    slider.className = 'vm-mini-slider';
-    toggle.appendChild(slider);
-    header.appendChild(toggle);
+    if (canToggle) {
+        var toggle = document.createElement('label');
+        toggle.className = 'vm-mini-toggle';
+        toggle.title = 'Sl\u00e5 fra hvis ingen ' + _vmStripEmoji(label).toLowerCase();
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!startEnabled;
+        cb.addEventListener('change', function() { _vmOnTempEnabled(type, this.checked); });
+        toggle.appendChild(cb);
+        var slider = document.createElement('span');
+        slider.className = 'vm-mini-slider';
+        toggle.appendChild(slider);
+        header.appendChild(toggle);
+    }
 
     row.appendChild(header);
 
@@ -677,7 +874,7 @@ function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step, startEnable
 
     var input = document.createElement('input');
     input.type = 'number';
-    input.step = String(step);
+    input.step = String(def.step);
     input.value = String(defaultVal);
     input.inputMode = 'decimal';
     input.addEventListener('input', function() { _vmOnTempChange(type, this.value); });
@@ -686,7 +883,7 @@ function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step, startEnable
 
     var unit = document.createElement('span');
     unit.className = 'vm-temp-unit';
-    unit.textContent = '\u00b0C';
+    unit.textContent = f.unit || '\u00b0C';
     wrap.appendChild(unit);
 
     group.appendChild(wrap);
@@ -698,7 +895,95 @@ function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step, startEnable
     group.appendChild(badge);
 
     row.appendChild(group);
+
+    // ── "Målt på": hvilken vare blev temperaturen taget på? ──
+    //
+    // FVST-loggen kunne fortælle AT der var målt 3,5 °C, men ikke HVAD der
+    // blev målt på. Tavlen har feltet som ren tekst — den kender ikke
+    // leverancen. Her gør vi: <input list> giver varerne på netop denne
+    // leverance som forslag OG tillader fri tekst, hvis der blev målt på
+    // noget andet. Samme værdi gemmes begge veje: varenavnet.
+    var pf = _vmFields[def.productFieldId];
+    if (pf) {
+        row.appendChild(_vmBuildTempProductRow(type, def, pf));
+    }
+
     return row;
+}
+
+/** Feltet der spørger hvilken vare temperaturen blev målt på. */
+function _vmBuildTempProductRow(type, def, field) {
+    var wrap = document.createElement('div');
+    wrap.className = 'vm-temp-product';
+
+    var listId = 'vm-temp-products-' + type;
+
+    var lbl = document.createElement('label');
+    lbl.className = 'vm-temp-product-label';
+    lbl.textContent = field.label || 'M\u00e5lt p\u00e5';
+    lbl.setAttribute('for', 'vm-temp-product-' + type);
+    wrap.appendChild(lbl);
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'vm-temp-product-' + type;
+    input.className = 'vm-temp-product-input';
+    input.setAttribute('list', listId);
+    input.placeholder = field.hint || 'Hvilken vare blev m\u00e5lt?';
+    input.autocomplete = 'off';
+    input.addEventListener('input', function() {
+        _vmState[type + 'Product'] = this.value;
+    });
+    wrap.appendChild(input);
+    _vmDom[type + 'ProductInput'] = input;
+
+    // Forslagene fyldes af _vmSyncTempProductLists() når leverandøren er valgt
+    // og varelisten dermed er kendt.
+    var list = document.createElement('datalist');
+    list.id = listId;
+    wrap.appendChild(list);
+    _vmDom[type + 'ProductList'] = list;
+
+    return wrap;
+}
+
+/**
+ * Fyld forslagene med varerne på leverancen.
+ *
+ * Kaldes når varelisten ændrer sig (leverandørskift, manuelt tilføjet vare).
+ * Fri tekst forbliver mulig — listen er forslag, ikke en begrænsning.
+ */
+function _vmSyncTempProductLists() {
+    var names = [];
+    var seen = {};
+    for (var i = 0; i < _vmState.items.length; i++) {
+        var n = (_vmState.items[i].product_name || '').trim();
+        if (!n || seen[n]) continue;
+        seen[n] = true;
+        names.push(n);
+    }
+    names.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+
+    ['koel', 'frys'].forEach(function(type) {
+        var list = _vmDom[type + 'ProductList'];
+        if (!list) return;
+        list.innerHTML = '';
+        for (var j = 0; j < names.length; j++) {
+            var opt = document.createElement('option');
+            opt.value = names[j];
+            list.appendChild(opt);
+        }
+    });
+}
+
+/**
+ * Fjern et ledende emoji fra en label.
+ *
+ * Tavlens labels bærer deres eget ikon ("🧊 Kølevarer"), og rækken her sætter
+ * allerede et. Uden det her stod der to.
+ */
+function _vmStripEmoji(label) {
+    return String(label || '').replace(/^[\s\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\u2744]+/u, '').trim() || String(label || '');
 }
 
 function _vmOnTempEnabled(type, enabled) {
@@ -707,10 +992,18 @@ function _vmOnTempEnabled(type, enabled) {
     var badge = _vmDom[type + 'Badge'];
     input.disabled = !enabled;
 
+    // Produktfeltet følger sin temperatur: er der ikke målt, er der heller
+    // ikke noget at have målt PÅ. Ryddes det ikke, ville et navn fra før
+    // toggle blev slået fra stå tilbage i state og ryge med i registreringen.
+    var prodInput = _vmDom[type + 'ProductInput'];
+    if (prodInput) prodInput.disabled = !enabled;
+
     if (!enabled) {
         badge.className = 'vm-temp-badge vm-disabled';
         badge.innerHTML = '<span class="vm-temp-badge-icon">\u2014</span><span>Ingen</span>';
         _vmState[type + 'Status'] = null;
+        _vmState[type + 'Product'] = '';
+        if (prodInput) prodInput.value = '';
     } else {
         _vmOnTempChange(type, input.value);
     }
@@ -791,7 +1084,116 @@ function _vmBuildToggleRow(label, defaultOn, onChange) {
     return row;
 }
 
+/* ── Felter fra skemaet som Bon v2 ikke selv kender ──────── */
+
+/**
+ * Render de felter tavlen har tilføjet, men som Bon v2 ikke har en kolonne til.
+ *
+ * DETTE er det der gør koblingen ægte. Uden den ville "tavlen ejer skemaet"
+ * kun gælde halvt: labels og grænser ville slå igennem, men et HELT NYT felt
+ * i admin ville kræve en kodeændring og en migration i Bon v2 — altså præcis
+ * den dobbelt-vedligeholdelse vi er ved at komme af med.
+ *
+ * Værdierne gemmes i goods_receipts.extra_fields_json og sendes videre til
+ * FVST-loggen under tavlens egne felt-id'er.
+ *
+ * Ukendte felttyper renderes som tekst frem for at blive sprunget over: et
+ * felt nogen har lagt i skemaet skal kunne udfyldes, også når vi ikke har
+ * lært typen at kende endnu.
+ */
+function _vmBuildExtraFieldsSection() {
+    if (!_vmExtraFields.length) return null;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'vm-extra-fields';
+
+    for (var i = 0; i < _vmExtraFields.length; i++) {
+        var el = _vmBuildExtraField(_vmExtraFields[i]);
+        if (el) wrap.appendChild(el);
+    }
+    return wrap.children.length ? wrap : null;
+}
+
+function _vmBuildExtraField(field) {
+    var id = field.id;
+    var type = String(field.type || 'text').toLowerCase();
+
+    // Checkbox har sin egen række med til/fra-knap, ligesom FVST-tjekkene.
+    if (type === 'checkbox' || type === 'bool') {
+        // Et nyt tjek starter SLÅET FRA. Et krav ingen har set endnu må ikke
+        // stå som besvaret på forhånd — så ville feltet dokumentere noget der
+        // ikke er kontrolleret.
+        _vmExtra[id] = false;
+        return _vmBuildToggleRow(field.label || id, false, function(v) { _vmExtra[id] = v; });
+    }
+
+    var row = document.createElement('div');
+    row.className = 'vm-extra-field';
+
+    var lbl = document.createElement('label');
+    lbl.className = 'vm-extra-label';
+    lbl.textContent = field.label || id;
+    lbl.setAttribute('for', 'vm-extra-' + id);
+    row.appendChild(lbl);
+
+    if (field.hint) {
+        var hint = document.createElement('div');
+        hint.className = 'vm-field-hint';
+        hint.textContent = field.hint;
+        row.appendChild(hint);
+    }
+
+    var input;
+    if (type === 'select' && Array.isArray(field.options) && field.options.length) {
+        input = document.createElement('select');
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = '\u2014 v\u00e6lg \u2014';
+        input.appendChild(blank);
+        for (var i = 0; i < field.options.length; i++) {
+            var o = field.options[i];
+            var opt = document.createElement('option');
+            opt.value = o.value !== undefined ? o.value : o;
+            opt.textContent = o.label !== undefined ? o.label : String(o);
+            input.appendChild(opt);
+        }
+    } else if (type === 'textarea') {
+        input = document.createElement('textarea');
+        input.rows = 2;
+        if (field.hint) input.placeholder = field.hint;
+    } else {
+        input = document.createElement('input');
+        // 'photo' og andre typer vi ikke renderer særligt bliver til tekst.
+        input.type = (type === 'number') ? 'number' : 'text';
+        if (type === 'number') input.inputMode = 'decimal';
+        if (field.default_value !== undefined && field.default_value !== null) {
+            input.value = String(field.default_value);
+            _vmExtra[id] = type === 'number' ? Number(field.default_value) : field.default_value;
+        }
+        if (field.hint) input.placeholder = field.hint;
+    }
+
+    input.id = 'vm-extra-' + id;
+    input.className = 'vm-extra-input';
+    input.addEventListener('input', function() {
+        var v = this.value;
+        if (type === 'number') {
+            var n = parseFloat(v);
+            _vmExtra[id] = isNaN(n) ? '' : n;
+        } else {
+            _vmExtra[id] = v;
+        }
+    });
+    input.addEventListener('change', function() {
+        if (input.tagName === 'SELECT') _vmExtra[id] = this.value;
+    });
+    row.appendChild(input);
+
+    return row;
+}
+
 /* ── Photo button ────────────────────────────────────────── */
+
 
 function _vmBuildPhotoBtn() {
     var btn = document.createElement('button');
@@ -850,9 +1252,10 @@ function _vmBuildDeviationBox() {
     box.className = 'vm-deviation-box';
     _vmDom.deviationBox = box;
 
+    var devHint = (_vmFields['deviation'] || {}).hint || 'Udfyldes kun ved afvigelse';
     box.innerHTML =
         '<div><div class="vm-deviation-title">\u26a0\ufe0f Afvigelse registreret</div>' +
-        '<div class="vm-deviation-sub">Udfyldes kun ved afvigelse</div></div>';
+        '<div class="vm-deviation-sub">' + _vmEsc(devHint) + '</div></div>';
 
     // Options
     var optWrap = document.createElement('div');
@@ -864,9 +1267,12 @@ function _vmBuildDeviationBox() {
     var options = document.createElement('div');
     options.className = 'vm-deviation-options';
 
-    // Labels linet op med whiteboard-skemaet (FVST Skema 1) for ensartet
-    // brugeroplevelse. V\u00e6rdierne er holdt fast pga. CHECK-constraint i
-    // migration 036 (returned/no_risk/discarded/supplier_contacted/other).
+    // Valgene kommer fra skemaet. Serveren har allerede oversat tavlens
+    // værdier til Bon v2's (tavlen skriver 'accepted_no_risk', vi gemmer
+    // 'no_risk' — låst af CHECK-constraint i migration 036) og fjernet
+    // "Ingen afvigelse", som ikke giver mening inde i afvigelses-sektionen.
+    //
+    // Listen nedenfor er den bund der bruges hvis skemaet ikke kunne hentes.
     var deviationTypes = [
         { value: 'returned', label: 'Varen er returneret' },
         { value: 'no_risk', label: 'Vurderet \u2014 ingen risiko, anvendes straks' },
@@ -874,6 +1280,10 @@ function _vmBuildDeviationBox() {
         { value: 'supplier_contacted', label: 'Leverand\u00f8ren er kontaktet' },
         { value: 'other', label: 'Andet' },
     ];
+    var devField = _vmFields['deviation'];
+    if (devField && Array.isArray(devField.options) && devField.options.length) {
+        deviationTypes = devField.options;
+    }
 
     for (var i = 0; i < deviationTypes.length; i++) {
         var dt = deviationTypes[i];
@@ -903,11 +1313,13 @@ function _vmBuildDeviationBox() {
     box.appendChild(optWrap);
 
     // Note textarea
+    var noteField = _vmFields['deviation_note'] || {};
     var noteSection = document.createElement('div');
-    noteSection.innerHTML = '<div class="vm-deviation-note-label">Bem\u00e6rkning ved afvigelse</div>';
+    noteSection.innerHTML = '<div class="vm-deviation-note-label">' +
+        _vmEsc(noteField.label || 'Bem\u00e6rkning ved afvigelse') + '</div>';
     var textarea = document.createElement('textarea');
     textarea.className = 'vm-deviation-note';
-    textarea.placeholder = 'Beskriv afvigelsen og hvad der blev gjort';
+    textarea.placeholder = noteField.hint || 'Beskriv afvigelsen og hvad der blev gjort';
     textarea.addEventListener('input', function() { _vmState.deviationNote = this.value; });
     noteSection.appendChild(textarea);
     box.appendChild(noteSection);
@@ -987,6 +1399,11 @@ function _vmBuildRemarkSection() {
 function _vmRenderLagerContent() {
     var el = _vmDom.lagerContent;
     el.innerHTML = '';
+
+    // Varelisten er også forslagene til "Målt på". Synkroniseres her frem for
+    // ved hvert kaldested, så en vare tilføjet manuelt eller et leverandør-
+    // skift altid slår igennem begge steder.
+    _vmSyncTempProductLists();
 
     // Header
     var header = document.createElement('div');
@@ -1572,12 +1989,16 @@ async function _vmSubmit() {
             temperature_cool_ok: _vmState.koelEnabled
                 ? (_vmState.koelStatus === 'action' ? false : _vmState.koelStatus != null)
                 : null,
+            // Hvilken vare blev målt? Serveren nulstiller det alligevel når
+            // toggle er slået fra — men vi sender ikke noget vi ved er tomt.
+            temperature_cool_product: _vmState.koelEnabled ? (_vmState.koelProduct || null) : null,
 
             temperature_frozen_enabled: _vmState.frysEnabled,
             temperature_frozen_value: _vmState.frysEnabled ? _vmState.frysValue : null,
             temperature_frozen_ok: _vmState.frysEnabled
                 ? (_vmState.frysStatus === 'action' ? false : _vmState.frysStatus != null)
                 : null,
+            temperature_frozen_product: _vmState.frysEnabled ? (_vmState.frysProduct || null) : null,
 
             date_check_ok: _vmState.dateCheck,
             labeling_check_ok: _vmState.labelCheck,
@@ -1590,6 +2011,11 @@ async function _vmSubmit() {
             photo_path: _vmState.photoPath,
             notes: _vmState.notes || null,
             items: items,
+
+            // Felter tavlen har i skemaet, som Bon v2 ikke har en kolonne til.
+            // Serveren filtrerer dem mod skemaet igen — vi sender bare det
+            // brugeren har udfyldt.
+            extra_fields: _vmExtra,
 
             // Backdatering: send kun modtagedato når brugeren har evnen OG har
             // valgt en dato ≠ i dag. Ellers null → serveren bruger faktisk tidspunkt.
@@ -1844,11 +2270,18 @@ async function _vmShowReceiptDetail(id) {
     rows.push(['Modtaget',    _vmFmtDateTime(r.received_at)]);
     rows.push(['Leverandør',  r.supplier_name]);
     rows.push(['Modtaget af', r.received_by_name || '—']);
+    // Temperaturen og varen den blev målt på hører sammen. Står de hver for
+    // sig, kan man ikke se hvilken måling der gælder hvad — og så er
+    // produktfeltet skrivbart uden at være læsbart bagefter.
     rows.push(['Køl',  r.temperature_cool_enabled
-        ? _vmNum(r.temperature_cool_value) + ' °C' + (r.temperature_cool_ok === 0 ? '  ⚠ over grænsen' : '')
+        ? _vmNum(r.temperature_cool_value) + ' °C'
+          + (r.temperature_cool_ok === 0 ? '  ⚠ over grænsen' : '')
+          + (r.temperature_cool_product ? '  ·  målt på ' + r.temperature_cool_product : '')
         : 'Ikke relevant']);
     rows.push(['Frys', r.temperature_frozen_enabled
-        ? _vmNum(r.temperature_frozen_value) + ' °C' + (r.temperature_frozen_ok === 0 ? '  ⚠ over grænsen' : '')
+        ? _vmNum(r.temperature_frozen_value) + ' °C'
+          + (r.temperature_frozen_ok === 0 ? '  ⚠ over grænsen' : '')
+          + (r.temperature_frozen_product ? '  ·  målt på ' + r.temperature_frozen_product : '')
         : 'Ikke relevant']);
     rows.push(['Dato/holdbarhed', r.date_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
     rows.push(['Mærkning',        r.labeling_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
@@ -1856,6 +2289,20 @@ async function _vmShowReceiptDetail(id) {
     if (r.has_deviation) {
         rows.push(['Afvigelse', _vmDeviationLabel(r.deviation_type)]);
         if (r.deviation_note) rows.push(['Bemærkning', r.deviation_note]);
+    }
+
+    // Felter tavlen har tilføjet efter Bon v2 blev bygget. De har ingen fast
+    // plads i visningen — men de blev udfyldt, så de skal kunne læses.
+    if (r.extra_fields_json) {
+        try {
+            var extra = JSON.parse(r.extra_fields_json) || {};
+            Object.keys(extra).forEach(function(k) {
+                var v = extra[k];
+                if (v === true) v = 'Ja';
+                else if (v === false) v = 'Nej';
+                rows.push([_vmExtraLabel(k), String(v)]);
+            });
+        } catch (e) { /* ulæselig JSON må ikke vælte hele detaljevisningen */ }
     }
     if (r.notes) rows.push(['Note', r.notes]);
 
@@ -1913,6 +2360,18 @@ async function _vmShowReceiptDetail(id) {
             }
         });
     }
+}
+
+/**
+ * Pænt navn på et skema-felt Bon v2 ikke selv kender.
+ *
+ * Slås op i det skema der er hentet nu. Er feltet siden fjernet i tavlens
+ * admin, viser vi felt-id'et — en gammel registrering skal stadig kunne
+ * læses, også når skemaet er gået videre.
+ */
+function _vmExtraLabel(id) {
+    var f = _vmFields[id];
+    return (f && f.label) ? f.label : id;
 }
 
 function _vmDeviationLabel(type) {

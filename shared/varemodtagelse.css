@@ -248,6 +248,108 @@
     pointer-events: none;
 }
 
+/* ── "Målt på": hvilken vare blev temperaturen taget på? ──
+   <input list> giver leverancens varer som forslag og tillader stadig fri
+   tekst, hvis der blev målt på noget andet. Touch-venligt: én kontrol i
+   stedet for en dropdown plus et felt ved siden af. */
+
+.vm-temp-product {
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px dashed var(--color-border, #ddd5c8);
+}
+
+.vm-temp-product-label {
+    display: block;
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--color-text-dim, #8a7a68);
+    margin-bottom: 5px;
+    letter-spacing: .01em;
+}
+
+.vm-temp-product-input {
+    width: 100%;
+    padding: 9px 11px;
+    font-family: inherit;
+    font-size: .87rem;
+    border: 1.5px solid var(--color-border, #ddd5c8);
+    border-radius: 9px;
+    background: var(--color-surface, #fff);
+    color: var(--color-text, #2c2416);
+    transition: border-color .15s;
+}
+
+.vm-temp-product-input:focus {
+    outline: none;
+    border-color: var(--brand-primary, #c47a2b);
+}
+
+.vm-temp-product-input:disabled {
+    opacity: .4;
+    background: var(--color-background, #f5f0eb);
+}
+
+/* ── Felter tavlen har tilføjet, som Bon v2 ikke selv kender ── */
+
+.vm-extra-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.vm-extra-field {
+    background: var(--color-surface, #fff);
+    border: 1.5px solid var(--color-border, #ddd5c8);
+    border-radius: 11px;
+    padding: 11px 13px;
+}
+
+.vm-extra-label {
+    display: block;
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--color-text, #2c2416);
+    margin-bottom: 5px;
+}
+
+.vm-extra-field .vm-field-hint {
+    display: block;
+    margin: 0 0 6px;
+}
+
+.vm-extra-input {
+    width: 100%;
+    padding: 9px 11px;
+    font-family: inherit;
+    font-size: .87rem;
+    border: 1.5px solid var(--color-border, #ddd5c8);
+    border-radius: 9px;
+    background: var(--color-background, #f5f0eb);
+    color: var(--color-text, #2c2416);
+    resize: vertical;
+}
+
+.vm-extra-input:focus {
+    outline: none;
+    border-color: var(--brand-primary, #c47a2b);
+    background: var(--color-surface, #fff);
+}
+
+/* ── Hvor kom skemaet fra? Kun synlig når det IKKE er friskt ──
+   Dæmpet med vilje: det er en oplysning, ikke en fejl. Varemodtagelsen
+   virker fint på et skema fra i går. */
+
+.vm-schema-note {
+    font-size: .72rem;
+    line-height: 1.45;
+    color: var(--color-text-dim, #8a7a68);
+    background: var(--color-background, #f5f0eb);
+    border: 1px dashed var(--color-border, #ddd5c8);
+    border-radius: 9px;
+    padding: 8px 11px;
+}
+
 .vm-temp-badge {
     min-width: 58px;
     border-radius: 9px;
