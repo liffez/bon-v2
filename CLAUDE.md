@@ -414,6 +414,12 @@ ved restart — vær påpasselig med at hoppe frem/tilbage mellem branch og main
 migrations-PR'er (migrationen ruller IKKE tilbage ved checkout af main). Husk også
 hård browser-refresh (Cmd+Shift+R) efter deploy — JS/CSS kan være cachet.
 
+> ⚠️ **Genstart ÉN gang, og vent.** `systemctl restart` flere gange hurtigt efter
+> hinanden kan starte to server-processer oven i hinanden, som begge kører
+> migrationerne. Det væltede produktionen 20. august 2026 (se "Migrations er
+> alt-eller-intet" nedenfor). Tjek med `systemctl is-active bon-v2` i stedet for
+> at genstarte igen.
+
 **Regler:**
 - Migrations kører automatisk ved server-start. Hvis commit'en indeholder en ny `db/migrations/`-fil → genstart kræves
 - Settings-ændringer der peger på Grocy/Smartplan/SMTP kræver ikke genstart (læses ved hver brug eller har egen cache-invalidation)
@@ -4748,6 +4754,54 @@ i **begge** `.env`-filer (den gør den allerede, til webhooken).
 indkøbslisten, Grocy-enheder og QU-konvertering. Whiteboard #19's valg (tavlens
 formular *viger* for bon når de er koblet) står ved magt. Denne opgave løser den
 anden halvdel: at bon ikke længere har sin egen forældede kopi af FVST-delen.
+
+
+### Migrations er alt-eller-intet (20. august 2026)
+
+Produktionen lå nede i crash-loop med `502 Bad Gateway`. Loggen sagde
+`duplicate column name: temperature_cool_product` — migration 151 forsøgte at
+tilføje en kolonne der allerede fandtes, hver gang systemd startede serveren.
+
+**Ændringen var anvendt, registreringen manglede.** `db/migrate.js` kørte hele
+SQL-filen med `db.exec(sql)` og skrev først `INSERT INTO _migrations` bagefter.
+`exec` kører uden transaktion, så SQLite committer hvert statement for sig. Rammer
+noget vinduet mellem de to, står databasen ændret mens migrationen ser ukørt ud —
+og næste opstart rammer sin egen første `ALTER TABLE`. Serveren kommer aldrig ud
+af det selv; systemd genstarter den bare ind i samme fejl.
+
+Udløseren er bekræftet: main blev deployet lige efter merge og `systemctl restart`
+kørt flere gange i træk, så **to server-processer startede oven i hinanden**. Begge
+så migrationen som ukørt; den ene anvendte alle fire statements, den anden holdt
+skrivelåsen da registreringen skulle skrives.
+
+- **Migration og registrering committes nu sammen.** `BEGIN IMMEDIATE` → `exec` →
+  `INSERT INTO _migrations` → `COMMIT`, med `ROLLBACK` ved fejl. `IMMEDIATE` frem
+  for `BEGIN` er ikke pynt: skrivelåsen tages med det samme, så to samtidige
+  processer støder sammen FØR den ene har ændret noget. Taberen fejler rent.
+- **Fem migrations er undtaget** — dem der slår foreign keys fra (`032`, `041`,
+  `060`, `090`, `128`). `PRAGMA foreign_keys` er en **no-op inde i en transaktion**,
+  så en indpakning ville tavst lade FK-håndhævelsen være tændt midt i en 12-trins
+  table-rebuild. Det fejler ikke højlydt — det river rækker med sig. De køres som
+  før og har præcis samme risiko som hidtil. Detekteres på `OWNS_FK_PRAGMA`.
+- **Fejlbeskeden anviser udvejen.** Ved `duplicate column` skriver loggen nu at
+  ændringerne sandsynligvis allerede er anvendt, og hvordan migrationen registreres.
+  Det er fejlsøgningen gjort til tre linjer i journalctl.
+- `runMigrations(dbPath, migrationsDir)` — mappen er injicerbar, så testene kører
+  den **rigtige** runner mod kontrollerede migrations i stedet for en kopi af
+  logikken. Alle ~60 eksisterende kaldere sender højst ét argument.
+
+> Rettelsen har først effekt ved NÆSTE migration. En database der allerede står
+> halvfærdig skal bringes i orden i hånden — verificér at hele filens indhold er
+> anvendt, og registrér den så i `_migrations`.
+
+**Tests**: `tests/migrate.test.js` (6 — rollback efterlader intet, en rettet migration
+kan køres igen, ændring og registrering følges ad, ingen dobbeltkørsel, fejlbeskeden
+anviser, FK-undtagelsen virker). **Mutations-testet:** fjernes transaktionen falder de
+to tests der beskriver produktionsfejlen; fjernes FK-undtagelsen fejler table-rebuild;
+fjernes fejlbesked-hjælpen falder dens egen test. **Regression:** en frisk database
+kører alle 160 migrations, og skemaet er **byte-identisk** (258 objekter) med den
+originale runner. `cashflow-sync`'s 4 FAIL er pre-eksisterende — efterprøvet ved at
+køre suiten mod den gamle `migrate.js`.
 
 
 ## Næste opgave
