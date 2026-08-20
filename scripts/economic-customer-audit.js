@@ -73,7 +73,7 @@ async function virkVedCvr(numre) {
         }
         process.stderr.write(`\r  Virk: ${Math.min(i + 100, numre.length)}/${numre.length}   `);
     }
-    process.stderr.write('\r' + ' '.repeat(40) + '\r');
+    process.stderr.write('\r' + ' '.repeat(40) + '\r\n');
     return ud;
 }
 
@@ -141,6 +141,7 @@ const meld = (niveau, bons, navn, tekst) => fund[niveau].push({ bons, navn, teks
             // altså det NORMALE, ikke en fejl. Udledt af dataene, ikke en hardcodet liste.
             const brug = new Map();
             for (const f of medCvr) brug.set(cif(f.cvr), (brug.get(cif(f.cvr)) || 0) + 1);
+            const paraplyer = new Map();   // CVR → antal afdelinger. Opsummeres, listes ikke.
 
             for (const f of medCvr) {
                 const nr = cif(f.cvr);
@@ -158,8 +159,13 @@ const meld = (niveau, bons, navn, tekst) => fund[niveau].push({ bons, navn, teks
                 const lighed = dice(f.name, v.navn);
                 if (!paraply && lighed < 0.35)
                     meld('advarsel', f.bons, f.name, `CVR ${f.cvr} tilhører "${v.navn}" — et andet firma (lighed ${lighed.toFixed(2)})`);
-                else if (paraply && lighed < 0.35)
-                    meld('data', f.bons, f.name, `bruger paraply-CVR ${f.cvr} "${v.navn}" (delt med ${brug.get(nr) - 1} andre) — forventet for en afdeling`);
+                else if (paraply && lighed < 0.35) paraplyer.set(nr, (paraplyer.get(nr) || 0) + 1);
+            }
+
+            if (paraplyer.size) {
+                const top = [...paraplyer.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+                    .map(([nr, n]) => `${virk.get(nr)?.navn || nr} (${n})`).join(' · ');
+                console.log(`(${[...paraplyer.values()].reduce((a, b) => a + b, 0)} afdelinger bruger et paraply-CVR — forventet, ikke en fejl: ${top})\n`);
             }
         }
     }
@@ -173,17 +179,17 @@ const meld = (niveau, bons, navn, tekst) => fund[niveau].push({ bons, navn, teks
     });
     if (skrald.length) {
         const enum_ = skrald.filter(f => /^ANTAL_/i.test(String(f.employee_count))).length;
-        meld('data', 0, `${skrald.length} firmaer`, `employee_count er ikke et antal ansatte (${enum_} med rå "ANTAL_*"-enum, ${skrald.length - enum_} med tal over 5.000 — ligner datoserier)`);
+        meld('data', null, `${skrald.length} firmaer`, `employee_count er ikke et antal ansatte (${enum_} med rå "ANTAL_*"-enum, ${skrald.length - enum_} med tal over 5.000 — ligner datoserier)`);
     }
 
     // ── Rapport ───────────────────────────────────────────────────────
     const vis = (nøgle, overskrift, forklaring) => {
-        const r = fund[nøgle].filter(x => ALLE || x.bons > 0 || nøgle === 'data');
+        const r = fund[nøgle].filter(x => ALLE || x.bons > 0 || x.bons === null);
         console.log(`── ${overskrift} (${r.length}) ──`);
         if (forklaring) console.log(`   ${forklaring}`);
         if (!r.length) return console.log('   ingen\n');
-        r.sort((a, b) => b.bons - a.bons).forEach(x =>
-            console.log(`   ${String(x.bons).padStart(3)} bons  ${String(x.navn).slice(0, 32).padEnd(34)} ${x.tekst}`));
+        r.sort((a, b) => (b.bons ?? -1) - (a.bons ?? -1)).forEach(x =>
+            console.log(`   ${x.bons === null ? '   —' : String(x.bons).padStart(3) + ' bons'}  ${String(x.navn).slice(0, 32).padEnd(34)} ${x.tekst}`));
         console.log('');
     };
     console.log('');
