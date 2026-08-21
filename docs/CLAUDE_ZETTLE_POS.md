@@ -1,6 +1,7 @@
 # CLAUDE_ZETTLE_POS.md — Zettle (PayPal POS) → Bon v2
 
-> **Status:** SPEC. Intet bygget. Fire faser, se §14.
+> **Status:** SPEC. Fase 1 verificeret mod produktionskontoen 21. august 2026 (§15) — read-only,
+> intet skrevet. Fase 2–4 ikke bygget. Fire faser, se §14.
 > **Beslægtet:** `docs/CLAUDE_EVENT_BON_BRIDGE.md` (samme mønster, modsat retning) ·
 > `docs/CLAUDE_EVENT.md` §5 (lager-gaten) + §6 (top-up/retur) + §15.3 (festival-bemanding) ·
 > `docs/economics/CLAUDE_PENGESTROEM.md` §2.E/§2.F (event-indtægt uden faktura).
@@ -226,11 +227,30 @@ Zettle-produkter har egne UUID'er. `bon_lines.pos_product_id` findes (migration 
 er `INTEGER` og har aldrig været brugt — en UUID passer ikke. Koblingen bor derfor i
 `raw_json` + en opslagstabel/regel, ikke i den kolonne.
 
-| Niveau | Hvad | Hvornår |
+| Niveau | Hvad | Målt resultat (12 mdr, 19 distinkte POS-varer) |
 |---|---|---|
-| **A. Navnematch** | POS-varenavn → Grocy-opskriftsnavn (normaliseret) | Start her. Fase 1 måler hvor langt det rækker. |
-| **B. Manuel kobling** | Lille UI: ukoblede POS-varer → vælg Grocy-opskrift, gemmes pr. UUID | Når navnematch efterlader for mange |
-| **C. Grocy → Zettle push** | Synkronisér salgbare opskrifter til Zettles Product Library, gem den returnerede UUID | Slutmålet — se nedenfor |
+| **A1. Eksakt navn** (normaliseret) | `"Fisken"` → `Fisken` | 6/19 varer · **50 % af omsætningen** |
+| **A2. Ordsæt** (samme ord, vilkårlig rækkefølge) | `"Slider kartoflen"` → `Kartoflen slider` | 9/19 varer · **65 % af omsætningen** |
+| **B. Manuel kobling** | POS-UUID → Grocy-opskrift, gemt pr. UUID | dækker resten |
+| **C. Grocy → Zettle push** | Menuen skubbes ud i kassen, vi ejer id'erne | slutmålet |
+
+> ⚠️ **Delstrengs-match er forbudt.** Målt på ægte data giver det **forkerte** match på tre
+> varer — hver gang en slider mappet til den fuldstore ret:
+>
+> | POS-vare | Delstreng finder | Rigtigt |
+> |---|---|---|
+> | `Slider kartoflen` | `Kartoflen` | `Kartoflen slider` |
+> | `Slider     fisken` | `Fisken` | `Fisken Slider` |
+> | `Slider Falaflen` | ` Falaflen` | `Falaflen - slider` |
+>
+> Konsekvensen er ikke kosmetisk: en slider til 55 kr ville få den fuldstore rets kostpris,
+> CO₂ og **stykliste** — og dermed forgifte top-up- og retur-forslaget der eksploderer
+> salget via Grocy-BOM. Et forkert match er værre end intet match, fordi det ser rigtigt ud.
+> **A2 er den yderste grænse for automatik**; alt andet er manuel kobling.
+
+**Manuel kobling (B) skal med i Fase 2**, ikke udskydes: selv med A2 står 35 % af
+omsætningen uden kobling, og en tredjedel af det er varer der findes i Grocy under et
+andet navn.
 
 **Niveau C er den rigtige løsning på sigt.** Grocy har allerede et **ubrugt**
 `sellableZettle`-checkbox-userfield på opskrifter (CLAUDE.md's userfield-tabel). Pusher vi
@@ -298,8 +318,24 @@ stopper synk af en dag efter `zettle_resync_days`.
 - **Drikkepenge** indgår ikke i vareomsætningen. Behandling fastlægges i Fase 1 hvis de
   overhovedet optræder.
 
-> Det **præcise** format for refunderinger, betalingsmiddel-koder og rabatter er ikke
-> antaget her. Det er netop hvad Fase 1 måler mod ægte data, før noget skrives.
+> ⚠️ **Der findes ingen refundering at kigge på.** Fase 1 scannede 12 måneder (646 køb,
+> 8 salgsdage): **0** med `refund = true`, **0** med `refunded = true`. Felterne
+> (`refund`, `refunded`, `refundsPurchaseUUID`) findes i payloaden, men formatet kan
+> **ikke verificeres empirisk** endnu. Håndteringen skal derfor være defensiv, og den
+> første ægte refundering skal efterprøves i hånden mod bonnen. Det samme gælder rabatter
+> (0 forekomster) og drikkepenge (0 forekomster).
+
+**Ikke alt over kassen er event-omsætning.** Terminalen bruges også til at tage imod
+betaling på en faktura — 22. juni 2026 ligger der ét køb på 5.321,25 kr med varenavnet
+`Fakture 4087`, og 2. juli ét på 3.500 kr med navnet `Foodtrucken`. En faktura er allerede
+bogført i `cf_invoices` og e-conomic; blev den også lavet om til en POS-salgsbon, stod
+omsætningen to gange.
+
+Tilvalget pr. event (§6.2) er værnet: de dage havde intet event Zettle slået til, så der
+opstår ingen bon — de vises som "POS-salg uden event". **Restrisikoen** er en faktura
+betalt over terminalen *midt på en eventdag*. Den kan ikke afvises automatisk uden at
+gætte, så Fase 2 nøjes med at gøre den synlig: et køb med én varelinje uden Grocy-kobling
+og et beløb langt over dagens gennemsnit markeres i dagens opsummering.
 
 ---
 
@@ -397,19 +433,50 @@ Gebyr fra Finance API erstatter estimatet. Foreslået match af udbetaling → ba
 
 ---
 
-## 15. Åbne spørgsmål (besvares af Fase 1, ikke af gætteri)
+## 15. Målt mod ægte data (Fase 1, 21. august 2026)
 
-1. Kommer refunderinger som selvstændige køb med negativ sum, eller som et felt på det
-   oprindelige køb?
-2. Optræder MobilePay via Zettle som eget betalingsmiddel?
-3. Ligger rabatter på linje- eller kvitteringsniveau?
-4. Giver Finance API gebyr pr. udbetaling, pr. transaktion, eller begge?
-5. Hvor mange POS-varer matcher Grocy på navn alene (afgør niveau A/B/C i §7)?
-6. Optræder drikkepenge overhovedet?
-7. **Bærer et køb en identifikator for salgsstedet** (Zettles flere-salgssteder), og hvad
-   hedder feltet? Afgør formatet på `events.pos_store_ref` (§6.3).
+Kørt read-only mod produktionskontoen. Periode: 2025-08-22 → 2026-08-22 (646 køb, 8 salgsdage)
++ festivalen 13.–15. august (512 køb, 73.495 kr).
 
----
+| # | Spørgsmål | Svar |
+|---|---|---|
+| 1 | Refunderingernes format | **Ingen stikprøve** — 0 i 12 måneder. Felterne findes; formatet kan ikke verificeres endnu (§9). |
+| 2 | MobilePay som eget betalingsmiddel | **Ja.** Observeret: `IZETTLE_CARD`, `MOBILE_PAY`. **Ingen** `CASH`. |
+| 3 | Rabatter på linje eller kvittering | Begge felter findes (`purchase.discounts`, `products[].discounts`). **0 forekomster.** |
+| 4 | Finance API's gebyr-granularitet | Ikke afprøvet endnu — `READ:FINANCE` er tildelt. Afklares i Fase 3. |
+| 5 | Hvor mange POS-varer matcher Grocy | Eksakt **50 %** af omsætningen, ordsæt **65 %**. Delstreng er farligt (§7). |
+| 6 | Drikkepenge | **Nej.** 0 forekomster, `customAmountSale` = 0. |
+| 7 | Identifikator for salgsstedet | **Ja:** `purchase.site` = `{uuid, displayName, addressLine, postalCode, city, primary}`. I dag ét salgssted ("Primært salgssted"). ⇒ `events.pos_store_ref` = `site.uuid`. |
+
+**Payload-form** (bekræftet):
+
+- **Køb:** `purchaseUUID`, `purchaseNumber`, `timestamp` (`2026-08-14T10:19:45.170+0000`),
+  `amount`, `vatAmount`, `currency`, `products[]`, `payments[]`, `discounts[]`, `site`,
+  `refund`, `refunded`, `customAmountSale`, `userDisplayName`/`userId`, `gpsCoordinates`.
+- **Varelinje:** `name`, `quantity`, `unitPrice`, `productUuid`, `variantUuid`,
+  `variantName`, `vatPercentage`, `costPrice`, `sku`, `fromLocationUuid`.
+- **Betaling:** `uuid`, `amount`, `type`, `createdAt`.
+
+**Moms:** alt er 25 %, og `brutto ÷ 1,25 = brutto − vatAmount` på kronen (73.495 → 58.796).
+Priserne er **incl moms** ⇒ ingen omregning mod `bon_lines.unit_price` (§6b).
+
+**API-detaljer der koster tid at genopdage:**
+- `endDate` er **eksklusiv** — `startDate=endDate` giver 0 køb.
+- Token holder **7200 sek (2 timer)**. Scopes ligger i JWT-payloadens `scope`, ikke i
+  token-svaret (svaret har hverken `scope` eller `token_type`).
+- Tildelte scopes: `READ:PURCHASE READ:FINANCE READ:PRODUCT READ:USERINFO WRITE:PRODUCT`.
+- Paginering: `lastPurchaseHash`, `limit` op til 1000.
+
+**Volumen:** 8 salgsdage på et år, største dag 230 køb. Polling og lagring af rå køb er
+gratis i praksis.
+
+**Døgnskiftet er forsikring, ikke mekanik:** 0 køb før kl. 04 i 12 måneder. Reglen skal
+stadig være der (der lukkes sent på festival), men den er endnu aldrig blevet udløst.
+
+### Udestår stadig
+
+- Gebyr-granularitet fra Finance API (Fase 3).
+- Første ægte refundering skal efterprøves i hånden mod bonnen.
 
 ## 16. Bevidst ikke bygget
 
