@@ -2449,6 +2449,37 @@ fritekst fra opskrift og siger at de lander på "Diverse" i regnskabet. Er ingen
 fritekst, står der i stedet at en vare der sælges igen bør have sit eget varenr i
 Grocy — det er en nødudgang, ikke en genvej.
 
+### Kunde-stamdata: hvilket værktøj til hvad (21. august 2026)
+
+Oprydningen i firma-rækker, CVR/EAN og e-conomic-koblinger fik fem scripts. De to
+første er dem man kører; resten tages frem når man går i gang med én familie.
+
+| Kommando | Svarer på |
+|---|---|
+| `npm run audit:kunder -- --cvr` | Kan noget sende en faktura til den **forkerte**? (kobling, CVR, EAN) |
+| `npm run audit:dubletter -- --sweep` | Hvilke **familier** skal gennemgås? 62 stk., rangeret efter bons på ukoblede rækker |
+| `npm run audit:dubletter -- --cvr <nr>` | Hvilke rækker er dubletter i dén familie, og hænger CVR/EAN/navn sammen? |
+| `npm run opdel:plan -- --company <id>` | Hvordan deles en paraply-række op? Skriver en review-fil |
+| `npm run opdel:udfoer -- --plan <fil> --company <id>` | Udfør opdelingen. **Dry-run som standard**, `--apply` skriver |
+| `npm run audit:fakturering -- --all` | Hvilke opskrifter/kunder blokerer faktureringen? |
+
+Alle er **read-only** på nær `opdel:udfoer --apply`, som tager backup først.
+
+**Delt CVR er familie-nøglen.** Det er det eneste objektive signal — og for kommunerne
+det eneste brugbare: rækkerne hedder "Skolen på Grundtvigsvej" og "Fritidscenter
+Christianshavn", så der er intet fælles ord at gruppere på. Derfor `--cvr` ved siden
+af `--familie`.
+
+> ⚠️ **Klyngerne er forslag, ikke konklusioner.** Danske sammensatte ord lader sig ikke
+> afgøre automatisk: "børn" står i både *Børnefortællingen* og *Børne- og Ungdoms-
+> forvaltningen*, som er to forskellige enheder. Klynger på seks eller flere rækker
+> markeres som sandsynligt over-flettede. Sammenlægning er svær at fortryde — læs dem.
+
+**Rækkefølgen der virker:** ret CVR først (et forkert CVR er dét der spærrer for det
+automatiske match), læg så dubletterne sammen, sæt kundenummeret på den overlevende,
+og del til sidst paraplyen op. Gør man det omvendt, flyttes bons ind i nye rækker ved
+siden af dem der allerede findes.
+
 ### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
 
 `_tCopyBon` ("📋 Kopiér" i wizardens trin 1) tog priserne fra den kopierede bons

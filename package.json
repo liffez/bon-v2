@@ -66,6 +66,10 @@
     "test:mail-tid": "node --experimental-sqlite scripts/test-mail-timestamp-format.js",
     "test:mail-signature": "node --env-file=.env.test --experimental-sqlite tests/mail_signature.test.js",
     "audit:kunder": "node --experimental-sqlite scripts/economic-customer-audit.js",
+    "audit:dubletter": "node --experimental-sqlite scripts/company-duplicates.js",
+    "audit:fakturering": "node --experimental-sqlite scripts/economic-blocking-report.js",
+    "opdel:plan": "node --experimental-sqlite scripts/company-split-plan.js",
+    "opdel:udfoer": "node --experimental-sqlite scripts/company-split-apply.js",
     "test:economic": "node --experimental-sqlite scripts/test-economic-invoice.js && node scripts/test-fakturering-render.js && node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js",
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js"
   },
