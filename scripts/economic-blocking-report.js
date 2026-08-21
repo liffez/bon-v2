@@ -7,8 +7,8 @@
  *
  * Efter #454 afgøres "faktureres ikke" pr. VARE, ikke pr. kategori. Denne rapport
  * viser konsekvensen på ægte data, så koblingsarbejdet i Grocy kan planlægges FØR
- * en bon står og venter: hvilke opskrifter mangler et e-conomic varenr, hvor mange
- * bons rammer det, og hvad udelades bevidst.
+ * en bon står og venter: hvilke opskrifter mangler et e-conomic varenr, hvilke KUNDER
+ * mangler en kobling, hvor mange bons det rammer, og hvad udelades bevidst.
  *
  * Skriver ALDRIG. Kan køres mod drift.
  *
@@ -61,8 +61,12 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
 
     const rows = db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_date, b.delivery_price,
-               b.delivery_vehicle_id, sd.code AS status_code,
-               COALESCE(co.name, TRIM(c.first_name || ' ' || c.last_name)) AS company_name
+               b.delivery_vehicle_id, b.company_id, b.customer_id, sd.code AS status_code,
+               COALESCE(co.name, TRIM(c.first_name || ' ' || c.last_name)) AS company_name,
+               -- checkReadiness læser kunden som NESTEDE objekter (bon.company.…),
+               -- ikke flade kolonner. Uden dem meldte rapporten "mangler kunde" på alt.
+               co.name AS co_name, co.ean AS co_ean, co.economic_customer_id AS co_eco,
+               c.economic_customer_id AS cu_eco, c.economic_contact_id AS cu_kontakt
         FROM bons b
         JOIN status_definitions sd ON sd.id = b.status_id
         LEFT JOIN companies co ON co.id = b.company_id
@@ -81,6 +85,9 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
 
     const blocking = new Map();   // recipe-nøgle → { navn, bons:Set, kr, kategori }
     const excluded = new Map();
+    // Kunde-siden: en manglende kobling på firmaet blokerer hele bonen, uanset varerne.
+    // Den er lige så almindelig som manglende varenumre — og var usynlig her.
+    const kunder = new Map();
     let blockedBons = 0, okBons = 0;
     const blockedList = [];
 
@@ -92,7 +99,24 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
             l.economic_bundle = (l.economic_product_number == null && rid != null)
                 ? (bundleMap.get(rid) ?? null) : null;
         }
-        const r = economicInvoice.checkReadiness({ ...b, lines }, settings);
+        const beriget = {
+            ...b, lines,
+            company:  b.company_id  ? { name: b.co_name, ean: b.co_ean, economic_customer_id: b.co_eco } : null,
+            customer: b.customer_id ? { economic_customer_id: b.cu_eco, economic_contact_id: b.cu_kontakt } : null,
+        };
+        const r = economicInvoice.checkReadiness(beriget, settings);
+
+        if (r.missingCustomer || r.eanWithoutContact) {
+            const key = b.company_id ?? `kunde:${b.customer_id}`;
+            const hit = kunder.get(key) || {
+                navn: b.company_name || '—', bons: new Set(), kr: 0,
+                grund: r.missingCustomer ? 'mangler kunde-nr' : 'EAN uden kontaktperson',
+            };
+            hit.bons.add(b.id);
+            hit.kr += lines.reduce((sum, l) => sum + economicInvoice.lineAmount(l), 0);
+            kunder.set(key, hit);
+        }
+
         if (r.missingProducts.length) {
             blockedBons++;
             blockedList.push({ ...b, varer: r.missingProducts.map(m => m.product_name.trim()),
@@ -120,9 +144,21 @@ const kr = (n) => (n ?? 0).toLocaleString('da-DK', { minimumFractionDigits: 2, m
 
     console.log(`\ne-conomic — blokerings-rapport`);
     console.log(`${rows.length} bons ${ALL ? '(alle fakturerbare)' : '(kø: LEVERET, ikke sendt)'} fra ${SINCE}`);
-    console.log(`${okBons} uden blokerende linjer · ${blockedBons} blokeret`);
+    const kundeBons = new Set([...kunder.values()].flatMap(v => [...v.bons]));
+    console.log(`${okBons} uden blokerende linjer · ${blockedBons} blokeret af varer`
+        + (kundeBons.size ? ` · ${kundeBons.size} blokeret af manglende kunde-kobling` : ''));
     table(blocking, 'Blokerer — mangler et e-conomic varenr');
     table(excluded, 'Udelades bevidst — "faktureres ikke" eller 0 kr');
+
+    if (kunder.size) {
+        console.log('\n── Blokerer — kunden mangler en e-conomic-kobling ──');
+        [...kunder.values()].sort((a, b2) => b2.bons.size - a.bons.size).forEach(v => {
+            console.log(`  ${String(v.navn).slice(0, 40).padEnd(42)}${String(v.bons.size).padStart(4)} bons  `
+                + `${kr(v.kr).padStart(12)} kr inkl.   ${v.grund}`);
+        });
+        console.log('\n  Kunde-nr sættes på firmaet (CRM → Kontakter → Firmaer → e-conomic ✎),');
+        console.log('  eller med "Foreslå kunde fra e-conomic" i faktureringen.');
+    }
 
     if (VIS_BONS && blockedList.length) {
         console.log('\n── De blokerede bons ──');
