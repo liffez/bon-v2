@@ -26,6 +26,7 @@
     "test:run-db": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DB.js",
     "test:run-bon": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BON.js",
     "test:co2": "node scripts/test-co2-engine.js && node scripts/test-co2-aggregate.js && node scripts/test-co2-transport.js && node --experimental-sqlite scripts/test-bon-transport-co2.js",
+    "test:zettle": "node --test tests/zettle_adapter.test.js",
     "test:run-grocy": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_GROCY.js",
     "test:run-aggr": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_AGGR.js",
     "test:run-input": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INPUT.js",
