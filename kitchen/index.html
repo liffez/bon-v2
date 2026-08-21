@@ -250,6 +250,21 @@
             transition:box-shadow .15s, transform .08s;
         }
         .card-web-orders:hover { box-shadow:0 2px 10px rgba(0,0,0,0.10); }
+        /* "Lav snart" — mellemprodukter personalet selv skal lave i forvejen (#266) */
+        .card-prep-ahead { padding:10px 14px; }
+        .pa-row {
+            display:flex; align-items:baseline; gap:8px;
+            padding:5px 0; border-bottom:1px solid var(--color-border);
+        }
+        .pa-row:last-child { border-bottom:none; }
+        .pa-dot { font-size:11px; line-height:1; }
+        .pa-name { flex:1; font-weight:600; font-size:14px; }
+        .pa-amount { font-variant-numeric:tabular-nums; font-size:14px; }
+        .pa-sub { font-size:11px; color:var(--color-text-dim,#8a8580); }
+        /* Kan ikke laves: råvarerne mangler også → det er indkøb, ikke prep */
+        .pa-row.pa-blocked .pa-name { color:#c62828; }
+        .pa-foot { margin-top:6px; font-size:11px; color:var(--color-text-dim,#8a8580); }
+
         .card-web-orders:active { transform:translateY(1px); }
         .wo-icon { font-size:22px; }
         .wo-count-pill {
@@ -381,6 +396,13 @@
             </span>
         </a>
 
+        <!-- LAV SNART — RR-produktion der skal laves i forvejen (#266 §4.3).
+             Skjult når der intet er at lave; en tom liste er støj. -->
+        <div class="card card-prep-ahead" id="cardPrepAhead" style="display:none">
+            <div class="card-label">Lav snart <span id="prepAheadWindow" class="pa-sub"></span></div>
+            <div id="prepAheadBody"></div>
+        </div>
+
         <!-- PREP KOMMENDE DAGE -->
         <div class="card card-prep" id="cardPrep">
             <div class="card-label">Prep · kommende dage</div>
@@ -480,6 +502,7 @@
 
             renderToday(todayData);
             renderPrep(todayData, stats);
+            loadPrepAhead();
             renderChart(stats);
             renderVagtplan(todayData.date, stats);
         } catch (err) {
@@ -637,6 +660,60 @@
         }
 
         body.innerHTML = html;
+    }
+
+    // ── "Lav snart" — hvad personalet selv skal producere (#266 §4.3) ──
+    //
+    // Bon laver ALDRIG et RR Produktion-produkt. Den kan kun sige at der skal
+    // laves noget. Listen står her frem for i et modul, fordi et forecast man
+    // skal navigere hen til ikke bliver læst.
+    //
+    // Fejler kaldet, vises intet. Dashboardet må ikke gå i stykker af en
+    // Grocy-udetid — resten af dagens overblik er stadig rigtigt.
+    async function loadPrepAhead() {
+        const card = document.getElementById('cardPrepAhead');
+        const body = document.getElementById('prepAheadBody');
+        if (!card || !body) return;
+        try {
+            const d = await fetch('/api/bons/prep-ahead').then(r => r.json());
+            const items = (d.items || []);
+            if (!items.length) { card.style.display = 'none'; return; }
+
+            const win = document.getElementById('prepAheadWindow');
+            if (win) win.textContent = `· ${d.days} dage`;
+
+            let html = '';
+            for (const it of items.slice(0, 6)) {
+                const blocked = it.status !== 'kan_laves';
+                // Restbehovet — det der skal laves — ikke det samlede behov.
+                const amount = _paFmt(it.shortfall != null ? it.shortfall : it.needed) + ' ' + (it.unit || '');
+                const mangler = it.missing.length
+                    ? `mangler ${it.missing.slice(0, 2).join(', ')}${it.missing.length > 2 ? ' m.fl.' : ''}` : '';
+                const sub = it.make_status === 'ukendt'
+                    // Begge beskeder: hvad der mangler på hylden, og at Grocy
+                    // ikke kan fortælle hvor meget ét batch giver.
+                    ? [mangler, 'udbytte ikke oplyst'].filter(Boolean).join(' · ')
+                    : (blocked ? mangler : `${it.batches > 1 ? it.batches + ' × ' : ''}${it.recipe_name}`);
+                html += `<div class="pa-row${blocked ? ' pa-blocked' : ''}" title="${_paEsc(sub)}">
+                    <span class="pa-dot">${blocked ? (it.missing.length ? '🔴' : '⚪') : '🔵'}</span>
+                    <span class="pa-name">${_paEsc(it.product_name)}<br><span class="pa-sub">${_paEsc(sub)}</span></span>
+                    <span class="pa-amount">${_paEsc(amount)}</span>
+                </div>`;
+            }
+            if (items.length > 6) {
+                html += `<div class="pa-foot">+ ${items.length - 6} mere</div>`;
+            }
+            body.innerHTML = html;
+            card.style.display = '';
+        } catch (err) {
+            console.error('[prep-ahead]', err);
+            card.style.display = 'none';
+        }
+    }
+    function _paEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function _paFmt(n) {
+        const v = Number(n) || 0;
+        return v.toLocaleString('da-DK', { maximumFractionDigits: v < 10 ? 2 : 0 });
     }
 
     // ── Render: Prep card (kommende dage) ──

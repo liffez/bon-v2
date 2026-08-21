@@ -700,6 +700,19 @@ async function updateProduct(id, body) {
 }
 
 /** Slet produkt-barcode (bruges ved flytning af kobling) */
+/**
+ * Slet et produkt.
+ *
+ * Grocy nægter selv hvis produktet har lagerbevægelser, men kalderen bør tjekke
+ * FØR: en fejlbesked fra Grocy er ikke et godt sted at opdage at man var ved at
+ * slette noget med historik.
+ */
+async function deleteProduct(id) {
+    const result = await grocyDelete(`/objects/products/${id}`);
+    _cache.delete('products');
+    return result;
+}
+
 async function deleteProductBarcode(id) {
     await grocyDelete(`/objects/product_barcodes/${id}`);
     _cache.delete('product_barcodes');
@@ -1237,6 +1250,7 @@ module.exports = {
     updateProductBarcode,
     updateProductBarcodeUserfields,
     updateProduct,
+    deleteProduct,
     deleteProductBarcode,
     updateShoppingListItem,
     // Cache

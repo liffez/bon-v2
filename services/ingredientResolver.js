@@ -295,15 +295,416 @@ async function resolveIngredients(recipeLines) {
         resolveSubRecipesRaw(line.grocy_recipe_id, scaleFactor, new Set());
     }
 
+    // ── Kan-laves-laget (#266 §4.1) ──
+    // Bygges på præcis de samme opslag som resten af resolveren, så visningen
+    // og lagertrækket ikke kan komme til at bygge på hver sin virkelighed.
+    const producibility = makeProducibility({
+        rawRecipeMap, posByRecipe, nestingsByRecipe, productMap, unitMap,
+        quConversions, effectiveStock,
+    });
+
     // ── Format & klassificér ──
-    const production = formatLevel(prodAgg, effectiveStock, quConversions, unitMap, subRecipeAgg);
-    const raw        = formatLevel(rawAgg, effectiveStock, quConversions, unitMap, null);
+    const production = formatLevel(prodAgg, effectiveStock, quConversions, unitMap, subRecipeAgg, producibility);
+    const raw        = formatLevel(rawAgg, effectiveStock, quConversions, unitMap, null, producibility);
 
     // Rul råvare-status op på underopskrifterne, så Produktion-visningen ikke
     // kan vise en grøn "Æggesalat" mens Råvarer-visningen siger at æggene mangler.
     attachSubRecipeStatus(production.sub_recipes, raw.ingredients, posByRecipe, nestingsByRecipe);
 
     return { production, raw };
+}
+
+
+// ════════════════════════════════════════════════════════════
+// "KAN VAREN LAVES?" — tilgængelighed fra råvarer  (#266, §4.1)
+//
+// Grocys fulfillment stopper ved et produkts lager: den ved ikke at produktet
+// kan *laves*. Målt på grocy-hq 20.08.2026 stod 9 af 11 mellemprodukter på 0
+// og blev brugt i 28 opskrifts-referencer — alle sammen vist som "mangler",
+// selvom råvarerne til dem lå på hylden.
+//
+// Laget herunder svarer på ét spørgsmål: kan restbehovet af en vare laves af
+// de råvarer der ER der? Det ÆNDRER ikke hvad der trækkes ved LEVERET
+// (`resolveConsumeItems` er urørt) og skriver ingenting. Det annoterer.
+//
+// Bevidst additivt: `status` bliver stående som den fysiske sandhed, og
+// `effective_status` er den nye. En forbruger der ikke kender feltet opfører
+// sig præcis som før — hvilket er nødvendigt, fordi `shared/modal.js` falder
+// tilbage til GRØN på en ukendt status, og en usynlig grøn er værre end en
+// rød der råber for højt.
+// ════════════════════════════════════════════════════════════
+
+// `recipeunit` er fritekst ("kg", "antal"), mens Grocys enheder hedder
+// "Kilo"/"Antal". Uden den her oversættelse kan intet yield bindes til en
+// lager-enhed, og alt ville falde tilbage på skøn.
+const UNIT_ALIASES = {
+    kg: 'kilo', kilo: 'kilo', kilogram: 'kilo',
+    g: 'gram', gram: 'gram',
+    l: 'liter', liter: 'liter',
+    ml: 'ml',
+    stk: 'antal', 'stk.': 'antal', styk: 'antal', antal: 'antal', pcs: 'antal',
+};
+
+function normaliseUnitName(name) {
+    const n = String(name || '').trim().toLowerCase();
+    return UNIT_ALIASES[n] || n;
+}
+
+/** Grocy-enhedens id ud fra et fritekst-navn. null når navnet ikke er en enhed. */
+function resolveUnitIdByName(unitMap, name) {
+    const want = normaliseUnitName(name);
+    if (!want) return null;
+    for (const [id, u] of unitMap) {
+        if (normaliseUnitName(u.name) === want) return id;
+        if (u.name_plural && normaliseUnitName(u.name_plural) === want) return id;
+        if (u.name_short && normaliseUnitName(u.name_short) === want) return id;
+    }
+    return null;
+}
+
+/** product_id → [producerende opskrifter]. Falaffel har fx tre. */
+function buildProducerIndex(rawRecipeMap) {
+    const idx = new Map();
+    // Nøglen er sandheden om opskriftens id — `r.id` findes i Grocys svar, men
+    // ikke nødvendigvis i en testfixtur, og et opslag der falder tilbage til
+    // `undefined` ville give en anonym opskrift i visningen.
+    for (const [recipeId, r] of rawRecipeMap) {
+        const pid = Number(r.product_id);
+        if (!pid) continue;
+        const entry = { ...r, id: r.id ?? recipeId };
+        if (!idx.has(pid)) idx.set(pid, []);
+        idx.get(pid).push(entry);
+    }
+    // Deterministisk rækkefølge — ellers kan to kørsler navngive hver sin
+    // opskrift på den samme vare (Falaffel har tre).
+    //
+    // Udfasede opskrifter lægges bagest. Køkkenet skal ikke få besked på at
+    // lave "Original Falaffel- stegning" når den lever i gruppen
+    // `xgamle opskrifter`. Det er en navnekonvention, ikke et flag — derfor
+    // kun en SORTERING, aldrig en udelukkelse: værste udfald hvis konventionen
+    // ændrer sig er et dårligere navn, ikke et forkert svar.
+    const retired = (r) => /^x/i.test(String(r.userfields?.grupper || '').trim()) ? 1 : 0;
+    for (const list of idx.values()) {
+        list.sort((a, b) => (retired(a) - retired(b)) || (Number(a.id) - Number(b.id)));
+    }
+    return idx;
+}
+
+// Rækkefølgen bruges to steder: til at vælge den bedste af flere producenter,
+// og til at rulle den værste status op på en underopskrift.
+// `ukendt` = varen KAN produceres, men opskriftens udbytte er ikke oplyst i
+// Grocy, så vi kan ikke regne ud hvor mange batches der skal til. Den er bedre
+// end en producent vi ved ikke rækker (`lav`), og dårligere end en vi kan
+// verificere (`ok`).
+/**
+ * Fold producerede mellemprodukter tilbage til deres råvarer.
+ *
+ * Bruges af gaten i #269: når en blanding laves om til et produkt, ÆNDRER
+ * `consume` sig med vilje — menuen trækker fremover produktet i stedet for
+ * dets råvarer. Det der IKKE må ændre sig, er hvad der i sidste ende forlader
+ * råvarelageret. Den her funktion regner netop dét tal, så de to sider af
+ * konverteringen kan sammenlignes ærligt.
+ *
+ * Deler `makeProducibility`'s udbytte-fortolkning ved at kalde ind i den samme
+ * checker-fabrik — en anden implementering ville drive fra appens med tiden,
+ * og det er præcis sådan #349/#353 opstod.
+ *
+ * @param {Array} items  [{ product_id, amount_stock }] i lager-enheder
+ * @returns {{ raw: Map<number, number>, unexpanded: Array }}
+ *   `unexpanded` er de producerede varer hvis udbytte ikke kunne bestemmes.
+ *   De bliver stående som sig selv — vi opfinder ikke et udbytte for at få
+ *   regnskabet til at gå op.
+ */
+async function expandProducedToRaw(items) {
+    const [rawRecipeMap, allPos, nestings, products, units, quConversions] = await Promise.all([
+        grocy.getRecipesRawMap(), grocy.getAllRecipesPos(), grocy.getRecipeNestings(),
+        grocy.getProducts(), grocy.getQuantityUnits(), grocy.getQuantityUnitConversions(),
+    ]);
+    const posByRecipe = {};
+    allPos.forEach(p => { (posByRecipe[p.recipe_id] = posByRecipe[p.recipe_id] || []).push(p); });
+    const nestingsByRecipe = {};
+    nestings.forEach(n => { (nestingsByRecipe[n.recipe_id] = nestingsByRecipe[n.recipe_id] || []).push(n); });
+    const productMap = new Map(products.map(p => [p.id, p]));
+    const unitMap = new Map(units.map(u => [u.id, u]));
+
+    const producers = buildProducerIndex(rawRecipeMap);
+    const out = new Map();
+    const unexpanded = [];
+
+    function add(pid, amount) { out.set(pid, (out.get(pid) || 0) + amount); }
+
+    function walk(pid, amount, stack) {
+        const list = producers.get(Number(pid));
+        const product = productMap.get(pid);
+        if (!list || !list.length || !product || stack.has(Number(pid))) { add(pid, amount); return; }
+
+        const recipe = list[0];
+        const perBatch = yieldPerBatchStockOf(recipe, product, unitMap, quConversions);
+        if (perBatch == null || perBatch <= 0) {
+            unexpanded.push({ product_id: pid, product_name: product.name, amount, recipe_name: recipe.name });
+            add(pid, amount);
+            return;
+        }
+
+        // Brøkdele af et batch er det rigtige her: spørgsmålet er hvor mange
+        // råvarer der ligger BAG mængden, ikke hvor mange hele batches nogen
+        // skal røre. Rundede vi op, ville de to sider af konverteringen aldrig
+        // kunne matche.
+        const factor = amount / perBatch;
+        stack.add(Number(pid));
+        collectRecipeNeedsFlat(recipe.id, factor, posByRecipe, nestingsByRecipe, rawRecipeMap, (cpid, camt) => {
+            walk(cpid, camt, stack);
+        });
+        stack.delete(Number(pid));
+    }
+
+    for (const it of items) {
+        const amt = Number(it.amount_stock);
+        if (!(amt > 0)) continue;
+        walk(it.product_id, amt, new Set());
+    }
+    return { raw: out, unexpanded };
+}
+
+/** Udbytte for én opskrift i produktets lager-enhed. null = kan ikke bestemmes. */
+function yieldPerBatchStockOf(recipeRaw, product, unitMap, quConversions) {
+    const uf = recipeRaw.userfields || {};
+    const perServing = parseFloat(uf.recipeunitnumber);
+    if (!Number.isFinite(perServing) || perServing <= 0) return null;
+    const base = parseFloat(recipeRaw.base_servings);
+    const servings = Number.isFinite(base) && base > 0 ? base : 1;
+    const total = perServing * servings;
+    const yieldQuId = resolveUnitIdByName(unitMap, uf.recipeunit);
+    if (yieldQuId == null) return null;
+    if (Number(yieldQuId) === Number(product.qu_id_stock)) return total;
+    const f = findConversionFactor(quConversions, product.id, yieldQuId, product.qu_id_stock);
+    return f == null ? null : total * f;
+}
+
+/** Kald `emit(product_id, amount)` for hver råvare i en opskrift × multiplier. */
+function collectRecipeNeedsFlat(recipeId, multiplier, posByRecipe, nestingsByRecipe, rawRecipeMap, emit, stack = new Set()) {
+    for (const ing of (posByRecipe[recipeId] || [])) {
+        const amt = (parseFloat(ing.amount) || 0) * multiplier;
+        if (amt > 0) emit(ing.product_id, amt);
+    }
+    if (stack.has(recipeId)) return;
+    stack.add(recipeId);
+    for (const n of (nestingsByRecipe[recipeId] || [])) {
+        const subRaw = rawRecipeMap.get(n.includes_recipe_id);
+        if (!subRaw) continue;
+        const subBase = parseInt(subRaw.base_servings) || 1;
+        const m = ((parseFloat(n.servings) || 1) * multiplier) / subBase;
+        collectRecipeNeedsFlat(n.includes_recipe_id, m, posByRecipe, nestingsByRecipe, rawRecipeMap, emit, stack);
+    }
+    stack.delete(recipeId);
+}
+
+const MAKE_RANK = { ok: 0, kan_laves: 1, ukendt: 2, lav: 3, mangler: 4 };
+
+/**
+ * Byg en checker: (product_id, behov_i_lagerenhed) → kan det laves?
+ *
+ * Returnerer altid et objekt; `producible:false` betyder at ingen opskrift
+ * producerer varen — så er der intet at svare på, og status står som den er.
+ */
+function makeProducibility(ctx) {
+    const { rawRecipeMap, posByRecipe, nestingsByRecipe, productMap, unitMap,
+            quConversions, effectiveStock } = ctx;
+    const producerIndex = buildProducerIndex(rawRecipeMap);
+
+    /**
+     * Udbytte for ÉN opskrift som den er indtastet, udtrykt i produktets
+     * lager-enhed. null = kan ikke bestemmes med sikkerhed.
+     *
+     * `recipes_pos.amount` hører til opskriften som indtastet, altså til
+     * `base_servings` portioner — og `recipeunitnumber` er udbytte PR PORTION
+     * (samme fortolkning som yield-modellen i formatLevel bruger). Derfor
+     * ganges de to. Målt: Rødløg-Syltet har base_servings 2,8 og 1 kg/portion
+     * = 2,8 kg pr. batch, hvilket præcis matcher summen af dens input.
+     *
+     * Gætter ALDRIG: kan enheden ikke bindes til lager-enheden, returneres
+     * null, og kalderen falder tilbage på ét batch og siger at det er et skøn.
+     */
+    function yieldPerBatchStock(recipeRaw, product) {
+        const uf = recipeRaw.userfields || {};
+        const perServing = parseFloat(uf.recipeunitnumber);
+        if (!Number.isFinite(perServing) || perServing <= 0) return null;
+
+        const base = parseFloat(recipeRaw.base_servings);
+        const servings = Number.isFinite(base) && base > 0 ? base : 1;
+        const total = perServing * servings;
+
+        const yieldQuId = resolveUnitIdByName(unitMap, uf.recipeunit);
+        if (yieldQuId == null) return null;
+        if (Number(yieldQuId) === Number(product.qu_id_stock)) return total;
+
+        // Falaffel erklærer sit udbytte i "antal" (36 stk) mens produktet
+        // lagerføres i kilo. Konverteringen findes på produktet (1 Kilo = 35
+        // Antal) — den skal bruges, ikke ignoreres.
+        const f = findConversionFactor(quConversions, product.id, yieldQuId, product.qu_id_stock);
+        return f == null ? null : total * f;
+    }
+
+    /**
+     * Saml det samlede råvarebehov for `multiplier` gange en opskrift —
+     * inkl. dens egne underopskrifter.
+     *
+     * `stack` (ikke et `visited`-sæt) er bevidst: nås den samme underopskrift
+     * ad to grene, skal begge tælle. Kun en ægte cyklus stoppes. Samme lære
+     * som #354.
+     */
+    function collectRecipeNeeds(recipeId, multiplier, out, stack) {
+        for (const ing of (posByRecipe[recipeId] || [])) {
+            if ((ing.ingredient_group || '').toLowerCase() === 'emballage') continue;
+            const amt = (parseFloat(ing.amount) || 0) * multiplier;
+            if (amt <= 0) continue;
+            const pid = ing.product_id;
+            out.set(pid, (out.get(pid) || 0) + amt);
+        }
+        if (stack.has(recipeId)) return;
+        stack.add(recipeId);
+        for (const n of (nestingsByRecipe[recipeId] || [])) {
+            const subRaw = rawRecipeMap.get(n.includes_recipe_id);
+            if (!subRaw) continue;
+            const subBase = parseInt(subRaw.base_servings) || 1;
+            const m = ((parseFloat(n.servings) || 1) * multiplier) / subBase;
+            collectRecipeNeeds(n.includes_recipe_id, m, out, stack);
+        }
+        stack.delete(recipeId);
+    }
+
+    const NOT_PRODUCIBLE = { producible: false };
+
+    /**
+     * @param {number} productId
+     * @param {number} neededStock  behov i produktets lager-enhed
+     * @param {Set}    seen         produkter vi er midt i at vurdere (cyklus-værn)
+     */
+    function check(productId, neededStock, seen = new Set()) {
+        const producers = producerIndex.get(Number(productId));
+        if (!producers || !producers.length) return NOT_PRODUCIBLE;
+        if (seen.has(Number(productId))) return NOT_PRODUCIBLE;
+
+        const product = productMap.get(productId);
+        if (!product) return NOT_PRODUCIBLE;
+
+        const stock = effectiveStock(productId);
+        const shortfall = Math.max(0, neededStock - stock);
+        if (shortfall <= 0) {
+            // Der er dækning — men varen ER producerbar, og det skal en kalder
+            // kunne se uden at skulle spørge igen.
+            return { producible: true, make_status: null };
+        }
+
+        seen.add(Number(productId));
+        let best = null;
+        // Den bedste kandidat vi kan REGNE på. Vinder den ikke, bærer vi
+        // alligevel dens mangelliste med: at én opskrift ikke har fået udfyldt
+        // sit udbytte, må ikke skjule at en anden mangler en råvare. Køkkenet
+        // skal have begge dele — "6 stk mangler, og pebberen er sluppet op" er
+        // handlingsbart, "udbytte ikke oplyst" er kun en opgave til Grocy.
+        let bestVerifiable = null;
+
+        for (const recipeRaw of producers) {
+            const perBatch = yieldPerBatchStock(recipeRaw, product);
+            const estimated = perBatch == null;
+            // Hele batches — køkkenet rører ikke en halv portion mayo.
+            const batches = estimated
+                ? 1
+                : Math.max(1, Math.ceil(shortfall / perBatch));
+
+            const needs = new Map();
+            collectRecipeNeeds(recipeRaw.id, batches, needs, new Set());
+            if (!needs.size) continue;   // en opskrift uden råvarer laver ingenting
+
+            let worst = 'ok';
+            const shortfalls = [];
+            for (const [pid, amount] of needs) {
+                const childStock = effectiveStock(pid);
+                let st = childStock >= amount ? 'ok' : (childStock > 0 ? 'lav' : 'mangler');
+
+                if (st !== 'ok') {
+                    // Kan råvaren selv laves? Ingrid ærter udblødt → Falaffel
+                    // er en ægte kæde i grocy-hq, så det er ikke teoretisk.
+                    const sub = check(pid, amount, seen);
+                    if (sub.producible && sub.make_status === 'ok') st = 'kan_laves';
+                }
+
+                if (MAKE_RANK[st] > MAKE_RANK[worst]) worst = st;
+                if (st === 'lav' || st === 'mangler') {
+                    const cp = productMap.get(pid) || {};
+                    shortfalls.push({
+                        product_id:   pid,
+                        product_name: cp.name || `Produkt #${pid}`,
+                        needed:       amount,
+                        stock:        childStock,
+                        status:       st,
+                    });
+                }
+            }
+
+            // Uden et erklæret udbytte kan behovet ikke omsættes til batches, og
+            // så er "råvarerne rækker" en påstand vi ikke kan stå inde for.
+            //
+            // Målt i drift: `Falaffel- stegning-styk` har ingen
+            // `recipeunitnumber`, og dens mængder er PR STK. Ét batch er altså
+            // én falafel — men behovet var 20. Regnet som "1 batch rækker" ville
+            // varen stå som "kan laves" på et grundlag der kun beviser at man
+            // kan lave én. Det er præcis den slags stille optimisme der får en
+            // liste til at holde op med at blive troet på.
+            //
+            // Derfor: producerbar, ja — "kan laves", nej. Hullet vises i stedet
+            // som det det er, et manglende felt i Grocy (#372).
+            const makeStatus = estimated
+                ? 'ukendt'
+                : (worst === 'kan_laves' ? 'ok' : worst);
+            const candidate = {
+                producible:   true,
+                make_status:  makeStatus,
+                make_recipe_id:    recipeRaw.id,
+                make_recipe_name:  recipeRaw.name,
+                // Gruppen afgør HVEM der laver varen: `RR produktion Hurtig`
+                // laver Bon selv (#267), `RR Produktion` skal personalet lave
+                // i forvejen — det er hele forskellen på de to roller.
+                make_recipe_group: String(recipeRaw.userfields?.grupper || ''),
+                make_batches:     batches,
+                make_estimated:   estimated,
+                make_shortfalls:  shortfalls.sort((a, b) =>
+                    (MAKE_RANK[b.status] - MAKE_RANK[a.status]) ||
+                    a.product_name.localeCompare(b.product_name, 'da')),
+            };
+
+            // Flere opskrifter kan lave samme vare (Falaffel har tre) — køkkenet
+            // vælger selv, så den bedste vej vinder.
+            if (candidate.make_status !== 'ukendt'
+                && (!bestVerifiable || MAKE_RANK[candidate.make_status] < MAKE_RANK[bestVerifiable.make_status])) {
+                bestVerifiable = candidate;
+            }
+            if (!best || MAKE_RANK[candidate.make_status] < MAKE_RANK[best.make_status]) {
+                best = candidate;
+                if (best.make_status === 'ok') break;
+            }
+        }
+
+        seen.delete(Number(productId));
+
+        // Vandt en uberegnelig opskrift, så erstat dens mangelliste med den
+        // verificerbares. Den uberegnelige liste er regnet på ÉT batch og er
+        // ikke til at stå inde for; den verificerbares er.
+        if (best && best.make_status === 'ukendt' && bestVerifiable) {
+            best.make_shortfalls       = bestVerifiable.make_shortfalls;
+            best.make_blocked_recipe   = bestVerifiable.make_recipe_name;
+            best.make_blocked_status   = bestVerifiable.make_status;
+        } else if (best && best.make_status === 'ukendt') {
+            // Ingen af opskrifterne kunne regnes — så har vi intet at sige om
+            // råvarerne, og en liste ville være et gæt.
+            best.make_shortfalls = [];
+        }
+
+        return best || { producible: true, make_status: 'mangler', make_shortfalls: [] };
+    }
+
+    return check;
 }
 
 const STATUS_RANK = { ok: 0, lav: 1, mangler: 2 };
@@ -343,12 +744,15 @@ function attachSubRecipeStatus(subRecipes, rawIngredients, posByRecipe, nestings
     for (const sr of subRecipes) {
         const pids = collectSubRecipeProductIds(sr.recipe_id, posByRecipe, nestingsByRecipe);
         let worst = 'ok';
+        let worstEffective = 'ok';
         const shortfalls = [];
 
         for (const pid of pids) {
             const ing = byPid.get(pid);
             if (!ing) continue;   // mængde ≤ 0 eller ikke aggregeret
             if (STATUS_RANK[ing.status] > STATUS_RANK[worst]) worst = ing.status;
+            const eff = ing.effective_status || ing.status;
+            if (MAKE_RANK[eff] > MAKE_RANK[worstEffective]) worstEffective = eff;
             if (ing.status !== 'ok') {
                 shortfalls.push({
                     product_id:   ing.product_id,
@@ -358,6 +762,8 @@ function attachSubRecipeStatus(subRecipes, rawIngredients, posByRecipe, nestings
                     amount_stock:  ing.amount_stock,
                     stock_unit:    ing.stock_unit,
                     status:        ing.status,
+                    effective_status: ing.effective_status || ing.status,
+                    make_recipe_name: ing.make_recipe_name || null,
                 });
             }
         }
@@ -368,6 +774,11 @@ function attachSubRecipeStatus(subRecipes, rawIngredients, posByRecipe, nestings
         );
 
         sr.status = worst;
+        // Additivt: `status` er uændret (fysisk lager), `effective_status` er
+        // den nye. En blanding hvis råvarer alle kan skaffes er "kan_laves" —
+        // og en underopskrift skal jo altid laves, så det er ikke en undskyldning,
+        // det er den rigtige besked.
+        sr.effective_status = worstEffective;
         sr.shortfalls = shortfalls;
     }
 }
@@ -378,7 +789,7 @@ function attachSubRecipeStatus(subRecipes, rawIngredients, posByRecipe, nestings
  * @param {Function} effectiveStock  (product_id) → lager i stock-units inkl.
  *   parent/child-substitution (fra grocy.makeEffectiveStock).
  */
-function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subRecipeAgg) {
+function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subRecipeAgg, producibility) {
     const ingredients = [...aggregated.values()].map(ing => {
         const stockAmount = effectiveStock(ing.product_id);
 
@@ -386,6 +797,18 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
         if (stockAmount >= ing.needed_stock)       status = 'ok';
         else if (stockAmount > 0)                  status = 'lav';
         else                                       status = 'mangler';
+
+        // `status` ER og bliver den fysiske sandhed om lageret. `effective_status`
+        // er svaret på det spørgsmål køkkenet faktisk stiller: kan retten laves?
+        // De holdes adskilt, fordi en flade der kun kender `status` skal opføre
+        // sig præcis som før — og fordi "på lager" og "kan laves" er to
+        // forskellige beskeder til den der står i køkkenet.
+        const make = producibility
+            ? producibility(ing.product_id, ing.needed_stock)
+            : { producible: false };
+        const effectiveStatus = (status === 'ok')
+            ? 'ok'
+            : (make.producible && make.make_status === 'ok' ? 'kan_laves' : status);
 
         const convOpts = {
             productId: ing.product_id,
@@ -438,6 +861,11 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
             purchase_unit:      purchaseUnitName,
             // Rå bygge-klodser til enheds-konvertering hos kalderen:
             needed_stock:       ing.needed_stock,
+            // Lageret i RÅ lager-enhed. `amount_stock` ovenfor er formateret og
+            // kan have valgt en anden skala end `amount_needed` (0,105 kg vises
+            // som "105 g" mens 0 vises som "0 Kilo"). At trække de to
+            // VISTE tal fra hinanden ville derfor give vrøvl.
+            stock_amount:       stockAmount,
             // display_factor = lager → det tal der står i `amount_needed`/`amount_stock`.
             // Pakkelisten lader køkkenet REDIGERE det viste tal og skal kunne regne
             // tilbage: stock = redigeret / display_factor. Uden den blev "150 g"
@@ -450,6 +878,22 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
             purchase_factor:    purchaseFactor,
             purchase_is_real_unit: purchaseIsRealUnit,
             grams_factor:       gramsFactor,   // null = kan ikke vejes
+            // ── kan-laves (#266) ──
+            effective_status:  effectiveStatus,
+            producible:        !!make.producible,
+            make_status:       make.make_status ?? null,
+            make_recipe_id:    make.make_recipe_id ?? null,
+            make_recipe_name:  make.make_recipe_name ?? null,
+            make_recipe_group: make.make_recipe_group ?? null,
+            make_batches:      make.make_batches ?? null,
+            // true = udbyttet kunne ikke bindes til lager-enheden, så der er
+            // regnet med ÉT batch. Skal siges højt i visningen, ikke skjules.
+            make_estimated:    !!make.make_estimated,
+            make_shortfalls:   make.make_shortfalls ?? [],
+            // Sat når udbyttet ikke kunne regnes, men en ANDEN opskrift på
+            // samme vare kunne — og den er blokeret. Begge beskeder er sande.
+            make_blocked_recipe: make.make_blocked_recipe ?? null,
+            make_blocked_status: make.make_blocked_status ?? null,
         };
     });
 
@@ -734,4 +1178,4 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
     return [...aggregated.values()];
 }
 
-module.exports = { resolveIngredients, resolveConsumeItems };
+module.exports = { resolveIngredients, resolveConsumeItems, expandProducedToRaw };

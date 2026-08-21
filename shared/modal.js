@@ -790,10 +790,31 @@ function _buildInfoLine(line, _esc) {
    ══════════════════════════════════════════════════════════════ */
 
 const _STATUS_DOT = {
-    mangler: { dot: '🔴', cls: 'ing-status-mangler' },
-    lav:     { dot: '🟡', cls: 'ing-status-lav' },
-    ok:      { dot: '🟢', cls: 'ing-status-ok' },
+    mangler:   { dot: '🔴', cls: 'ing-status-mangler' },
+    lav:       { dot: '🟡', cls: 'ing-status-lav' },
+    // "Kan laves" er BEVIDST ikke grøn. Grøn betyder "tag den på hylden";
+    // blå betyder "den skal laves først, og råvarerne er der". Slås de to
+    // sammen, mister køkkenet det eneste signal om at der er arbejde inden
+    // service — og det var netop dét signal der manglede (#266 §4.1).
+    kan_laves: { dot: '🔵', cls: 'ing-status-kan-laves' },
+    ok:        { dot: '🟢', cls: 'ing-status-ok' },
 };
+
+/**
+ * Den status en række skal VISES med. Serveren leverer to: `status` er det
+ * fysiske lager, `effective_status` er svaret på "kan retten laves?".
+ * Et gammelt svar uden feltet opfører sig præcis som før.
+ */
+function _ingStatus(x) {
+    return (x && x.effective_status) || (x && x.status) || 'ok';
+}
+
+/** "1 × Rødløg - Syltet" / "2 × Falaffel-stegning (skøn)" */
+function _makeLabel(ing) {
+    if (!ing.make_recipe_name) return 'skal laves';
+    const n = ing.make_batches && ing.make_batches > 1 ? `${ing.make_batches} × ` : '';
+    return `skal laves: ${n}${ing.make_recipe_name}${ing.make_estimated ? ' (skøn)' : ''}`;
+}
 
 // Gem seneste råvare-data for toggle
 let _ravarerData = null;
@@ -1565,8 +1586,11 @@ function _buildRavarerHtml(data) {
 
         html += '<div class="ing-table">';
         for (const ing of group.ingredients) {
-            const st = _STATUS_DOT[ing.status] || _STATUS_DOT.ok;
-            const showCart = ing.status === 'mangler' || ing.status === 'lav';
+            const eff = _ingStatus(ing);
+            const st = _STATUS_DOT[eff] || _STATUS_DOT.ok;
+            // Et mellemprodukt kan ikke købes — det laves. En indkøbskurv på
+            // "Rødløg - Sylt" ville lægge en uindkøbelig vare på listen.
+            const showCart = (eff === 'mangler' || eff === 'lav') && !ing.producible;
             const purchaseAmount = ing.shortfall_purchase || 0;
             const purchaseUnit = ing.purchase_unit || '';
             const cartTitle = purchaseAmount > 0
@@ -1576,15 +1600,72 @@ function _buildRavarerHtml(data) {
                 ? `<button class="ing-btn-cart" onclick="_addToShoppingList(this, ${ing.product_id}, ${purchaseAmount}, '${_esc(ing.product_name)}')" title="${cartTitle}">🛒</button>`
                 : '';
 
-            html += `<div class="ing-row ${st.cls}" data-ing-name="${_esc(ing.product_name.toLowerCase())}">
+            // Producerbare varer får en note der siger hvad der skal ske, og en
+            // fold-ud med de råvarer det kræver — så "kan laves" ikke er en
+            // påstand man skal tage på ordet.
+            // Noten gælder KUN når der mangler noget. En vare der ligger på
+            // hylden skal ikke have "skal laves" hæftet på sig, bare fordi den
+            // også KAN laves — så ville halvdelen af listen bede om arbejde
+            // der ikke skal udføres.
+            const missing = (ing.make_shortfalls || []);
+            let note = '';
+            if (eff === 'ok')                     note = '';
+            else if (eff === 'kan_laves')         note = `<span class="ing-make-note">${_esc(_makeLabel(ing))}</span>`;
+            // Udbyttet mangler i Grocy, så vi kan ikke sige om råvarerne rækker.
+            // Det er en huller i stamdata, ikke en mangel på hylden — og den
+            // besked er mere brugbar end en mangelliste vi ikke kan stå inde for.
+            else if (ing.producible && ing.make_status === 'ukendt')
+                // Begge beskeder er sande, og de siger hver sin ting: hvad der
+                // mangler på hylden, og hvad der mangler i Grocy.
+                note = missing.length
+                    ? `<span class="ing-sub-warn">${missing.length} råvare${missing.length === 1 ? '' : 'r'} mangler · udbytte ikke oplyst</span>`
+                    : `<span class="ing-sub-warn">skal laves · udbytte ikke oplyst i Grocy</span>`;
+            else if (ing.producible && missing.length) note = `<span class="ing-sub-warn">${missing.length} råvare${missing.length === 1 ? '' : 'r'} mangler</span>`;
+            else if (ing.producible)              note = `<span class="ing-sub-warn">skal laves</span>`;
+
+            const key = _esc(ing.product_name.toLowerCase());
+            // Ved 'ukendt' er mangellisten den VERIFICERBARE opskrifts — den er
+            // til at stå inde for. Er der ingen, er der heller intet at folde ud.
+            const foldable = eff !== 'ok' && ing.producible
+                             && (missing.length > 0 || eff === 'kan_laves');
+
+            // Noten afkortes med ellipsis på smalle skærme — hele teksten skal
+            // stadig kunne læses.
+            const blockedBy = ing.make_blocked_recipe
+                ? ` · ${ing.make_blocked_recipe} mangler råvarer` : '';
+            const rowTitle = (eff !== 'ok' && ing.producible)
+                ? ` title="${_esc(_makeLabel(ing))}${blockedBy ? _esc(blockedBy) : ''}${missing.length ? ' — mangler: ' + _esc(missing.map(s => s.product_name).join(', ')) : ''}"`
+                : '';
+
+            html += `<div class="ing-row ${st.cls}${foldable ? ' ing-sub-clickable' : ''}" data-ing-name="${key}"${rowTitle}${foldable ? ' onclick="_toggleSubRecipe(this)"' : ''}>
                 <span class="ing-dot">${st.dot}</span>
-                <span class="ing-name">${_esc(ing.product_name)}</span>
+                <span class="ing-name">${_esc(ing.product_name)}${note}</span>
                 <span class="ing-amount">${_fmtNum(ing.amount_needed)}</span>
                 <span class="ing-unit">${_esc(ing.unit)}</span>
                 <span class="ing-stock">${_fmtNum(ing.amount_stock)}</span>
                 <span class="ing-stock-unit">${_esc(ing.stock_unit || ing.unit)}</span>
-                <span class="ing-action">${cartBtn}</span>
+                <span class="ing-action">${foldable ? '<span class="ing-sub-caret">▾</span>' : cartBtn}</span>
             </div>`;
+
+            if (foldable) {
+                html += `<div class="ing-sub-detail" data-ing-name="${key}">`;
+                if (eff === 'kan_laves') {
+                    html += `<div class="ing-sub-detail-note">Råvarerne til ${_esc(ing.make_recipe_name || 'opskriften')} er på lager.</div>`;
+                }
+                for (const s of missing) {
+                    const sst = _STATUS_DOT[s.status] || _STATUS_DOT.ok;
+                    html += `<div class="ing-sub-detail-row ${sst.cls}">
+                        <span class="ing-dot">${sst.dot}</span>
+                        <span class="ing-name">${_esc(s.product_name)}</span>
+                        <span class="ing-amount">${_fmtNum(s.needed)}</span>
+                        <span class="ing-unit"></span>
+                        <span class="ing-stock">${_fmtNum(s.stock)}</span>
+                        <span class="ing-stock-unit"></span>
+                        <span class="ing-action"></span>
+                    </div>`;
+                }
+                html += '</div>';
+            }
         }
         html += '</div></div>';
     }
@@ -1600,14 +1681,21 @@ function _buildRavarerHtml(data) {
         for (const sr of subRecipes) {
             // Status rulles op fra underopskriftens råvarer (serveren). Ældre
             // svar uden status falder tilbage til grøn som før.
-            const st = _STATUS_DOT[sr.status] || _STATUS_DOT.ok;
+            const srEff = _ingStatus(sr);
+            const st = _STATUS_DOT[srEff] || _STATUS_DOT.ok;
             const short = sr.shortfalls || [];
             const key = _esc(sr.recipe_name.toLowerCase());
 
+            // En råvare der selv kan laves er ikke en mangel. Tælles den med,
+            // står der "3 råvarer mangler" ved siden af en blå prik — og så
+            // tror man ikke på nogen af delene.
+            const realShort = short.filter(s => (s.effective_status || s.status) !== 'kan_laves');
             let warn = '';
-            if (short.length > 0) {
-                const label = sr.status === 'mangler' ? 'mangler' : 'lavt lager';
-                warn = `<span class="ing-sub-warn">${short.length} råvare${short.length === 1 ? '' : 'r'} · ${label}</span>`;
+            if (realShort.length > 0) {
+                const label = srEff === 'mangler' ? 'mangler' : 'lavt lager';
+                warn = `<span class="ing-sub-warn">${realShort.length} råvare${realShort.length === 1 ? '' : 'r'} · ${label}</span>`;
+            } else if (srEff === 'kan_laves') {
+                warn = '<span class="ing-make-note">råvarerne er der</span>';
             }
 
             html += `<div class="ing-row ing-sub-recipe ${st.cls}${short.length ? ' ing-sub-clickable' : ''}"
@@ -1624,7 +1712,7 @@ function _buildRavarerHtml(data) {
             if (short.length > 0) {
                 html += `<div class="ing-sub-detail" data-ing-name="${key}">`;
                 for (const s of short) {
-                    const sst = _STATUS_DOT[s.status] || _STATUS_DOT.ok;
+                    const sst = _STATUS_DOT[_ingStatus(s)] || _STATUS_DOT.ok;
                     html += `<div class="ing-sub-detail-row ${sst.cls}">
                         <span class="ing-dot">${sst.dot}</span>
                         <span class="ing-name">${_esc(s.product_name)}</span>
