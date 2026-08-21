@@ -151,6 +151,174 @@ function getClientId() {
     return id;
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   SIKKER NAVIGATION (zone-skift)
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Hele domænet kører HTTP/2, så alle sider deler ÉN TCP-forbindelse til
+ * serveren. Bliver den forbindelse ubrugelig i baggrunden (dvale, Wi-Fi-skift,
+ * netværk der flapper), opdager browseren det først ved NÆSTE navigation — som
+ * så fejler øjeblikkeligt med `-1009` "Der er ingen internetforbindelse".
+ * Brugeren står tilbage på browserens egen fejlside, og siden man kom fra er
+ * væk. Genindlæs virker med det samme, fordi det tvinger en ny forbindelse.
+ *
+ * `safeNavigate()` prøver forbindelsen af FØR den forlader siden:
+ *
+ *   1. Et HEAD-kald til selve destinationen. Ethvert svar — også 401 eller en
+ *      redirect til login — beviser at forbindelsen lever.
+ *   2. Fejler det, har browseren netop revet den døde forbindelse ned. Andet
+ *      forsøg får derfor typisk en frisk forbindelse og går igennem.
+ *   3. Fejler også det, viser vi vores egen besked med automatisk genforsøg —
+ *      og den side brugeren står på går IKKE tabt.
+ *
+ * Et timeout tæller som "i live": et langsomt netværk skal ikke blokere
+ * navigationen. Kun en hård netværksfejl udløser genforsøget.
+ *
+ * @see https://github.com/liffez/bon-v2/issues/423
+ */
+var NAV_PROBE_TIMEOUT_MS = 2500;
+var NAV_RETRY_INTERVAL_MS = 3000;
+
+function _navProbe(url) {
+    if (typeof fetch !== 'function') return Promise.resolve(true);
+
+    var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+    var timedOut = false;
+    var timer = setTimeout(function () {
+        timedOut = true;
+        if (ctrl) ctrl.abort();
+    }, NAV_PROBE_TIMEOUT_MS);
+
+    return fetch(url, {
+        method: 'HEAD',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        redirect: 'manual',
+        signal: ctrl ? ctrl.signal : undefined
+    }).then(function () {
+        clearTimeout(timer);
+        return true;
+    }).catch(function () {
+        clearTimeout(timer);
+        // Timeout = langsomt, ikke dødt. Lad browseren om resten.
+        return timedOut;
+    });
+}
+
+function safeNavigate(url) {
+    if (!url) return;
+    if (typeof fetch !== 'function') { location.href = url; return; }
+
+    var go = function () { location.href = url; };
+
+    _navProbe(url).then(function (alive) {
+        if (alive) return go();
+        return _navProbe(url).then(function (aliveAgain) {
+            if (aliveAgain) return go();
+            _navShowRetry(url);
+        });
+    }).catch(go);   // uventet fejl i selve prøven må aldrig spærre for navigation
+}
+
+function _navShowRetry(url) {
+    if (typeof document === 'undefined') { location.href = url; return; }
+    if (document.getElementById('nav-retry-overlay')) return;
+
+    var ov = document.createElement('div');
+    ov.id = 'nav-retry-overlay';
+    ov.setAttribute('role', 'alert');
+    ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;' +
+        'display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);' +
+        'font-family:system-ui,-apple-system,"Segoe UI",sans-serif;';
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;color:#2b2b2b;max-width:400px;width:calc(100% - 40px);' +
+        'padding:26px 28px;border-radius:12px;box-shadow:0 14px 44px rgba(0,0,0,.35);text-align:center;';
+    box.innerHTML =
+        '<div style="font-size:34px;line-height:1;margin-bottom:12px">📡</div>' +
+        '<div style="font-weight:600;font-size:17px;margin-bottom:6px">Forbindelsen kom væk</div>' +
+        '<div id="nav-retry-msg" style="font-size:14px;color:#666;line-height:1.45;margin-bottom:20px">' +
+        'Prøver igen… Du står stadig på den side du kom fra — intet er tabt.</div>';
+
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+
+    var retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.textContent = 'Prøv nu';
+    retryBtn.style.cssText = 'flex:1;padding:10px 16px;border:0;border-radius:8px;cursor:pointer;' +
+        'background:#8e631f;color:#fff;font-size:15px;font-weight:600;';
+
+    var stayBtn = document.createElement('button');
+    stayBtn.type = 'button';
+    stayBtn.textContent = 'Bliv her';
+    stayBtn.style.cssText = 'flex:1;padding:10px 16px;border:1px solid #d7d1ca;border-radius:8px;' +
+        'cursor:pointer;background:#fff;color:#555;font-size:15px;';
+
+    row.appendChild(retryBtn);
+    row.appendChild(stayBtn);
+    box.appendChild(row);
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+
+    var timer = null;
+    var busy = false;
+    var attempts = 0;
+
+    function stop() {
+        if (timer) clearInterval(timer);
+        timer = null;
+        if (ov.parentNode) ov.parentNode.removeChild(ov);
+    }
+
+    function attempt() {
+        if (busy) return;
+        busy = true;
+        attempts++;
+        var msg = document.getElementById('nav-retry-msg');
+        if (msg) msg.textContent = 'Prøver igen… (forsøg ' + attempts + ')';
+        _navProbe(url).then(function (alive) {
+            busy = false;
+            if (alive) { stop(); location.href = url; return; }
+            if (msg) {
+                msg.textContent = 'Ingen forbindelse endnu (forsøg ' + attempts +
+                    '). Du står stadig på den side du kom fra — intet er tabt.';
+            }
+        }).catch(function () { busy = false; });
+    }
+
+    retryBtn.addEventListener('click', attempt);
+    stayBtn.addEventListener('click', stop);
+    ov.addEventListener('click', function (e) { if (e.target === ov) stop(); });
+
+    // Ingen prøve med det samme — vi har lige fejlet to gange i træk. Første
+    // automatiske genforsøg kommer med intervallet.
+    timer = setInterval(attempt, NAV_RETRY_INTERVAL_MS);
+}
+
+/**
+ * Lad et <a> gå gennem safeNavigate() i stedet for browserens egen navigation.
+ * Modifier-klik, midterklik og target="_blank" røres ikke — de skal stadig
+ * åbne i ny fane.
+ */
+function guardLink(el) {
+    if (!el || el.getAttribute('data-nav-guarded')) return el;
+    el.setAttribute('data-nav-guarded', '1');
+    el.addEventListener('click', function (e) {
+        if (e.defaultPrevented || e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var target = el.getAttribute('target');
+        if (target && target !== '_self') return;
+        var href = el.getAttribute('href');
+        if (!href || href.charAt(0) === '#') return;
+        e.preventDefault();
+        safeNavigate(href);
+    });
+    return el;
+}
+
 /* ══════════════════════════════════════════════════════════════
    SSE KLIENT-HELPER
    ══════════════════════════════════════════════════════════════ */
