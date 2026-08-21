@@ -945,7 +945,10 @@
       if (brandEl) {
         const canSwitch = ['office', 'admin'].includes(currentUser.role);
         if (canSwitch) {
-          brandEl.addEventListener('click', () => { location.href = '/kitchen/'; });
+          brandEl.addEventListener('click', () => {
+            if (typeof safeNavigate === 'function') safeNavigate('/kitchen/');
+            else location.href = '/kitchen/';
+          });
         } else {
           brandEl.style.cursor = 'default';
           const pill = brandEl.querySelector('.sidebar-zone-pill');

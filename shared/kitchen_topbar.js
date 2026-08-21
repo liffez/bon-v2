@@ -114,6 +114,9 @@ function renderKitchenTopbar(container, opts) {
         backBtn.className = 'topbar-back-to-office';
         backBtn.textContent = '← Office';
         backBtn.title = 'Tilbage til Office-zonen';
+        // Zone-skift er en fuld navigation og rammer derfor den fastlaaste
+        // HTTP/2-forbindelse foerst. Se safeNavigate() i shared/utils.js (#423).
+        if (typeof guardLink === 'function') guardLink(backBtn);
         left.appendChild(backBtn);
     } else if (typeof renderZoneSwitcher === 'function' && user.role) {
         // Fallback til generic zone-switcher for andre roller (settings m.fl.)

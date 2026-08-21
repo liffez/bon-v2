@@ -105,6 +105,7 @@ function renderZoneSwitcher(currentZone, userRole, container, opts = {}) {
         a.className = 'zone-switcher__link';
         a.title = meta.label;
         a.textContent = meta.icon + ' ' + meta.label;
+        if (typeof guardLink === 'function') guardLink(a);
         wrap.appendChild(a);
     });
 

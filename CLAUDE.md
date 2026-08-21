@@ -4804,6 +4804,59 @@ originale runner. `cashflow-sync`'s 4 FAIL er pre-eksisterende — efterprøvet 
 køre suiten mod den gamle `migrate.js`.
 
 
+### Et zone-skift må ikke ende i browserens fejlside (#423, 21. august 2026)
+
+"Der er ingen internetforbindelse" ved skift fra køkken til office — selvom nettet
+virker, og genindlæs løser det med det samme.
+
+**Første diagnose blev modbevist undervejs.** SSE-forbindelser blev aldrig lukket, så
+teorien var at de ophobede sig. Serverloggen viste noget andet: 10–12 forbindelser
+stabilt over tre timer, ingen ophobning, ingen genstart. Da Safari sagde "ingen
+internetforbindelse", **havde serveren aldrig set forespørgslen**. Fejlen sidder på
+klientsiden. Oprydningen fra PR #424 (`manageSSE`) var korrekt, men ikke årsagen.
+
+Vi kan ikke fremprovokere fejlen, og de to tilbageværende forklaringer — webapp-vinduets
+egen fastlåste HTTP/2-forbindelse eller macOS' netværk der flapper — kræver begge at
+nogen står ved skærmen i det sekund det sker. Derfor er den ikke jagtet videre: den er
+gjort **umulig at ende i**.
+
+- **`safeNavigate()` + `guardLink()`** ([shared/utils.js](shared/utils.js)) prøver
+  forbindelsen af FØR siden forlades: et `HEAD` mod selve destinationen. Ethvert svar —
+  også 401 eller en redirect til login — beviser at forbindelsen lever. Fejler det, har
+  browseren netop revet den døde forbindelse ned, så andet forsøg får en frisk. Fejler
+  også det, viser vi vores egen besked med automatisk genforsøg, **og siden brugeren står
+  på går ikke tabt**. Et timeout tæller som "i live" — et langsomt net må ikke spærre for
+  navigation. Modifier-klik, midterklik og `target="_blank"` røres ikke.
+  Wired på "← Office" ([kitchen_topbar.js](shared/kitchen_topbar.js:113)), zone-switcheren
+  og office-logoets vej til køkkenet.
+- **Streamen cykler** ([shared/sse.js](shared/sse.js)): lukkes efter 10 min ± 2 min jitter
+  i stedet for at stå åben i timevis og holde domænets ene HTTP/2-forbindelse fastlåst.
+  `EventSource` genopretter selv.
+
+> **Uden replay ville punkt 2 være en regression.** En planlagt lukning ville koste de
+> events der falder i genopkoblingsvinduet — på en køkkenskærm er det en tabt
+> statusændring. Derfor buffer + `Last-Event-ID`, hvilket samtidig lukker hullet ved de
+> **uplanlagte** genopkoblinger vi altid har haft. To ting der ikke må skride: et
+> `sendTo`-event er adresseret og må kun afspilles til sin egen bruger, og et `broadcast`
+> med `excludeUserId` skal blive ved med at springe afsenderen over — ellers ser hun sit
+> eget ekko. Id'et bærer et epoke-mærke, så et `Last-Event-ID` fra før en genstart ikke
+> tolkes som en position i den nye tællers rækkefølge.
+
+**Ingen nginx-ændring.** `proxy_read_timeout 24h` er nu blot en øvre grænse der aldrig
+nås, fordi serveren selv lukker først. Ingen migration, ingen ny route.
+
+**Tests:** `npm run test:nav` — 8 + 7 asserts. Navigationen køres i en vm-sandkasse mod
+den rigtige `shared/utils.js` (browserkode kan ikke `require`s), SSE'en mod en rigtig
+HTTP-server. **Mutations-testet:** otte kernerettelser rulles hver især tilbage og fælder
+hver sin navngivne assert. Browser-verificeret ende-til-ende: "← Office" navigerer
+normalt, et brudt `fetch` giver overlayet i stedet for blindgyden, og da nettet kom
+tilbage, kom genforsøget selv videre. Browser-panelet var frosset (viewport 0×0), så
+klikket blev sendt som `MouseEvent` gennem den ægte lytter, ikke som fysisk museklik.
+
+**Stadig ubesvaret:** næste gang fejlen rammer — åbn `whiteboard.ristetrug.dk` i en
+almindelig Safari-fane **før** du genindlæser. Virker den, mens webapp-vinduet er dødt,
+er det Safari og ikke netværket. Det svar afgør om #423 kan lukkes helt.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
