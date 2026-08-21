@@ -1615,18 +1615,26 @@ function _buildRavarerHtml(data) {
             // Det er en huller i stamdata, ikke en mangel på hylden — og den
             // besked er mere brugbar end en mangelliste vi ikke kan stå inde for.
             else if (ing.producible && ing.make_status === 'ukendt')
-                note = `<span class="ing-sub-warn">skal laves · udbytte ikke oplyst i Grocy</span>`;
+                // Begge beskeder er sande, og de siger hver sin ting: hvad der
+                // mangler på hylden, og hvad der mangler i Grocy.
+                note = missing.length
+                    ? `<span class="ing-sub-warn">${missing.length} råvare${missing.length === 1 ? '' : 'r'} mangler · udbytte ikke oplyst</span>`
+                    : `<span class="ing-sub-warn">skal laves · udbytte ikke oplyst i Grocy</span>`;
             else if (ing.producible && missing.length) note = `<span class="ing-sub-warn">${missing.length} råvare${missing.length === 1 ? '' : 'r'} mangler</span>`;
             else if (ing.producible)              note = `<span class="ing-sub-warn">skal laves</span>`;
 
             const key = _esc(ing.product_name.toLowerCase());
-            const foldable = eff !== 'ok' && ing.producible && ing.make_status !== 'ukendt'
+            // Ved 'ukendt' er mangellisten den VERIFICERBARE opskrifts — den er
+            // til at stå inde for. Er der ingen, er der heller intet at folde ud.
+            const foldable = eff !== 'ok' && ing.producible
                              && (missing.length > 0 || eff === 'kan_laves');
 
             // Noten afkortes med ellipsis på smalle skærme — hele teksten skal
             // stadig kunne læses.
+            const blockedBy = ing.make_blocked_recipe
+                ? ` · ${ing.make_blocked_recipe} mangler råvarer` : '';
             const rowTitle = (eff !== 'ok' && ing.producible)
-                ? ` title="${_esc(_makeLabel(ing))}${missing.length ? ' — mangler: ' + _esc(missing.map(s => s.product_name).join(', ')) : ''}"`
+                ? ` title="${_esc(_makeLabel(ing))}${blockedBy ? _esc(blockedBy) : ''}${missing.length ? ' — mangler: ' + _esc(missing.map(s => s.product_name).join(', ')) : ''}"`
                 : '';
 
             html += `<div class="ing-row ${st.cls}${foldable ? ' ing-sub-clickable' : ''}" data-ing-name="${key}"${rowTitle}${foldable ? ' onclick="_toggleSubRecipe(this)"' : ''}>

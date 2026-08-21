@@ -133,9 +133,19 @@ const base = {
         make_shortfalls: [{ product_id: 9, product_name: 'pebber', needed: 1, stock: 0, status: 'mangler' }] }]);
     row = rowFor(html, 'Falaffel');
     ok(row.includes('udbytte ikke oplyst'), 'siger at udbyttet mangler i Grocy');
-    ok(!row.includes('1 råvare mangler'), 'påstår IKKE en mangelliste bygget på et ukendt batch-tal');
+    ok(row.includes('1 råvare mangler'), 'OG at en råvare mangler — begge beskeder er sande');
     ok(!row.includes('🔵'), 'ikke blå — vi kan ikke sige at den kan laves');
-    ok(!row.includes('ing-sub-caret'), 'ingen fold-ud af tal vi ikke kan stå inde for');
+    ok(row.includes('ing-sub-caret'), 'kan foldes ud: listen kommer fra den verificerbare opskrift');
+    ok(html.includes('pebber'), 'og råvaren navngives i fold-ud');
+
+    console.log('\nR8b · Uden nogen verificerbar opskrift siges der intet om råvarerne');
+    html = build([{ ...base, product_id: 18, product_name: 'Tomfalaffel',
+        status: 'mangler', effective_status: 'mangler', producible: true,
+        make_status: 'ukendt', make_estimated: true, make_recipe_name: 'Ukendt', make_shortfalls: [] }]);
+    row = rowFor(html, 'Tomfalaffel');
+    ok(row.includes('udbytte ikke oplyst'), 'kun data-hullet nævnes');
+    ok(!row.includes('råvare'), 'ingen mangelliste gættet frem');
+    ok(!row.includes('ing-sub-caret'), 'intet at folde ud');
 
     console.log('\nR7 · Producerbar uden mangelliste: stadig ingen kurv');
     // Kanten hvor `showCart`-guarden er den eneste der holder: rækken kan ikke

@@ -598,6 +598,12 @@ function makeProducibility(ctx) {
 
         seen.add(Number(productId));
         let best = null;
+        // Den bedste kandidat vi kan REGNE på. Vinder den ikke, bærer vi
+        // alligevel dens mangelliste med: at én opskrift ikke har fået udfyldt
+        // sit udbytte, må ikke skjule at en anden mangler en råvare. Køkkenet
+        // skal have begge dele — "6 stk mangler, og pebberen er sluppet op" er
+        // handlingsbart, "udbytte ikke oplyst" er kun en opgave til Grocy.
+        let bestVerifiable = null;
 
         for (const recipeRaw of producers) {
             const perBatch = yieldPerBatchStock(recipeRaw, product);
@@ -670,6 +676,10 @@ function makeProducibility(ctx) {
 
             // Flere opskrifter kan lave samme vare (Falaffel har tre) — køkkenet
             // vælger selv, så den bedste vej vinder.
+            if (candidate.make_status !== 'ukendt'
+                && (!bestVerifiable || MAKE_RANK[candidate.make_status] < MAKE_RANK[bestVerifiable.make_status])) {
+                bestVerifiable = candidate;
+            }
             if (!best || MAKE_RANK[candidate.make_status] < MAKE_RANK[best.make_status]) {
                 best = candidate;
                 if (best.make_status === 'ok') break;
@@ -677,6 +687,20 @@ function makeProducibility(ctx) {
         }
 
         seen.delete(Number(productId));
+
+        // Vandt en uberegnelig opskrift, så erstat dens mangelliste med den
+        // verificerbares. Den uberegnelige liste er regnet på ÉT batch og er
+        // ikke til at stå inde for; den verificerbares er.
+        if (best && best.make_status === 'ukendt' && bestVerifiable) {
+            best.make_shortfalls       = bestVerifiable.make_shortfalls;
+            best.make_blocked_recipe   = bestVerifiable.make_recipe_name;
+            best.make_blocked_status   = bestVerifiable.make_status;
+        } else if (best && best.make_status === 'ukendt') {
+            // Ingen af opskrifterne kunne regnes — så har vi intet at sige om
+            // råvarerne, og en liste ville være et gæt.
+            best.make_shortfalls = [];
+        }
+
         return best || { producible: true, make_status: 'mangler', make_shortfalls: [] };
     }
 
@@ -866,6 +890,10 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
             // regnet med ÉT batch. Skal siges højt i visningen, ikke skjules.
             make_estimated:    !!make.make_estimated,
             make_shortfalls:   make.make_shortfalls ?? [],
+            // Sat når udbyttet ikke kunne regnes, men en ANDEN opskrift på
+            // samme vare kunne — og den er blokeret. Begge beskeder er sande.
+            make_blocked_recipe: make.make_blocked_recipe ?? null,
+            make_blocked_status: make.make_blocked_status ?? null,
         };
     });
 

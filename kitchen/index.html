@@ -687,13 +687,15 @@
                 const blocked = it.status !== 'kan_laves';
                 // Restbehovet — det der skal laves — ikke det samlede behov.
                 const amount = _paFmt(it.shortfall != null ? it.shortfall : it.needed) + ' ' + (it.unit || '');
+                const mangler = it.missing.length
+                    ? `mangler ${it.missing.slice(0, 2).join(', ')}${it.missing.length > 2 ? ' m.fl.' : ''}` : '';
                 const sub = it.make_status === 'ukendt'
-                    ? `${it.recipe_name} · udbytte ikke oplyst i Grocy`
-                    : (blocked
-                        ? `mangler ${it.missing.slice(0, 2).join(', ')}${it.missing.length > 2 ? ' m.fl.' : ''}`
-                        : `${it.batches > 1 ? it.batches + ' × ' : ''}${it.recipe_name}`);
+                    // Begge beskeder: hvad der mangler på hylden, og at Grocy
+                    // ikke kan fortælle hvor meget ét batch giver.
+                    ? [mangler, 'udbytte ikke oplyst'].filter(Boolean).join(' · ')
+                    : (blocked ? mangler : `${it.batches > 1 ? it.batches + ' × ' : ''}${it.recipe_name}`);
                 html += `<div class="pa-row${blocked ? ' pa-blocked' : ''}" title="${_paEsc(sub)}">
-                    <span class="pa-dot">${it.make_status === 'ukendt' ? '⚪' : (blocked ? '🔴' : '🔵')}</span>
+                    <span class="pa-dot">${blocked ? (it.missing.length ? '🔴' : '⚪') : '🔵'}</span>
                     <span class="pa-name">${_paEsc(it.product_name)}<br><span class="pa-sub">${_paEsc(sub)}</span></span>
                     <span class="pa-amount">${_paEsc(amount)}</span>
                 </div>`;

@@ -229,6 +229,43 @@ async function ing(pid, lines = [{ grocy_recipe_id: 1, quantity: 1 }]) {
     ok(i.status === 'ok' && i.effective_status === 'ok', 'ok forbliver ok');
     ok(i.make_shortfalls.length === 0, 'ingen mangelliste når der er dækning');
 
+    console.log('\nP14 · Uberegneligt udbytte skjuler ikke en blokeret opskrift');
+    // Drifts-tilfældet, målt på hq: Falaffel laves af tre opskrifter. Den ene
+    // har erklæret udbytte men mangler en råvare; den anden kan ikke regnes.
+    // Vinder den uberegnelige, må den blokerede ikke forsvinde — "6 stk mangler,
+    // og pebberen er sluppet op" er handlingsbart, "udbytte ikke oplyst" er
+    // kun en opgave til Grocy.
+    RECIPES_RAW.set(3, { id: 3, name: 'Falaffel-stegning', base_servings: 1, product_id: 210,
+        userfields: { recipeunit: 'antal', recipeunitnumber: '36', grupper: 'RR Produktion' } });
+    RECIPES_RAW.set(31, { id: 31, name: 'Falaffel-styk', base_servings: 1, product_id: 210,
+        userfields: { recipeunit: 'antal', grupper: 'RR Produktion' } });        // intet udbytte
+    POS.push({ recipe_id: 31, product_id: 104, amount: 0.007, qu_id: 4, ingredient_group: '' });
+    STOCK = { 104: 0.05, 220: 99, 100: 5 };   // for lidt tempty til det rigtige batch
+    i = await ing(210);
+    ok(i.make_status === 'ukendt', `den uberegnelige vinder — fik "${i.make_status}"`);
+    ok(i.make_shortfalls.length > 0,
+       'men mangellisten fra den VERIFICERBARE opskrift bæres med');
+    ok(i.make_shortfalls.some(s => s.product_name === 'Tempty'),
+       `og den navngiver råvaren — fik ${JSON.stringify(i.make_shortfalls.map(s => s.product_name))}`);
+    ok(i.make_blocked_recipe === 'Falaffel-stegning',
+       `den blokerede opskrift navngives — fik "${i.make_blocked_recipe}"`);
+    ok(i.effective_status !== 'kan_laves', 'og der påstås stadig ikke "kan laves"');
+
+    console.log('\nP14b · Kan INGEN opskrift regnes, siges der intet om råvarerne');
+    RECIPES_RAW.delete(3);
+    // Lageret sættes så den uberegnelige opskrift SELV ville rapportere en
+    // mangel ved ét batch. Uden værnet ville den liste blive vist — og den er
+    // regnet på et batch-tal vi ikke kender. Med for meget på lager ville
+    // fejlen være usynlig, og testen ville bestå af den forkerte grund.
+    STOCK = { 104: 0.001, 220: 99, 100: 5 };
+    i = await ing(210);
+    ok(i.make_status === 'ukendt' && i.make_shortfalls.length === 0,
+       'ingen mangelliste gættet ud fra et ukendt batch-tal');
+    ok(i.make_blocked_recipe === null, 'og ingen blokeret opskrift at pege på');
+    RECIPES_RAW.set(3, { id: 3, name: 'Falaffel-stegning', base_servings: 1, product_id: 210,
+        userfields: { recipeunit: 'antal', recipeunitnumber: '36' } });
+    RECIPES_RAW.delete(31);
+
     console.log('\nP13 · Restbehovet kan regnes i ÉN enhed');
     // "Lav snart" skal sige hvor meget der SKAL LAVES, ikke hvad der skal bruges
     // i alt. Falaffel afslørede forskellen i drift: behov 130,96 med 124,89 på

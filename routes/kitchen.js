@@ -351,6 +351,9 @@ router.get('/prep-ahead', handle(async (req, res) => {
             // 'ukendt' = opskriftens udbytte mangler i Grocy, så batch-tallet
             // og mangellisten er ikke til at regne med. Siges i stedet højt.
             make_status:  i.make_status,
+            // Sat når udbyttet ikke kunne regnes, men en anden opskrift på samme
+            // vare er blokeret. Så kan kortet sige begge dele.
+            blocked_recipe: i.make_blocked_recipe,
             // 'kan_laves' = råvarerne er der, gå i gang.
             // 'lav'/'mangler' = råvarerne mangler også → indkøb, ikke produktion.
             status:       i.effective_status,
