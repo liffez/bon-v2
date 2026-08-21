@@ -837,6 +837,11 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
             purchase_unit:      purchaseUnitName,
             // Rå bygge-klodser til enheds-konvertering hos kalderen:
             needed_stock:       ing.needed_stock,
+            // Lageret i RÅ lager-enhed. `amount_stock` ovenfor er formateret og
+            // kan have valgt en anden skala end `amount_needed` (0,105 kg vises
+            // som "105 g" mens 0 vises som "0 Kilo"). At trække de to
+            // VISTE tal fra hinanden ville derfor give vrøvl.
+            stock_amount:       stockAmount,
             // display_factor = lager → det tal der står i `amount_needed`/`amount_stock`.
             // Pakkelisten lader køkkenet REDIGERE det viste tal og skal kunne regne
             // tilbage: stock = redigeret / display_factor. Uden den blev "150 g"

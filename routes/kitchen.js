@@ -331,7 +331,15 @@ router.get('/prep-ahead', handle(async (req, res) => {
         .map(i => ({
             product_id:   i.product_id,
             product_name: i.product_name,
-            // Behov og lager i VISNINGS-enhed — det er de tal køkkenet læser.
+            // RESTBEHOVET er det tal listen handler om: "lav 6 mere", ikke
+            // "lav 131". Falaffel afslørede forskellen i drift — behov 130,96
+            // med 124,89 på lager blev vist som 130,96, altså 20× for meget.
+            //
+            // Regnes i lager-enhed og formateres bagefter med samme faktor som
+            // behovet, så de to tal står i den SAMME enhed. De formaterede tal
+            // kan ikke trækkes fra hinanden: 0,105 kg vises som "105 g" mens
+            // 0 vises som "0 Kilo".
+            shortfall:    Math.max(0, i.needed_stock - i.stock_amount) * (i.display_factor || 1),
             needed:       i.amount_needed,
             stock:        i.amount_stock,
             unit:         i.unit,

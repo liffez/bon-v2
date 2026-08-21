@@ -685,7 +685,8 @@
             let html = '';
             for (const it of items.slice(0, 6)) {
                 const blocked = it.status !== 'kan_laves';
-                const amount = _paFmt(it.needed) + ' ' + (it.unit || '');
+                // Restbehovet — det der skal laves — ikke det samlede behov.
+                const amount = _paFmt(it.shortfall != null ? it.shortfall : it.needed) + ' ' + (it.unit || '');
                 const sub = it.make_status === 'ukendt'
                     ? `${it.recipe_name} · udbytte ikke oplyst i Grocy`
                     : (blocked

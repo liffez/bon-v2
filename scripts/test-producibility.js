@@ -229,6 +229,23 @@ async function ing(pid, lines = [{ grocy_recipe_id: 1, quantity: 1 }]) {
     ok(i.status === 'ok' && i.effective_status === 'ok', 'ok forbliver ok');
     ok(i.make_shortfalls.length === 0, 'ingen mangelliste når der er dækning');
 
+    console.log('\nP13 · Restbehovet kan regnes i ÉN enhed');
+    // "Lav snart" skal sige hvor meget der SKAL LAVES, ikke hvad der skal bruges
+    // i alt. Falaffel afslørede forskellen i drift: behov 130,96 med 124,89 på
+    // lager blev vist som 130,96 — 20 gange for meget.
+    //
+    // De formaterede tal kan ikke trækkes fra hinanden, fordi autoformatet
+    // vælger skala pr. værdi: 0,105 kg vises som "105 g" mens 0 vises som
+    // "0 Kilo". Derfor skal den RÅ lagermængde være eksponeret.
+    STOCK = { 200: 0.6, 101: 99, 102: 99, 100: 5 };
+    i = await ing(200, [{ grocy_recipe_id: 1, quantity: 10 }]);   // behov 10 × 0,3 = 3 kg
+    ok(i.stock_amount === 0.6, `rå lagermængde eksponeret i lager-enhed — fik ${i.stock_amount}`);
+    const shortfall = (i.needed_stock - i.stock_amount) * (i.display_factor || 1);
+    ok(Math.abs(shortfall - 2.4) < 1e-9,
+       `restbehov 3 − 0,6 = 2,4 i visnings-enhed — fik ${shortfall}`);
+    ok(i.amount_needed !== shortfall,
+       'og det er IKKE det samme som det samlede behov — ellers var fejlen usynlig');
+
     console.log('\nP12 · Udfasede opskrifter navngives ikke');
     // "xgamle opskrifter" er konventionen for udfaset i grocy-hq. Køkkenet skal
     // ikke få besked på at lave efter en opskrift der er lagt væk — også når
