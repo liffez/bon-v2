@@ -162,6 +162,13 @@ test('POST /days/:date/assign afviser et event der ikke findes', async () => {
     assert.equal(body.code, 'unknown_event');
 });
 
+test('POST /sync tager et valgfrit datointerval — ellers står gamle events uden for vinduet', async () => {
+    // Den automatiske hentning dækker kun `zettle_resync_days` bagud. Skal et
+    // event fra i forgårs hentes ind første gang, må intervallet kunne angives.
+    assert.equal((await api('POST', '/api/pos/sync', { from: '14-08-2026', to: '2026-08-15' })).status, 400);
+    assert.equal((await api('POST', '/api/pos/sync', { from: '2026-08-13', to: 'i går' })).status, 400);
+});
+
 test('GET /health svarer også når integrationen ikke kan nå Zettle', async () => {
     const { status, body } = await api('GET', '/api/pos/health');
     assert.equal(status, 200, 'et panel der ikke kan vises, skjuler en død integration');
