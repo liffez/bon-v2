@@ -713,13 +713,6 @@ async function deleteProduct(id) {
     return result;
 }
 
-/** Opdater et produkt (fx `active = 0` når det ikke kan slettes). */
-async function updateProduct(id, body) {
-    const result = await grocyPut(`/objects/products/${id}`, body);
-    _cache.delete('products');
-    return result;
-}
-
 async function deleteProductBarcode(id) {
     await grocyDelete(`/objects/product_barcodes/${id}`);
     _cache.delete('product_barcodes');
@@ -1258,7 +1251,6 @@ module.exports = {
     updateProductBarcodeUserfields,
     updateProduct,
     deleteProduct,
-    updateProduct,
     deleteProductBarcode,
     updateShoppingListItem,
     // Cache
