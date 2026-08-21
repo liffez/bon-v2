@@ -61,15 +61,16 @@ function renderKitchenTopbar(container, opts) {
     var nav = document.createElement('nav');
     nav.className = 'topbar-nav';
 
-    // Main nav items
+    // Main nav items — gemmes så de kan flyttes ind/ud af MERE efter plads
+    var navLinks = [];
     NAV_ITEMS.forEach(function(item) {
         var a = document.createElement('a');
         a.href = item.href;
         a.textContent = item.label;
-        if (item.match.indexOf(pathname) !== -1) {
-            a.className = 'active';
-        }
+        var isActive = item.match.indexOf(pathname) !== -1;
+        if (isActive) a.className = 'active';
         nav.appendChild(a);
+        navLinks.push({ el: a, item: item, active: isActive });
     });
 
     // MERE dropdown
@@ -91,6 +92,18 @@ function renderKitchenTopbar(container, opts) {
 
     var dropdown = document.createElement('div');
     dropdown.className = 'topbar-dropdown';
+
+    // Sektion 1: hovedpunkter der ikke er plads til i baren (fyldes af fitNav)
+    var overflowBox = document.createElement('div');
+    overflowBox.className = 'topbar-dropdown-overflow';
+    dropdown.appendChild(overflowBox);
+
+    var sep = document.createElement('div');
+    sep.className = 'topbar-dropdown-sep';
+    sep.style.display = 'none';
+    dropdown.appendChild(sep);
+
+    // Sektion 2: de faste MERE-punkter
     MORE_ITEMS.forEach(function(item) {
         var a = document.createElement('a');
         a.href = item.href;
@@ -104,6 +117,46 @@ function renderKitchenTopbar(container, opts) {
     nav.appendChild(details);
 
     left.appendChild(nav);
+
+    // ── Overflow-tilpasning ──────────────────────────────────────
+    // Måler den faktiske plads i stedet for at gætte breakpoints: topbarens
+    // bredde afhænger af rolle (← Office vises kun for office/admin/salg),
+    // sidens rightSlot (KIOSK, vejr) og density-mode. Vi flytter derfor
+    // hovedpunkter fra højre ind i MERE indtil rækken passer.
+    var fitting = false;
+    function fitNav() {
+        if (fitting || !nav.isConnected) return;
+        fitting = true;
+
+        // 1. Alt tilbage i baren (de udflyttede er altid et suffiks)
+        for (var i = 0; i < navLinks.length; i++) {
+            var L = navLinks[i];
+            if (L.el.parentNode !== nav) {
+                nav.insertBefore(L.el, details);
+                L.el.className = L.active ? 'active' : '';
+            }
+        }
+
+        // 2. Flyt fra højre indtil rækken passer
+        var visible = navLinks.length;
+        while (visible > 0 && nav.scrollWidth > nav.clientWidth + 1) {
+            visible--;
+            var M = navLinks[visible];
+            overflowBox.insertBefore(M.el, overflowBox.firstChild);
+            M.el.className = M.active ? 'active-sub' : '';
+        }
+
+        // 3. Etiket: er den aktive side røget ind i MERE, siger knappen hvor vi er
+        var hiddenActive = null;
+        for (var k = visible; k < navLinks.length; k++) {
+            if (navLinks[k].active) hiddenActive = navLinks[k];
+        }
+        sep.style.display = visible < navLinks.length ? '' : 'none';
+        summary.textContent = (hiddenActive ? hiddenActive.item.label : 'MERE') + ' \u25BE';
+        summary.className = (hiddenActive || moreActive) ? 'active' : '';
+
+        fitting = false;
+    }
 
     // ── "Tilbage til Office"-knap (kun office/admin/salg) ───
     // Mere fremtrædende end den generiske zone-switcher — så office-brugere
@@ -132,7 +185,10 @@ function renderKitchenTopbar(container, opts) {
     if (showLiveDot) {
         var dot = document.createElement('span');
         dot.className = 'live-dot';
-        dot.textContent = 'Live';
+        var dotLabel = document.createElement('span');
+        dotLabel.className = 'live-dot-label';
+        dotLabel.textContent = 'Live';
+        dot.appendChild(dotLabel);
         right.appendChild(dot);
     }
 
@@ -180,6 +236,39 @@ function renderKitchenTopbar(container, opts) {
         if (!details.contains(e.target)) {
             details.removeAttribute('open');
         }
+    });
+
+    // Tilpas nu og hver gang pladsen ændrer sig.
+    // rAF-throttlet: fitNav læser layout (scrollWidth), og gør man det synkront
+    // inde i en ResizeObserver-callback, tvinger man reflow midt i renderingen
+    // ("ResizeObserver loop"-advarsler) og giver jank når vinduet trækkes.
+    var rafId = null;
+    function scheduleFit() {
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(function() {
+            rafId = null;
+            fitNav();
+        });
+    }
+
+    fitNav();
+    if (typeof ResizeObserver !== 'undefined') {
+        var ro = new ResizeObserver(scheduleFit);
+        ro.observe(header);
+    }
+    window.addEventListener('resize', scheduleFit);
+    window.addEventListener('orientationchange', scheduleFit);
+    // Density skifter skriftstørrelse/padding uden at ændre topbarens bredde
+    document.addEventListener('density:change', scheduleFit);
+    // Webfonts ændrer tekstbredder efter første måling
+    if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(scheduleFit).catch(function() {});
+    }
+    // requestAnimationFrame er sat på pause mens fanen er skjult. Ændres
+    // vinduet i mellemtiden, ville rækken først rette sig ved næste resize —
+    // så vi måler igen når siden bliver synlig.
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) scheduleFit();
     });
 
     return header;

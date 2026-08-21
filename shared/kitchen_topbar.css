@@ -15,8 +15,11 @@
 .topbar-logo  { font-size: 15px; font-weight: 700; margin-right: 16px; color: white; text-decoration: none; white-space: nowrap; flex-shrink: 0; }
 
 /* Hold navigationen på én linje — topbaren er kun 44px høj, så wrap ville
-   skubbe tekst ud over kanten og blive klippet (sås tydeligt på iPad). */
-.topbar-nav { display: flex; align-items: center; flex-wrap: nowrap; }
+   skubbe tekst ud over kanten og blive klippet (sås tydeligt på iPad).
+   min-width:0 er ikke kosmetik: uden den kan nav ikke krympe under sit
+   indhold, og så er scrollWidth altid == clientWidth — dvs. fitNav() i
+   kitchen_topbar.js ville aldrig opdage at rækken er for lang. */
+.topbar-nav { display: flex; align-items: center; flex-wrap: nowrap; min-width: 0; }
 
 .topbar-nav a {
     color: rgba(255,255,255,0.65); text-decoration: none;
@@ -56,6 +59,11 @@
     min-width: 180px; z-index: 400;
     padding: 4px 0;
     overflow: hidden;
+}
+.topbar-dropdown-sep {
+    height: 1px;
+    background: var(--color-border);
+    margin: 4px 0;
 }
 .topbar-dropdown a {
     display: block !important;
@@ -139,4 +147,20 @@
     .topbar-more summary { padding: 0 8px; }
     .topbar-right { gap: 8px; }
     .topbar-back-to-office { margin-left: 8px; padding: 6px 10px; }
+}
+
+/* ── Smallere end tablet ──────────────────────────────
+   Højre side har flex-shrink:0 og æder derfor plads fra navigationen.
+   Vi trimmer den før nav'en presses helt ind i MERE. */
+@media (max-width: 860px) {
+    .live-dot-label { display: none; }
+    .weather-chip .wt-desc { display: none; }
+}
+
+@media (max-width: 620px) {
+    .topbar { padding: 0 8px; }
+    .live-dot { display: none; }
+    .topbar-logo { margin-right: 6px; }
+    .topbar-back-to-office { margin-left: 6px; padding: 6px 8px; }
+    .weather-chip { padding: 4px 7px; }
 }
