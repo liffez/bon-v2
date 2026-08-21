@@ -1,7 +1,8 @@
 # CLAUDE_ZETTLE_POS.md — Zettle (PayPal POS) → Bon v2
 
-> **Status:** SPEC. Fase 1 verificeret mod produktionskontoen 21. august 2026 (§15) — read-only,
-> intet skrevet. Fase 2–4 ikke bygget. Fire faser, se §14.
+> **Status:** Fase 1 + Fase 2 **BYGGET** (21. august 2026). Migration 153, `services/posSales.js`
+> + `posSync.js`, `routes/pos.js`, Settings-panel, flueben på eventet. Fase 3–4 ikke bygget.
+> Verificeret ende-til-ende mod ægte Zettle- og grocy-hq-data — se §15 og §17.
 > **Beslægtet:** `docs/CLAUDE_EVENT_BON_BRIDGE.md` (samme mønster, modsat retning) ·
 > `docs/CLAUDE_EVENT.md` §5 (lager-gaten) + §6 (top-up/retur) + §15.3 (festival-bemanding) ·
 > `docs/economics/CLAUDE_PENGESTROEM.md` §2.E/§2.F (event-indtægt uden faktura).
@@ -211,11 +212,13 @@ have to events kørende samtidig, så feltet er forberedelse — ikke en funktio
 
 - `events.pos_store_ref` = Zettles identifikator for salgsstedet. `NULL` = "alt POS-salg
   på datoen hører til dette event" (dagens virkelighed).
-- Har to samtidige events **hver sit** `pos_store_ref`, fordeles købene pr. salgssted, og
-  begge får deres egen bon. Det er hele grunden til at feltet skrives ind nu i stedet for
-  at skulle eftermonteres midt i en festival.
-- Har to samtidige events ingen (eller samme) `pos_store_ref`, er dagen **utildelt** for
-  dem begge. Vi deler ikke omsætning efter et gæt.
+- **Bygget i Fase 2:** dækker to events samme dato, og dagens køb kommer fra ét salgssted
+  som præcis ét af dem peger på, kobles dagen dertil. Ellers er dagen **utildelt** for dem
+  begge og kobles i hånden. Vi deler ikke omsætning efter et gæt.
+- **Ikke bygget:** at splitte ÉN dags køb ud på to bons efter salgssted. Dagen er stadig
+  enheden (`UNIQUE(source, business_date)`). Kolonnen skrives ind nu, så den ikke skal
+  eftermonteres midt i en festival, men den fulde opdeling venter til der faktisk er to
+  samtidige events — i dag bestræber vi os på ikke at have dem.
 
 > Hvad salgsstedet præcist hedder i købets payload (felt og format) er **ikke antaget her**.
 > Det er et af spørgsmålene Fase 1 besvarer mod ægte data (§15). Indtil da er `pos_store_ref`
@@ -290,6 +293,12 @@ Spejler event-broens `BRIDGE_ROLES.sales` ([routes/event-bridge.js:265](../route
 **Frys:** kun mens status ∈ `NY, GODKENDT, BETALT`. Fører nogen bonnen videre
 (FAKTURERET/AFSLUTTET), rører vi den aldrig igen og rapporterer `frozen`. Derudover
 stopper synk af en dag efter `zettle_resync_days`.
+
+**Koblingen bliver stående så længe bonnen lever.** Fjernes fluebenet på eventet EFTER at
+bonnen er lavet, ville dagen ellers flippe til "uden event" mens bonnen levede videre — og
+næste kobling ville lave en til. Dagen beholder sin kobling (flag
+`kept_assignment_bon_exists`), og `assignDay` afviser at rydde koblingen mens bonnen findes.
+Bonnen skal håndteres først; dét er en menneskebeslutning.
 
 **Moms:** Zettle-priser er incl moms og `bon_lines.unit_price` er incl moms (§6b) →
 **ingen omregning**. Ingen `* 1.25` nogen steder (pre-commit-hook).
@@ -478,7 +487,40 @@ stadig være der (der lukkes sent på festival), men den er endnu aldrig blevet 
 - Gebyr-granularitet fra Finance API (Fase 3).
 - Første ægte refundering skal efterprøves i hånden mod bonnen.
 
-## 16. Bevidst ikke bygget
+## 16. Fase 2 — bygget og verificeret (21. august 2026)
+
+**Filer:** migration `153_zettle_pos_sales.sql` · `services/posSales.js` (rene funktioner:
+døgnskifte, produktkobling, dagens aggregat, event-kobling) · `services/posSync.js`
+(rå køb, dagen, bonnen, polling, manuel kobling) · `routes/pos.js` (`/api/pos/*`) ·
+Settings → Integrationer → **Zettle (POS)** · flueben på eventet i office.
+
+**Tests:** `npm run test:pos` → **58 grønne** i tre lag:
+`pos_sales` (rene funktioner) · `pos_sync` (mod en rigtig migreret database, Zettle stubbet
+med fixtures) · `pos_routes` (HTTP-laget, som ruterne faktisk kaldes).
+
+**Mutations-testet** — otte kerneregler rullet tilbage, hver fældet af en navngiven assert:
+fluebenet på eventet · ejerskabet · frys-reglen · dublet-værnet ved fjern-kobling ·
+kobling-bevares-værnet · bon uden Grocy · døgnskiftet · delstrengs-match.
+
+**Verificeret ende-til-ende mod ægte data** (frisk temp-database, dev-DB urørt):
+512 køb fra festivalen 13.–15. august → tre salgsbons på **73.495 kr**, præcis Zettles egne
+tal, linjesum = købsbeløb på kronen. Gentaget synk ændrede intet (idempotent). Dagen
+21. august stod som **utildelt med 5.196 kr** — netop dagen med det aktive event og 0 kr i
+P&L'en. Kobling i hånden gav bon 3263. Produktkobling af *Slider Frikadelle* →
+`Frikadellen Slider` byggede alle fire dage om og satte kategori og kostpris på linjen,
+uden at bonnens total flyttede sig.
+
+**Fejl fundet af verifikationen, ikke af testene:** produktkoblingen gemte koblingen og
+fejlede DEREFTER på `changelog.entity_id NOT NULL` — gemt uden at slå igennem på bonnen.
+Halvt udført er værre end slet ikke udført. Det var grunden til at `tests/pos_routes.test.js`
+blev skrevet: service-testene rørte aldrig routeren.
+
+**Ikke bygget i Fase 2** (bevidst): timekurven (Fase 4) · gebyr og bankafstemning (Fase 3) ·
+splitning af én dag på to salgssteder (§6.3).
+
+---
+
+## 17. Bevidst ikke bygget
 
 - **Butikssalg gennem POS.** Kræver at POS-bons rutes gennem LEVERET for at trække fra
   HQ (`CLAUDE_EVENT.md` §5's fremtidsnote). Væsentligt større, og lager er fravalgt nu.

@@ -350,6 +350,7 @@
     <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
     <button class="st-nav-item st-admin-only" data-section="whiteboard">Whiteboard</button>
+    <button class="st-nav-item st-admin-only" data-section="zettle">Zettle (POS)</button>
 
     <div class="st-nav-label st-group">System &amp; vedligehold</div>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
@@ -625,6 +626,67 @@
         Hvert forsøg logges — også de mislykkede. Er listen tom, er der aldrig sendt noget.
       </p>
       <div id="wb-log"></div>
+    </div>
+
+    <!-- ════ ZETTLE (POS) ════ -->
+    <div class="st-section st-admin-only" id="sec-zettle">
+      <h2>Zettle (POS)</h2>
+
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:680px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        Dagens kassesalg hentes og bliver til <strong style="color:var(--color-text)">én salgsbon pr. dag</strong>
+        på det event der har POS slået til. Bonnen trækker ikke lager — prep-bonnen ejer trækket.<br>
+        <strong style="color:var(--color-text)">Fluebenet sættes på selve eventet</strong>, ikke her:
+        uden det laves der ingen bon, og vi gætter aldrig ud fra datoen alene.
+      </div>
+
+      <div id="pos-status" style="margin-bottom:16px"></div>
+
+      <div class="st-card" style="margin-bottom:16px">
+        <h3 style="margin-top:0">Indstillinger</h3>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500">
+            <input type="checkbox" id="pos-enabled" style="width:auto;margin:0"> Hent salg fra Zettle
+          </label>
+          <button class="st-btn st-btn-secondary st-btn-sm" onclick="syncPosFromSettings()" id="pos-sync-btn">Synk nu</button>
+        </div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap">
+          <label style="font-size:13px">Døgnskifte
+            <input class="st-input" id="pos-cutoff" type="time" style="width:110px" step="60">
+            <span style="display:block;font-size:11px;color:var(--color-text-dim);max-width:230px;line-height:1.5">
+              Et køb før dette klokkeslæt hører til dagen før. Der lukkes ved 24, men det trækker ud.</span>
+          </label>
+          <label style="font-size:13px">Hent hvert (min.)
+            <input class="st-input" id="pos-poll" type="number" min="0" step="1" style="width:90px">
+            <span style="display:block;font-size:11px;color:var(--color-text-dim);max-width:200px;line-height:1.5">
+              0 = ingen automatisk hentning.</span>
+          </label>
+          <label style="font-size:13px">Gen-synk dage bagud
+            <input class="st-input" id="pos-resync" type="number" min="0" step="1" style="width:90px">
+            <span style="display:block;font-size:11px;color:var(--color-text-dim);max-width:220px;line-height:1.5">
+              Fanger sene refunderinger. Derefter fryser dagen.</span>
+          </label>
+        </div>
+        <div style="margin-top:12px"><button class="st-btn st-btn-primary" onclick="savePosSettings()">Gem</button></div>
+      </div>
+
+      <h3 style="margin-top:20px;font-size:15px;font-weight:700">Dage uden event</h3>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 10px;max-width:680px;line-height:1.6">
+        Der er solgt over kassen, men intet event havde POS slået til. Det er som regel et glemt flueben —
+        kobl dagen her, så bygges bonnen med det samme. Listen skal helst være tom.
+      </p>
+      <div id="pos-unassigned"></div>
+
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Varer uden Grocy-kobling</h3>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 10px;max-width:680px;line-height:1.6">
+        Ikke en fejlliste — der <em>sælges</em> ting der ikke ligger i Grocy. De kommer med som omsætning uanset;
+        en kobling giver dem kostpris, CO₂ og kategori.
+        <strong style="color:var(--color-text)">Vælg kun et match du er sikker på</strong> — en slider koblet til
+        den fuldstore ret ville arve dens stykliste og forgifte top-up-forslaget.
+      </p>
+      <div id="pos-unmatched"></div>
+
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Seneste dage</h3>
+      <div id="pos-days"></div>
     </div>
 
     <!-- ════ FORMBUILDER ════ -->
@@ -1649,6 +1711,7 @@ async function init() {
       if (sec === 'jobtype') { loadRoleMap(); loadWageRates(); }
       // Whiteboard-kobling (varemodtagelse → FVST-log)
       if (sec === 'whiteboard') loadWhiteboardSection();
+      if (sec === 'zettle') loadZettleSection();
     });
   });
 
@@ -4146,6 +4209,210 @@ function bsJumpToMail() {
     document.querySelector('[data-section="mail"]')?.classList.add('active');
     document.querySelectorAll('.st-section').forEach(s => s.classList.remove('active'));
     document.getElementById('sec-mail')?.classList.add('active');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ZETTLE (POS) — docs/CLAUDE_ZETTLE_POS.md §12
+   Panelet findes fordi en integration der fejler i stilhed er værre end
+   ingen integration: utildelte dage, ukoblede varer og synk-fejl skal
+   kunne ses ét sted.
+   ══════════════════════════════════════════════════════════════ */
+
+var _posRecipes = null;
+
+function posPill(bg, fg, text, title) {
+  return '<span title="' + escapeHtml(title || '') + '" style="background:' + bg + ';color:' + fg +
+    ';border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700">' + escapeHtml(text) + '</span>';
+}
+
+function posKr(n) {
+  return (Number(n) || 0).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
+}
+
+async function loadZettleSection() {
+  var statusEl = document.getElementById('pos-status');
+  statusEl.innerHTML = '<span style="font-size:12px;color:var(--color-text-dim)">Henter status…</span>';
+
+  var health;
+  try {
+    health = await fetchPosHealth();
+  } catch (e) {
+    statusEl.innerHTML = '<div style="font-size:13px;color:#a33227">Kunne ikke hente status: ' + escapeHtml(e.message) + '</div>';
+    return;
+  }
+
+  document.getElementById('pos-enabled').checked = !!health.enabled;
+  document.getElementById('pos-cutoff').value = health.settings.cutoff || '04:00';
+  document.getElementById('pos-poll').value = health.settings.poll_minutes;
+  document.getElementById('pos-resync').value = health.settings.resync_days;
+
+  var pills = [];
+  pills.push(health.enabled
+    ? posPill('#eaf6ec', '#2c6b39', '✓ Tændt')
+    : posPill('#f0efec', '#6b6355', '○ Slukket', 'Der hentes ingenting og der oprettes ingen bons'));
+  if (health.enabled) {
+    pills.push(health.connection && health.connection.ok
+      ? posPill('#eaf6ec', '#2c6b39', '✓ Forbundet', (health.connection.scopes || []).join(' '))
+      : posPill('#fbeae7', '#a33227', '⚠ ' + ((health.connection && health.connection.reason) || 'Ingen forbindelse')));
+  }
+  if (health.unassigned_days) {
+    pills.push(posPill('#fdf3e2', '#8a6412', health.unassigned_days + ' dag(e) uden event',
+      'Solgt over kassen, men intet event havde POS slået til'));
+  }
+  if (health.days_with_errors) pills.push(posPill('#fbeae7', '#a33227', health.days_with_errors + ' dag(e) med fejl'));
+
+  statusEl.innerHTML =
+    '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' + pills.join('') + '</div>' +
+    '<div style="font-size:11px;color:var(--color-text-dim);margin-top:8px">' +
+      (health.last_synced_at ? 'Sidst hentet: ' + escapeHtml(health.last_synced_at)
+                             : 'Der er aldrig hentet noget.') +
+      ' · ' + health.days + ' dag(e) registreret' +
+    '</div>';
+
+  await Promise.all([loadPosDays(), loadPosUnmatched()]);
+}
+
+async function savePosSettings() {
+  await saveSetting('zettle_enabled', document.getElementById('pos-enabled').checked ? '1' : '0');
+  await saveSetting('zettle_business_day_cutoff', document.getElementById('pos-cutoff').value || '04:00');
+  await saveSetting('zettle_poll_minutes', String(parseInt(document.getElementById('pos-poll').value, 10) || 0));
+  await saveSetting('zettle_resync_days', String(parseInt(document.getElementById('pos-resync').value, 10) || 0));
+  // Pollingen læser indstillingerne ved opstart — en ændret hentefrekvens
+  // slår derfor først igennem ved næste serverstart. Sig det frem for at lade
+  // brugeren tro at der sker noget nu.
+  toast('Gemt. Ændret hentefrekvens gælder fra næste serverstart.');
+  loadZettleSection();
+}
+
+async function syncPosFromSettings() {
+  var btn = document.getElementById('pos-sync-btn');
+  btn.disabled = true; btn.textContent = 'Henter…';
+  try {
+    var r = await syncPosNow({});
+    if (r.skipped) toast(r.reason === 'disabled' ? 'Slået fra i indstillinger' : 'Zettle-nøgle mangler i .env', 'error');
+    else toast(r.purchases + ' køb · ' + r.days.length + ' dag(e) bygget');
+  } catch (e) {
+    toast('Synk fejlede: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Synk nu';
+    loadZettleSection();
+  }
+}
+
+async function loadPosDays() {
+  var out = await fetchPosDays();
+  var unEl = document.getElementById('pos-unassigned');
+  var daysEl = document.getElementById('pos-days');
+
+  var unassigned = out.days.filter(function (d) { return !d.event_id; });
+  if (!unassigned.length) {
+    unEl.innerHTML = '<p style="font-size:12px;color:var(--color-text-dim)">Ingen — alle dage er koblet.</p>';
+  } else {
+    unEl.innerHTML = unassigned.map(function (d) {
+      return '<div class="st-card" style="padding:10px 14px;margin-bottom:8px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">' +
+        '<strong style="min-width:110px">' + escapeHtml(d.business_date) + '</strong>' +
+        '<span style="font-size:13px">' + posKr(d.gross_incl) + ' · ' + d.purchase_count + ' køb</span>' +
+        (d.assign_status === 'ambiguous'
+          ? '<span style="font-size:12px;color:#8a6412">flere events dækker dagen — vælg selv</span>' : '') +
+        '<select class="st-input" data-pos-date="' + escapeHtml(d.business_date) + '" style="min-width:220px">' +
+          '<option value="">Vælg event…</option></select>' +
+        '</div>';
+    }).join('');
+    // Kandidaterne hentes pr. dag: et event uden flueben skal også kunne vælges
+    // — det er som regel netop dét der er glemt.
+    unassigned.forEach(async function (d) {
+      var sel = unEl.querySelector('[data-pos-date="' + d.business_date + '"]');
+      if (!sel) return;
+      try {
+        var detail = await fetchPosDay(d.business_date);
+        (detail.candidate_events || []).forEach(function (e) {
+          var o = document.createElement('option');
+          o.value = e.id;
+          o.textContent = e.name + (e.pos_enabled ? '' : '  (POS ikke slået til)');
+          sel.appendChild(o);
+        });
+        if (!detail.candidate_events || !detail.candidate_events.length) {
+          sel.insertAdjacentHTML('beforeend', '<option disabled>Ingen events dækker datoen</option>');
+        }
+      } catch (e) { /* dagen vises stadig — listen er en hjælp, ikke en betingelse */ }
+      sel.onchange = async function () {
+        if (!sel.value) return;
+        sel.disabled = true;
+        try {
+          var r = await assignPosDay(d.business_date, Number(sel.value));
+          toast(r.bon && r.bon.bon_number ? 'Koblet — salgsbon ' + r.bon.bon_number : 'Koblet');
+        } catch (e) { toast(e.message, 'error'); }
+        loadZettleSection();
+      };
+    });
+  }
+
+  daysEl.innerHTML = !out.days.length
+    ? '<p style="font-size:12px;color:var(--color-text-dim)">Ingen dage hentet endnu.</p>'
+    : '<table class="st-table"><thead><tr><th>Dag</th><th>Event</th><th>Bon</th>' +
+      '<th style="text-align:right">Salg</th><th style="text-align:right">Køb</th><th></th></tr></thead><tbody>' +
+      out.days.slice(0, 30).map(function (d) {
+        var flagTxt = (d.flags || []).map(function (f) {
+          if (f.code === 'possible_invoice_payment') return '⚠ ligner en fakturabetaling';
+          if (f.code === 'bon_frozen') return '🔒 bon ' + f.status;
+          if (f.code === 'exclusive_vat') return '⚠ moms ikke i prisen';
+          if (f.code === 'ambiguous_event') return '⚠ flere events';
+          if (f.code === 'line_sum_mismatch') return '⚠ linjer ≠ betalt';
+          return f.code;
+        }).join(' · ');
+        return '<tr>' +
+          '<td>' + escapeHtml(d.business_date) + '</td>' +
+          '<td>' + (d.event_name ? escapeHtml(d.event_name) : '<span style="color:#8a6412">—</span>') + '</td>' +
+          '<td>' + (d.bon_number ? escapeHtml(d.bon_number) : '—') + '</td>' +
+          '<td style="text-align:right">' + posKr(d.gross_incl) + '</td>' +
+          '<td style="text-align:right">' + d.purchase_count + (d.refund_count ? ' (' + d.refund_count + ' ret.)' : '') + '</td>' +
+          '<td style="font-size:11px;color:#8a6412">' + escapeHtml(flagTxt) +
+            (d.last_error ? ' <span style="color:#a33227">' + escapeHtml(d.last_error) + '</span>' : '') + '</td>' +
+        '</tr>';
+      }).join('') + '</tbody></table>';
+}
+
+async function loadPosUnmatched() {
+  var el = document.getElementById('pos-unmatched');
+  var out = await fetchPosUnmatched();
+  if (!out.products.length) {
+    el.innerHTML = '<p style="font-size:12px;color:var(--color-text-dim)">Ingen — alle solgte varer er afklaret.</p>';
+    return;
+  }
+  if (!_posRecipes) {
+    try { _posRecipes = await getGrocyRecipesCached(); }
+    catch (e) { _posRecipes = []; }
+  }
+  var opts = '<option value="">Vælg Grocy-opskrift…</option>' +
+    _posRecipes.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'da'); })
+      .map(function (r) { return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>'; }).join('') +
+    '<option value="none">— findes ikke i Grocy —</option>';
+
+  el.innerHTML = out.products.map(function (p) {
+    return '<div class="st-card" style="padding:10px 14px;margin-bottom:8px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">' +
+      '<strong style="min-width:180px">' + escapeHtml(p.name) + '</strong>' +
+      '<span style="font-size:13px;color:var(--color-text-dim)">' + p.quantity + ' stk · ' + posKr(p.amount_incl) +
+        ' · ' + p.days + ' dag(e)</span>' +
+      (p.product_uuid
+        ? '<select class="st-input" data-pos-uuid="' + escapeHtml(p.product_uuid) + '" data-pos-name="' +
+            escapeHtml(p.name) + '" style="min-width:260px">' + opts + '</select>'
+        : '<span style="font-size:12px;color:var(--color-text-dim)">løssalg uden produktkort — kan ikke kobles</span>') +
+    '</div>';
+  }).join('');
+
+  el.querySelectorAll('[data-pos-uuid]').forEach(function (sel) {
+    sel.onchange = async function () {
+      if (!sel.value) return;
+      sel.disabled = true;
+      try {
+        var id = sel.value === 'none' ? null : Number(sel.value);
+        var r = await mapPosProduct(sel.dataset.posUuid, id, sel.dataset.posName);
+        toast(id === null ? 'Markeret som "findes ikke i Grocy"'
+                          : 'Koblet · ' + r.rebuilt_days.length + ' dag(e) genopbygget');
+      } catch (e) { toast(e.message, 'error'); }
+      loadZettleSection();
+    };
+  });
 }
 
 function escapeHtml(s) {
