@@ -2419,3 +2419,8 @@ async function mapPosProduct(uuid, grocyRecipeId, name) {
         body: JSON.stringify({ pos_product_uuid: uuid, grocy_recipe_id: grocyRecipeId, name }),
     });
 }
+async function fetchPosPayouts() { return apiFetch('/pos/payouts'); }
+async function matchPosPayout(uuid, transactionId) {
+    return apiFetch('/pos/payouts/' + encodeURIComponent(uuid) + '/match',
+        { method: 'POST', body: JSON.stringify({ transaction_id: transactionId }) });
+}

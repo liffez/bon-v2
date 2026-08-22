@@ -1375,6 +1375,28 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
     if (event_id != null) {
         event = db.prepare('SELECT id, name, start_date, location_id, event_address_id FROM events WHERE id = ?').get(event_id);
         if (!event) return res.status(404).json({ error: `Event ${event_id} findes ikke` });
+
+        // ── Dobbelttællings-værn (docs/CLAUDE_ZETTLE_POS.md §10) ──────────
+        // Denne knap OPRETTER en salgsbon ud af indbetalingen. Henter POS-synken
+        // allerede dagens salg for samme event, ville omsætningen stå to gange
+        // — og det ville se helt rigtigt ud på begge bons. Vi afviser derfor og
+        // peger på fordelingen i stedet, som er den rigtige vej når bonnen findes.
+        const posDays = db.prepare(`
+            SELECT d.business_date, b.bon_number, b.id AS bon_id, d.gross_incl
+            FROM pos_sales_days d JOIN bons b ON b.id = d.bon_id
+            WHERE d.event_id = ?
+              AND b.status_id != (SELECT id FROM status_definitions WHERE code = 'AFLYST')
+            ORDER BY d.business_date
+        `).all(event_id);
+        if (posDays.length && !req.body.ignore_pos_warning) {
+            return res.status(409).json({
+                error: `${event.name} har allerede ${posDays.length} salgsbon(s) fra kassen `
+                     + `(${posDays.map(d => d.bon_number).join(', ')}). En bon mere ville tælle omsætningen to gange. `
+                     + 'Fordel indbetalingen på de eksisterende bons i stedet.',
+                code: 'pos_bon_exists',
+                pos_days: posDays,
+            });
+        }
     }
 
     // Valider gebyr (negativ) + allokerings-invariant mod tx (inkl. eksisterende)

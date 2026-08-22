@@ -1,5 +1,5 @@
 {
-  "_kommentar": "KONSTRUERET — ikke ægte data. Dækker de former Zettle-kontoen IKKE har haft i de 12 måneder Fase 1 scannede (docs/CLAUDE_ZETTLE_POS.md §15): refundering, kontant, løssalg uden produktkort, og et køb efter midnat der rammer døgnskiftet. Formen er kopieret fra de ægte køb i purchases_festival.json. Refunderingens præcise form er UVERIFICERET — begge tænkelige varianter er med (negativt beløb, og positivt beløb med refund-flag), fordi adapteren skal tåle begge. Første ægte refundering skal efterprøves i hånden mod bonnen.",
+  "_kommentar": "KONSTRUERET — ikke ægte data. Dækker de former Zettle-kontoen IKKE har haft i de 12 måneder Fase 1 scannede (docs/CLAUDE_ZETTLE_POS.md §15): refundering, kontant, løssalg uden produktkort, og et køb efter midnat der rammer døgnskiftet. Formen er kopieret fra de ægte køb i purchases_festival.json. Refunderingens præcise form er UVERIFICERET — begge tænkelige varianter er med (negativt beløb, og positivt beløb med refund-flag), fordi adapteren skal tåle begge. Første ægte refundering skal efterprøves i hånden mod bonnen. Den sidste post er et kortkøb den 15. august, som hovedbogs-fixturen henviser til: kun KORT har gebyrposter (målt — MobilePay og kontant har ingen).",
   "purchases": [
     {
       "source": "POS",
@@ -16,12 +16,31 @@
       "refunded": false,
       "refundsPurchaseUUID": "cf96f2e1-0d5d-3be5-e0de-c0c2bc1b8ab6",
       "customAmountSale": false,
-      "site": { "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e", "displayName": "Primært salgssted", "primary": true },
+      "site": {
+        "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e",
+        "displayName": "Primært salgssted",
+        "primary": true
+      },
       "products": [
-        { "quantity": "1", "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6", "name": "Slider Frikadelle", "variantName": "", "unitPrice": 6500, "vatPercentage": 25, "sku": "" }
+        {
+          "quantity": "1",
+          "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6",
+          "name": "Slider Frikadelle",
+          "variantName": "",
+          "unitPrice": 6500,
+          "vatPercentage": 25,
+          "sku": ""
+        }
       ],
       "discounts": [],
-      "payments": [ { "uuid": "aaaa0001-0000-0000-0000-000000000001", "amount": -6500, "type": "IZETTLE_CARD", "createdAt": "2026-08-15T12:00:00.000+0000" } ]
+      "payments": [
+        {
+          "uuid": "aaaa0001-0000-0000-0000-000000000001",
+          "amount": -6500,
+          "type": "IZETTLE_CARD",
+          "createdAt": "2026-08-15T12:00:00.000+0000"
+        }
+      ]
     },
     {
       "source": "POS",
@@ -38,12 +57,31 @@
       "refunded": false,
       "refundsPurchaseUUID": "cf96f2e1-0d5d-3be5-e0de-c0c2bc1b8ab6",
       "customAmountSale": false,
-      "site": { "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e", "displayName": "Primært salgssted", "primary": true },
+      "site": {
+        "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e",
+        "displayName": "Primært salgssted",
+        "primary": true
+      },
       "products": [
-        { "quantity": "1", "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6", "name": "Slider Frikadelle", "variantName": "", "unitPrice": 6500, "vatPercentage": 25, "sku": "" }
+        {
+          "quantity": "1",
+          "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6",
+          "name": "Slider Frikadelle",
+          "variantName": "",
+          "unitPrice": 6500,
+          "vatPercentage": 25,
+          "sku": ""
+        }
       ],
       "discounts": [],
-      "payments": [ { "uuid": "aaaa0002-0000-0000-0000-000000000002", "amount": 6500, "type": "IZETTLE_CARD", "createdAt": "2026-08-15T12:05:00.000+0000" } ]
+      "payments": [
+        {
+          "uuid": "aaaa0002-0000-0000-0000-000000000002",
+          "amount": 6500,
+          "type": "IZETTLE_CARD",
+          "createdAt": "2026-08-15T12:05:00.000+0000"
+        }
+      ]
     },
     {
       "source": "POS",
@@ -59,12 +97,31 @@
       "refund": false,
       "refunded": false,
       "customAmountSale": true,
-      "site": { "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e", "displayName": "Primært salgssted", "primary": true },
+      "site": {
+        "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e",
+        "displayName": "Primært salgssted",
+        "primary": true
+      },
       "products": [
-        { "quantity": "1", "productUuid": null, "name": "Løssalg", "variantName": "", "unitPrice": 5000, "vatPercentage": 25, "sku": "" }
+        {
+          "quantity": "1",
+          "productUuid": null,
+          "name": "Løssalg",
+          "variantName": "",
+          "unitPrice": 5000,
+          "vatPercentage": 25,
+          "sku": ""
+        }
       ],
       "discounts": [],
-      "payments": [ { "uuid": "aaaa0003-0000-0000-0000-000000000003", "amount": 5000, "type": "CASH", "createdAt": "2026-08-15T13:00:00.000+0000" } ]
+      "payments": [
+        {
+          "uuid": "aaaa0003-0000-0000-0000-000000000003",
+          "amount": 5000,
+          "type": "CASH",
+          "createdAt": "2026-08-15T13:00:00.000+0000"
+        }
+      ]
     },
     {
       "source": "POS",
@@ -80,12 +137,31 @@
       "refund": false,
       "refunded": false,
       "customAmountSale": false,
-      "site": { "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e", "displayName": "Primært salgssted", "primary": true },
+      "site": {
+        "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e",
+        "displayName": "Primært salgssted",
+        "primary": true
+      },
       "products": [
-        { "quantity": "2", "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6", "name": "Slider Frikadelle", "variantName": "Glutenfri", "unitPrice": 6000, "vatPercentage": 25, "sku": "SLF" }
+        {
+          "quantity": "2",
+          "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6",
+          "name": "Slider Frikadelle",
+          "variantName": "Glutenfri",
+          "unitPrice": 6000,
+          "vatPercentage": 25,
+          "sku": "SLF"
+        }
       ],
       "discounts": [],
-      "payments": [ { "uuid": "aaaa0004-0000-0000-0000-000000000004", "amount": 12000, "type": "MOBILE_PAY", "createdAt": "2026-08-16T00:30:00.000+0000" } ]
+      "payments": [
+        {
+          "uuid": "aaaa0004-0000-0000-0000-000000000004",
+          "amount": 12000,
+          "type": "MOBILE_PAY",
+          "createdAt": "2026-08-16T00:30:00.000+0000"
+        }
+      ]
     },
     {
       "source": "POS",
@@ -101,12 +177,71 @@
       "refund": false,
       "refunded": false,
       "customAmountSale": false,
-      "site": { "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e", "displayName": "Primært salgssted", "primary": true },
+      "site": {
+        "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e",
+        "displayName": "Primært salgssted",
+        "primary": true
+      },
       "products": [
-        { "quantity": "1", "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6", "name": "Vare uden moms i prisen", "variantName": "", "unitPrice": 10000, "vatPercentage": 25, "sku": "" }
+        {
+          "quantity": "1",
+          "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6",
+          "name": "Vare uden moms i prisen",
+          "variantName": "",
+          "unitPrice": 10000,
+          "vatPercentage": 25,
+          "sku": ""
+        }
       ],
       "discounts": [],
-      "payments": [ { "uuid": "aaaa0005-0000-0000-0000-000000000005", "amount": 10000, "type": "IZETTLE_CARD", "createdAt": "2026-08-15T14:00:00.000+0000" } ]
+      "payments": [
+        {
+          "uuid": "aaaa0005-0000-0000-0000-000000000005",
+          "amount": 10000,
+          "type": "IZETTLE_CARD",
+          "createdAt": "2026-08-15T14:00:00.000+0000"
+        }
+      ]
+    },
+    {
+      "source": "POS",
+      "purchaseUUID": "66666666-6666-6666-6666-666666666666",
+      "amount": 8000,
+      "vatAmount": 1600,
+      "currency": "DKK",
+      "timestamp": "2026-08-15T15:00:00.000+0000",
+      "purchaseNumber": 905,
+      "userDisplayName": "Kasse 1",
+      "organizationId": 99999,
+      "taxationMode": "INCLUSIVE",
+      "refund": false,
+      "refunded": false,
+      "customAmountSale": false,
+      "site": {
+        "uuid": "eb8b9cfd-89c0-c57e-1e8d-8c94a8848e0e",
+        "displayName": "Primært salgssted",
+        "primary": true
+      },
+      "products": [
+        {
+          "quantity": "1",
+          "productUuid": "2e1e12f5-c103-60ce-0438-a99ed14b2ae6",
+          "name": "Slider Frikadelle",
+          "variantName": "",
+          "unitPrice": 8000,
+          "vatPercentage": 25,
+          "sku": ""
+        }
+      ],
+      "discounts": [],
+      "payments": [
+        {
+          "uuid": "55550001-0000-0000-0000-000000000001",
+          "amount": 8000,
+          "type": "IZETTLE_CARD",
+          "createdAt": "2026-08-15T15:00:00.000+0000"
+        }
+      ]
     }
   ]
 }

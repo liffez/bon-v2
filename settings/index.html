@@ -693,6 +693,15 @@
       </p>
       <div id="pos-unmatched"></div>
 
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Udbetalinger til banken</h3>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 10px;max-width:680px;line-height:1.6">
+        Zettle udbetaler <strong style="color:var(--color-text)">netto</strong> og tømmer kontoen, så én udbetaling
+        dækker alt siden den forrige. Sammensætningen er regnet ud, ikke gættet.
+        Kobles den til bankposteringen, fordeles beløbet på dagenes kortsalg plus én gebyr-linje —
+        <strong style="color:var(--color-text)">kun kortdelen</strong>, for MobilePay og kontant kommer ad en anden vej.
+      </p>
+      <div id="pos-payouts"></div>
+
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Seneste dage</h3>
       <div id="pos-days"></div>
     </div>
@@ -4277,7 +4286,7 @@ async function loadZettleSection() {
       ' · ' + health.days + ' dag(e) registreret' +
     '</div>';
 
-  await Promise.all([loadPosDays(), loadPosUnmatched()]);
+  await Promise.all([loadPosDays(), loadPosUnmatched(), loadPosPayouts()]);
 }
 
 async function savePosSettings() {
@@ -4361,7 +4370,8 @@ async function loadPosDays() {
   daysEl.innerHTML = !out.days.length
     ? '<p style="font-size:12px;color:var(--color-text-dim)">Ingen dage hentet endnu.</p>'
     : '<table class="st-table"><thead><tr><th>Dag</th><th>Event</th><th>Bon</th>' +
-      '<th style="text-align:right">Salg</th><th style="text-align:right">Køb</th><th></th></tr></thead><tbody>' +
+      '<th style="text-align:right">Salg</th><th style="text-align:right">heraf kort</th>' +
+      '<th style="text-align:right">Gebyr</th><th style="text-align:right">Køb</th><th></th></tr></thead><tbody>' +
       out.days.slice(0, 30).map(function (d) {
         var flagTxt = (d.flags || []).map(function (f) {
           if (f.code === 'possible_invoice_payment') return '⚠ ligner en fakturabetaling';
@@ -4376,11 +4386,71 @@ async function loadPosDays() {
           '<td>' + (d.event_name ? escapeHtml(d.event_name) : '<span style="color:#8a6412">—</span>') + '</td>' +
           '<td>' + (d.bon_number ? escapeHtml(d.bon_number) : '—') + '</td>' +
           '<td style="text-align:right">' + posKr(d.gross_incl) + '</td>' +
+          '<td style="text-align:right;color:var(--color-text-dim)">' + (d.card_gross_incl ? posKr(d.card_gross_incl) : '—') + '</td>' +
+          '<td style="text-align:right">' + (d.fee_incl ? posKr(d.fee_incl) : '—') + '</td>' +
           '<td style="text-align:right">' + d.purchase_count + (d.refund_count ? ' (' + d.refund_count + ' ret.)' : '') + '</td>' +
           '<td style="font-size:11px;color:#8a6412">' + escapeHtml(flagTxt) +
             (d.last_error ? ' <span style="color:#a33227">' + escapeHtml(d.last_error) + '</span>' : '') + '</td>' +
         '</tr>';
       }).join('') + '</tbody></table>';
+}
+
+async function loadPosPayouts() {
+  var el = document.getElementById('pos-payouts');
+  var out;
+  try { out = await fetchPosPayouts(); }
+  catch (e) { el.innerHTML = '<p style="font-size:12px;color:#a33227">' + escapeHtml(e.message) + '</p>'; return; }
+  if (!out.payouts.length) {
+    el.innerHTML = '<p style="font-size:12px;color:var(--color-text-dim)">Ingen udbetalinger hentet endnu.</p>';
+    return;
+  }
+  el.innerHTML = out.payouts.map(function (p) {
+    var dage = (p.covered || []).map(function (c) {
+      return escapeHtml(c.business_date) + ' ' + posKr(c.gross_incl);
+    }).join(' · ') || 'ingen dage kunne kobles';
+
+    var hoejre;
+    if (p.cf_transaction_id) {
+      hoejre = '<span style="background:#eaf6ec;color:#2c6b39;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700">'
+             + '✓ Afstemt</span>'
+             + (p.bank ? '<span style="font-size:11px;color:var(--color-text-dim);margin-left:8px">'
+                       + escapeHtml(p.bank.dato) + ' · ' + escapeHtml(p.bank.tekst) + '</span>' : '');
+    } else if ((p.candidates || []).length) {
+      hoejre = '<select class="st-input" data-payout="' + escapeHtml(p.payout_uuid) + '" style="min-width:280px">'
+             + '<option value="">Kobl til bankpostering…</option>'
+             + p.candidates.map(function (c) {
+                 return '<option value="' + c.id + '">' + escapeHtml(c.dato) + ' · ' + escapeHtml(c.tekst)
+                      + ' · ' + posKr(c.beloeb) + '</option>';
+               }).join('') + '</select>';
+    } else {
+      hoejre = '<span style="font-size:12px;color:#8a6412">Ingen bankpostering med samme beløb endnu</span>';
+    }
+
+    return '<div class="st-card" style="padding:10px 14px;margin-bottom:8px">'
+      + '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">'
+        + '<strong style="min-width:110px">' + escapeHtml(String(p.occurred_at).slice(0, 10)) + '</strong>'
+        + '<strong style="font-size:15px">' + posKr(p.amount_incl) + '</strong>'
+        + '<span style="font-size:12px;color:var(--color-text-dim)">kortsalg ' + posKr(p.gross_incl)
+        + ' · gebyr ' + posKr(p.fee_incl) + '</span>'
+        + hoejre
+      + '</div>'
+      + '<div style="font-size:11px;color:var(--color-text-dim);margin-top:6px">Dækker: ' + dage
+      + (p.partial ? ' <span style="color:#8a6412">⚠ en del af perioden ligger uden for det hentede vindue</span>' : '')
+      + '</div>'
+    + '</div>';
+  }).join('');
+
+  el.querySelectorAll('[data-payout]').forEach(function (sel) {
+    sel.onchange = async function () {
+      if (!sel.value) return;
+      sel.disabled = true;
+      try {
+        var r = await matchPosPayout(sel.dataset.payout, Number(sel.value));
+        toast('Afstemt · fordelt på ' + r.allocations.length + ' poster');
+      } catch (e) { toast(e.message, 'error'); }
+      loadZettleSection();
+    };
+  });
 }
 
 async function loadPosUnmatched() {
