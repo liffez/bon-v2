@@ -483,7 +483,7 @@ class BonDrawer {
                 btn.innerHTML = oldHtml;
             }
         });
-        this.overlayEl.addEventListener('click', () => this.hide());
+        closeOnOutsideClick(this.overlayEl, () => this.hide());
 
         // Escape
         document.addEventListener('keydown', (e) => {
@@ -2185,7 +2185,7 @@ class BonDrawer {
         document.addEventListener('keydown', onKey, true);
 
         overlay.querySelector('.drawer-confirm-stay').addEventListener('click', cleanup);
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+        closeOnOutsideClick(overlay, cleanup);
 
         overlay.querySelector('.drawer-confirm-discard').addEventListener('click', () => {
             cleanup();

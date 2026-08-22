@@ -549,7 +549,7 @@ function _coOpenNewCampaignModal() {
 
     const close = () => overlay.remove();
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    closeOnOutsideClick(overlay, close);
 
     const submit = async () => {
         const name = nameInput.value.trim();
@@ -650,7 +650,7 @@ function _coOpenLostReasonModal(drag) {
     });
     const close = () => overlay.remove();
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    closeOnOutsideClick(overlay, close);
     overlay.querySelector('[data-action="ok"]').addEventListener('click', async () => {
         const reason = input.value.trim();
         if (!reason) {

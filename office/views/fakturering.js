@@ -858,7 +858,7 @@ function _faktEcoOverlay(title, bodyHtml) {
             </div>
             <div class="fakt-eco-modal-body">${bodyHtml}</div>
         </div>`;
-    ov.addEventListener('click', (e) => { if (e.target === ov) _faktCloseEcoOverlay(); });
+    closeOnOutsideClick(ov, _faktCloseEcoOverlay);
     document.body.appendChild(ov);
 }
 
@@ -1026,7 +1026,7 @@ function _faktConfirmDialog(bon) {
         }
 
         cancel.addEventListener('click', () => close(null));
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+        closeOnOutsideClick(overlay, () => close(null));
         ok.addEventListener('click', () => close(input.value));
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') close(input.value);

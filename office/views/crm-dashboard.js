@@ -1521,7 +1521,7 @@ function _crmOpenReactivateModal() {
     document.body.appendChild(overlay);
 
     const close = () => overlay.remove();
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    closeOnOutsideClick(overlay, close);
     overlay.querySelectorAll('[data-action="cancel"]').forEach(b => b.addEventListener('click', close));
 
     const submitBtn = overlay.querySelector('[data-action="ok"]');

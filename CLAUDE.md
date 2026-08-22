@@ -4939,6 +4939,50 @@ skærme fik deres rigtige nulpunkt med. Browser-verificeret: frisk localStorage 
 banner trods ulæst flyver på aktiv bon; ny flyver → banner via SSE; bon sat til LEVERET
 → 1 → 0. Testdata ryddet.
 
+### Modaler lukkede når musen blev sluppet udenfor (22. august 2026)
+
+Markerede man teksten i et felt inde i en modal og trak musen ud over den grå
+baggrund for at frigøre markeringen, lukkede modalen — med det man havde skrevet.
+Set i drift på udgifts-modalen i event-modulet, men fejlen sad i **21 modaler**.
+
+`click` fyrer på den nærmeste **fælles forfader** til dér hvor knappen blev
+trykket ned og dér hvor den blev sluppet. Når trykket startede i feltet og
+slippet skete på overlayet, blev den fælles forfader netop overlayet — og
+vagten `if (e.target === overlay) luk()` så det som et klik udenfor. Vagten
+kiggede kun på hvor musen SLAP, aldrig på hvor den startede.
+
+- **`closeOnOutsideClick(overlayEl, closeFn)`** + **`isOutsideClick(e, el)`** i
+  [shared/utils.js](shared/utils.js) kræver at **både** nedtrykket og slippet
+  skete på overlayet. Alle 21 kaldesteder er lagt om (shared/modal.js,
+  bon_opret_modal, bon_drawer, indkob ×2, add_to_campaign_modal,
+  supplier_inbox, stock_overview ×2, mobile/views/crm og otte office-views).
+- **Trykkets ophav spores ét sted på `document` i capture-fasen**, ikke pr.
+  overlay. Ellers kunne de to delegerede handlere i `stock_overview.js` ikke
+  spørge — de har intet overlay-element at hænge en lytter på.
+- Slip-target nulstilles ved hvert nyt tryk, så et slip fra forrige tryk ikke
+  kan tælle med når `click` ankommer uden et friskt `pointerup` (pointercancel
+  ved scroll på touch).
+- To inline `onclick="if(event.target===this)…"`-attributter (supplier_inbox,
+  mobile/crm) er blevet til rigtige lyttere; ellers kunne de ikke dele reglen.
+- Sidebackdrops der ligger som **søskende** til panelet (indkøbs-settings-panelet,
+  Settings) var aldrig ramt: dér bliver den fælles forfader `body`, så overlayets
+  lytter fyrer slet ikke. De er urørt.
+
+**Tests:** `npm run test:modal` — 17 asserts. Den rigtige `shared/utils.js` køres
+i en vm-sandkasse med en DOM der modellerer capture, bobling og netop den
+retargeting af `click`; begge grene (pointer + mus-fallback) køres.
+**Mutations-testet:** fem kernerettelser rulles hver især tilbage og fælder hver
+sin navngivne assert — den gamle adfærd (`kun e.target`) fælder 9.
+Verificeret i browser på `shared/modal.js` og `bon_opret_modal.js`: markering
+trukket ud → modalen står, klik på en knap indeni → står, ægte klik udenfor →
+lukker. Konsolfejlene på office er efterprøvet mod `git stash` og er
+pre-eksisterende (manglende Grocy-nøgle lokalt).
+
+> ⚠️ Browser-panelet var frosset (viewport 0×0), så klikkene blev sendt som
+> events gennem de ægte lyttere, ikke som fysiske museklik. Selve retargetingen
+> af `click` er altså ikke observeret her — den er spec-adfærd og er præcis dét
+> brugeren så i drift.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

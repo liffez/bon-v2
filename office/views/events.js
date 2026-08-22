@@ -1994,7 +1994,7 @@ async function _evOpenFindPayment(ev) {
     const cleanup = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
     document.addEventListener('keydown', onKey);
     overlay.querySelector('[data-act=close]').addEventListener('click', cleanup);
-    overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
+    closeOnOutsideClick(overlay, cleanup);
     const errEl = overlay.querySelector('.ev-modal-error');
     overlay.querySelectorAll('.ev-fp-add').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -2034,7 +2034,7 @@ function _evModal(bodyHtml, onSubmit, opts) {
     document.body.appendChild(overlay);
     const cleanup = () => overlay.remove();
     overlay.querySelector('[data-act=cancel]').addEventListener('click', cleanup);
-    overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
+    closeOnOutsideClick(overlay, cleanup);
     const errEl = overlay.querySelector('.ev-modal-error');
     const form = overlay.querySelector('form');
 

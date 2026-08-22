@@ -1528,7 +1528,7 @@ function _cfShowBulkModal() {
     const close = () => overlay.remove();
     overlay.querySelector('.cf-modal-close').onclick = close;
     overlay.querySelector('#cfBulkCancelBtn').onclick = close;
-    overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
+    closeOnOutsideClick(overlay, close);
 
     // Auto-preview ved load
     const runPreview = async () => {

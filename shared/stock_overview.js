@@ -275,7 +275,8 @@ function _soHandleClick(e) {
         _soOpenAdd();
         return;
     }
-    if (target.closest('.so-add-close') || target.id === 'soAddOverlay') {
+    if (target.closest('.so-add-close') ||
+        (target.id === 'soAddOverlay' && isOutsideClick(e, target))) {
         _soCloseAdd();
         return;
     }
@@ -295,7 +296,8 @@ function _soHandleClick(e) {
     }
 
     // Edit modal: close (× / Annuller / backdrop) or save
-    if (target.closest('.so-edit-close') || target.id === 'soEditOverlay') {
+    if (target.closest('.so-edit-close') ||
+        (target.id === 'soEditOverlay' && isOutsideClick(e, target))) {
         _soCloseEdit();
         return;
     }

@@ -111,9 +111,7 @@ class BonOpretModal {
         // Close handlers
         this.overlay.querySelector('.bon-opret-close').addEventListener('click', () => this.close());
         this.overlay.querySelector('.btn-annuller').addEventListener('click', () => this.close());
-        this.overlay.addEventListener('click', (e) => {
-            if (e.target === this.overlay) this.close();
-        });
+        closeOnOutsideClick(this.overlay, () => this.close());
 
         // Priskategori change → hide/show fields for produktion
         this.overlay.querySelector('.bon-opret-priskategori').addEventListener('change', () => this._onPriceCategoryChange());

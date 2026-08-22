@@ -15,6 +15,7 @@
     "dev-admin": "node --experimental-sqlite scripts/dev-admin.js",
     "test:help": "node scripts/test-help-visibility.js",
     "test:nav": "node --test --test-force-exit tests/safe_navigate.test.js tests/sse_stream.test.js",
+    "test:modal": "node --test tests/modal_outside_click.test.js",
     "test:flyver": "node --experimental-sqlite scripts/test-flyver-visibility.js",
     "test:check": "node --env-file=.env.test tests/scripts/safety_check.js --skip-db-check",
     "test:migrate": "node --env-file=.env.test --experimental-sqlite db/migrate.js --require-test-env",
