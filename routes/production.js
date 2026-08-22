@@ -31,7 +31,7 @@ const { handle, logChange, getDefaultLocationId } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast }   = require('../shared/sse');
 const grocy           = require('../services/grocyAdapter');
-const { buildBatchPlan, unitCostFromStockRow } = require('../services/production');
+const { buildBatchPlan, unitCostFromStockRow, resolveYieldToStock } = require('../services/production');
 
 /* ── POST /batches — producér en batch ───────────────────── */
 
@@ -43,6 +43,7 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
         portions,
         actual_yield,
         planned_yield,
+        yield_qu_id,
         output_unit,
         lines,
         batch_nonce,
@@ -77,9 +78,12 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
     if (!locationId) return res.status(400).json({ error: 'Ingen aktiv lokation' });
 
     // ── Hent Grocy-data til QU-konvertering + enhedskost ─────
-    const [conversions, stock] = await Promise.all([
+    const [conversions, stock, products, units, rawRecipes] = await Promise.all([
         grocy.getQuantityUnitConversions(),
         grocy.getStock(),
+        hasOutput ? grocy.getProducts() : Promise.resolve([]),
+        hasOutput ? grocy.getQuantityUnits() : Promise.resolve([]),
+        hasOutput ? grocy.getRecipesRaw() : Promise.resolve([]),
     ]);
     const costMap = {};
     for (const s of stock) {
@@ -87,10 +91,35 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
         if (c != null) costMap[s.product_id] = c;
     }
 
+    // ── Udbyttet skal i LAGER-enhed før noget som helst andet (#360) ──
+    // Grocy lægger tallet på lageret som lager-enhed uanset hvad UI'et kaldte
+    // det. Kan enheden ikke afgøres, afvises batchen — et forkert lagertal er
+    // værre end en afvist registrering, fordi det ikke kan ses bagefter.
+    let yieldStock = Number(actual_yield) || 0;
+    let plannedStock = Number(planned_yield) || 0;
+    let stockUnitName = output_unit || '';
+    if (hasOutput) {
+        const outProduct = products.find(p => String(p.id) === String(output_product_id));
+        const outRecipe  = rawRecipes.find(r => String(r.id) === String(recipe_id));
+        const r = resolveYieldToStock({
+            product: outProduct, recipe: outRecipe,
+            amount: Number(actual_yield) || 0, quId: yield_qu_id, units, conversions,
+        });
+        if (r.error) {
+            return res.status(400).json({ error: r.error, code: 'yield_unit_unresolved' });
+        }
+        yieldStock = r.amount;
+        // Forventet udbytte er tastet i SAMME enhed og skal skaleres ens —
+        // ellers sammenlignes svind på tværs af to enheder.
+        plannedStock = (Number(planned_yield) || 0) * (r.factor ?? 1);
+        const qu = units.find(u => Number(u.id) === Number(outProduct.qu_id_stock));
+        stockUnitName = qu ? (qu.name_short || qu.name || '') : (output_unit || '');
+    }
+
     // ── Byg plan (REN: QU-konvertering + pris) ───────────────
     // Udbytte kræves kun når der ER et output-produkt at prissætte (consume-only
     // batches behøver ikke et udbytte).
-    const plan = buildBatchPlan({ portions, actualYield: actual_yield, lines, conversions, costMap, requireYield: hasOutput });
+    const plan = buildBatchPlan({ portions, actualYield: yieldStock, lines, conversions, costMap, requireYield: hasOutput });
     if (plan.errors.length) {
         return res.status(400).json({ error: 'Validering fejlede', details: plan.errors });
     }
@@ -108,8 +137,8 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
             locationId, recipe_id, hasOutput ? Number(output_product_id) : null, Number(portions) || 1,
             // planned_output_qty = forventet udbytte (svind-reference); falder tilbage til
             // faktisk hvis frontend ikke sender planned_yield. actual = faktisk udbytte.
-            (Number(planned_yield) || Number(actual_yield) || 0), (Number(actual_yield) || 0) || null,
-            output_unit || '', batch_nonce,
+            (plannedStock || yieldStock || 0), (yieldStock || 0) || null,
+            stockUnitName, batch_nonce,
             plan.masterCost, plan.actualCost, notes || null, req.session.userId || null,
         );
         batchId = r.lastInsertRowid;
@@ -131,7 +160,7 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
     const result = await grocy.produceBatch({
         consume: plan.consume.map(c => ({ productId: c.productId, amount: c.amount })),
         produce: hasOutput
-            ? { productId: Number(output_product_id), amount: Number(actual_yield), price: plan.pricePerUnit }
+            ? { productId: Number(output_product_id), amount: yieldStock, price: plan.pricePerUnit }
             : undefined,
     });
 
