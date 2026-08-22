@@ -33,15 +33,16 @@ const { convertAndFormat } = require('../services/quConvert');
 // Kostpris pr. stock-enhed ex moms fra Grocy produkt-detaljer. last_price (seneste
 // købspris) er master; avg_price (gns.) som fallback. Bevares i prishistorikken
 // UANSET lager, så udsolgte varer også får en pris.
+// Enhedspris pr. lager-enhed. Delegeres til `services/recipeCost.js` så
+// drill-downet og kostpris-beregningen ikke kan blive uenige om hvad en vare
+// koster — den lokale kopi manglede `value/amount`-faldet og gav derfor null
+// på varer beregningen godt kunne prissætte.
 function lastPriceOf(details) {
-    if (!details) return null;
-    const last = Number(details.last_price);
-    if (Number.isFinite(last) && last > 0) return last;
-    const avg = Number(details.avg_price);
-    if (Number.isFinite(avg) && avg > 0) return avg;
-    return null;
+    return details ? unitCostFromRow(details) : null;
 }
 const itemPriceBackfill = require('../services/itemPriceBackfill');
+const { refreshRecipeCosts, classifyCachedCost } = require('../services/recipeCostRefresh');
+const { unitCostFromRow, parentPriceFromChildren } = require('../services/recipeCost');
 const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
 
@@ -247,8 +248,19 @@ router.get('/overview', handle(async (req, res) => {
 
         const isOrganic = String(uf.Oeko) === '1';
         const cost = costMap[r.id];
-        const costPriceExcl = cost ? r2(cost.cost_price_excl_moms) : null;
         const co2ePerUnit = cost?.co2e ?? (parseFloat(uf.Co2e) || 0);
+
+        // Manglende råvarepriser gør kostprisen til et MINIMUM, ikke et tal.
+        // Dækningsbidraget bliver dermed et maksimum — og er der slet intet
+        // kendt (fx en øl vi køber og sælger videre uden registreret pris),
+        // findes der ingen margin at vise. 0 kr og "vi ved det ikke" ser ens
+        // ud i en kolonne; forskellen skal stå der.
+        const k = classifyCachedCost(cost);
+        const costMissing = k.missing;
+        const costSource = k.source;
+        const costUnknown = k.unknown;
+        const costIsMinimum = k.isMinimum;
+        const costPriceExcl = k.cost != null ? r2(k.cost) : null;
 
         const salesPriceExcl = priceMap[r.id] != null ? r2(priceMap[r.id]) : null;
 
@@ -275,6 +287,10 @@ router.get('/overview', handle(async (req, res) => {
             is_active: isActive,
             is_organic: isOrganic,
             cost_price_excl_moms: costPriceExcl,
+            cost_source: costSource,
+            cost_unknown: costUnknown,
+            cost_is_minimum: costIsMinimum,
+            cost_missing_prices: costMissing,
             sales_price_excl_moms: salesPriceExcl,
             db_kr_excl_moms: dbKr,
             db_pct: dbPct,
@@ -294,6 +310,10 @@ router.get('/overview', handle(async (req, res) => {
     const underTargetCount = recipes.filter(r => r.under_target).length;
     const lossMakingCount = recipes.filter(r => r.loss_making).length;
     const missingPriceCount = recipes.filter(r => r.sales_price_excl_moms == null).length;
+    // Kun de salgbare tælles: en produktionsopskrift uden kostpris er ikke
+    // et falsk dækningsbidrag, for den har ingen salgspris at måle mod.
+    const costUnknownCount = recipes.filter(r => r.cost_unknown && r.sales_price_excl_moms != null).length;
+    const costMinimumCount = recipes.filter(r => r.cost_is_minimum).length;
     const notSoldCount = recipes.filter(r => r.sold_units === 0).length;
     const okoCount = recipes.filter(r => r.is_organic).length;
 
@@ -333,6 +353,8 @@ router.get('/overview', handle(async (req, res) => {
             under_target_count: underTargetCount,
             loss_making_count: lossMakingCount,
             missing_price_count: missingPriceCount,
+            cost_unknown_count: costUnknownCount,
+            cost_minimum_count: costMinimumCount,
             not_sold_count: notSoldCount,
             oko_count: okoCount,
             share_under_target_pct: shareUnderTargetPct,
@@ -351,66 +373,26 @@ router.post('/refresh-costs', handle(async (req, res) => {
     const t0 = Date.now();
     const db = getDb();
 
-    let rawRecipes, fulfillment;
+    // Samme beregning som det natlige job — se services/recipeCostRefresh.js
+    // for hvorfor det SKAL være samme kode og ikke en kopi.
+    let out;
     try {
-        [rawRecipes, fulfillment] = await Promise.all([
-            grocyAdapter.getRecipesRaw(),
-            grocyAdapter.getRecipeFulfillment(),
-        ]);
+        out = await refreshRecipeCosts(db);
     } catch (err) {
         return res.status(503).json({ error: 'Grocy ikke tilgængelig', detail: err.message });
     }
 
-    // Build cost-lookup fra fulfillment
-    const costMap = {};
-    for (const f of fulfillment) {
-        costMap[f.recipe_id] = f.costs ?? 0;
-    }
-
-    const upsert = db.prepare(`
-        INSERT INTO recipe_cost_cache (grocy_recipe_id, cost_price_excl_moms, ingredients_json, co2e, refreshed_at)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(grocy_recipe_id) DO UPDATE SET
-            cost_price_excl_moms = excluded.cost_price_excl_moms,
-            ingredients_json = excluded.ingredients_json,
-            co2e = excluded.co2e,
-            refreshed_at = CURRENT_TIMESTAMP
-    `);
-
-    let refreshed = 0;
-    const errors = [];
-    for (const recipe of rawRecipes) {
-        try {
-            const uf = recipe.userfields || {};
-            const cost = costMap[recipe.id] ?? (parseFloat(uf.costprice) || 0);
-            const co2e = parseFloat(uf.Co2e) || null;
-            // Simpel ingredients_json — kun navnet på opskriften er kendt på denne fase.
-            // Detaljeret breakdown bygges via getRecipeIngredients() ved drill-down,
-            // men vi gemmer en stub her for fremtidig udvidelse.
-            upsert.run(recipe.id, r2(cost), '[]', co2e);
-            refreshed++;
-        } catch (err) {
-            errors.push({ recipe_id: recipe.id, error: err.message });
-        }
-    }
-
-    // Synk også salgspriser Grocy → item_prices (Grocy er master; redigeringer i
-    // viewet er allerede skrevet tilbage til Grocy, så overwrite er sikkert).
-    let priceSync = null;
-    try {
-        priceSync = itemPriceBackfill.syncPricesFromGrocy(rawRecipes);
-    } catch (err) {
-        errors.push({ price_sync: true, error: err.message });
-    }
-
     const result = {
-        refreshed,
-        price_sync: priceSync,
-        errors: errors.length ? errors : undefined,
+        refreshed: out.refreshed,
+        price_sync: out.priceSync,
+        sources: out.sources,
+        incomplete: out.incomplete,
+        unknown: out.unknown,
+        errors: out.errorDetails.length ? out.errorDetails : undefined,
         duration_ms: Date.now() - t0,
         refreshed_at: new Date().toISOString(),
     };
-    broadcast('recipe_costs_refreshed', { refreshed, refreshed_at: result.refreshed_at });
+    broadcast('recipe_costs_refreshed', { refreshed: out.refreshed, refreshed_at: result.refreshed_at });
     res.json(result);
 }));
 
@@ -680,7 +662,9 @@ router.get('/:id/composition', handle(async (req, res) => {
 
     const unitMap = new Map(units.map(u => [u.id, u]));
     const productMap = new Map(products.map(p => [String(p.id), p]));
-    // recipe_id → samlet kostpris ex moms (Grocy fulfillment) — til underopskrifter + total
+    // Bons egne kostpriser — samme kilde som tabelrækken. `costMap` (Grocys
+    // fulfillment) står kun tilbage som nødspor for opskrifter cachen ikke har.
+    const bonCost = grocyAdapter.readRecipeCostCache();
     const costMap = new Map(fulfillment.map(f => [String(f.recipe_id), Number(f.costs) || 0]));
 
     // Produkt → opskrift der producerer det (recipe.product_id peger på output-produktet).
@@ -709,6 +693,31 @@ router.get('/:id/composition', handle(async (req, res) => {
     const detailsMap = new Map();
     ingProductIds.forEach((pid, i) => detailsMap.set(pid, detailsList[i]));
 
+    // Forældre-varer (fx `kål`) har ingen egen pris — kun børnene har. Totalen
+    // bruger gennemsnittet af børnene, så uden samme regel her stod husets
+    // største linje i Frisk Grønt som "—" mens den indgik i totalen med 9,63 kr.
+    // Kun de FÅ børn der faktisk skal bruges hentes; hele produktkataloget
+    // ville være 100+ kald på en klik-sti.
+    const forældreUdenPris = ingProductIds.filter(pid => lastPriceOf(detailsMap.get(pid)) == null);
+    const børnIds = [...new Set(forældreUdenPris.flatMap(pid =>
+        products.filter(x => String(x.parent_product_id) === String(pid)).map(x => String(x.id))
+    ))];
+    const arvetPris = new Map();
+    if (børnIds.length) {
+        const børnDetaljer = await Promise.all(
+            børnIds.map(pid => grocyAdapter.getProductDetails(pid).catch(() => null))
+        );
+        const børnPris = new Map();
+        børnIds.forEach((pid, i) => {
+            const c = lastPriceOf(børnDetaljer[i]);
+            if (c != null) børnPris.set(pid, c);
+        });
+        for (const pid of forældreUdenPris) {
+            const snit = parentPriceFromChildren(products, pid, cid => børnPris.get(cid) ?? null);
+            if (snit != null) arvetPris.set(pid, snit);
+        }
+    }
+
     // Direkte ingredienser (recipes_pos)
     const ingredients = posForRecipe.map(pos => {
         const prod = productMap.get(String(pos.product_id)) || {};
@@ -724,7 +733,8 @@ router.get('/:id/composition', handle(async (req, res) => {
         // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
         // last_price/avg_price bevares uanset lager, så udsolgte varer også får en pris.
         const d = detailsMap.get(String(pos.product_id));
-        const unitCost = lastPriceOf(d);
+        const unitCost = lastPriceOf(d) ?? (arvetPris.get(String(pos.product_id)) ?? null);
+        const prisArvet = lastPriceOf(d) == null && arvetPris.has(String(pos.product_id));
         const amountStock = parseFloat(pos.amount) || 0;
         const stockAmount = d ? (Number(d.stock_amount) || 0) : null;
         return {
@@ -737,6 +747,9 @@ router.get('/:id/composition', handle(async (req, res) => {
             stock_unit: unitName(stockQuId),
             in_stock: stockAmount == null ? null : stockAmount > 0,
             cost: unitCost != null ? r2(amountStock * unitCost) : null,
+            // Prisen er arvet fra børnene (gennemsnit) — værd at sige, for
+            // Spidskål og Hvidkål koster ikke det samme.
+            cost_inherited: prisArvet || undefined,
             // Klikbar kun hvis produktet har sin EGEN opskrift (og ikke er den vi står på).
             producing_recipe_id: (producingId && producingId !== id) ? producingId : null,
         };
@@ -752,7 +765,7 @@ router.get('/:id/composition', handle(async (req, res) => {
             const servings = parseFloat(n.servings) || 1;
             // Bidrag til kostprisen: underopskriftens kostpris pr. portion × antal portioner.
             const subBase = parseInt(sub.base_servings) || 1;
-            const subTotal = costMap.get(String(sub.id));
+            const subTotal = bonCost.has(sub.id) ? bonCost.get(sub.id).cost : costMap.get(String(sub.id));
             return {
                 recipe_id: sub.id,
                 name: sub.name,
@@ -771,8 +784,12 @@ router.get('/:id/composition', handle(async (req, res) => {
         category: uf.grupper || null,
         unit: uf.recipeunit || 'stk',
         base_servings: parseInt(recipe.base_servings) || 1,
-        // Autoritativ samlet kostpris (Grocy fulfillment) — linjerne summerer ~hertil.
-        total_cost: costMap.has(String(recipe.id)) ? r2(costMap.get(String(recipe.id))) : null,
+        // Samlet kostpris fra SAMME kilde som tabelrækken (recipe_cost_cache).
+        // Hentes den fra Grocys fulfillment, kan panelet vise et andet tal end
+        // den række man klikkede på — og så ved man ikke hvilket der gælder.
+        total_cost: bonCost.has(recipe.id) ? r2(bonCost.get(recipe.id).cost) : null,
+        total_cost_source: bonCost.get(recipe.id)?.source ?? null,
+        total_cost_missing: bonCost.get(recipe.id)?.missing || [],
         ingredients,
         sub_recipes,
     });

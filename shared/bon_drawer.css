@@ -1210,6 +1210,25 @@
 .drawer-co2-row-total .drawer-co2-row-name { color: #2f6b39; }
 .drawer-co2-missing { padding: 8px 12px; font-size: 12px; color: #98701f; background: #fdf6e6; }
 
+/* Advarsel om varer uden CO₂-tal — klikbar, folder listen ud */
+.drawer-co2-missing[data-co2-miss-toggle] { display: flex; align-items: center; gap: 6px; cursor: pointer; transition: filter .12s; }
+.drawer-co2-missing[data-co2-miss-toggle]:hover { filter: brightness(0.97); }
+.drawer-co2-miss-caret { margin-left: auto; opacity: 0.6; transition: transform .15s; }
+.drawer-co2-missing.open .drawer-co2-miss-caret { transform: rotate(180deg); }
+.drawer-co2-miss-list { background: #fffdf6; border-top: 1px solid #f0e4c6; }
+.drawer-co2-miss-row {
+    display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px;
+    padding: 6px 12px 6px 24px; font-size: 12px; border-bottom: 1px solid #f6eeda;
+}
+.drawer-co2-miss-row:last-child { border-bottom: none; }
+.drawer-co2-miss-name { color: #6b5a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-co2-miss-qty { font-variant-numeric: tabular-nums; color: #8a8073; }
+.drawer-co2-miss-tag {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    background: #f0e4c6; color: #8a6d1c; border-radius: 8px; padding: 1px 6px; margin-left: 6px;
+}
+.drawer-co2-miss-hint { padding: 7px 12px 8px 24px; font-size: 11px; color: #9b8a5f; line-height: 1.4; }
+
 /* CO₂ pr. kuvert */
 .drawer-co2-perkuvert { opacity: 0.9; }
 .drawer-co2-row-perkuvert { background: #f4f9f4; color: #2f6b39; }

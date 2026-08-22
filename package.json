@@ -15,6 +15,7 @@
     "dev-admin": "node --experimental-sqlite scripts/dev-admin.js",
     "test:help": "node scripts/test-help-visibility.js",
     "test:nav": "node --test --test-force-exit tests/safe_navigate.test.js tests/sse_stream.test.js",
+    "test:flyver": "node --experimental-sqlite scripts/test-flyver-visibility.js",
     "test:check": "node --env-file=.env.test tests/scripts/safety_check.js --skip-db-check",
     "test:migrate": "node --env-file=.env.test --experimental-sqlite db/migrate.js --require-test-env",
     "test:fixture": "node --env-file=.env.test --experimental-sqlite tests/scripts/apply_fixture.js tests/fixtures/seed_planning.sql",
@@ -75,7 +76,9 @@
     "opdel:udfoer": "node --experimental-sqlite scripts/company-split-apply.js",
     "test:economic": "node --experimental-sqlite scripts/test-economic-invoice.js && node scripts/test-fakturering-render.js && node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js",
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js",
-    "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js"
+    "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js",
+    "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js",
+    "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

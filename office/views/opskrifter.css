@@ -119,20 +119,25 @@
 
 /* KPI strip */
 .ops-kpi-strip {
-    display: flex;
+    /* Grid, ikke flex-wrap: med `flex-grow` blev det sidste kort på en række
+       strakt ud over hele bredden — ni kort gav otte i normal størrelse og
+       "Økologiske" alene som en bjælke. Grid giver ens bredde uanset hvor
+       mange der er tilbage på sidste række. */
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 10px;
     padding: 12px 16px;
     background: var(--color-background, #f5f4f2);
     border-bottom: 1px solid var(--color-border, #d7d1ca);
-    overflow-x: auto;
 }
 .ops-kpi {
     background: #fff;
     border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 8px;
     padding: 10px 14px;
-    min-width: 150px;
-    flex-shrink: 0;
+    /* Bredden styres af griddet. `min-width` ville få kortene til at flyde
+       ud over deres kolonne på en smal skærm. */
+    min-width: 0;
     position: relative;
     transition: transform 0.1s, box-shadow 0.1s;
 }
@@ -258,6 +263,32 @@
 .ops-badge-inactive { background: #eee; color: #6a6359; }
 .ops-badge-no-price { background: #fbe9e9; color: #bc181b; }
 .ops-badge-loss { background: #7a0d10; color: #fff; }
+
+/* "Vi ved det ikke" må ikke ligne et tal. Rød som ingen-salgspris, fordi
+   konsekvensen er den samme: rækken kan ikke bruges til at vurdere margin. */
+.ops-badge-no-cost { background: #fbe9e9; color: #bc181b; }
+/* Delvis kostpris er en note, ikke en alarm — tallet er brugbart, bare lavt sat. */
+.ops-badge-part-cost { background: #fdf3e0; color: #8e631f; }
+
+.ops-unknown {
+    color: #bc181b;
+    font-style: italic;
+    font-weight: 500;
+    cursor: help;
+}
+/* Plus-tegnet efter kostprisen: "mindst så meget". */
+.ops-inherited {
+    color: #8e631f;
+    font-weight: 700;
+    margin-left: 3px;
+    cursor: help;
+}
+.ops-min-mark {
+    color: #8e631f;
+    font-weight: 700;
+    margin-left: 2px;
+    cursor: help;
+}
 
 .ops-db-pct { font-weight: 700; }
 .ops-db-pct.loss { color: #7a0d10; }
