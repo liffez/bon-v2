@@ -23,7 +23,7 @@ Fire ting kommer af at hente salget automatisk, og tre af dem er funktioner der
 |---|---|---|
 | 1 | Event-P&L bliver rigtig løbende | `computeEventPL` ([routes/events.js:119](../routes/events.js#L119)) summerer salgsbons |
 | 2 | "Solgt" bliver målt i stedet for gættet | Top-up-forslag + retur-forslag (`CLAUDE_EVENT.md` §6) — formlen er `rest = prep − solgt` |
-| 3 | Faktisk gebyr + automatisk bankafstemning | Erstatter `event_bridge_fee_pct`-estimatet; lukker den manuelle "Find indbetaling" |
+| 3 | Faktisk Zettle-gebyr + automatisk bankafstemning | Lukker den manuelle "Find indbetaling" |
 | 4 | Timefordelt salg | `CLAUDE_EVENT.md` §15.3 pkt. 2: festival-kapacitet *"kræver ordre-fordeling pr. time, som vi kun får fra eget POS"* |
 
 Salgskurven i sig selv er det mindst værdifulde — den findes i Zettles egen app. Den er
@@ -357,9 +357,15 @@ brutto+gebyr-modellen.
 
 Med Finance API'et bliver to ting bedre:
 
-1. **Faktisk gebyr** i stedet for `event_bridge_fee_pct`-estimatet på 3 %.
+1. **Zettles faktiske gebyr** på udbetalingen, i stedet for et skøn.
 2. **Foreslået match**: udbetalingens beløb + dato → kandidat-bankpostering, som office
-   godkender.
+   godkender. Aldrig automatisk bogført.
+
+> ⚠️ **`event_bridge_fee_pct` (3 %) hører IKKE til her og må ikke røres.** Den er Stripes
+> andel af **forudbestillinger** gennem event-order-broen (`routes/event-bridge.js`,
+> migration 137) — en anden betalingsopsætning med sin egen gebyr-bon. Zettles gebyr er en
+> selvstændig størrelse på en selvstændig udbetaling. De to lever side om side; et event kan
+> sagtens have begge, hvis der både er forudbestilt via Stripe og solgt over kassen.
 
 > ⚠️ **Vigtigst i hele fase 3:** Pengestrøms `create-bon-from-tx` **opretter** i dag en
 > salgsbon ud af indbetalingen. Når POS ejer dagens bon, skal den vej i stedet
@@ -432,10 +438,11 @@ Finance API'et faktisk giver, rate limits, hvor langt tilbage historikken række
 Migration (§4), forretningsdag (§6), aggregering (§7+§9), bon-livscyklus (§8), polling,
 **og synligheden fra §12**. Kun `sales`. Prep, forecast og lager røres ikke.
 
-### Fase 3 — Faktisk gebyr + bankafstemning
-Gebyr fra Finance API erstatter estimatet. Foreslået match af udbetaling → bankpostering.
-`create-bon-from-tx` allokerer til den eksisterende POS-bon i stedet for at oprette en ny
-(§10 — dobbelttællings-værnet).
+### Fase 3 — Faktisk Zettle-gebyr + bankafstemning
+Gebyret på Zettle-udbetalingen hentes fra Finance API i stedet for at skønnes. Foreslået
+match af udbetaling → bankpostering. `create-bon-from-tx` allokerer til den eksisterende
+POS-bon i stedet for at oprette en ny (§10 — dobbelttællings-værnet).
+**Rører ikke `event_bridge_fee_pct`** — det er Stripes gebyr på forudbestillinger (§10).
 
 ### Fase 4 — Kurve + timefordeling
 `GET /api/pos/day` + visning på event-detaljen (§11).
