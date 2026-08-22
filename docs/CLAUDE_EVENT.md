@@ -722,3 +722,239 @@ afvisning når eventet ingen kontakt har, og at kontakten kan ryddes igen.
 
 *Grundlag: driftsfeedback (Leif, august 2026) efter at have udfyldt kunden i hånden
 på et 2-dages event.*
+
+---
+
+## 18. Event-løn + faktisk vareforbrug — låst design (august 2026, IKKE bygget)
+
+> Design-session Leif, 22. august 2026. Udspringer af ét spørgsmål — "hvordan får vi
+> timeforbruget med i eventets økonomi?" — men undervejs viste to nabofejl sig, som
+> hører til samme beslutning: hvem ejer timen, og hvem ejer varen. Modellen er
+> **ikke bygget**; nedenstående er hvad der skal implementeres.
+
+### 18.1 Problemet (én sætning)
+
+Eventets P&L viser omsætning, vareforbrug og udgifter — men **ingen løn**, og
+vareforbruget er *hvad vi pakkede*, ikke *hvad der blev brugt*.
+
+Størrelsesordenen: Vig Festival omsatte 153.757 kr incl. moms med 31.333 kr i udgifter.
+Løn på pladsen er formodentlig i samme størrelsesorden som udgiftsposten, så "0 kr løn"
+er ikke en afrunding. Og pakket-vs-solgt afviger 13.318 kr (32 %) på samme event.
+
+### 18.2 Timerne skal ikke registreres — de skal konteres
+
+Alt bortset fra selve konteringen findes:
+
+| Del | Hvor | Status |
+|---|---|---|
+| Timer pr. medarbejder pr. dag (planlagt + fremmøde) | `smartplanAdapter.getLaborRows` | ✅ |
+| Timeløn, tidsversioneret | `wage_rates` (26 medarbejdere, snit 149 kr/t) | ✅ |
+| Arbejdsgiver-overhead | `settings.labor_overhead_pct` = 15 | ✅ |
+| HQ vs. Festival-vagt | `location_class: 'hq' \| 'events'` (migr. 122) | ✅ |
+| Batch-hent over interval | `laborAdapter.getLaborMap` — ét Smartplan-kald | ✅ |
+| Frys af afsluttet periode | `labor_day_snapshot` | ✅ mønster |
+| Rolle-filter (bud ud) | `smartplan_role_map` | ⚠️ kun 3 jobtyper mappet i drift |
+
+En manuel timeseddel pr. event ville være at bygge et andet system oven på Smartplan —
+og §15.4's advarsel gælder: **manuel indtastning der starter tomt bliver ikke brugt.**
+
+> **Blokering (verificeret):** `_transformRow` i `services/laborAdapter.js` bygger sin
+> returværdi felt for felt og **taber `location` + `location_class`**. Smartplan-adapteren
+> sætter dem; drift-adapteren smider dem væk. Konsekvensen er større end den lyder: feltet
+> ligger derfor heller ikke i de frosne `labor_day_snapshot`-rækker, så historiske dage kan
+> ikke konteres bagud. To linjers additiv ændring — skal laves først.
+
+### 18.3 Tre kilder, hver med sin sandhedsværdi
+
+Smartplan har kun **to** lokationer ("Ristet Rug" + "Festivaler og Events") — ikke én pr.
+event. Lokationen siger *"det er event-arbejde"*, ikke *hvilket* event; datoerne klarer
+resten. Og fordi hverken transport eller frivillige står i Smartplan, er de manuelle
+rækker ikke en nødudgang — de er hoveddelen.
+
+| Kilde | Hvad | Sandhedsværdi | Lagres? |
+|---|---|---|---|
+| **Smartplan** (`location_class='events'` + eventets datospænd) | Betalt personale på pladsen | Målt fremmøde | Nej — udledes live |
+| **Standard-tider** (settings) | Opsætning, nedtagning, trailer | Estimat, justerbart pr. event | Kun ved afvigelse |
+| **Beregnet transport** (ORS) | Kørsel HQ ↔ eventadresse | Beregnet | Kun ved afvigelse |
+| **Manuelle rækker** | Anne/Leif, frivillige, folk uden for Smartplan | Indtastet | Ja |
+
+**Kobling event ↔ vagt: dato + lokation (model A).** Knækker først når to events overlapper
+i tid. I driftsdata i dag overlapper ingen af de otte events — men det er held, ikke en
+garanti (august har fire events på 18 dage). Korrektionslaget (ekskludér/flyt enkeltvagt)
+bygges når det første overlap opstår, ikke før.
+
+### 18.4 Timer og kroner er to forskellige tal
+
+Den vigtigste skelnen i modellen, og den er tvunget frem af de frivillige: **en frivillig
+koster 0 kr men fylder på pladsen.** Uden opdelingen ser et event med 10 frivillige ud
+som om det blev drevet af 2 mand.
+
+P&L-strippen får derfor **to** nye felter — `Mandetimer` og `Løn (ex moms)` — med en
+foldbar nedbrydning pr. kilde. Ikke ét lønfelt.
+
+Frivilliges armbånd o.l. hører **ikke** i lønrækken: de er allerede en almindelig
+udgiftsbon på eventet (fast festivalomkostning).
+
+### 18.5 Standard-tider (Leif, august 2026)
+
+| Opgave | Tid | Note |
+|---|---|---|
+| Opsætning | 2 t | pr. vej — se transport |
+| Nedtagning | 2 t | |
+| Hente trailer | ½ t | |
+| Sætte trailer på plads | ½ t | |
+| Transport HQ ↔ eventadresse | beregnet | ORS, tur/retur |
+
+**Transporttiden foreslås automatisk.** `services/routing.js` (`getDistance`/`getRoute`) og
+eventets geokodede `event_address_id` findes begge; HQ → eventadresse × 2 giver køretiden
+uden at nogen taster. Kun opsætning/nedtagning/trailer er faste settings.
+
+Alle rækker er `timer × antal personer` = mandetimer. Anne og Leif står som regel for
+transport og op-/nedtagning, ofte sammen med folk der ER på Smartplan — de sidste kommer
+med automatisk via 18.3, de to andre som manuelle rækker.
+
+**Ejer-løn: registrér timerne ubetinget, gør satsen til et bevidst valg.** Eventets P&L er
+et ledelsestal, ikke bogføring — det rører hverken lønudbetaling eller e-conomic. Sats 0
+får eventet til at se bedre ud end det er, men timerne står der stadig, så man kan se at
+det kostede to personer tre dage. `settings.event_labor_owner_rate` defaulter til snittet
+af `wage_rates` (149 kr/t i drift), admin-justerbart.
+
+### 18.6 Datamodel
+
+```sql
+-- event_labor (manuelle + afvigende rækker; Smartplan-rækker gemmes IKKE)
+id        INTEGER PRIMARY KEY
+event_id  INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE
+kind      TEXT NOT NULL   -- 'setup'|'teardown'|'trailer'|'transport'|'onsite'|'other'
+source    TEXT NOT NULL   -- 'standard' (rettet default) | 'manual'
+label     TEXT            -- "Opsætning", "Frivillige", navn
+date      TEXT            -- nullable
+persons   REAL NOT NULL DEFAULT 1
+hours     REAL NOT NULL   -- pr. person
+rate      REAL            -- kr/t ex moms. NULL = standardsats. 0 = frivillig.
+```
+
+**Standard- og Smartplan-rækker beregnes live indtil eventet fryses** — først en *rettelse*
+skriver en række. Så har et event ingen har rørt alligevel et tal, og en ændret setting
+rammer ikke lukkede events. Samme mønster som top-up, salgs-prefill og event-menuen (§16).
+
+Settings: `event_labor_setup_hours` (2) · `event_labor_teardown_hours` (2) ·
+`event_labor_trailer_hours` (0,5 hver vej) · `event_labor_default_persons` ·
+`event_labor_owner_rate` · `event_labor_transport_hours` (fallback når ORS ikke svarer).
+
+**Frys ved `status='done'`** — samme mønster som `labor_day_snapshot`, ellers skrider et
+afsluttet events resultat når nogen retter en vagt i Smartplan bagefter.
+
+**Rolle-gating på serveren.** Alle endpoints i `routes/events.js` kører i dag `requireAuth()`
+uden rolle. Løn-delen skal have sit eget endpoint med `requireAuth('admin','office')` — som
+driftsregnskabet. Skjules den kun i frontenden, kan tallet stadig hentes.
+
+### 18.7 Konteringen: prep bliver i driften
+
+**Besluttet:** HQ-prep-lønnen bliver i driftsregnskabet. Eventets lønlinje er *på pladsen*.
+
+Det gør modellen billig og ærlig, og fjerner §15.4/#276 fra den kritiske vej. Konsekvensen
+skal stå på skærmen: eventets resultat bærer HQ's **varer** men ikke HQ's **arbejde**. Det
+er forsvarligt (varerne kørte med traileren, arbejdet gjorde ikke), men linjen skal hedde
+**"Resultat på pladsen"** — ellers læses tallet som fuld fortjeneste.
+
+**Besluttet: drift = alt, event = et snit + lokations-toggle i driften.** Én motor, to
+visninger. Reglen der skal skrives ét sted: **de to tal må aldrig lægges sammen.**
+
+### 18.8 Nabofejl 1 — driften tæller event-vareforbrug to gange
+
+Verificeret med `computeDay`'s egne filtre (`realiseret`-status, `is_offer`/`is_internal`
+ude), Musik i Gentofte:
+
+| Dato | Hvad | Omsætning (incl) | Vareforbrug (ex) |
+|---|---|---|---|
+| 30/7 | event: prep | 0 | **15.083** |
+| 31/7 | event: salg | 12.306 | **2.239** |
+| 1/8 | event: salg | 26.631 | **4.870** |
+
+**Omsætningen er rigtig** — prep bidrager 0 kr (unit_price er 0), salg bidrager fuldt.
+Vareforbruget er 22.192 kr hvor det sande lagertræk er 15.083. De 7.109 fra salgsbonnerne
+er et spøgelse: `VarePicker` snapshotter `cost_price` på *enhver* bonlinje, og `computeDay`
+summerer den uden at spørge om bonnen overhovedet rørte lageret. Målt på alle events:
+137.251 kr (prep) + 68.742 kr (salg).
+
+**Prædikatet findes allerede** — `db/helpers.js:149`:
+
+```
+event_id != null && event_model='light' && price_category != 'produktion'
+    → 'event_prep_owns_stock'
+```
+
+Driften skal bruge samme regel på omkostningssiden: *en bon der ikke trak lager, må ikke
+bidrage vareforbrug.* Så bliver prep-dagen dyr og salgsdagene "gratis" — det er **datering**,
+ikke dobbelttælling, og det er præcis hvad lokations-toggle'et i 18.7 er til for.
+
+*(Beslægtet, mindre: udgiftsbons har negative `line_total` og trækker derfor fra driftens
+omsætning i stedet for at være en omkostning. Bundlinjen bliver den samme, men løn-% og
+DB-% skævvrides.)*
+
+### 18.9 Nabofejl 2 — returen ændrer ikke vareforbruget
+
+`POST /:id/return` ([routes/events.js:1313](routes/events.js:1313)) kalder udelukkende
+`grocy.addToStock()` pr. produkt og skriver en changelog-linje. Der oprettes **ingen bon,
+ingen bonlinje, ingen modpost** i Bon v2. `computeEventCost` summerer prep/topup-bonnernes
+linjer og er dermed uberørt af at varerne kom hjem.
+
+**Lageret bliver rigtigt. Regnskabet gør ikke.** Og funktionen er aldrig blevet brugt —
+0 rækker i changelog på tværs af alle otte events.
+
+**Målingen skal være optællingen ved hjemkomst, ikke salget:**
+
+```
+faktisk vareforbrug = prep + top-up − retur (talt fysisk)
+```
+
+Salget kan ikke være målingen — registreringen svigter netop når der sælges mest
+(Pokemon Go, juni 2026: hentede flere varer hjemme, nåede ikke at registrere det fordi der
+var travlt). Optællingen på vej hjem er derimod én rolig, samlet handling.
+
+**Byttemad falder automatisk rigtigt ud** — den kom ikke hjem, altså blev den brugt. Skal
+den kunne ses særskilt, registreres den som salgsbon med betalingstype **Modregning**
+(`barter`, `counts_as_revenue = 0`, migr. 129 — findes i drift): enhederne tælles, kronerne
+ikke. Ingen ny kode.
+
+> ⚠️ **Returen er kun så god som udleveringen.** Hentes varer fra HQ uden en top-up-bon,
+> blev lageret aldrig reduceret — og bogføres returen så, *lægges* der varer på lager der
+> aldrig blev taget af. Retur-forslaget skal derfor sammenligne talt mod beregnet rest, og
+> når det talte er større, sige det højt og bede om den manglende top-up-bon i stedet for
+> stille at addere. Ellers er det samme fejlklasse som #305/#319: handlingen påstår,
+> bivirkningen lyver.
+
+Konkret: returen bogføres som **modpost på eventet** (negativ produktions-linje eller en
+`return`-rolle-bon), så `computeEventCost` trækker den fra af sig selv. Grocy-tilbageførslen
+bliver bivirkningen frem for hele handlingen — som resten af huset, hvor bonnen er
+registreringen og lageret er konsekvensen.
+
+### 18.10 Byggerækkefølge
+
+1. Lad `location` + `location_class` overleve `_transformRow` (2 linjer, additivt) — alt
+   andet afhænger af den, og uden den kan historikken aldrig konteres bagud.
+2. Udfyld `smartplan_role_map` — **data, ikke kode.** Kun 3 jobtyper er mappet i drift, og
+   ingen bud-jobtyper, så bud-timer tæller i dag med i driftsresultatet som `other`.
+   `syncRoleMap()` findes; den skal køres og listen udfyldes. Uden det bliver ethvert nyt
+   lønstal forkert på samme måde.
+3. `event_labor` + settings + de tre kilder + strip med `Mandetimer` / `Løn (ex moms)`,
+   rolle-gated endpoint.
+4. Frys ved `status='done'`.
+5. *Eget issue:* driftens vareforbrug respekterer `event_prep_owns_stock` (18.8) +
+   lokations-toggle.
+6. *Eget issue:* retur som modpost + advarsel ved talt > beregnet (18.9).
+
+Trin 1–4 giver et ærligt lønstal. Trin 5–6 gør vareforbruget ærligt — og indtil de er der,
+er eventets "Vareforbrug" stadig *hvad vi pakkede*.
+
+### 18.11 Stadig ikke afklaret (blokerer ikke byg)
+
+- **Transport pr. person eller pr. tur?** Kører der tre med i bilen, er det tre mandetimer
+  men én køretur. Foreslået: `hours × persons`, felt pr. event, default 2 personer.
+- **Står Anne og Leif i Smartplan?** Hvis ja, kan deres vagter blive talt både som udledt
+  og som manuel række. Skal afklares før 18.3 og de manuelle rækker mødes.
+- **Overlappende events** — korrektionslaget (model B) bygges når det første overlap opstår.
+
+*Grundlag: design-session Leif, 22. august 2026. Tal verificeret mod en kopi af driftsdata
+(kopien slettet efter brug). Ingen kode ændret.*
