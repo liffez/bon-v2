@@ -160,6 +160,12 @@ function _opsRender() {
                     <div class="ops-kpi-value">${s.missing_price_count}</div>
                     <div class="ops-kpi-sub">i ${_opsState.priceCategory}</div>
                 </div>
+                <div class="ops-kpi alert clickable ${_opsState.activeFilters.has('cost-unknown') ? 'active' : ''}" data-filter="cost-unknown"
+                     title="Salgbare varer hvor ingen råvarepris er kendt. De ville ellers vise 100 % dækningsbidrag.">
+                    <div class="ops-kpi-label">Mangler kostpris</div>
+                    <div class="ops-kpi-value">${s.cost_unknown_count ?? 0}</div>
+                    <div class="ops-kpi-sub">med salgspris${s.cost_minimum_count ? ' · ' + s.cost_minimum_count + ' delvist kendt' : ''}</div>
+                </div>
                 <div class="ops-kpi clickable ${_opsState.activeFilters.has('not-sold') ? 'active' : ''}" data-filter="not-sold">
                     <div class="ops-kpi-label">Ikke solgt i perioden</div>
                     <div class="ops-kpi-value">${s.not_sold_count}</div>
@@ -231,6 +237,7 @@ function _opsFilterAndSort(recipes) {
         if (_opsState.activeFilters.has('under-target') && !r.under_target) return false;
         if (_opsState.activeFilters.has('loss-making') && !r.loss_making) return false;
         if (_opsState.activeFilters.has('missing-price') && r.sales_price_excl_moms != null) return false;
+        if (_opsState.activeFilters.has('cost-unknown') && !r.cost_unknown) return false;
         if (_opsState.activeFilters.has('not-sold') && r.sold_units !== 0) return false;
         if (_opsState.activeFilters.has('oko') && !r.is_organic) return false;
         return true;
@@ -307,15 +314,30 @@ function _opsRowHtml(r) {
 
     let rowCls = '';
     if (r.loss_making) rowCls = 'ops-row-loss';
+    else if (r.cost_unknown) rowCls = 'ops-row-missing-price';
     else if (r.sales_price_excl_moms == null) rowCls = 'ops-row-missing-price';
     else if (r.under_target) rowCls = 'ops-row-under-target';
     else if (r.sold_units === 0) rowCls = 'ops-row-not-sold';
     if (!r.is_active) rowCls += ' ops-row-inactive';
 
+    // Hvad mangler der pris på? Listen er kort nok til at stå i en tooltip,
+    // og uden den er "ukendt" bare en påstand man ikke kan handle på.
+    const manglerTxt = (r.cost_missing_prices || []).join(', ');
+    // Er kostprisen et MINIMUM, er dækningsbidraget et MAKSIMUM. `Øl -Special`
+    // har kun emballagen prissat og ville ellers stå med 99 % — et tal der ser
+    // fuldstændig ægte ud. "≤" siger sandheden uden at gætte hvor galt det er.
+    // Kun foran et TAL. "≤ —" er meningsløst, og rækker uden salgspris har
+    // netop ingen dækningsbidrag at sætte en grænse på.
+    const maksMark = (r.cost_is_minimum && r.db_pct != null)
+        ? `<span class="ops-min-mark" title="højst — kostprisen mangler pris på: ${_opsEsc(manglerTxt)}">≤ </span>`
+        : '';
+
     const badges = [];
     if (r.is_organic) badges.push('<span class="ops-badge ops-badge-oko">øko</span>');
     if (!r.is_active) badges.push('<span class="ops-badge ops-badge-inactive">inaktiv</span>');
     if (r.sales_price_excl_moms == null) badges.push('<span class="ops-badge ops-badge-no-price">ingen pris</span>');
+    if (r.cost_unknown) badges.push(`<span class="ops-badge ops-badge-no-cost" title="Ingen kendt råvarepris${manglerTxt ? ' — mangler: ' + _opsEsc(manglerTxt) : ''}">ingen kostpris</span>`);
+    else if (r.cost_is_minimum) badges.push(`<span class="ops-badge ops-badge-part-cost" title="Kostprisen er et minimum — mangler pris på: ${_opsEsc(manglerTxt)}">delvis kostpris</span>`);
     if (r.loss_making) badges.push('<span class="ops-badge ops-badge-loss">tab</span>');
 
     return `
@@ -328,13 +350,19 @@ function _opsRowHtml(r) {
                     <span class="ops-cat ops-col-cat">${_opsEsc(r.category || '—')}</span>
                 </div>
             </td>
-            <td class="num">${_opsFmtKr(r.cost_price_excl_moms)}</td>
+            <td class="num">${r.cost_unknown
+                ? `<span class="ops-unknown" title="Ingen kendt råvarepris${manglerTxt ? ' — mangler: ' + _opsEsc(manglerTxt) : ''}">ukendt</span>`
+                : `${_opsFmtKr(r.cost_price_excl_moms)}${r.cost_is_minimum ? '<span class="ops-min-mark" title="mindst — mangler pris på: ' + _opsEsc(manglerTxt) + '">+</span>' : ''}`}</td>
             <td class="num">${_opsFmtKr(r.sales_price_excl_moms)}</td>
-            <td class="num">${_opsFmtKr(r.db_kr_excl_moms)}</td>
+            <td class="num">${r.cost_unknown
+                ? '<span class="ops-unknown">—</span>'
+                : `${maksMark}${_opsFmtKr(r.db_kr_excl_moms)}`}</td>
             <td class="num">
-                <span class="ops-db-pct ${dbPctCls}">${_opsFmtPct(r.db_pct)}</span>
-                ${r.db_pct != null ? `<span class="ops-db-bar ${dbPctCls}"><span style="width:${dbBarWidth}%"></span></span>` : ''}
-                ${r.db_target_pct != null ? `<span style="color:#6a6359;font-size:10px;margin-left:6px">mål ${r.db_target_pct}%</span>` : ''}
+                <span class="ops-db-pct ${dbPctCls}">${r.cost_unknown
+                    ? '<span class="ops-unknown">—</span>'
+                    : `${maksMark}${_opsFmtPct(r.db_pct)}`}</span>
+                ${(r.db_pct != null && !r.cost_unknown) ? `<span class="ops-db-bar ${dbPctCls}"><span style="width:${dbBarWidth}%"></span></span>` : ''}
+                ${(r.db_target_pct != null && !r.cost_unknown) ? `<span style="color:#6a6359;font-size:10px;margin-left:6px">mål ${r.db_target_pct}%</span>` : ''}
             </td>
             <td class="num">
                 <span class="ops-sold-cell">
@@ -784,13 +812,26 @@ function _opsCompBodyHtml(data) {
         : '';
 
     const anyMissingCost = ings.some(i => i.cost == null);
-    const totalRow = data.total_cost != null
+    // Samme regel som tabelrækken: er der intet kendt tal, står der "ukendt".
+    // Et panel der siger "0,00 kr" om en øl, mens rækken bag det siger
+    // "ukendt", modsiger sig selv — og så ved man ikke hvad der gælder.
+    const manglendeRaavarer = data.total_cost_missing || [];
+    const totalUkendt = data.total_cost_source === 'ukendt'
+        || (manglendeRaavarer.length > 0 && !(data.total_cost > 0));
+    const manglendeTxt = manglendeRaavarer.join(', ');
+    const totalRow = (data.total_cost != null || totalUkendt)
         ? `<tfoot><tr class="ops-comp-total">
-             <td>Kostpris i alt</td><td></td><td class="num">${_opsCompCost(data.total_cost)}</td>
+             <td>Kostpris i alt</td><td></td><td class="num">${totalUkendt
+                ? `<span class="ops-unknown" title="Ingen kendt råvarepris${manglendeTxt ? ' — mangler: ' + _opsEsc(manglendeTxt) : ''}">ukendt</span>`
+                : `${manglendeRaavarer.length ? 'mindst ' : ''}${_opsCompCost(data.total_cost)}`}</td>
            </tr></tfoot>`
         : '';
-    const costNote = anyMissingCost
-        ? '<div class="ops-comp-note">— = råvare uden pris i Grocy (indgår i totalen, men vises ikke pr. linje)</div>'
+    const costNote = totalUkendt
+        ? `<div class="ops-comp-note">Ingen pris registreret på ${manglendeTxt ? _opsEsc(manglendeTxt) : 'råvaren'} i Grocy — kostprisen kan ikke regnes, og der er derfor intet dækningsbidrag at vise.</div>`
+        : manglendeRaavarer.length
+        ? `<div class="ops-comp-note">Mangler pris på ${_opsEsc(manglendeTxt)} — totalen er derfor et minimum.</div>`
+        : anyMissingCost
+        ? '<div class="ops-comp-note">— = prisen kendes ikke pr. linje (fx en forældre-vare), men indgår i totalen</div>'
         : '';
 
     const table = rows

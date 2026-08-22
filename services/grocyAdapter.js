@@ -1299,6 +1299,7 @@ module.exports = {
     getRecipes,
     getRecipesRaw,
     getProductUnitCosts,
+    readRecipeCostCache,
     getRecipesRawMap,
     getEconomicProductMap,
     getEconomicBundleMap,
