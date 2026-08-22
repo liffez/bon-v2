@@ -2391,3 +2391,31 @@ function deleteCo2Synonym(id) {
 function fetchCo2RecipeBreakdown(id) {
     return apiFetch('/co2/recipe/' + id);
 }
+
+/* ── POS-salg (Zettle) ─────────────────────────────────────────────────────
+   docs/CLAUDE_ZETTLE_POS.md — én salgsbon pr. forretningsdag. */
+async function fetchPosHealth() { return apiFetch('/pos/health'); }
+async function fetchPosDays(from, to) {
+    const q = new URLSearchParams();
+    if (from) q.set('from', from);
+    if (to) q.set('to', to);
+    return apiFetch('/pos/days' + (q.toString() ? '?' + q : ''));
+}
+async function fetchPosDay(date) { return apiFetch('/pos/days/' + encodeURIComponent(date)); }
+async function syncPosNow(body) {
+    return apiFetch('/pos/sync', { method: 'POST', body: JSON.stringify(body || {}) });
+}
+async function assignPosDay(date, eventId) {
+    return apiFetch('/pos/days/' + encodeURIComponent(date) + '/assign',
+        { method: 'POST', body: JSON.stringify({ event_id: eventId }) });
+}
+async function rebuildPosDay(date) {
+    return apiFetch('/pos/days/' + encodeURIComponent(date) + '/rebuild', { method: 'POST' });
+}
+async function fetchPosUnmatched() { return apiFetch('/pos/unmatched'); }
+async function mapPosProduct(uuid, grocyRecipeId, name) {
+    return apiFetch('/pos/products/map', {
+        method: 'POST',
+        body: JSON.stringify({ pos_product_uuid: uuid, grocy_recipe_id: grocyRecipeId, name }),
+    });
+}

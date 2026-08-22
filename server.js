@@ -195,6 +195,7 @@ app.use('/api/settings',   require('./routes/settings'));
 app.use('/api/wage-rates', require('./routes/wage_rates'));
 app.use('/api/role-map',   require('./routes/role_map'));
 app.use('/api/drift',      require('./routes/drift'));
+app.use('/api/pos',        require('./routes/pos'));
 app.use('/api/grocy',          require('./routes/grocy'));
 app.use('/api/co2',            require('./routes/co2'));
 app.use('/api/smartplan',      require('./routes/smartplan'));
@@ -243,6 +244,10 @@ app.use('/data', express.static(path.join(__dirname, 'data'), { extensions: ['js
 
 const { startPolling } = require('./services/mailService');
 startPolling().catch(err => console.error('[mail] Polling fejl ved opstart:', err.message));
+
+// ─── POS-SYNK (Zettle) ──────────────────────────────────────────────────────
+// Slår sig selv fra hvis zettle_enabled = 0 eller credentials mangler.
+require('./services/posSync').startPolling();
 
 // Opbyg recipe_unit_counts (boks-aware enheds-tælling) ved opstart — ikke-blokerende.
 // Holder tabellen frisk efter Grocy-recipe-/nesting-ændringer mellem deploys.

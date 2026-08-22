@@ -1,7 +1,8 @@
 # CLAUDE_ZETTLE_POS.md — Zettle (PayPal POS) → Bon v2
 
-> **Status:** SPEC. Fase 1 verificeret mod produktionskontoen 21. august 2026 (§15) — read-only,
-> intet skrevet. Fase 2–4 ikke bygget. Fire faser, se §14.
+> **Status:** Fase 1 + Fase 2 **BYGGET** (21. august 2026). Migration 153, `services/posSales.js`
+> + `posSync.js`, `routes/pos.js`, Settings-panel, flueben på eventet. Fase 3–4 ikke bygget.
+> Verificeret ende-til-ende mod ægte Zettle- og grocy-hq-data — se §15 og §17.
 > **Beslægtet:** `docs/CLAUDE_EVENT_BON_BRIDGE.md` (samme mønster, modsat retning) ·
 > `docs/CLAUDE_EVENT.md` §5 (lager-gaten) + §6 (top-up/retur) + §15.3 (festival-bemanding) ·
 > `docs/economics/CLAUDE_PENGESTROEM.md` §2.E/§2.F (event-indtægt uden faktura).
@@ -22,7 +23,7 @@ Fire ting kommer af at hente salget automatisk, og tre af dem er funktioner der
 |---|---|---|
 | 1 | Event-P&L bliver rigtig løbende | `computeEventPL` ([routes/events.js:119](../routes/events.js#L119)) summerer salgsbons |
 | 2 | "Solgt" bliver målt i stedet for gættet | Top-up-forslag + retur-forslag (`CLAUDE_EVENT.md` §6) — formlen er `rest = prep − solgt` |
-| 3 | Faktisk gebyr + automatisk bankafstemning | Erstatter `event_bridge_fee_pct`-estimatet; lukker den manuelle "Find indbetaling" |
+| 3 | Faktisk Zettle-gebyr + automatisk bankafstemning | Lukker den manuelle "Find indbetaling" |
 | 4 | Timefordelt salg | `CLAUDE_EVENT.md` §15.3 pkt. 2: festival-kapacitet *"kræver ordre-fordeling pr. time, som vi kun får fra eget POS"* |
 
 Salgskurven i sig selv er det mindst værdifulde — den findes i Zettles egen app. Den er
@@ -211,11 +212,13 @@ have to events kørende samtidig, så feltet er forberedelse — ikke en funktio
 
 - `events.pos_store_ref` = Zettles identifikator for salgsstedet. `NULL` = "alt POS-salg
   på datoen hører til dette event" (dagens virkelighed).
-- Har to samtidige events **hver sit** `pos_store_ref`, fordeles købene pr. salgssted, og
-  begge får deres egen bon. Det er hele grunden til at feltet skrives ind nu i stedet for
-  at skulle eftermonteres midt i en festival.
-- Har to samtidige events ingen (eller samme) `pos_store_ref`, er dagen **utildelt** for
-  dem begge. Vi deler ikke omsætning efter et gæt.
+- **Bygget i Fase 2:** dækker to events samme dato, og dagens køb kommer fra ét salgssted
+  som præcis ét af dem peger på, kobles dagen dertil. Ellers er dagen **utildelt** for dem
+  begge og kobles i hånden. Vi deler ikke omsætning efter et gæt.
+- **Ikke bygget:** at splitte ÉN dags køb ud på to bons efter salgssted. Dagen er stadig
+  enheden (`UNIQUE(source, business_date)`). Kolonnen skrives ind nu, så den ikke skal
+  eftermonteres midt i en festival, men den fulde opdeling venter til der faktisk er to
+  samtidige events — i dag bestræber vi os på ikke at have dem.
 
 > Hvad salgsstedet præcist hedder i købets payload (felt og format) er **ikke antaget her**.
 > Det er et af spørgsmålene Fase 1 besvarer mod ægte data (§15). Indtil da er `pos_store_ref`
@@ -291,6 +294,12 @@ Spejler event-broens `BRIDGE_ROLES.sales` ([routes/event-bridge.js:265](../route
 (FAKTURERET/AFSLUTTET), rører vi den aldrig igen og rapporterer `frozen`. Derudover
 stopper synk af en dag efter `zettle_resync_days`.
 
+**Koblingen bliver stående så længe bonnen lever.** Fjernes fluebenet på eventet EFTER at
+bonnen er lavet, ville dagen ellers flippe til "uden event" mens bonnen levede videre — og
+næste kobling ville lave en til. Dagen beholder sin kobling (flag
+`kept_assignment_bon_exists`), og `assignDay` afviser at rydde koblingen mens bonnen findes.
+Bonnen skal håndteres først; dét er en menneskebeslutning.
+
 **Moms:** Zettle-priser er incl moms og `bon_lines.unit_price` er incl moms (§6b) →
 **ingen omregning**. Ingen `* 1.25` nogen steder (pre-commit-hook).
 
@@ -348,9 +357,15 @@ brutto+gebyr-modellen.
 
 Med Finance API'et bliver to ting bedre:
 
-1. **Faktisk gebyr** i stedet for `event_bridge_fee_pct`-estimatet på 3 %.
+1. **Zettles faktiske gebyr** på udbetalingen, i stedet for et skøn.
 2. **Foreslået match**: udbetalingens beløb + dato → kandidat-bankpostering, som office
-   godkender.
+   godkender. Aldrig automatisk bogført.
+
+> ⚠️ **`event_bridge_fee_pct` (3 %) hører IKKE til her og må ikke røres.** Den er Stripes
+> andel af **forudbestillinger** gennem event-order-broen (`routes/event-bridge.js`,
+> migration 137) — en anden betalingsopsætning med sin egen gebyr-bon. Zettles gebyr er en
+> selvstændig størrelse på en selvstændig udbetaling. De to lever side om side; et event kan
+> sagtens have begge, hvis der både er forudbestilt via Stripe og solgt over kassen.
 
 > ⚠️ **Vigtigst i hele fase 3:** Pengestrøms `create-bon-from-tx` **opretter** i dag en
 > salgsbon ud af indbetalingen. Når POS ejer dagens bon, skal den vej i stedet
@@ -423,10 +438,11 @@ Finance API'et faktisk giver, rate limits, hvor langt tilbage historikken række
 Migration (§4), forretningsdag (§6), aggregering (§7+§9), bon-livscyklus (§8), polling,
 **og synligheden fra §12**. Kun `sales`. Prep, forecast og lager røres ikke.
 
-### Fase 3 — Faktisk gebyr + bankafstemning
-Gebyr fra Finance API erstatter estimatet. Foreslået match af udbetaling → bankpostering.
-`create-bon-from-tx` allokerer til den eksisterende POS-bon i stedet for at oprette en ny
-(§10 — dobbelttællings-værnet).
+### Fase 3 — Faktisk Zettle-gebyr + bankafstemning
+Gebyret på Zettle-udbetalingen hentes fra Finance API i stedet for at skønnes. Foreslået
+match af udbetaling → bankpostering. `create-bon-from-tx` allokerer til den eksisterende
+POS-bon i stedet for at oprette en ny (§10 — dobbelttællings-værnet).
+**Rører ikke `event_bridge_fee_pct`** — det er Stripes gebyr på forudbestillinger (§10).
 
 ### Fase 4 — Kurve + timefordeling
 `GET /api/pos/day` + visning på event-detaljen (§11).
@@ -478,7 +494,40 @@ stadig være der (der lukkes sent på festival), men den er endnu aldrig blevet 
 - Gebyr-granularitet fra Finance API (Fase 3).
 - Første ægte refundering skal efterprøves i hånden mod bonnen.
 
-## 16. Bevidst ikke bygget
+## 16. Fase 2 — bygget og verificeret (21. august 2026)
+
+**Filer:** migration `153_zettle_pos_sales.sql` · `services/posSales.js` (rene funktioner:
+døgnskifte, produktkobling, dagens aggregat, event-kobling) · `services/posSync.js`
+(rå køb, dagen, bonnen, polling, manuel kobling) · `routes/pos.js` (`/api/pos/*`) ·
+Settings → Integrationer → **Zettle (POS)** · flueben på eventet i office.
+
+**Tests:** `npm run test:pos` → **58 grønne** i tre lag:
+`pos_sales` (rene funktioner) · `pos_sync` (mod en rigtig migreret database, Zettle stubbet
+med fixtures) · `pos_routes` (HTTP-laget, som ruterne faktisk kaldes).
+
+**Mutations-testet** — otte kerneregler rullet tilbage, hver fældet af en navngiven assert:
+fluebenet på eventet · ejerskabet · frys-reglen · dublet-værnet ved fjern-kobling ·
+kobling-bevares-værnet · bon uden Grocy · døgnskiftet · delstrengs-match.
+
+**Verificeret ende-til-ende mod ægte data** (frisk temp-database, dev-DB urørt):
+512 køb fra festivalen 13.–15. august → tre salgsbons på **73.495 kr**, præcis Zettles egne
+tal, linjesum = købsbeløb på kronen. Gentaget synk ændrede intet (idempotent). Dagen
+21. august stod som **utildelt med 5.196 kr** — netop dagen med det aktive event og 0 kr i
+P&L'en. Kobling i hånden gav bon 3263. Produktkobling af *Slider Frikadelle* →
+`Frikadellen Slider` byggede alle fire dage om og satte kategori og kostpris på linjen,
+uden at bonnens total flyttede sig.
+
+**Fejl fundet af verifikationen, ikke af testene:** produktkoblingen gemte koblingen og
+fejlede DEREFTER på `changelog.entity_id NOT NULL` — gemt uden at slå igennem på bonnen.
+Halvt udført er værre end slet ikke udført. Det var grunden til at `tests/pos_routes.test.js`
+blev skrevet: service-testene rørte aldrig routeren.
+
+**Ikke bygget i Fase 2** (bevidst): timekurven (Fase 4) · gebyr og bankafstemning (Fase 3) ·
+splitning af én dag på to salgssteder (§6.3).
+
+---
+
+## 17. Bevidst ikke bygget
 
 - **Butikssalg gennem POS.** Kræver at POS-bons rutes gennem LEVERET for at trække fra
   HQ (`CLAUDE_EVENT.md` §5's fremtidsnote). Væsentligt større, og lager er fravalgt nu.

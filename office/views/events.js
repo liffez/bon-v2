@@ -1279,6 +1279,14 @@ function _evOpenEventModal(ev) {
                 <input type="text" id="evm-dc-phone" placeholder="Samme som kontaktperson" value="${v(ev && ev.day_contact_phone)}">
             </label>
         </div>
+        <div class="ev-modal-field">
+            <label class="ev-check">
+                <input type="checkbox" id="evm-pos" ${ev && ev.pos_enabled ? 'checked' : ''}>
+                <span>Der sælges over kassen (Zettle) til dette event</span>
+            </label>
+            <span class="ev-field-hint">Slås til her, hentes dagens kassesalg automatisk og bliver til en salgsbon.
+                Uden fluebenet laves der ingen — og vi gætter aldrig ud fra datoen alene.</span>
+        </div>
         <label>Noter<textarea id="evm-notes" rows="3" placeholder="Særlige aftaler, parkering, check-in…">${v(ev && ev.notes)}</textarea></label>
     `, async () => {
         const addrText = document.getElementById('evm-address').value.trim();
@@ -1294,6 +1302,7 @@ function _evOpenEventModal(ev) {
             company_id:  pickedCustomer ? (pickedCustomer.company_id ?? null) : null,
             day_contact_name:  document.getElementById('evm-dc-name').value.trim() || null,
             day_contact_phone: document.getElementById('evm-dc-phone').value.trim() || null,
+            pos_enabled: document.getElementById('evm-pos').checked ? 1 : 0,
         };
         if (!body.name) throw new Error('Navn er påkrævet');
         if (!body.start_date) throw new Error('Startdato er påkrævet');

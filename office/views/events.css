@@ -481,3 +481,9 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
     .evp-price { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
     .evp-foot  { margin-top: 10mm; font-size: 9pt; color: #777; }
 }
+
+/* ── POS-flueben i event-modalen ─────────────────────────────────────────
+   Tilvalget skal ligne et valg, ikke en indstilling: uden det opstår der
+   ingen POS-salgsbon (docs/CLAUDE_ZETTLE_POS.md §6.2). */
+.ev-check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
+.ev-check input { width: auto; margin: 0; }
