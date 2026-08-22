@@ -429,6 +429,9 @@ function _rvOpenProduce() {
         ingredients: _rvIngredients,
         productsMap: _rvProducts,
         quUnitsMap: _rvQuantityUnits,
+        // Udbyttet skal kunne omregnes til produktets lager-enhed (#360) —
+        // uden konverteringerne kan panelet ikke gætte, og skal lade være.
+        conversions: _rvQuConversions,
         container: mount
     });
     mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

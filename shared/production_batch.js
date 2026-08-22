@@ -57,6 +57,18 @@
         if (Math.abs(line.actual - line.planned) > TOL) return 'justeret';
         return null;
     }
+
+    /**
+     * Forventet udbytte i output-produktets lager-enhed.
+     * null = kan ikke udledes → feltet står tomt og brugeren taster selv.
+     * Reglen er delt med serveren (shared/recipe_yield.js), så batchen og
+     * kostpris-beregningen ikke kan blive uenige om hvad opskriften giver.
+     */
+    function _plannedStock(recipe, product, units, conversions, portions) {
+        if (!window.RecipeYield || !product) return null;
+        return window.RecipeYield.plannedYieldStock(recipe, product, units, conversions || [], portions);
+    }
+
     function _diffCount() {
         return _st.lines.filter(function (l) { return _deviation(l) !== null; }).length;
     }
@@ -104,9 +116,26 @@
             return { id: parseInt(id), name: p.name || ('#' + id), stockQuId: quId, unit: quUnitsMap[quId] || '' };
         }).filter(function (p) { return p.name; });
 
+        var hasOutput = !!(recipe.product_id && String(recipe.product_id) !== '0');
+        var outProduct = hasOutput ? (productsMap[recipe.product_id] || null) : null;
+        // Grocy lægger udbyttet på lageret i produktets LAGER-enhed, uanset hvad
+        // opskriftens fritekst-`recipeunit` siger. Feltet mærkes derfor med
+        // lager-enheden, og det er den enhed tallet sendes i (#360).
+        var outQuId = outProduct ? outProduct.qu_id_stock : null;
+        var outUnit = (outQuId != null && quUnitsMap[outQuId]) ? quUnitsMap[outQuId] : '';
+        var unitsArr = Object.keys(quUnitsMap).map(function (id) {
+            return { id: parseInt(id), name: quUnitsMap[id] };
+        });
+        var startYield = hasOutput ? _plannedStock(recipe, outProduct, unitsArr, opts.conversions, base) : 0;
+
         _st = {
             recipe: recipe,
-            hasOutput: !!(recipe.product_id && String(recipe.product_id) !== '0'),
+            hasOutput: hasOutput,
+            outProduct: outProduct,
+            outQuId: outQuId,
+            outUnit: outUnit,
+            unitsArr: unitsArr,
+            conversions: opts.conversions || [],
             container: opts.container,
             onClose: opts.onClose || function () {},
             base: base,
@@ -114,8 +143,11 @@
             lines: lines,
             allProducts: allProducts,
             picker: null,                 // { mode:'add'|'swap', forIndex, query }
-            yield: base,                  // faktisk udbytte (redigerbart)
-            plannedYield: base,           // forventet udbytte (svind-reference)
+            // Udbytte i LAGER-enhed. null = kan ikke udledes (opskriften mangler
+            // `recipeunitnumber`, eller der findes ingen omregning) → feltet står
+            // tomt, og brugeren taster selv. Vi gætter ikke.
+            yield: startYield,
+            plannedYield: startYield,
             addMissing: false,
             nonce: _nonce(),              // R7: genereres ved åbning, genbruges ved retry
             busy: false,
@@ -130,7 +162,11 @@
             l.planned = l.perPortion * _st.portions;
             if (!l.swappedOut) l.actual = l.planned;
         });
-        if (_st.hasOutput) { _st.plannedYield = _st.portions; _st.yield = _st.portions; }
+        if (_st.hasOutput) {
+            var y = _plannedStock(_st.recipe, _st.outProduct, _st.unitsArr, _st.conversions, _st.portions);
+            _st.plannedYield = y;
+            _st.yield = y;
+        }
     }
 
     function _render() {
@@ -167,9 +203,17 @@
 
         var pickerHtml = _st.picker ? _pickerHtml() : '';
 
+        var yUnit = _esc(_st.outUnit || rUnit);
+        var yVal  = (_st.yield == null) ? '' : _fmt(_st.yield);
+        // Kan udbyttet ikke udledes, siges det — et default på "antal portioner"
+        // ville lande som kilo på lageret uden at nogen så det (#360).
+        var yHint = (_st.yield == null && _st.hasOutput)
+            ? '<div class="pb-yield-hint">Opskriften erklærer ikke sit udbytte i ' + yUnit +
+              ' — tast hvor meget der faktisk kom ud.</div>'
+            : '';
         var yieldRow = _st.hasOutput
             ? '<div class="pb-yield"><label>Faktisk udbytte</label>' +
-              '<input type="text" id="pbYield" value="' + _fmt(_st.yield) + '" inputmode="decimal"><span class="pb-l-unit">' + rUnit + '</span></div>'
+              '<input type="text" id="pbYield" value="' + yVal + '" inputmode="decimal"><span class="pb-l-unit">' + yUnit + '</span></div>' + yHint
             : '<div class="pb-consume-only">Consume-only — råvarer trækkes, intet lægges på lager.</div>';
 
         var missingChk = hasUdeladt
@@ -366,7 +410,9 @@
     function _submit() {
         if (_st.busy) return;
         if (_st.portions <= 0) { _msg('Portioner skal være > 0', 'error'); return; }
-        if (_st.hasOutput && _st.yield <= 0) { _msg('Faktisk udbytte skal være > 0', 'error'); return; }
+        if (_st.hasOutput && !(_st.yield > 0)) {
+            _msg('Faktisk udbytte skal være > 0 (i ' + (_st.outUnit || 'lager-enhed') + ')', 'error'); return;
+        }
 
         var data = {
             recipe_id: _st.recipe.id,
@@ -374,7 +420,9 @@
             portions: _st.portions,
             actual_yield: _st.hasOutput ? _st.yield : 0,
             planned_yield: _st.hasOutput ? _st.plannedYield : 0,
-            output_unit: _st.recipe.recipeUnit || '',
+            // Enheden sendes MED, så serveren kan omregne i stedet for at gætte.
+            yield_qu_id: _st.hasOutput ? _st.outQuId : null,
+            output_unit: _st.outUnit || _st.recipe.recipeUnit || '',
             batch_nonce: _st.nonce,
             add_missing_to_shopping_list: !!_st.addMissing,
             lines: _st.lines.map(function (l) {
