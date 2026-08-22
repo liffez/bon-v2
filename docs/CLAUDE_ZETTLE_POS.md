@@ -271,6 +271,12 @@ pris fra Zettle, `grocy_recipe_id = NULL`, ingen kostpris/CO₂. Løssalg uden p
 (indtastet beløb i kassen) håndteres samme vej. De listes i `unmatched_json` og vises —
 en vare der forsvinder stille er værre end en vare uden kostpris.
 
+**Beslutningen er ikke en envejsdør.** En afklaret vare forsvinder fra "uafklaret"-listen,
+men står under *afklarede varer* med en **Lav om**-knap. "Findes ikke i Grocy" i dag kan
+sagtens blive til en opskrift i morgen — fx hvis retten begynder at komme fra et andet
+salgssted — og så skal varen kunne findes igen uden at grave i databasen.
+`DELETE /api/pos/products/map/:uuid` rydder beslutningen og bygger de berørte dage om.
+
 ---
 
 ## 8. Salgsbonnen

@@ -2425,3 +2425,6 @@ async function matchPosPayout(uuid, transactionId) {
         { method: 'POST', body: JSON.stringify({ transaction_id: transactionId }) });
 }
 async function fetchPosSalesCurve(eventId) { return apiFetch('/pos/events/' + encodeURIComponent(eventId) + '/sales-curve'); }
+async function clearPosProductMap(uuid) {
+    return apiFetch('/pos/products/map/' + encodeURIComponent(uuid), { method: 'DELETE' });
+}
