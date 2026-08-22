@@ -861,10 +861,12 @@ var _POINTER_UP_EVT   = window.PointerEvent ? 'pointerup'   : 'mouseup';
 
 var _pressStartTarget = null;
 var _pressEndTarget = null;
+var _pressSelectionNodes = null;
 
 document.addEventListener(_POINTER_DOWN_EVT, function (e) {
     _pressStartTarget = e.target;
     _pressEndTarget = null;
+    _pressSelectionNodes = _selectionNodes();
 }, true);
 
 document.addEventListener(_POINTER_UP_EVT, function (e) {
@@ -879,12 +881,56 @@ function isOutsideClick(e, el) {
     return _pressStartTarget === el && _pressEndTarget === el;
 }
 
-// Luk-på-klik-udenfor for en modal hvor panelet ligger INDE i overlayet.
-// closeFn kaldes kun ved et ægte klik på overlayet selv.
-function closeOnOutsideClick(overlayEl, closeFn) {
+// Hvor lå markeringen da trykket faldt? Skal aflæses i capture-fasen —
+// browseren rydder markeringen som standardhandling på nedtrykket.
+//
+// En markering inde i et <input>/<textarea> er usynlig for getSelection(),
+// så det felt der har fokus tjekkes særskilt. Netop dét felt er det
+// almindelige tilfælde i en bon-drawer.
+function _selectionNodes() {
+    try {
+        var sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && String(sel).length) {
+            return [sel.anchorNode, sel.focusNode];
+        }
+    } catch (err) { /* getSelection kan kaste i sjældne tilfælde */ }
+    var fa = document.activeElement;
+    if (fa && (fa.tagName === 'INPUT' || fa.tagName === 'TEXTAREA')) {
+        try {
+            if (fa.selectionStart !== fa.selectionEnd) return [fa];
+        } catch (err) { /* tal- og datofelter har ingen markering */ }
+    }
+    return null;
+}
+
+// Ryddede dette klik en markering inde i `el`? Så var det dét klikket handlede
+// om — og så må det ikke oveni lukke panelet.
+function pressClearedSelectionIn(el) {
+    if (!el || !_pressSelectionNodes) return false;
+    for (var i = 0; i < _pressSelectionNodes.length; i++) {
+        var n = _pressSelectionNodes[i];
+        if (n && el.contains(n)) return true;
+    }
+    return false;
+}
+
+// Luk-på-klik-udenfor. closeFn kaldes kun ved et ægte klik på overlayet selv.
+//
+// `panelEl` er det indhold der skal beskyttes. Udelades det, beskyttes alt
+// inde i overlayet — rigtigt for en modal, hvor panelet ligger indeni. En
+// drawer lægger derimod sin baggrund som SØSKENDE til panelet og skal sende
+// panelet med, ellers ved vagten ikke hvor markeringen lå.
+//
+// Uden dette led lukker draweren stadig: trækket lukker den ikke længere, men
+// det klik man laver bagefter for at fjerne markeringen gør. Første klik
+// rydder markeringen, næste klik lukker — som man ville forvente.
+function closeOnOutsideClick(overlayEl, closeFn, panelEl) {
     if (!overlayEl || typeof closeFn !== 'function') return;
+    var guardEl = panelEl || overlayEl;
     overlayEl.addEventListener('click', function (e) {
-        if (isOutsideClick(e, overlayEl)) closeFn(e);
+        if (!isOutsideClick(e, overlayEl)) return;
+        if (pressClearedSelectionIn(guardEl)) return;
+        closeFn(e);
     });
 }
 

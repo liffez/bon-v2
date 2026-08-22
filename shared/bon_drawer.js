@@ -483,7 +483,10 @@ class BonDrawer {
                 btn.innerHTML = oldHtml;
             }
         });
-        closeOnOutsideClick(this.overlayEl, () => this.hide());
+        // Baggrunden er SØSKENDE til draweren, så panelet sendes med — ellers
+        // ved vagten ikke hvor en markering lå, og det klik man laver for at
+        // fjerne markeringen ville lukke draweren.
+        closeOnOutsideClick(this.overlayEl, () => this.hide(), this.el);
 
         // Escape
         document.addEventListener('keydown', (e) => {

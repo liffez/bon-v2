@@ -4983,25 +4983,46 @@ udpeger et element — det ER meningen), dashboard-chartets tooltip (lukkes af
 `touchstart`, ikke `click`) og event-popoveren, der allerede lytter på
 `mousedown` i capture — dér lukker trykket, før man kan nå at trække.
 
-> **Sidebackdrops var aldrig ramt, efterprøvet i browseren.** Bon-draweren og
-> indkøbs-settings-panelet lægger baggrunden som SØSKENDE til panelet, så den
-> fælles forfader bliver `body` og baggrundens lytter fyrer slet ikke. Kun
-> overlays der OMSLUTTER panelet var i fare.
+**Draweren havde samme symptom, men en anden mekanisme.** Baggrunden er dér
+SØSKENDE til panelet, så den fælles forfader bliver `body` og baggrundens lytter
+fyrer slet ikke — verificeret med et rigtigt musetræk (`pointerdown` på feltet,
+`pointerup` på baggrunden, `click` på `body`). Det der lukkede draweren, var
+**klikket bagefter**: det man laver for at fjerne markeringen. Første klik ryddede
+markeringen OG lukkede draweren i samme bevægelse.
 
-**Tests:** `npm run test:modal` — 23 asserts. Den rigtige `shared/utils.js` køres
+Et klik hvis eneste ærinde er at rydde en markering må ikke oveni lukke panelet.
+`closeOnOutsideClick` tager derfor et tredje argument, `panelEl` — det indhold
+der beskyttes. Udelades det, beskyttes alt inde i overlayet (rigtigt for en
+modal); draweren sender sit panel med, da baggrunden er søskende. Første klik
+rydder markeringen, næste klik lukker — og uden markering lukker første klik som
+altid.
+
+> ⚠️ **En markering inde i et `<input>`/`<textarea>` er usynlig for
+> `getSelection()`** — den returnerer tom. Netop dét felt er det almindelige
+> tilfælde i en bon-drawer, så `document.activeElement` tjekkes særskilt.
+> Markeringen skal desuden aflæses i **capture-fasen på nedtrykket**: browseren
+> rydder den som standardhandling, så ved `click` er den væk.
+
+**Tests:** `npm run test:modal` — 30 asserts. Den rigtige `shared/utils.js` køres
 i en vm-sandkasse med en DOM der modellerer capture, bobling og netop den
 retargeting af `click`; begge grene (pointer + mus-fallback) køres.
-**Mutations-testet:** otte kernerettelser rulles hver især tilbage og fælder hver
-sin navngivne assert — den gamle adfærd (`kun e.target`) fælder 9.
+**Mutations-testet:** tolv kernerettelser rulles hver især tilbage og fælder hver
+sin navngivne assert — den gamle adfærd (`kun e.target`) fælder 9, og fjernes
+markerings-vagten falder 6.
 Verificeret i browser på `shared/modal.js` og `bon_opret_modal.js`: markering
 trukket ud → modalen står, klik på en knap indeni → står, ægte klik udenfor →
 lukker. Konsolfejlene på office er efterprøvet mod `git stash` og er
 pre-eksisterende (manglende Grocy-nøgle lokalt).
 
-> ⚠️ Browser-panelet var frosset (viewport 0×0), så klikkene blev sendt som
-> events gennem de ægte lyttere, ikke som fysiske museklik. Selve retargetingen
-> af `click` er altså ikke observeret her — den er spec-adfærd og er præcis dét
-> brugeren så i drift.
+Drawer-forløbet er kørt igennem med **fysiske museklik** i begge zoner: træk ud →
+draweren står med markeringen intakt, første klik → markeringen ryddes og draweren
+står, andet klik → den lukker; uden markering lukker første klik. Modal-delen blev
+sendt som events gennem de ægte lyttere, fordi browser-panelet var frosset (viewport
+0×0) da den blev bygget.
+
+> ⚠️ **Køkken-kalenderen har TO `BonDrawer`-instanser i DOM'en.** `querySelector`
+> rammer den forkerte — test mod `_drawerInstance.el` / `.overlayEl`. Fundet under
+> verifikationen; ikke undersøgt nærmere.
 
 ## Næste opgave
 

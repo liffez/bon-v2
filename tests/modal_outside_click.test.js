@@ -48,7 +48,11 @@ function makeDom() {
         return node;
     }
 
+    // Markeringstilstand — sættes af testen, læses af utils.js i capture-fasen.
+    const state = { selection: null, activeElement: null };
+
     const document = {
+        get activeElement() { return state.activeElement; },
         addEventListener(t, f, capture) {
             assert.equal(capture, true, 'sporingen skal ligge i capture-fasen');
             (docListeners[t] || (docListeners[t] = [])).push(f);
@@ -66,7 +70,7 @@ function makeDom() {
         return ev;
     }
 
-    return { document, el, fire };
+    return { document, el, fire, state };
 }
 
 // Pointer-events findes i alle browsere vi rammer; mus-grenen er kun et
@@ -79,6 +83,7 @@ function setup(kind) {
         Promise, Error, JSON, Object, Array, String, Number, Boolean, Date, Math, RegExp,
         AbortController,
         location: { href: null },
+        getSelection: () => dom.state.selection,
         document: dom.document,
         fetch: () => Promise.reject(new Error('ikke brugt her'))
     };
@@ -103,6 +108,24 @@ function setup(kind) {
     const closes = [];
     ctx.closeOnOutsideClick(overlay, () => closes.push(1));
 
+    // Marker tekst i `node`; `input` = markering inde i et felt (usynlig for
+    // getSelection(), præcis som i browseren).
+    function markerI(node, kind) {
+        if (kind === 'input') {
+            dom.state.activeElement = Object.assign(node, {
+                tagName: 'INPUT', selectionStart: 0, selectionEnd: 5
+            });
+            dom.state.selection = { isCollapsed: true, toString: () => '' };
+        } else {
+            dom.state.selection = { isCollapsed: false, anchorNode: node, focusNode: node,
+                                    toString: () => 'markeret' };
+        }
+    }
+    function ryddMarkering() {
+        dom.state.selection = null;
+        dom.state.activeElement = null;
+    }
+
     const DOWN = usePointer ? 'pointerdown' : 'mousedown';
     const UP   = usePointer ? 'pointerup'   : 'mouseup';
 
@@ -114,7 +137,7 @@ function setup(kind) {
         dom.fire(commonAncestor(down, up), 'click');
     }
 
-    return { ctx, fire: dom.fire, DOWN, UP, fullClick,
+    return { ctx, fire: dom.fire, DOWN, UP, fullClick, markerI, ryddMarkering,
              body, overlay, panel, input, button, list, listRow, udenfor, closes };
 }
 
@@ -268,4 +291,83 @@ test('clickedOutside tåler null-elementer', () => {
     const ev = t.fire(t.udenfor, 'click');
     assert.equal(t.ctx.clickedOutside(ev, null, t.list), true);
     assert.equal(t.ctx.clickedOutsideSelector(ev, '.findes-ikke'), true);
+});
+
+/* ── Klikket der rydder en markering må ikke også lukke panelet ── */
+
+for (const kind of ['tekst', 'input']) {
+    test(`klik der rydder en markering (${kind}) i modalen lukker den ikke`, () => {
+        const t = setup();
+        t.markerI(t.input, kind);
+        t.fullClick(t.overlay, t.overlay);
+        assert.equal(t.closes.length, 0,
+            'klikket handlede om markeringen, ikke om at lukke');
+    });
+
+    test(`næste klik lukker, når markeringen er væk (${kind})`, () => {
+        const t = setup();
+        t.markerI(t.input, kind);
+        t.fullClick(t.overlay, t.overlay);   // rydder markeringen
+        t.ryddMarkering();                   // browseren har ryddet den
+        t.fullClick(t.overlay, t.overlay);
+        assert.equal(t.closes.length, 1, 'andet klik skal lukke');
+    });
+}
+
+test('markering UDEN FOR det beskyttede panel spærrer ikke', () => {
+    const t = setup();
+    t.markerI(t.listRow, 'tekst');   // markering i en dropdown ved siden af
+    t.fullClick(t.overlay, t.overlay);
+    assert.equal(t.closes.length, 1, 'markeringen lå ikke i modalen');
+});
+
+test('en drawer beskytter sit panel selv om baggrunden er søskende', () => {
+    // Bon-draweren lægger baggrunden som SØSKENDE til panelet, så panelet
+    // skal sendes med som tredje argument.
+    const dom = makeDom();
+    const sandbox = {
+        console, setTimeout, clearTimeout, setInterval, clearInterval,
+        Promise, Error, JSON, Object, Array, String, Number, Boolean, Date, Math, RegExp,
+        AbortController,
+        location: { href: null },
+        getSelection: () => dom.state.selection,
+        document: dom.document,
+        fetch: () => Promise.reject(new Error('ikke brugt her')),
+        PointerEvent: function PointerEvent() {}
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    const ctx = vm.createContext(sandbox);
+    vm.runInContext(SRC, ctx);
+
+    const body    = dom.el('body');
+    const backdrop = dom.el('backdrop', body);   // søskende, ikke forfader
+    const drawer   = dom.el('drawer', body);
+    const felt     = dom.el('felt', drawer);
+
+    const closes = [];
+    ctx.closeOnOutsideClick(backdrop, () => closes.push(1), drawer);
+
+    // Markering i draweren, så et klik på baggrunden
+    dom.state.selection = { isCollapsed: false, anchorNode: felt, focusNode: felt,
+                            toString: () => 'markeret' };
+    dom.fire(backdrop, 'pointerdown');
+    dom.fire(backdrop, 'pointerup');
+    dom.fire(backdrop, 'click');
+    assert.equal(closes.length, 0, 'klikket ryddede markeringen i draweren');
+
+    // Markeringen er væk — næste klik lukker
+    dom.state.selection = null;
+    dom.fire(backdrop, 'pointerdown');
+    dom.fire(backdrop, 'pointerup');
+    dom.fire(backdrop, 'click');
+    assert.equal(closes.length, 1, 'andet klik lukker draweren');
+});
+
+test('uden panel-argument beskyttes overlayets eget indhold', () => {
+    const t = setup();
+    // closeOnOutsideClick(overlay, fn) uden tredje argument — modal-tilfældet.
+    t.markerI(t.panel, 'tekst');
+    t.fullClick(t.overlay, t.overlay);
+    assert.equal(t.closes.length, 0);
 });
