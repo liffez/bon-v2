@@ -117,6 +117,70 @@ function getBonLines(bonId) {
     `).all(bonId);
 }
 
+
+/**
+ * Lav de Hurtig-mellemprodukter bonen mangler, inden lageret trækkes (#267).
+ *
+ * Ligger her, ikke i `services/autoBatch.js`, fordi den binder Grocy-data,
+ * databasen og changelog sammen — selve BESLUTNINGEN (hvor mange hele batches,
+ * hvad rækker råvarerne til, hvad mangler) er ren og testbar derovre.
+ */
+async function autoBatchForBon(bonId, lines, recipeFactors) {
+    const grocy = require('../services/grocyAdapter');
+    const { resolveConsumeItems } = require('../services/ingredientResolver');
+    const { planAutoBatches, runAutoBatches } = require('../services/autoBatch');
+    const { unitCostFromStockRow } = require('../services/production');
+
+    const needs = await resolveConsumeItems(lines, recipeFactors);
+    if (!needs.length) return;
+
+    const [rawRecipeMap, allPos, nestings, products, units, quConversions, stock] = await Promise.all([
+        grocy.getRecipesRawMap(), grocy.getAllRecipesPos(), grocy.getRecipeNestings(),
+        grocy.getProducts(), grocy.getQuantityUnits(), grocy.getQuantityUnitConversions(),
+        grocy.getStock(),
+    ]);
+
+    const posByRecipe = {}, nestingsByRecipe = {};
+    for (const p of allPos) (posByRecipe[p.recipe_id] ||= []).push(p);
+    for (const n of nestings) (nestingsByRecipe[n.recipe_id] ||= []).push(n);
+
+    const plan = planAutoBatches({
+        needs, rawRecipeMap, posByRecipe, nestingsByRecipe,
+        productMap: new Map(products.map(p => [p.id, p])),
+        unitMap: new Map(units.map(u => [Number(u.id), u])),
+        quConversions,
+        // Samme lager-opslag som trækket bruger: børnenes lager ruller op på
+        // forælderen, ellers ville "kål" altid se tom ud (#327).
+        effectiveStock: grocy.makeEffectiveStock(stock, products),
+    });
+    if (!plan.batches.length && !plan.skipped.length) return;
+
+    const costMap = {};
+    for (const s of stock) {
+        const c = unitCostFromStockRow(s);
+        if (c != null) costMap[s.product_id] = c;
+    }
+
+    const out = await runAutoBatches(bonId, plan, {
+        db: getDb(), grocy, locationId: getDefaultLocationId(),
+        unitCost: (pid) => costMap[pid] ?? 0,
+        logChange,
+    });
+    if (out.produced.length) {
+        console.log(`[auto_batch] bon ${bonId}: ${out.produced.length} produktion(er) lavet — `
+                  + out.produced.map(p => `${p.product_name} ${p.amount}`).join(', '));
+    }
+    if (out.shortages.length) {
+        console.warn(`[auto_batch] bon ${bonId}: råvarer manglede til `
+                   + out.shortages.map(s => s.product_name).join(', ')
+                   + ' — lagt på indkøbslisten');
+    }
+    if (out.skipped.length) {
+        console.warn(`[auto_batch] bon ${bonId}: sprunget over (udbytte ikke oplyst i Grocy): `
+                   + out.skipped.map(s => s.recipe_name).join(', '));
+    }
+}
+
 // Grocy auto-consume når en bon leveres. Idempotent via bons.inventory_deducted —
 // kaldes både fra office-status-skift (routes/bons.js) og courier-levering
 // (routes/delivery.js), men trækker kun lageret én gang. Fire-and-forget:
@@ -179,7 +243,17 @@ function autoConsumeBonInventory(bonId) {
     // skaleres underopskriftens råvarer proportionalt (factor pr. recipe_id).
     const recipeFactors = getPrepPackingRecipeFactors(bonId);
     const { consumeRecipes } = require('../services/grocyAdapter');
-    consumeRecipes(lines, packingOverrides, packingExtras, recipeFactors).then(results => {
+    // ── Hurtig-produktion FØR trækket (#267) ────────────────────────────────
+    // Mangler der mayonnaise, laver Bon den — af råvarer der er på lager —
+    // og trækker derefter som normalt. Selvkorrektion: lavede personalet den
+    // uden at registrere noget, står råvarerne fysisk væk mens Grocy tæller
+    // dem, og produktet står fysisk mens Grocy siger 0. Begge sider flytter
+    // mod virkeligheden.
+    //
+    // Fejler den, fortsætter trækket. Leveringen blokeres aldrig.
+    autoBatchForBon(bonId, lines, recipeFactors)
+      .catch(err => { console.error(`[auto_batch] bon ${bonId}: fejl:`, err.message); })
+      .then(() => consumeRecipes(lines, packingOverrides, packingExtras, recipeFactors)).then(results => {
         const failed  = results.filter(r => !r.success);
         const partial = results.filter(r => r.partial);
 
