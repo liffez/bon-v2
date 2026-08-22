@@ -641,15 +641,28 @@ function matchPayout(db, { payoutUuid, transactionId, userId = null }) {
     const meta = JSON.parse(payout.covered_json || '{}');
     const covered = meta.covered || [];
     const alloc = [];
+    let looseFee = 0;
     for (const c of covered) {
-        const day = db.prepare('SELECT bon_id FROM pos_sales_days WHERE source = ? AND business_date = ?')
+        const day = db.prepare('SELECT bon_id, fee_bon_id FROM pos_sales_days WHERE source = ? AND business_date = ?')
             .get(SOURCE, c.business_date);
-        if (!day?.bon_id || !c.gross_incl) continue;
-        alloc.push({ target_type: 'bon', target_id: String(day.bon_id), amount: round2(c.gross_incl),
-                     note: `Zettle kortsalg ${c.business_date}` });
+        if (day?.bon_id && c.gross_incl) {
+            alloc.push({ target_type: 'bon', target_id: String(day.bon_id), amount: round2(c.gross_incl),
+                         note: `Zettle kortsalg ${c.business_date}` });
+        }
+        // Gebyret allokeres til dagens UDGIFTSBON når den findes. Beslutningen
+        // fra 29. juni (CLAUDE_PENGESTROEM §2.F): på et event bogføres afgiften
+        // som en udgiftsbon, og afstemningen vælger salgsbonnen (+) sammen med
+        // udgiftsbonnerne (−) så Σ rammer netto-indbetalingen. En løs
+        // fee-allokering ville lade udgiftsbonnen stå som uafstemt for evigt.
+        if (!c.fee_incl) continue;
+        if (day?.fee_bon_id) {
+            alloc.push({ target_type: 'bon', target_id: String(day.fee_bon_id), amount: round2(c.fee_incl),
+                         note: `Zettle kortgebyr ${c.business_date}` });
+        } else {
+            looseFee = round2(looseFee + c.fee_incl);   // dag uden event ⇒ ingen udgiftsbon at pege på
+        }
     }
-    const fee = round2(covered.reduce((s, c) => s + (Number(c.fee_incl) || 0), 0));
-    if (fee) alloc.push({ target_type: 'fee', target_id: 'zettle', amount: fee, note: 'Zettle kortgebyr' });
+    if (looseFee) alloc.push({ target_type: 'fee', target_id: 'zettle', amount: looseFee, note: 'Zettle kortgebyr' });
 
     const sum = round2(alloc.reduce((s, a) => s + a.amount, 0));
     if (Math.abs(sum - payout.amount_incl) > 0.01) {

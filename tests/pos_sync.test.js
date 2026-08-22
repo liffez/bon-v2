@@ -524,8 +524,43 @@ test('udbetalingen fordeles på dagenes KORTsalg plus én gebyr-linje', async ()
     assert.equal(alloc.length, out.allocations.length);
     const sum = Math.round(alloc.reduce((s, a) => s + a.amount, 0) * 100) / 100;
     assert.equal(sum, 142.10, 'fordelingen skal ramme indbetalingen præcist');
-    assert.ok(alloc.some(a => a.target_type === 'fee' && a.amount < 0), 'gebyret som negativ linje');
+    assert.ok(alloc.some(a => a.amount < 0), 'gebyret som negativ linje');
     assert.ok(alloc.some(a => a.target_type === 'bon'), 'kortsalget på dagens bon');
+});
+
+test('gebyret allokeres til dagens UDGIFTSBON, ikke som en løs gebyr-linje', async () => {
+    // Beslutningen fra 29. juni: på et event bogføres afgiften som udgiftsbon,
+    // og afstemningen vælger salgsbon (+) sammen med udgiftsbon (−). En løs
+    // fee-allokering ville lade udgiftsbonnen stå som uafstemt for evigt.
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db);
+    posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId });
+
+    const d = day(db, '2026-08-14');
+    assert.ok(d.fee_bon_id);
+    const feeAlloc = db.prepare('SELECT * FROM cf_allocations WHERE transaction_id = ? AND target_id = ?')
+        .get(txId, String(d.fee_bon_id));
+    assert.ok(feeAlloc, 'gebyr-bonnen skal være afstemt');
+    assert.equal(feeAlloc.target_type, 'bon');
+    assert.equal(feeAlloc.amount, d.fee_incl);
+    assert.equal(db.prepare("SELECT COUNT(*) c FROM cf_allocations WHERE transaction_id = ? AND target_type='fee'").get(txId).c,
+        0, 'ingen løs fee-linje når udgiftsbonnen findes — den ville tælle samme krone et andet sted');
+});
+
+test('uden udgiftsbon falder gebyret tilbage til en løs fee-linje', async () => {
+    // Fx hvis gebyr-bogføring er slået fra: fordelingen skal stadig gå op.
+    const db = _testDb;
+    makeEvent(db);
+    db.prepare("UPDATE settings SET value='0' WHERE key='zettle_fee_bon_enabled'").run();
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    assert.equal(day(db, '2026-08-14').fee_bon_id, null);
+    const txId = bankTx(db);
+    const out = posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId });
+    assert.ok(out.allocations.some(a => a.target_type === 'fee'));
+    const sum = Math.round(out.allocations.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    assert.equal(sum, 142.10);
 });
 
 test('kun kortdelen allokeres — MobilePay og kontant hører til andre penge', async () => {
