@@ -758,11 +758,16 @@ Alt bortset fra selve konteringen findes:
 En manuel timeseddel pr. event ville være at bygge et andet system oven på Smartplan —
 og §15.4's advarsel gælder: **manuel indtastning der starter tomt bliver ikke brugt.**
 
-> **Blokering (verificeret):** `_transformRow` i `services/laborAdapter.js` bygger sin
-> returværdi felt for felt og **taber `location` + `location_class`**. Smartplan-adapteren
-> sætter dem; drift-adapteren smider dem væk. Konsekvensen er større end den lyder: feltet
-> ligger derfor heller ikke i de frosne `labor_day_snapshot`-rækker, så historiske dage kan
-> ikke konteres bagud. To linjers additiv ændring — skal laves først.
+> **Blokering — ✅ løst (august 2026):** `_transformRow` i `services/laborAdapter.js` byggede
+> sin returværdi felt for felt og **tabte `location` + `location_class`**. Smartplan-adapteren
+> satte dem; drift-adapteren smed dem væk. Konsekvensen var større end den lyder: feltet lå
+> derfor heller ikke i de frosne `labor_day_snapshot`-rækker, så historiske dage aldrig kunne
+> konteres bagud. Bæres nu igennem i begge veje (`getLabor` + `getLaborMap`), med ukendt klasse
+> → `'hq'` — samme konservative regel som `_classifyLocation`, så en uklassificeret vagt aldrig
+> tilskrives et event. Dækket af `npm run test:labor` (6 asserts, mutationstestet).
+>
+> **Snapshots frosset før dette er stadig uden feltet** og kan ikke konteres bagud. Det er
+> tabt, ikke udskudt.
 
 ### 18.3 Tre kilder, hver med sin sandhedsværdi
 
@@ -932,8 +937,9 @@ registreringen og lageret er konsekvensen.
 
 ### 18.10 Byggerækkefølge
 
-1. Lad `location` + `location_class` overleve `_transformRow` (2 linjer, additivt) — alt
-   andet afhænger af den, og uden den kan historikken aldrig konteres bagud.
+1. ~~Lad `location` + `location_class` overleve `_transformRow`~~ ✅ **udført** (august 2026,
+   `npm run test:labor`). Alt andet afhænger af den, og uden den kan historikken aldrig
+   konteres bagud.
 2. Udfyld `smartplan_role_map` — **data, ikke kode.** Kun 3 jobtyper er mappet i drift, og
    ingen bud-jobtyper, så bud-timer tæller i dag med i driftsresultatet som `other`.
    `syncRoleMap()` findes; den skal køres og listen udfyldes. Uden det bliver ethvert nyt
