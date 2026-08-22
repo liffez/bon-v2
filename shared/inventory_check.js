@@ -545,7 +545,9 @@ function _icRenderSetup() {
     if (!document.body.dataset.icMenuBound) {
         document.body.dataset.icMenuBound = '1';
         document.body.addEventListener('click', function(e) {
-            if (e.target.closest && e.target.closest('[data-menu], [data-action="more"]')) return;
+            // Trykkets ophav tæller med: trækker man en markering ud af
+            // menuen, er det ikke et klik ved siden af.
+            if (!clickedOutsideSelector(e, '[data-menu], [data-action="more"]')) return;
             _icCloseAllCardMenus();
         });
     }

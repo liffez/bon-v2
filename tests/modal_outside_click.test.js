@@ -27,12 +27,23 @@ const SRC = fs.readFileSync(path.join(__dirname, '..', 'shared', 'utils.js'), 'u
 function makeDom() {
     const docListeners = {};
 
-    function el(name, parent) {
+    function el(name, parent, marks) {
         const node = {
             name,
+            marks: marks || [],           // står i stedet for klasser/attributter
             parentNode: parent || null,
             _listeners: {},
-            addEventListener(t, f) { (this._listeners[t] || (this._listeners[t] = [])).push(f); }
+            addEventListener(t, f) { (this._listeners[t] || (this._listeners[t] = [])).push(f); },
+            contains(other) {
+                for (let n = other; n; n = n.parentNode) if (n === this) return true;
+                return false;
+            },
+            closest(sel) {
+                for (let n = this; n; n = n.parentNode) {
+                    if (n.marks && n.marks.indexOf(sel) !== -1) return n;
+                }
+                return null;
+            }
         };
         return node;
     }
@@ -77,10 +88,17 @@ function setup(kind) {
     const ctx = vm.createContext(sandbox);
     vm.runInContext(SRC, ctx);
 
-    const overlay = dom.el('overlay');
+    const body    = dom.el('body');
+    const overlay = dom.el('overlay', body);
     const panel   = dom.el('panel', overlay);
     const input   = dom.el('input', panel);
     const button  = dom.el('button', panel);
+
+    // Dropdown ved siden af modalen — samme fejlklasse, uden overlay at
+    // hænge en lytter på (kunde-søgning, kolonnevælger, MERE-menuen …).
+    const list    = dom.el('list', body, ['.dropdown']);
+    const listRow = dom.el('row', list);
+    const udenfor = dom.el('andet', body);
 
     const closes = [];
     ctx.closeOnOutsideClick(overlay, () => closes.push(1));
@@ -96,7 +114,8 @@ function setup(kind) {
         dom.fire(commonAncestor(down, up), 'click');
     }
 
-    return { ctx, fire: dom.fire, DOWN, UP, fullClick, overlay, panel, input, button, closes };
+    return { ctx, fire: dom.fire, DOWN, UP, fullClick,
+             body, overlay, panel, input, button, list, listRow, udenfor, closes };
 }
 
 // Browserens retargeting: click lander på den nærmeste fælles forfader.
@@ -190,4 +209,63 @@ test('closeOnOutsideClick vælter ikke på et manglende overlay', () => {
     const t = setup();
     assert.doesNotThrow(() => t.ctx.closeOnOutsideClick(null, () => {}));
     assert.doesNotThrow(() => t.ctx.closeOnOutsideClick(t.overlay, null));
+});
+
+/* ── Dropdowns og menuer: clickedOutside / clickedOutsideSelector ── */
+
+test('markering trukket ud af en dropdown lukker den ikke', () => {
+    const t = setup();
+    t.fire(t.listRow, t.DOWN);
+    t.fire(t.udenfor, t.UP);
+    const ev = t.fire(t.body, 'click');   // fælles forfader
+    assert.equal(t.ctx.clickedOutside(ev, t.list), false,
+        'trykket startede i listen — den skal blive stående');
+    assert.equal(t.ctx.clickedOutsideSelector(ev, '.dropdown'), false);
+});
+
+test('ægte klik ved siden af lukker dropdownen', () => {
+    const t = setup();
+    t.fire(t.udenfor, t.DOWN);
+    t.fire(t.udenfor, t.UP);
+    const ev = t.fire(t.udenfor, 'click');
+    assert.equal(t.ctx.clickedOutside(ev, t.list), true);
+    assert.equal(t.ctx.clickedOutsideSelector(ev, '.dropdown'), true);
+});
+
+test('klik inde i dropdownen tæller ikke som udenfor', () => {
+    const t = setup();
+    t.fire(t.listRow, t.DOWN);
+    t.fire(t.listRow, t.UP);
+    const ev = t.fire(t.listRow, 'click');
+    assert.equal(t.ctx.clickedOutside(ev, t.list), false);
+});
+
+test('musen sluppet inde i dropdownen tæller ikke som udenfor', () => {
+    const t = setup();
+    t.fire(t.udenfor, t.DOWN);
+    t.fire(t.listRow, t.UP);
+    const ev = t.fire(t.body, 'click');
+    assert.equal(t.ctx.clickedOutside(ev, t.list), false);
+});
+
+test('clickedOutside tager flere elementer (felt + resultatliste)', () => {
+    const t = setup();
+    // En autocomplete er BÅDE feltet og resultatlisten. Markeringen trækkes
+    // ud af feltet — så må listen ikke lukke.
+    t.fire(t.input, t.DOWN);
+    t.fire(t.udenfor, t.UP);
+    const ev = t.fire(t.body, 'click');
+    assert.equal(t.ctx.clickedOutside(ev, t.input, t.list), false,
+        'feltet hører med til dropdownen');
+    assert.equal(t.ctx.clickedOutside(ev, t.list), true,
+        'set alene fra listen lå både tryk og slip udenfor — den lukker');
+});
+
+test('clickedOutside tåler null-elementer', () => {
+    const t = setup();
+    t.fire(t.udenfor, t.DOWN);
+    t.fire(t.udenfor, t.UP);
+    const ev = t.fire(t.udenfor, 'click');
+    assert.equal(t.ctx.clickedOutside(ev, null, t.list), true);
+    assert.equal(t.ctx.clickedOutsideSelector(ev, '.findes-ikke'), true);
 });

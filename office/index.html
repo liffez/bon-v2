@@ -1721,7 +1721,7 @@
 
       if (_attnBtn) _attnBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleAttention(); });
       document.addEventListener('click', function(e) {
-        if (_attnWrap && !_attnWrap.contains(e.target) && _attnPanel && _attnPanel.style.display === 'block') closeAttention();
+        if (_attnWrap && clickedOutside(e, _attnWrap) && _attnPanel && _attnPanel.style.display === 'block') closeAttention();
       });
       window.loadAttention = loadAttention;
       window.scheduleAttentionReload = scheduleAttentionReload;

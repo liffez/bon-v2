@@ -2274,7 +2274,7 @@ class BonDrawer {
 
         // Close results on outside click
         document.addEventListener('click', (e) => {
-            if (!input.contains(e.target) && !results.contains(e.target)) {
+            if (clickedOutside(e, input, results)) {
                 results.style.display = 'none';
             }
         });

@@ -4968,10 +4968,30 @@ kiggede kun på hvor musen SLAP, aldrig på hvor den startede.
   Settings) var aldrig ramt: dér bliver den fælles forfader `body`, så overlayets
   lytter fyrer slet ikke. De er urørt.
 
-**Tests:** `npm run test:modal` — 17 asserts. Den rigtige `shared/utils.js` køres
+**Samme fejl i dropdowns og menuer.** En dropdown har ingen overlay at hænge
+vagten på; den lukker fra en `document`-lytter med `!panel.contains(e.target)`.
+Trækker man en markering ud af den, lander `click` på en fælles forfader
+udenfor — og listen lukkede. `clickedOutside(e, …elementer)` og
+`clickedOutsideSelector(e, selector)` bruger samme regel. Anvendt på:
+adresse-autocomplete i bon-draweren og i Kunde 360°, kolonnevælgeren i
+bonlisten, MERE-menuen i køkkenets topbar, prisberegnerens adresseliste i
+logistik, opmærksomheds-panelet i office-topbaren, opskrift-designerens to
+autocomplete-lister og kortmenuen i optællingen.
+
+**Tre steder er bevidst urørt:** hjælpesystemets kortlægningstilstand (klik
+udpeger et element — det ER meningen), dashboard-chartets tooltip (lukkes af
+`touchstart`, ikke `click`) og event-popoveren, der allerede lytter på
+`mousedown` i capture — dér lukker trykket, før man kan nå at trække.
+
+> **Sidebackdrops var aldrig ramt, efterprøvet i browseren.** Bon-draweren og
+> indkøbs-settings-panelet lægger baggrunden som SØSKENDE til panelet, så den
+> fælles forfader bliver `body` og baggrundens lytter fyrer slet ikke. Kun
+> overlays der OMSLUTTER panelet var i fare.
+
+**Tests:** `npm run test:modal` — 23 asserts. Den rigtige `shared/utils.js` køres
 i en vm-sandkasse med en DOM der modellerer capture, bobling og netop den
 retargeting af `click`; begge grene (pointer + mus-fallback) køres.
-**Mutations-testet:** fem kernerettelser rulles hver især tilbage og fælder hver
+**Mutations-testet:** otte kernerettelser rulles hver især tilbage og fælder hver
 sin navngivne assert — den gamle adfærd (`kun e.target`) fælder 9.
 Verificeret i browser på `shared/modal.js` og `bon_opret_modal.js`: markering
 trukket ud → modalen står, klik på en knap indeni → står, ægte klik udenfor →

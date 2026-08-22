@@ -887,3 +887,37 @@ function closeOnOutsideClick(overlayEl, closeFn) {
         if (isOutsideClick(e, overlayEl)) closeFn(e);
     });
 }
+
+// Ramte klikket UDEN FOR alle de angivne elementer? Bruges af dropdowns,
+// menuer og autocomplete-lister der lukker når man klikker ved siden af —
+// de har ingen overlay at hænge closeOnOutsideClick på, men rammes af samme
+// fejl: trækker man en markering ud af listen, lander `click` på en fælles
+// forfader udenfor, og listen lukkede midt i markeringen.
+//
+//     if (clickedOutside(e, input, resultsEl)) resultsEl.style.display = 'none';
+function clickedOutside(e) {
+    var els = Array.prototype.slice.call(arguments, 1);
+    function inside(node) {
+        if (!node) return false;
+        for (var i = 0; i < els.length; i++) {
+            if (els[i] && els[i].contains(node)) return true;
+        }
+        return false;
+    }
+    if (inside(e && e.target)) return false;
+    if (inside(_pressStartTarget)) return false;   // trykket startede indeni
+    if (inside(_pressEndTarget)) return false;     // musen blev sluppet indeni
+    return true;
+}
+
+// Samme regel, men matchet med en CSS-selector — til delegerede handlere der
+// bruger closest() og altså ikke har et konkret element at pege på.
+function clickedOutsideSelector(e, selector) {
+    function inside(node) {
+        return !!(node && node.closest && node.closest(selector));
+    }
+    if (inside(e && e.target)) return false;
+    if (inside(_pressStartTarget)) return false;
+    if (inside(_pressEndTarget)) return false;
+    return true;
+}
