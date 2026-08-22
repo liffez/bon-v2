@@ -102,6 +102,7 @@ router.get('/days/:date', requireAuth(), handle((req, res) => {
         hours: curve.hours,
         peak: curve.peak,
         total_orders: curve.total_orders,
+        total_items: curve.total_items,
         top_items: topItems(purchases),
         business_date: day.business_date,
         event_id: day.event_id, event_name: day.event_name,
@@ -272,6 +273,7 @@ router.get('/events/:id/sales-curve', requireAuth(), handle((req, res) => {
             hours: curve.hours,
             peak: curve.peak,
             total_orders: curve.total_orders,
+            total_items: curve.total_items,
             top_items: topItems(purchases, 5),
         };
     });

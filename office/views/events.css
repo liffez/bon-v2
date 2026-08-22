@@ -509,3 +509,10 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-curve-fill.is-peak { background: var(--brand-primary, #8e631f); }
 .ev-curve-h { font-size: 9px; color: var(--color-text-dim); margin-top: 3px; }
 .ev-curve-top { font-size: 11px; color: var(--color-text-dim); margin-top: 8px; line-height: 1.5; }
+
+/* ── Tilbage ─────────────────────────────────────────────────────────────
+   Lå som .ev-btn-ghost med BÅDE gennemsigtig baggrund og kant, så den
+   læste som ren tekst ved siden af overskriften. Den bruger nu sidens egen
+   knapstil — samme som "Redigér" og "Slet" i højre side. */
+.ev-back { font-weight: 500; }
+.ev-back:hover { background: var(--brand-primary-light, #f1e6b2); border-color: var(--brand-primary, #8e631f); }

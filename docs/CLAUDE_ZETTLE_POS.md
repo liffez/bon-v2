@@ -395,6 +395,11 @@ Tre valg der betyder noget:
   midnat lægge sig som en pukkel i venstre kant og se ud som morgentravlhed.
 - **Refunderinger tælles ikke som ordrer** (ingen bemandes for en refundering), men
   beløbet trækkes fra, så timerne summer til dagens omsætning.
+- **`varer` er alt der gik over disken** — hver vare er arbejde uanset kategori. Det er
+  bevidst IKKE husets `enheder` (`bons.total_units`), som kun tæller
+  `unit_count_categories` (sandwich/salat/slider). På festivalen ville Luxus hotdog og
+  pølserne tælle nul dér, og de er ~30 % af salget — en bemanding regnet på "enheder"
+  ville være regnet på det halve køkken. Forskellen står i hjælpeteksten på skærmen.
 
 `top_items` er uafhængig af Grocy-koblingen: listen skal kunne vises når Grocy er nede,
 og den ukoblede vare (Luxus hotdog, 20 % af festivalens omsætning) hører i toppen.

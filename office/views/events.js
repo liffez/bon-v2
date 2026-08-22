@@ -209,7 +209,7 @@ async function _evRenderDetail(id) {
         _evContainer.innerHTML = `
             <div class="ev-page">
                 <div class="ev-detail-head">
-                    <button class="ev-btn ev-btn-ghost" data-act="back">← Tilbage</button>
+                    <button class="ev-btn ev-back" data-act="back">← Tilbage</button>
                     <h2 class="ev-page-title">${_evEsc(ev.name)}</h2>
                     <div class="ev-card-badges">
                         ${ev.model === 'light'
@@ -480,12 +480,12 @@ async function _evRenderCurve(eventId) {
         <div class="ev-curve-day">
             <div class="ev-curve-head">
                 <strong>${_evEsc(d.business_date)}</strong>
-                <span>${d.total_orders} ordrer · ${kr(d.gross_incl)}${d.refund_count ? ` · ${d.refund_count} retur` : ''}</span>
-                ${d.peak ? `<span class="ev-curve-peak">travlest ${_evEsc(d.peak.label)} · ${d.peak.orders} ordrer</span>` : ''}
+                <span>${d.total_orders} ordrer · ${d.total_items} varer · ${kr(d.gross_incl)}${d.refund_count ? ` · ${d.refund_count} retur` : ''}</span>
+                ${d.peak ? `<span class="ev-curve-peak">travlest ${_evEsc(d.peak.label)} · ${d.peak.orders} ordrer / ${d.peak.items} varer</span>` : ''}
             </div>
             <div class="ev-curve-bars">
                 ${d.hours.map(h => `
-                    <div class="ev-curve-bar" title="${_evEsc(h.label)} · ${h.orders} ordrer · ${kr(h.gross_incl)}">
+                    <div class="ev-curve-bar" title="${_evEsc(h.label)} · ${h.orders} ordrer · ${h.items} varer · ${kr(h.gross_incl)}">
                         <div class="ev-curve-fill${d.peak && h.hour === d.peak.hour ? ' is-peak' : ''}"
                              style="height:${Math.max(2, Math.round(h.orders / maxOrders * 100))}%"></div>
                         <span class="ev-curve-h">${_evEsc(h.label.slice(0, 2))}</span>
@@ -503,6 +503,8 @@ async function _evRenderCurve(eventId) {
                     den ${_evEsc(data.busiest.business_date)} — ${data.busiest.orders} ordrer</span>` : ''}
             </div>
             <p class="ev-curve-hint">Søjlernes højde er <strong>antal ordrer</strong> — det er dét man bemander efter.
+                <em>Varer</em> er alt der gik over disken; det er ikke det samme som eventets <em>enheder</em>,
+                der kun tæller sandwich, salat og slider.
                 Døgnet starter kl. ${_evEsc(data.cutoff)}, så en aften der trækker over midnat læses forfra til venstre.</p>
             ${dage.map(dagBlok).join('')}
         </div>`;

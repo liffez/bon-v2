@@ -342,11 +342,43 @@ test('timerne summer til dagens omsætning', () => {
     assert.equal(sum, dag);
 });
 
+test('varer tælles ved siden af ordrer — én ordre kan være mange varer', () => {
+    const line = (q) => ({ name: 'x', product_uuid: null, quantity: q, line_total_incl: q * 50 });
+    const c = hourlyCurve([
+        p('2026-08-14T08:00:00Z', 150, { lines: [line(3)] }),
+        p('2026-08-14T08:30:00Z', 50, { lines: [line(1)] }),
+    ], '04:00');
+    const t = c.hours[0];
+    assert.equal(t.orders, 2, 'to i køen');
+    assert.equal(t.items, 4, 'men fire ting skulle laves');
+    assert.equal(c.total_items, 4);
+});
+
+test('varer er ALT over disken — ikke husets kategori-filtrerede "enheder"', () => {
+    // Luxus hotdog har ingen Grocy-kobling og tæller nul i bons.total_units.
+    // På kurven SKAL den tælle: den er arbejde, og ~30 % af festivalens salg.
+    const c = hourlyCurve([p('2026-08-14T08:00:00Z', 109, {
+        lines: [{ name: 'Luxus hotdog', product_uuid: 'u', quantity: 1, line_total_incl: 109 }],
+    })], '04:00');
+    assert.equal(c.total_items, 1);
+});
+
+test('en refunderet vare trækkes fra vare-tallet', () => {
+    const line = (q) => ({ name: 'x', product_uuid: null, quantity: q, line_total_incl: q * 50 });
+    const c = hourlyCurve([
+        p('2026-08-14T08:00:00Z', 100, { lines: [line(2)] }),
+        p('2026-08-14T08:30:00Z', -50, { refund: true, lines: [line(-1)] }),
+    ], '04:00');
+    assert.equal(c.hours[0].items, 1);
+    assert.equal(c.hours[0].orders, 1);
+});
+
 test('en dag uden køb giver en tom kurve, ikke en fejl', () => {
     const c = hourlyCurve([], '04:00');
     assert.deepEqual(c.hours, []);
     assert.equal(c.peak, null);
     assert.equal(c.total_orders, 0);
+    assert.equal(c.total_items, 0);
 });
 
 test('ugyldig skæring afvises frem for at give en tilfældig rækkefølge', () => {

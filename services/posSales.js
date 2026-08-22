@@ -305,6 +305,12 @@ function localHour(occurredAt) {
  *
  * Refunderinger tælles ikke som ordrer (ingen bemandes for en refundering),
  * men beløbet trækkes fra, så summen af timerne rammer dagens omsætning.
+ *
+ * `items` er ALT der gik over disken — hver vare er arbejde uanset kategori.
+ * ⚠️ Det er bevidst IKKE husets "enheder" (`bons.total_units`), som kun tæller
+ * kategorierne i `unit_count_categories` (sandwich/salat/slider). På festivalen
+ * ville Luxus hotdog og pølserne tælle nul dér, og de er ~30 % af salget — så
+ * en bemanding regnet på "enheder" ville være regnet på det halve køkken.
  */
 function hourlyCurve(purchases, cutoff = '04:00') {
     const m = CUTOFF_RE.exec(String(cutoff || '').trim());
@@ -315,12 +321,13 @@ function hourlyCurve(purchases, cutoff = '04:00') {
     for (const p of purchases || []) {
         const h = localHour(p.occurred_at);
         if (h === null) continue;
-        const b = buckets.get(h) || { hour: h, orders: 0, refunds: 0, gross_incl: 0 };
+        const b = buckets.get(h) || { hour: h, orders: 0, refunds: 0, items: 0, gross_incl: 0 };
         if (p.is_refund) b.refunds++; else b.orders++;
+        b.items += (p.lines || []).reduce((s, l) => s + (Number(l.quantity) || 0), 0);
         b.gross_incl = round2(b.gross_incl + p.amount_incl);
         buckets.set(h, b);
     }
-    if (!buckets.size) return { hours: [], peak: null, total_orders: 0 };
+    if (!buckets.size) return { hours: [], peak: null, total_orders: 0, total_items: 0 };
 
     // Placering i forretningsdagen: 0 = skæringstimen.
     const pos = h => (h - startHour + 24) % 24;
@@ -331,8 +338,9 @@ function hourlyCurve(purchases, cutoff = '04:00') {
     const peak = hours.reduce((best, h) => (!best || h.orders > best.orders ? h : best), null);
     return {
         hours,
-        peak: peak ? { hour: peak.hour, label: peak.label, orders: peak.orders, gross_incl: peak.gross_incl } : null,
+        peak: peak ? { hour: peak.hour, label: peak.label, orders: peak.orders, items: peak.items, gross_incl: peak.gross_incl } : null,
         total_orders: hours.reduce((s, h) => s + h.orders, 0),
+        total_items: hours.reduce((s, h) => s + h.items, 0),
     };
 }
 
