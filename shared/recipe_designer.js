@@ -629,11 +629,11 @@ function _rdBindDesignerEvents() {
 
     // Close autocomplete dropdowns on outside click
     document.addEventListener('click', function(e) {
-        if (!e.target.closest('#rdAddPanel .rd-ac-wrapper')) {
+        if (clickedOutsideSelector(e, '#rdAddPanel .rd-ac-wrapper')) {
             var dd = document.getElementById('rdAcDropdown');
             if (dd) dd.classList.remove('rd-open');
         }
-        if (!e.target.closest('#rdAddNestingPanel .rd-ac-wrapper')) {
+        if (clickedOutsideSelector(e, '#rdAddNestingPanel .rd-ac-wrapper')) {
             var dd2 = document.getElementById('rdNestAcDropdown');
             if (dd2) dd2.classList.remove('rd-open');
         }

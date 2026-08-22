@@ -444,7 +444,7 @@ function _logBindPriceCalc() {
         document.addEventListener('click', function(e) {
             var p = document.getElementById('logPriceCalc');
             var d = document.getElementById('logPcDawa');
-            if (p && d && !p.contains(e.target)) d.hidden = true;
+            if (p && d && clickedOutside(e, p)) d.hidden = true;
         });
     }
 

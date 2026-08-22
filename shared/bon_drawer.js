@@ -483,7 +483,10 @@ class BonDrawer {
                 btn.innerHTML = oldHtml;
             }
         });
-        this.overlayEl.addEventListener('click', () => this.hide());
+        // Baggrunden er SØSKENDE til draweren, så panelet sendes med — ellers
+        // ved vagten ikke hvor en markering lå, og det klik man laver for at
+        // fjerne markeringen ville lukke draweren.
+        closeOnOutsideClick(this.overlayEl, () => this.hide(), this.el);
 
         // Escape
         document.addEventListener('keydown', (e) => {
@@ -2185,7 +2188,7 @@ class BonDrawer {
         document.addEventListener('keydown', onKey, true);
 
         overlay.querySelector('.drawer-confirm-stay').addEventListener('click', cleanup);
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+        closeOnOutsideClick(overlay, cleanup);
 
         overlay.querySelector('.drawer-confirm-discard').addEventListener('click', () => {
             cleanup();
@@ -2274,7 +2277,7 @@ class BonDrawer {
 
         // Close results on outside click
         document.addEventListener('click', (e) => {
-            if (!input.contains(e.target) && !results.contains(e.target)) {
+            if (clickedOutside(e, input, results)) {
                 results.style.display = 'none';
             }
         });

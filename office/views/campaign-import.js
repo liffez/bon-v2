@@ -334,9 +334,7 @@
         document.body.appendChild(overlay);
         _state.overlay = overlay;
 
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay && !_state.busy) _close();
-        });
+        closeOnOutsideClick(overlay, () => { if (!_state.busy) _close(); });
         document.getElementById('ci-close').addEventListener('click', () => { if (!_state.busy) _close(); });
         document.addEventListener('keydown', _onEscape);
 

@@ -816,7 +816,7 @@ function _covEnsurePanel() {
         <div class="cov-panel-body" id="covPanelBody"></div>
       </div>`;
     document.body.appendChild(wrap);
-    wrap.addEventListener('click', (e) => { if (e.target === wrap) _covClosePanel(); });
+    closeOnOutsideClick(wrap, _covClosePanel);
     document.getElementById('covPanelClose').addEventListener('click', _covClosePanel);
     document.getElementById('covPanelBack').addEventListener('click', () => {
         _covState.panelStack.pop();                       // nuværende

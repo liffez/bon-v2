@@ -73,7 +73,11 @@ function makeCtx(plan) {
         document: {
             body,
             createElement: makeEl,
-            getElementById: (id) => find(body, id)
+            getElementById: (id) => find(body, id),
+            // utils.js sporer hvor et klik startede (klik-uden-for-modal-vagten)
+            // med en capture-lytter på document allerede ved indlæsning.
+            addEventListener() {},
+            removeEventListener() {}
         },
 
         fetch(url, opts) {
