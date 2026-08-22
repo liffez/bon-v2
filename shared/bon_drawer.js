@@ -749,7 +749,8 @@ class BonDrawer {
             const items = (d.lines || [])
                 .map(l => ({ name: l.product_name || '', kg: (Number(l.co2e) || 0) * (Number(l.quantity) || 0) }))
                 .filter(x => x.kg > 0).sort((a, b) => b.kg - a.kg);
-            const missing = (d.lines || []).filter(l => (Number(l.quantity) || 0) > 0 && !(Number(l.co2e) > 0)).length;
+            const missingLines = (d.lines || []).filter(l => (Number(l.quantity) || 0) > 0 && !(Number(l.co2e) > 0));
+            const missing = missingLines.length;
             let rows = items.map(x =>
                 `<div class="drawer-co2-row"><span class="drawer-co2-row-name">${_esc(x.name)}</span>` +
                 `<span class="drawer-co2-row-kg">${fmt(x.kg)}</span><span class="drawer-co2-row-pct">${pct(x.kg)}%</span></div>`).join('');
@@ -758,8 +759,10 @@ class BonDrawer {
                 rows += `<div class="drawer-co2-row drawer-co2-row-transport"><span class="drawer-co2-row-name">🚚 Transport${tlabel}</span>` +
                     `<span class="drawer-co2-row-kg">${fmt(tKg)}</span><span class="drawer-co2-row-pct">${pct(tKg)}%</span></div>`;
             }
-            const missNote = missing > 0
-                ? `<div class="drawer-co2-missing">⚠ ${missing} vare${missing > 1 ? 'r' : ''} uden CO₂-tal — ikke medregnet</div>` : '';
+            // Advarslen navngiver nu de varer den taler om — et tal alene fortalte
+            // ikke hvad man skulle rette. Foldet sammen som default: de fleste bons
+            // har et par emballage-linjer uden tal, og de skal ikke fylde panelet.
+            const missNote = missing > 0 ? this._buildCo2MissingNote(missingLines, _esc) : '';
             const perKuvertRow = (rows && perKuvert != null)
                 ? `<div class="drawer-co2-row drawer-co2-row-perkuvert"><span class="drawer-co2-row-name">Pr. kuvert <span class="drawer-co2-row-sub">(${pax} pax)</span></span>` +
                     `<span class="drawer-co2-row-kg">${fmt2(perKuvert)}</span><span class="drawer-co2-row-pct"></span></div>`
@@ -775,6 +778,51 @@ class BonDrawer {
             strip.addEventListener('click', toggle);
             strip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
         }
+        // Delegeret på `detail`, som får sit indhold skiftet ved hver render —
+        // en lytter på selve advarslen ville dø ved næste _renderCo2.
+        if (detail && !detail._co2MissBound) {
+            detail._co2MissBound = true;
+            const toggleMiss = (target) => {
+                const btn = target && target.closest ? target.closest('[data-co2-miss-toggle]') : null;
+                if (!btn) return false;
+                const list = btn.nextElementSibling;
+                if (!list || !list.classList.contains('drawer-co2-miss-list')) return false;
+                list.hidden = !list.hidden;
+                btn.classList.toggle('open', !list.hidden);
+                btn.setAttribute('aria-expanded', String(!list.hidden));
+                return true;
+            };
+            detail.addEventListener('click', (e) => { toggleMiss(e.target); });
+            detail.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                if (toggleMiss(e.target)) e.preventDefault();
+            });
+        }
+    }
+
+    // Advarslen om varer uden CO₂-tal, som kan foldes ud til selve listen.
+    // Rå linjer (ikke merged) — så antallet i overskriften og antallet af rækker
+    // er det samme tal, og listen står i samme rækkefølge som varelisten nedenfor.
+    // `fritekst`-mærket er det handlingsbare: en linje uden opskrift kan ikke få
+    // et tal automatisk, uanset hvor meget der rettes i Grocy.
+    _buildCo2MissingNote(missingLines, _esc) {
+        const n = missingLines.length;
+        const num = (v) => Number(v || 0).toLocaleString('da-DK', { maximumFractionDigits: 2 });
+        const rows = missingLines.map(l => {
+            const tag = l.grocy_recipe_id ? '' : ' <span class="drawer-co2-miss-tag">fritekst</span>';
+            const unit = l.unit ? ' ' + _esc(l.unit) : '';
+            return `<div class="drawer-co2-miss-row">` +
+                `<span class="drawer-co2-miss-name">${_esc(l.product_name || '(uden navn)')}${tag}</span>` +
+                `<span class="drawer-co2-miss-qty">${num(l.quantity)}${unit}</span></div>`;
+        }).join('');
+        const hints = [];
+        if (missingLines.some(l => l.grocy_recipe_id)) hints.push('Opskrifter uden tal udfyldes under CO₂ → «Opskrifter uden CO₂-tal».');
+        if (missingLines.some(l => !l.grocy_recipe_id)) hints.push('Fritekst-linjer har ingen opskrift og kan ikke få et tal automatisk.');
+        const hint = hints.length ? `<div class="drawer-co2-miss-hint">${hints.join(' ')}</div>` : '';
+        return `<div class="drawer-co2-missing" data-co2-miss-toggle role="button" tabindex="0" aria-expanded="false">` +
+            `<span>⚠ ${n} vare${n > 1 ? 'r' : ''} uden CO₂-tal — ikke medregnet</span>` +
+            `<span class="drawer-co2-miss-caret">▾</span></div>` +
+            `<div class="drawer-co2-miss-list" hidden>${rows}${hint}</div>`;
     }
 
     // Bonens mad-CO₂ nøjagtighed (masse-vægtet) — async, non-blocking. Fylder
