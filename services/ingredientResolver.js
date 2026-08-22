@@ -482,8 +482,13 @@ function yieldPerBatchStockOf(recipeRaw, product, unitMap, quConversions) {
 }
 
 /** Kald `emit(product_id, amount)` for hver råvare i en opskrift × multiplier. */
-function collectRecipeNeedsFlat(recipeId, multiplier, posByRecipe, nestingsByRecipe, rawRecipeMap, emit, stack = new Set()) {
+function collectRecipeNeedsFlat(recipeId, multiplier, posByRecipe, nestingsByRecipe, rawRecipeMap, emit, stack = new Set(), opts = {}) {
     for (const ing of (posByRecipe[recipeId] || [])) {
+        // `skipEmballage`: en produktionsbatch af mayonnaise pakker ingenting —
+        // emballagen hører til den menulinje der serverer den. Samme afgrænsning
+        // som `makeProducibility` bruger, så "kan laves" og "blev lavet" er
+        // enige om hvad der skal være på lager.
+        if (opts.skipEmballage && (ing.ingredient_group || '').toLowerCase() === 'emballage') continue;
         const amt = (parseFloat(ing.amount) || 0) * multiplier;
         if (amt > 0) emit(ing.product_id, amt);
     }
@@ -494,7 +499,7 @@ function collectRecipeNeedsFlat(recipeId, multiplier, posByRecipe, nestingsByRec
         if (!subRaw) continue;
         const subBase = parseInt(subRaw.base_servings) || 1;
         const m = ((parseFloat(n.servings) || 1) * multiplier) / subBase;
-        collectRecipeNeedsFlat(n.includes_recipe_id, m, posByRecipe, nestingsByRecipe, rawRecipeMap, emit, stack);
+        collectRecipeNeedsFlat(n.includes_recipe_id, m, posByRecipe, nestingsByRecipe, rawRecipeMap, emit, stack, opts);
     }
     stack.delete(recipeId);
 }
@@ -1178,4 +1183,11 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
     return [...aggregated.values()];
 }
 
-module.exports = { resolveIngredients, resolveConsumeItems, expandProducedToRaw };
+// De tre primitiver eksponeres så `services/autoBatch.js` (#267) kan bygge på
+// PRÆCIS samme fortolkning af udbytte og råvarebehov som visningen bruger.
+// En parallel implementering ville drive fra denne — det er nøjagtig sådan
+// #349 og #353 opstod.
+module.exports = {
+    resolveIngredients, resolveConsumeItems, expandProducedToRaw,
+    buildProducerIndex, yieldPerBatchStockOf, collectRecipeNeedsFlat,
+};
