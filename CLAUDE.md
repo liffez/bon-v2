@@ -4888,6 +4888,57 @@ klikket blev sendt som `MouseEvent` gennem den ægte lytter, ikke som fysisk mus
 almindelig Safari-fane **før** du genindlæser. Virker den, mens webapp-vinduet er dødt,
 er det Safari og ikke netværket. Det svar afgør om #423 kan lukkes helt.
 
+### En ny skærm arver ikke flyver-historikken (#521, 22. august 2026)
+
+Åbnede man Bon v2 på en ny computer, kom **hver eneste flyver der nogensinde er sendt**
+frem som ulæst — også dem på bons der for længst var leveret og faktureret. Målt på en
+kopi af driftsdata: 19 flyvere, 15 klient-id'er, **263 read-rækker**. Stort set hver
+skærm havde måttet klikke hver eneste flyver væk i hånden.
+
+To uafhængige huller, begge i `GET /api/notifications/unread`:
+
+1. **En ny klient arvede hele historikken.** "Ulæst" var defineret som *ikke i
+   `notification_reads`*, og reads er nøglet på et localStorage-UUID (`getClientId()`).
+   En frisk browser har nul rækker og fik derfor alt siden 19. maj.
+2. **En flyver blev aldrig irrelevant af sig selv.** Forespørgslen så hverken på bonens
+   status eller dato. Alle 19 flyvere i drift sad på FAKTURERET/AFSLUTTET-bons.
+
+- **Relevansfilter**: status ikke i `LEVERET, FAKTURERET, BETALT, AFSLUTTET, AFLYST`,
+  og `delivery_date` inden for `settings.flyver_grace_days` (default 2) bagud.
+  > ⚠️ **`is_terminal` kan ikke stå alene her.** LEVERET har `is_terminal = 0`, men en
+  > flyver på en leveret bon er lige så forældet som på en faktureret. Listen skrives ud.
+
+  Marginen er ikke pynt: status-filteret fanger normalt en afsluttet bon, men køkkenet
+  når ikke altid at trykke LEVERET, og ved midnat er datoen teknisk passeret. Uden
+  marginen ville en besked kunne forsvinde i det hul.
+- **Nulpunkt pr. klient** (migration 153, `notification_clients`): første gang et
+  `client_id` spørger, stemples det, og derefter ses kun flyvere sendt siden da.
+  O(1) pr. klient — modsat at skrive en read-række for hver eksisterende flyver ved
+  første besøg, som ville vokse med klienter × flyvere.
+- **Migrationen backfiller kendte skærme** med `MIN(read_at)`, altså deres FØRSTE
+  kvittering. Uden det ville hver eksisterende skærm få nulpunktet sat til
+  deploy-tidspunktet og dermed tabe en flyver der lige nu ligger uklikket på en aktiv bon.
+  `read_at` og `notifications.created_at` skrives begge med `CURRENT_TIMESTAMP`, så de
+  har samme format og kan sammenlignes som tekst (jf. migration 150).
+
+**Begge greb er nødvendige.** Relevansfilteret rydder køen op af sig selv når bonen
+leveres — også på skærme der allerede står med gamle flyvere. Nulpunktet sikrer at en
+ny maskine aldrig kan få en bunke, heller ikke af flyvere på bons der stadig er i arbejde.
+
+**Fravalgt:** at nøgle læst-status på `user_id`. Login findes, men roller er delte
+PIN-konti, så én skærm der kvitterede ville fjerne flyveren for alle andre køkkenskærme
+på samme rolle. Per-device er den rigtige granularitet.
+
+**Tests:** `npm run test:flyver` — 21 asserts. Migrationens backfill køres mod de
+**rigtige** migrations-filer, hvor 153 anvendes efter at der ligger kvitteringer i basen;
+ellers ville testen aldrig se den kodesti (en frisk DB har tom `notification_reads`).
+Resten rammer endpointet over HTTP mod en spawnet server. **Mutations-testet:** seks
+kerneregler rulles hver især tilbage og fælder hver sin navngivne assert.
+Verificeret mod en kopi af driftsdata: **19 → 0** for en ny maskine, 15 eksisterende
+skærme fik deres rigtige nulpunkt med. Browser-verificeret: frisk localStorage → intet
+banner trods ulæst flyver på aktiv bon; ny flyver → banner via SSE; bon sat til LEVERET
+→ 1 → 0. Testdata ryddet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
