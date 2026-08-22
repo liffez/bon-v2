@@ -19,7 +19,9 @@ const grocyAdapter = require('../services/grocyAdapter');
 const { getZettleAdapter } = require('../services/zettleAdapter');
 const {
     SOURCE, getPosSettings, rebuildDay, syncPos, syncFinance, assignDay, matchPayout, suggestBankMatch,
+    loadDayPurchases,
 } = require('../services/posSync');
+const { hourlyCurve, topItems } = require('../services/posSales');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const parse = (v, fb = null) => { try { return v ? JSON.parse(v) : fb; } catch { return fb; } };
@@ -91,12 +93,16 @@ router.get('/days/:date', requireAuth(), handle((req, res) => {
         ORDER BY id
     `).all(date);
 
-    const hours = db.prepare(`
-        SELECT occurred_at, amount_incl FROM pos_purchases
-        WHERE source = ? AND business_date = ? ORDER BY occurred_at
-    `).all(SOURCE, date);
+    // Timefordelingen regnes af de rå køb — én regel, delt med event-kurven.
+    const purchases = loadDayPurchases(db, date);
+    const cutoff = getPosSettings(db).cutoff;
+    const curve = hourlyCurve(purchases, cutoff);
 
     res.json({
+        hours: curve.hours,
+        peak: curve.peak,
+        total_orders: curve.total_orders,
+        top_items: topItems(purchases),
         business_date: day.business_date,
         event_id: day.event_id, event_name: day.event_name,
         assign_status: day.assign_status,
@@ -108,7 +114,6 @@ router.get('/days/:date', requireAuth(), handle((req, res) => {
         flags: parse(day.flags_json, []),
         last_synced_at: day.last_synced_at, last_error: day.last_error,
         candidate_events: candidates,
-        purchases: hours,
     });
 }));
 
@@ -237,6 +242,48 @@ router.post('/products/map', requireAuth(), handle(async (req, res) => {
         }
     }
     res.json({ ok: true, pos_product_uuid: uuid, grocy_recipe_id: recipeId, rebuilt_days: rebuilt });
+}));
+
+/* ── GET /api/pos/events/:id/sales-curve ───────────────────────────────── */
+// Salget pr. time for hver af eventets POS-dage.
+//
+// Formålet er bemanding, ikke pynt: CLAUDE_EVENT.md §15.3 pkt. 2 parkerede
+// festival-kapacitet netop fordi ordre-fordelingen pr. time kun kan komme fra
+// eget POS. Derfor er ANTAL ORDRER det primære tal.
+router.get('/events/:id/sales-curve', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const eventId = Number(req.params.id);
+    if (!Number.isInteger(eventId)) return res.status(400).json({ error: 'Ugyldigt event-id' });
+
+    const cutoff = getPosSettings(db).cutoff;
+    const rows = db.prepare(`
+        SELECT business_date, gross_incl, purchase_count, refund_count
+        FROM pos_sales_days WHERE source = ? AND event_id = ? ORDER BY business_date
+    `).all(SOURCE, eventId);
+
+    const days = rows.map(r => {
+        const purchases = loadDayPurchases(db, r.business_date);
+        const curve = hourlyCurve(purchases, cutoff);
+        return {
+            business_date: r.business_date,
+            gross_incl: r.gross_incl,
+            purchase_count: r.purchase_count,
+            refund_count: r.refund_count,
+            hours: curve.hours,
+            peak: curve.peak,
+            total_orders: curve.total_orders,
+            top_items: topItems(purchases, 5),
+        };
+    });
+
+    res.json({
+        event_id: eventId,
+        cutoff,
+        days,
+        // Travleste time på tværs af dagene — tallet man bemander efter.
+        busiest: days.reduce((best, d) => (d.peak && (!best || d.peak.orders > best.orders)
+            ? { ...d.peak, business_date: d.business_date } : best), null),
+    });
 }));
 
 /* ── GET /api/pos/payouts ──────────────────────────────────────────────── */

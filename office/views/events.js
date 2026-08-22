@@ -271,7 +271,8 @@ async function _evRenderDetail(id) {
 
                 ${_evPlanBlock(ev, days, categories, forecast)}
 
-                <div class="ev-actions">
+                <div id="ev-curve"></div>
+            <div class="ev-actions">
                     <button class="ev-btn ev-btn-primary" data-act="gen" data-role="prep">+ Generér prep-bon</button>
                     <button class="ev-btn" data-act="gen" data-role="topup">+ Top-up</button>
                     <button class="ev-btn" data-act="gen" data-role="sales">+ Salgsbon</button>
@@ -332,6 +333,8 @@ async function _evRenderDetail(id) {
             ?.addEventListener('click', () => _evOpenFindPayment(ev));
         _evBindInfoNotes(ev);
         _evBindAttachments(ev);
+        // Kurven hentes bagefter og må aldrig kunne vælte siden — derfor uden await.
+        _evRenderCurve(ev.id);
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
         _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
@@ -448,6 +451,63 @@ function _evPlanBlock(ev, days, categories, forecast) {
 
 // Menu-panelets skelet. Rækkerne hentes async (_evLoadMenu) fordi menuen har
 // sit eget endpoint — overview-kaldet bærer den ikke.
+/**
+ * Salg pr. time — datagrundlaget for bemanding.
+ *
+ * `CLAUDE_EVENT.md` §15.3 pkt. 2 parkerede festival-kapacitet netop fordi
+ * ordre-fordelingen pr. time kun kan komme fra eget POS. Derfor er ANTAL
+ * ORDRER søjlernes højde; kronerne står som tekst.
+ *
+ * Hentes efter at detaljen er tegnet, og fejler lydløst: en manglende kurve må
+ * ikke kunne vælte eventsiden.
+ */
+async function _evRenderCurve(eventId) {
+    const host = document.getElementById('ev-curve');
+    if (!host) return;
+    let data;
+    try { data = await fetchPosSalesCurve(eventId); }
+    catch { host.innerHTML = ''; return; }
+
+    const dage = (data.days || []).filter(d => d.hours.length);
+    if (!dage.length) { host.innerHTML = ''; return; }
+
+    const kr = n => Math.round(Number(n) || 0).toLocaleString('da-DK') + ' kr';
+    // Fælles skala på tværs af dagene — ellers ville en stille dag se lige så
+    // travl ud som festivalens spidsbelastning.
+    const maxOrders = Math.max(...dage.flatMap(d => d.hours.map(h => h.orders)), 1);
+
+    const dagBlok = d => `
+        <div class="ev-curve-day">
+            <div class="ev-curve-head">
+                <strong>${_evEsc(d.business_date)}</strong>
+                <span>${d.total_orders} ordrer · ${kr(d.gross_incl)}${d.refund_count ? ` · ${d.refund_count} retur` : ''}</span>
+                ${d.peak ? `<span class="ev-curve-peak">travlest ${_evEsc(d.peak.label)} · ${d.peak.orders} ordrer</span>` : ''}
+            </div>
+            <div class="ev-curve-bars">
+                ${d.hours.map(h => `
+                    <div class="ev-curve-bar" title="${_evEsc(h.label)} · ${h.orders} ordrer · ${kr(h.gross_incl)}">
+                        <div class="ev-curve-fill${d.peak && h.hour === d.peak.hour ? ' is-peak' : ''}"
+                             style="height:${Math.max(2, Math.round(h.orders / maxOrders * 100))}%"></div>
+                        <span class="ev-curve-h">${_evEsc(h.label.slice(0, 2))}</span>
+                    </div>`).join('')}
+            </div>
+            ${d.top_items.length ? `<div class="ev-curve-top">${d.top_items
+                .map(i => `${i.quantity}× ${_evEsc(i.name)}`).join(' · ')}</div>` : ''}
+        </div>`;
+
+    host.innerHTML = `
+        <div class="ev-card ev-curve">
+            <div class="ev-card-head">
+                <h3>📈 Salg pr. time</h3>
+                ${data.busiest ? `<span class="ev-curve-busiest">Travleste time: ${_evEsc(data.busiest.label)}
+                    den ${_evEsc(data.busiest.business_date)} — ${data.busiest.orders} ordrer</span>` : ''}
+            </div>
+            <p class="ev-curve-hint">Søjlernes højde er <strong>antal ordrer</strong> — det er dét man bemander efter.
+                Døgnet starter kl. ${_evEsc(data.cutoff)}, så en aften der trækker over midnat læses forfra til venstre.</p>
+            ${dage.map(dagBlok).join('')}
+        </div>`;
+}
+
 function _evMenuPanel() {
     return `
     <div class="ev-menu" id="ev-menu-panel">

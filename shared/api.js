@@ -2424,3 +2424,4 @@ async function matchPosPayout(uuid, transactionId) {
     return apiFetch('/pos/payouts/' + encodeURIComponent(uuid) + '/match',
         { method: 'POST', body: JSON.stringify({ transaction_id: transactionId }) });
 }
+async function fetchPosSalesCurve(eventId) { return apiFetch('/pos/events/' + encodeURIComponent(eventId) + '/sales-curve'); }

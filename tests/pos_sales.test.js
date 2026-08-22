@@ -13,7 +13,7 @@ const path = require('node:path');
 
 const {
     businessDate, normalizeName, tokenKey, buildRecipeIndex, matchRecipeByName,
-    aggregateDay, resolveEventForDay,
+    aggregateDay, resolveEventForDay, localHour, hourlyCurve, topItems,
 } = require('../services/posSales');
 const { normalizePurchase } = require('../services/zettleAdapter');
 
@@ -276,4 +276,99 @@ test('event-kobling: to events der ikke kan skilles ad → ambiguous, aldrig et 
         [{ id: 1, name: 'A', pos_store_ref: 'a' }, { id: 2, name: 'B', pos_store_ref: 'b' }],
         ['a', 'b']);
     assert.equal(r2.status, 'ambiguous');
+});
+
+/* ══════════════════════════════════════════════════════════
+   TIMEFORDELING (§11) — datagrundlaget for bemanding
+   ══════════════════════════════════════════════════════════ */
+
+const p = (t, a, opts = {}) => ({ occurred_at: t, amount_incl: a, is_refund: !!opts.refund, lines: opts.lines || [] });
+
+test('timen aflæses i København, ikke i UTC', () => {
+    // 08:30 UTC er 10:30 i dansk sommertid. Med UTC ville hele kurven ligge
+    // to timer forskudt, og bemandingen ville være regnet på det forkerte tidsrum.
+    assert.equal(localHour('2026-08-14T08:30:00.000+0000'), 10);
+    assert.equal(localHour('2026-08-14T22:30:00.000+0000'), 0, 'midnat lokalt');
+    assert.equal(localHour('2026-01-14T08:30:00.000+0000'), 9, 'vintertid er én time');
+    assert.equal(localHour('ikke en dato'), null);
+});
+
+test('timerne ordnes efter forretningsdagen — natten lægger sig SIDST', () => {
+    // Uden dette ville en aften der trækker over midnat lægge sig som en pukkel
+    // i venstre kant og se ud som om der var run på om morgenen.
+    const c = hourlyCurve([
+        p('2026-08-16T00:30:00Z', 75),    // 02:30 lokalt — efter midnat
+        p('2026-08-15T08:30:00Z', 100),   // 10:30
+        p('2026-08-15T20:00:00Z', 200),   // 22:00
+    ], '04:00');
+    assert.deepEqual(c.hours.map(h => h.label), ['10:00', '22:00', '02:00']);
+});
+
+test('en anden skæring flytter rækkefølgen med', () => {
+    const kl = t => hourlyCurve([p('2026-08-15T08:30:00Z', 1), p('2026-08-16T00:30:00Z', 1)], t)
+        .hours.map(h => h.label);
+    assert.deepEqual(kl('04:00'), ['10:00', '02:00'], 'natten hører til dagen før');
+    assert.deepEqual(kl('00:00'), ['02:00', '10:00'], 'rent kalenderdøgn: natten kommer først');
+});
+
+test('den travleste time er ORDRER, ikke kroner — det er dét man bemander efter', () => {
+    const c = hourlyCurve([
+        p('2026-08-14T08:00:00Z', 1000),                                   // 10:00 · 1 stor ordre
+        p('2026-08-14T10:00:00Z', 50), p('2026-08-14T10:10:00Z', 50),
+        p('2026-08-14T10:20:00Z', 50),                                     // 12:00 · 3 små
+    ], '04:00');
+    assert.equal(c.peak.label, '12:00');
+    assert.equal(c.peak.orders, 3);
+    assert.equal(c.total_orders, 4);
+});
+
+test('refunderinger bemandes ikke — men beløbet trækkes fra', () => {
+    const c = hourlyCurve([
+        p('2026-08-14T08:00:00Z', 100),
+        p('2026-08-14T08:30:00Z', -100, { refund: true }),
+    ], '04:00');
+    const t = c.hours.find(h => h.label === '10:00');
+    assert.equal(t.orders, 1, 'kun det ægte salg tæller som en ordre');
+    assert.equal(t.refunds, 1);
+    assert.equal(t.gross_incl, 0, 'men kronerne går i nul, så timerne summer til dagen');
+    assert.equal(c.total_orders, 1);
+});
+
+test('timerne summer til dagens omsætning', () => {
+    const purchases = REAL;
+    const c = hourlyCurve(purchases, '04:00');
+    const sum = Math.round(c.hours.reduce((s, h) => s + h.gross_incl, 0) * 100) / 100;
+    const dag = Math.round(purchases.reduce((s, x) => s + x.amount_incl, 0) * 100) / 100;
+    assert.equal(sum, dag);
+});
+
+test('en dag uden køb giver en tom kurve, ikke en fejl', () => {
+    const c = hourlyCurve([], '04:00');
+    assert.deepEqual(c.hours, []);
+    assert.equal(c.peak, null);
+    assert.equal(c.total_orders, 0);
+});
+
+test('ugyldig skæring afvises frem for at give en tilfældig rækkefølge', () => {
+    assert.throws(() => hourlyCurve([], '4'), /HH:MM/);
+});
+
+test('top-varer virker uden Grocy — den ukoblede vare hører med i toppen', () => {
+    // Luxus hotdog er 20 % af en festivals omsætning og har ingen opskrift.
+    const items = topItems(REAL);
+    assert.ok(items.length > 0);
+    assert.ok(items.some(i => /hotdog/i.test(i.name)), 'ukoblede varer skal med');
+    for (let i = 1; i < items.length; i++) {
+        assert.ok(items[i - 1].gross_incl >= items[i].gross_incl, 'sorteret efter omsætning');
+    }
+});
+
+test('top-varer: en vare solgt og refunderet samme dag falder ud', () => {
+    const line = (name, qty, tot) => ({ name, product_uuid: null, quantity: qty, line_total_incl: tot });
+    const items = topItems([
+        p('2026-08-14T08:00:00Z', 65, { lines: [line('Slider', 1, 65)] }),
+        p('2026-08-14T09:00:00Z', -65, { refund: true, lines: [line('Slider', -1, -65)] }),
+        p('2026-08-14T10:00:00Z', 99, { lines: [line('Fisken', 1, 99)] }),
+    ]);
+    assert.deepEqual(items.map(i => i.name), ['Fisken']);
 });
