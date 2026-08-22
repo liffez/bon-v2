@@ -184,15 +184,66 @@ router.get('/unmatched', requireAuth(), handle((req, res) => {
             agg.set(key, e);
         }
     }
-    const decided = new Map(db.prepare(
-        'SELECT pos_product_uuid, grocy_recipe_id FROM pos_product_map WHERE source = ?'
-    ).all(SOURCE).map(r => [r.pos_product_uuid, r.grocy_recipe_id]));
+    const decidedRows = db.prepare(`
+        SELECT m.pos_product_uuid, m.grocy_recipe_id, m.name_seen, m.decided_at, u.name AS decided_by
+        FROM pos_product_map m LEFT JOIN users u ON u.id = m.decided_by_user_id
+        WHERE m.source = ? ORDER BY m.decided_at DESC
+    `).all(SOURCE);
+    const decided = new Map(decidedRows.map(r => [r.pos_product_uuid, r]));
 
+    // De afklarede returneres med — en beslutning må ikke være en envejsdør.
+    // "Findes ikke i Grocy" i dag kan sagtens blive til en opskrift i morgen,
+    // og så skal varen kunne findes igen uden at grave i databasen.
     res.json({
         products: [...agg.values()]
             .filter(p => !(p.product_uuid && decided.has(p.product_uuid)))
             .sort((a, b) => b.amount_incl - a.amount_incl),
+        decided: decidedRows.map(r => {
+            const seen = r.pos_product_uuid ? agg.get(r.pos_product_uuid) : null;
+            return {
+                pos_product_uuid: r.pos_product_uuid,
+                name: r.name_seen || seen?.name || '(ukendt vare)',
+                grocy_recipe_id: r.grocy_recipe_id,
+                decided_at: r.decided_at,
+                decided_by: r.decided_by,
+                quantity: seen?.quantity ?? null,
+                amount_incl: seen?.amount_incl ?? null,
+            };
+        }),
     });
+}));
+
+/* ── DELETE /api/pos/products/map/:uuid ────────────────────────────────── */
+// Fortryd beslutningen helt: varen dukker op som uafklaret igen.
+// Findes fordi "findes ikke i Grocy" ellers ville være permanent — og en vare
+// vi ikke laver i dag, kan sagtens komme på menuen senere.
+router.delete('/products/map/:uuid', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const uuid = String(req.params.uuid || '').trim();
+    const row = db.prepare('SELECT id, name_seen FROM pos_product_map WHERE source = ? AND pos_product_uuid = ?')
+        .get(SOURCE, uuid);
+    if (!row) return res.status(404).json({ error: 'Varen er ikke afklaret' });
+
+    db.prepare('DELETE FROM pos_product_map WHERE source = ? AND pos_product_uuid = ?').run(SOURCE, uuid);
+    logChange({
+        entityType: 'pos_product', entityId: row.id, action: 'update', fieldName: 'grocy_recipe_id',
+        oldValue: 'afklaret', newValue: '(uafklaret igen)',
+        notes: `POS-vare ${row.name_seen || uuid}`, userId: req.session?.userId ?? null,
+    });
+
+    // Dagene bygges om, så linjerne mister koblingen med det samme.
+    const recipes = await recipesOrNull();
+    const rebuilt = [];
+    if (recipes) {
+        for (const d of db.prepare(`
+            SELECT DISTINCT business_date FROM pos_purchases
+            WHERE source = ? AND raw_json LIKE ? ORDER BY business_date DESC LIMIT 60
+        `).all(SOURCE, `%${uuid}%`)) {
+            try { rebuildDay(db, d.business_date, { recipes, userId: req.session?.userId ?? null }); rebuilt.push(d.business_date); }
+            catch (err) { console.error('[pos] genopbygning af', d.business_date, 'fejlede:', err.message); }
+        }
+    }
+    res.json({ ok: true, pos_product_uuid: uuid, rebuilt_days: rebuilt });
 }));
 
 /* ── POST /api/pos/products/map ────────────────────────────────────────── */

@@ -153,6 +153,39 @@ test('POST /products/map: null betyder "findes ikke i Grocy"', async () => {
         'en afklaret vare skal ikke blive ved med at stå som uafklaret');
 });
 
+test('en afklaret vare kan findes igen — beslutningen er ikke en envejsdør', async () => {
+    // "Findes ikke i Grocy" i dag kan blive til en opskrift i morgen. Uden
+    // dette ville varen forsvinde fra listen og kun kunne rettes med SQL.
+    const un = (await api('GET', '/api/pos/unmatched')).body;
+    assert.ok(un.decided.length, 'de afklarede skal komme med i svaret');
+    const d = un.decided.find(x => x.grocy_recipe_id === null);
+    assert.ok(d, 'også dem der er markeret "findes ikke i Grocy"');
+    assert.ok(d.name && d.name !== '(ukendt vare)', 'med et navn man kan genkende');
+});
+
+test('DELETE /products/map/:uuid gør varen uafklaret igen og bygger dagene om', async () => {
+    const før = (await api('GET', '/api/pos/unmatched')).body;
+    const d = før.decided.find(x => x.grocy_recipe_id !== null);
+    assert.ok(d, 'en vare koblet til en opskrift');
+
+    const { status, body } = await api('DELETE', '/api/pos/products/map/' + encodeURIComponent(d.pos_product_uuid));
+    assert.equal(status, 200);
+    assert.ok(body.rebuilt_days.length, 'linjerne skal miste koblingen med det samme');
+
+    const efter = (await api('GET', '/api/pos/unmatched')).body;
+    assert.equal(efter.decided.some(x => x.pos_product_uuid === d.pos_product_uuid), false);
+    assert.ok(efter.products.some(x => x.product_uuid === d.pos_product_uuid), 'og stå som uafklaret igen');
+
+    const day = (await api('GET', '/api/pos/days/2026-08-14')).body;
+    const line = _testDb.prepare('SELECT * FROM bon_lines WHERE bon_id = ?').all(day.bon_id)
+        .find(l => l.product_name === d.name);
+    if (line) assert.equal(line.grocy_recipe_id, null, 'koblingen er væk fra bon-linjen');
+});
+
+test('DELETE på en vare der ikke er afklaret giver 404', async () => {
+    assert.equal((await api('DELETE', '/api/pos/products/map/findes-ikke')).status, 404);
+});
+
 test('POST /products/map validerer input', async () => {
     assert.equal((await api('POST', '/api/pos/products/map', {})).status, 400);
     assert.equal((await api('POST', '/api/pos/products/map',
