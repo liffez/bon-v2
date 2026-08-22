@@ -418,6 +418,23 @@ test('er Grocy nede, gemmes købene — men der bygges ingen halv bon', async ()
 });
 
 /* ══════════════════════════════════════════════════════════
+   POLLING
+   ══════════════════════════════════════════════════════════ */
+
+test('polling starter ikke når integrationen er slukket eller uden nøgler', () => {
+    const db = _testDb;
+    db.prepare("UPDATE settings SET value = '0' WHERE key = 'zettle_enabled'").run();
+    assert.equal(posSync.startPolling(db), null, 'slukket ⇒ ingen timer');
+
+    db.prepare("UPDATE settings SET value = '1' WHERE key = 'zettle_enabled'").run();
+    assert.equal(posSync.startPolling(db), null, 'uden ZETTLE-nøgler i .env ⇒ ingen timer, og det siges i loggen');
+
+    db.prepare("UPDATE settings SET value = '0' WHERE key = 'zettle_poll_minutes'").run();
+    assert.equal(posSync.startPolling(db), null, '0 minutter ⇒ kun manuel synk');
+    posSync.stopPolling();
+});
+
+/* ══════════════════════════════════════════════════════════
    SSE
    ══════════════════════════════════════════════════════════ */
 

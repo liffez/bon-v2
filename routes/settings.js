@@ -236,6 +236,15 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
     if (req.params.key === 'internal_mail_domains' || req.params.key === 'mail_domain') {
         require('../services/internalIdentity').invalidateInternalCache();
     }
+    
+    // POS-synken læser sine indstillinger ved opstart. Uden dette ville et
+    // flueben i Settings først gøre noget efter næste serverstart — og panelet
+    // ville se tændt ud imens. Den slår sig selv fra igen hvis den blev slukket.
+    if (req.params.key && req.params.key.startsWith('zettle_')) {
+        try { require('../services/posSync').startPolling(); }
+        catch (err) { console.error('[pos-sync] kunne ikke genstarte polling:', err.message); }
+    }
+
     res.json({ key: req.params.key, value });
 }));
 

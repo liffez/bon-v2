@@ -4285,10 +4285,9 @@ async function savePosSettings() {
   await saveSetting('zettle_business_day_cutoff', document.getElementById('pos-cutoff').value || '04:00');
   await saveSetting('zettle_poll_minutes', String(parseInt(document.getElementById('pos-poll').value, 10) || 0));
   await saveSetting('zettle_resync_days', String(parseInt(document.getElementById('pos-resync').value, 10) || 0));
-  // Pollingen læser indstillingerne ved opstart — en ændret hentefrekvens
-  // slår derfor først igennem ved næste serverstart. Sig det frem for at lade
-  // brugeren tro at der sker noget nu.
-  toast('Gemt. Ændret hentefrekvens gælder fra næste serverstart.');
+  // Serveren genstarter selv pollingen når en zettle_*-indstilling gemmes,
+  // så fluebenet gør noget med det samme.
+  toast('Gemt');
   loadZettleSection();
 }
 
