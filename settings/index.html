@@ -351,6 +351,7 @@
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
     <button class="st-nav-item st-admin-only" data-section="whiteboard">Whiteboard</button>
     <button class="st-nav-item st-admin-only" data-section="zettle">Zettle (POS)</button>
+    <button class="st-nav-item st-admin-only" data-section="event-order">Event-ordre</button>
 
     <div class="st-nav-label st-group">System &amp; vedligehold</div>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
@@ -704,6 +705,44 @@
 
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Seneste dage</h3>
       <div id="pos-days"></div>
+    </div>
+
+    <!-- ════ EVENT-ORDRE ════ -->
+    <div class="st-section st-admin-only" id="sec-event-order">
+      <h2>Event-ordre (forudbestilling)</h2>
+
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:680px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        Kunder forudbestiller og betaler på event-ordre-siden. Hver gennemført ordre bliver til
+        <strong style="color:var(--color-text)">tre bons</strong> på eventet her: prep (hvad køkkenet skal lave),
+        salg (det kunden betalte) og gebyr (betalingsudbyderens andel).<br>
+        <strong style="color:var(--color-text)">Hvilket event det gælder, sættes på selve eventet</strong> —
+        fluebenet "Der tages imod forudbestillinger". Her står kun det tekniske.
+      </div>
+
+      <div id="eo-status" style="margin-bottom:16px"></div>
+
+      <div class="st-card">
+        <h3 style="margin-top:0">Forbindelse</h3>
+        <div id="eo-fields"></div>
+        <p style="font-size:11px;color:var(--color-text-dim);margin:10px 0 0;max-width:660px;line-height:1.6">
+          Hemmeligheden er den eneste dør ind på bro-stierne (<code style="font-size:10px">/webhook/event-*</code>),
+          som ligger uden for login-gaten fordi et maskine-kald ikke har en session. Den skal have
+          <strong style="color:var(--color-text)">samme værdi</strong> i event-ordre-appens
+          <code style="font-size:10px">BON_V2_SECRET</code>. Er feltet tomt, er stierne ubeskyttede.
+        </p>
+      </div>
+
+      <div class="st-card" style="margin-top:14px">
+        <h3 style="margin-top:0">Betalingsgebyr</h3>
+        <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 10px;max-width:660px;line-height:1.6">
+          Betalingsudbyderens andel af forudbestillingerne, bogført som en udgiftsbon pr. dag.
+          Det er et <strong style="color:var(--color-text)">skøn</strong> — den præcise sats kendes først på
+          udbyderens afregning. Sat til 0 bogføres der intet gebyr.<br>
+          Dette er <em>ikke</em> det samme som Zettles kortgebyr, som måles præcist og hører til kassesalget.
+          Et event kan have begge.
+        </p>
+        <div id="eo-fee"></div>
+      </div>
     </div>
 
     <!-- ════ FORMBUILDER ════ -->
@@ -1729,6 +1768,7 @@ async function init() {
       // Whiteboard-kobling (varemodtagelse → FVST-log)
       if (sec === 'whiteboard') loadWhiteboardSection();
       if (sec === 'zettle') loadZettleSection();
+      if (sec === 'event-order') loadEventOrderSection();
     });
   });
 
@@ -2846,9 +2886,6 @@ function loadSystemSection() {
     { key: 'session_duration_office',    label: 'Session kontor (dage)',         type: 'number' },
     { key: 'session_duration_kitchen',   label: 'Session k\u00f8kken (dage)',    type: 'number' },
     { key: 'web_order_notification_email', label: 'Notif. ved web-bestilling',   type: 'email', placeholder: 'fx leif@ristetrug.dk (tom = deaktiveret)', width: 280 },
-    { key: 'event_order_admin_url',      label: 'Event-ordre admin-URL',        type: 'text',  placeholder: 'fx https://event.ristetrug.dk/admin (tom = skjul knap)', width: 320 },
-    { key: 'event_bridge_secret',        label: 'Event-bro secret',             type: 'text',  placeholder: 'delt hemmelighed med event-order-3 (tom = ubeskyttet)', width: 320 },
-    { key: 'event_order_base_url',       label: 'Event-ordre base-URL',         type: 'text',  placeholder: 'fx https://event.ristetrug.dk (til "Opdater menu"-knap)', width: 320 },
   ];
 
   var container = document.getElementById('system-fields');
@@ -4226,6 +4263,103 @@ function bsJumpToMail() {
     document.querySelector('[data-section="mail"]')?.classList.add('active');
     document.querySelectorAll('.st-section').forEach(s => s.classList.remove('active'));
     document.getElementById('sec-mail')?.classList.add('active');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   EVENT-ORDRE (forudbestilling)
+   Samlet ét sted. Før lå de tre felter som løse rækker i System mellem
+   firmanavn og session-varighed, og gebyrsatsen kunne slet ikke redigeres.
+   ══════════════════════════════════════════════════════════════ */
+
+var EO_FIELDS = [
+  { key: 'event_order_base_url',  label: 'Event-ordre URL',
+    placeholder: 'fx https://event.ristetrug.dk',
+    hint: 'Bruges af "Opdater i event-ordre"-knappen på eventet.' },
+  { key: 'event_order_admin_url', label: 'Admin-URL',
+    placeholder: 'fx https://event.ristetrug.dk/admin',
+    hint: 'Tom = knappen "Event-ordre-admin" vises ikke.' },
+  { key: 'event_bridge_secret',   label: 'Delt hemmelighed',
+    placeholder: 'samme værdi som BON_V2_SECRET i event-ordre-appen',
+    hint: 'Tom = bro-stierne er ubeskyttede.' },
+];
+
+function eoRow(f, value) {
+  return '<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;flex-wrap:wrap">'
+    + '<label style="width:190px;font-size:14px;font-weight:500;padding-top:6px">' + escapeHtml(f.label) + '</label>'
+    + '<div style="flex:1;min-width:300px">'
+      + '<input class="st-input" id="eo-' + f.key + '" type="text" style="width:100%;max-width:420px" '
+      + 'placeholder="' + escapeHtml(f.placeholder) + '" value="' + escapeHtml(value || '') + '">'
+      + '<div style="font-size:11px;color:var(--color-text-dim);margin-top:3px">' + escapeHtml(f.hint) + '</div>'
+    + '</div></div>';
+}
+
+async function loadEventOrderSection() {
+  var statusEl = document.getElementById('eo-status');
+  statusEl.innerHTML = '<span style="font-size:12px;color:var(--color-text-dim)">Henter status…</span>';
+
+  // fetchSettings() giver en liste af {key,value} — siden har allerede
+  // allSettings, men den kan være stale hvis noget er gemt et andet sted.
+  var settings = {};
+  try {
+    (await fetchSettings()).forEach(function (r) { settings[r.key] = r.value; });
+  } catch (e) {
+    statusEl.innerHTML = '<div style="font-size:13px;color:#a33227">' + escapeHtml(e.message) + '</div>';
+    return;
+  }
+
+  document.getElementById('eo-fields').innerHTML =
+    EO_FIELDS.map(function (f) { return eoRow(f, settings[f.key]); }).join('')
+    + '<button class="st-btn st-btn-primary" onclick="saveEventOrderSettings()">Gem</button>';
+
+  var pct = settings.event_bridge_fee_pct == null ? '3' : settings.event_bridge_fee_pct;
+  document.getElementById('eo-fee').innerHTML =
+    '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
+    + '<label style="width:190px;font-size:14px;font-weight:500">Gebyrsats (%)</label>'
+    + '<input class="st-input" id="eo-fee-pct" type="number" min="0" max="100" step="0.1" style="width:110px" value="'
+    + escapeHtml(String(pct)) + '">'
+    + '<button class="st-btn st-btn-primary" onclick="saveEventOrderFee()">Gem</button></div>';
+
+  // Hvilket event peger broen på lige nu? Det er dét man skal kunne se her —
+  // ellers opdager man først at fluebenet mangler når ordrerne ikke dukker op.
+  var st;
+  try { st = await apiFetch('/events/order-status'); }
+  catch (e) {
+    statusEl.innerHTML = '<div style="font-size:13px;color:#a33227">Kunne ikke hente status: ' + escapeHtml(e.message) + '</div>';
+    return;
+  }
+
+  var pill, detalje;
+  if (st.active) {
+    pill = posPill('#eaf6ec', '#2c6b39', '✓ ' + st.active.name);
+    detalje = 'Forudbestillinger lander på dette event · ' + escapeHtml(st.active.start_date)
+            + (st.active.end_date && st.active.end_date !== st.active.start_date ? ' – ' + escapeHtml(st.active.end_date) : '');
+  } else if (st.reason === 'ambiguous') {
+    pill = posPill('#fbeae7', '#a33227', '⚠ Flere events');
+    detalje = 'Broen pusher ikke så længe der er flere: '
+            + st.candidates.map(function (c) { return escapeHtml(c.name); }).join(', ') + '. ' + escapeHtml(st.hint || '');
+  } else {
+    pill = posPill('#fdf3e2', '#8a6412', '○ Intet aktivt event');
+    detalje = escapeHtml(st.hint || '');
+  }
+  statusEl.innerHTML = '<div>' + pill + '</div>'
+    + '<div style="font-size:11px;color:var(--color-text-dim);margin-top:8px;max-width:660px;line-height:1.6">' + detalje + '</div>';
+}
+
+async function saveEventOrderSettings() {
+  for (var i = 0; i < EO_FIELDS.length; i++) {
+    var f = EO_FIELDS[i];
+    await saveSetting(f.key, document.getElementById('eo-' + f.key).value.trim());
+  }
+  toast('Gemt');
+  loadEventOrderSection();
+}
+
+async function saveEventOrderFee() {
+  var v = document.getElementById('eo-fee-pct').value.trim();
+  var n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return toast('Satsen skal være mellem 0 og 100', 'error');
+  await saveSetting('event_bridge_fee_pct', String(n));
+  toast('Gemt — gælder fra næste forudbestilling');
 }
 
 /* ══════════════════════════════════════════════════════════════

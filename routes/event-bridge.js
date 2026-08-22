@@ -21,7 +21,7 @@ const {
 } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { resolveMenuItemLines } = require('../services/menuItemsToLines');
-const { eventContactFields } = require('./events');
+const { eventContactFields, resolveActiveOrderEvent } = require('./events');
 const grocyAdapter = require('../services/grocyAdapter');
 
 // ─── Secret (optionel — som web-orders) ────────────────────────────────────
@@ -503,28 +503,20 @@ router.post('/event-prep', async (req, res) => {
 // forkerte event — og det ville se helt rigtigt ud.
 router.get('/event-active', (req, res) => {
     if (!checkBridgeSecret(req, res)) return;
-    const db = getDb();
-    const today = todayISO();
-    const rows = db.prepare(`
-        SELECT id, name, start_date, end_date, status
-        FROM events
-        WHERE event_order_enabled = 1
-          AND status != 'cancelled'
-          AND COALESCE(end_date, start_date) >= ?
-        ORDER BY start_date, id
-    `).all(today);
-
-    if (rows.length === 1) {
-        const e = rows[0];
-        return res.json({ event_id: e.id, name: e.name, start_date: e.start_date, end_date: e.end_date });
+    // Reglen ejes af routes/events.js og deles med Settings-panelet, så de to
+    // ikke kan sige forskellige ting om hvilket event der er aktivt.
+    const r = resolveActiveOrderEvent(getDb(), todayISO());
+    if (r.event) {
+        return res.json({
+            event_id: r.event.id, name: r.event.name,
+            start_date: r.event.start_date, end_date: r.event.end_date,
+        });
     }
     return res.json({
         event_id: null,
-        reason: rows.length === 0 ? 'none' : 'ambiguous',
-        candidates: rows.map(e => ({ id: e.id, name: e.name, start_date: e.start_date, end_date: e.end_date })),
-        hint: rows.length === 0
-            ? 'Sæt fluebenet "Der tages imod forudbestillinger" på eventet i Bon v2.'
-            : 'Flere events har forudbestilling slået til på samme tid — slå det fra på alle undtagen ét.',
+        reason: r.reason,
+        candidates: r.candidates.map(e => ({ id: e.id, name: e.name, start_date: e.start_date, end_date: e.end_date })),
+        hint: r.hint,
     });
 });
 
