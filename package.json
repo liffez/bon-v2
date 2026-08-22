@@ -80,6 +80,7 @@
     "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js",
     "test:produktion": "node scripts/test-production-unit.js && node scripts/test-production-yield.js && node scripts/test-auto-batch.js",
     "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js",
+    "audit:udbytte": "node --env-file=.env --experimental-sqlite scripts/audit-recipe-yield.js",
     "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js"
   },
   "dependencies": {
