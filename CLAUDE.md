@@ -5020,9 +5020,18 @@ står, andet klik → den lukker; uden markering lukker første klik. Modal-dele
 sendt som events gennem de ægte lyttere, fordi browser-panelet var frosset (viewport
 0×0) da den blev bygget.
 
-> ⚠️ **Køkken-kalenderen har TO `BonDrawer`-instanser i DOM'en.** `querySelector`
-> rammer den forkerte — test mod `_drawerInstance.el` / `.overlayEl`. Fundet under
-> verifikationen; ikke undersøgt nærmere.
+> ⚠️ **Test mod `_drawerInstance.el` / `.overlayEl`, ikke `querySelector`.**
+> Under verifikationen fandt jeg to `.bon-drawer` i DOM'en på køkken-kalenderen
+> og troede det var en fejl i appen. Det var testkoden: `shared/bon_kort.js`'
+> `openBonDeliveryFromCard` falder tilbage til `new BonDrawer()` når
+> `window._bonInfoEditHandler` mangler, og min attrap gjorde det samme. En frisk
+> indlæsning har præcis én. Kalenderen wirer sin drawer gennem `initCalendar`s
+> `onEdit`/`onBonClick` og bruger slet ikke `_bonInfoEditHandler`.
+>
+> Fallbacken i `bon_kort.js` er **uden for rækkevidde i dag** — bon-kort renderes
+> kun af `kitchen/today.js` og `kitchen/later.js`, og begge sætter handleren.
+> Skulle en ny side rendere bon-kort uden at sætte den, ville hvert klik på
+> leveringsindikatoren lave en ny drawer.
 
 ## Næste opgave
 
