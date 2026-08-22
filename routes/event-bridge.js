@@ -490,6 +490,44 @@ router.post('/event-prep', async (req, res) => {
     }
 });
 
+// ─── GET /webhook/event-active ─────────────────────────────────────────────
+// "Hvilket event tages der imod forudbestillinger til lige nu?"
+//
+// Findes fordi koblingen før lå i event-order-3's egen konfigurationsfil
+// (`bonV2.eventId`). Et nyt event krævede: opret i Bon → kopiér id → redigér
+// fil på en anden server → deploy. Nu erklærer eventet det selv med et flueben,
+// og broen kan spørge.
+//
+// Vi gætter aldrig: er der ikke præcis ét, siger vi hvad vi fandt i stedet for
+// at vælge. Et forkert valg ville lægge kundernes forudbestillinger på det
+// forkerte event — og det ville se helt rigtigt ud.
+router.get('/event-active', (req, res) => {
+    if (!checkBridgeSecret(req, res)) return;
+    const db = getDb();
+    const today = todayISO();
+    const rows = db.prepare(`
+        SELECT id, name, start_date, end_date, status
+        FROM events
+        WHERE event_order_enabled = 1
+          AND status != 'cancelled'
+          AND COALESCE(end_date, start_date) >= ?
+        ORDER BY start_date, id
+    `).all(today);
+
+    if (rows.length === 1) {
+        const e = rows[0];
+        return res.json({ event_id: e.id, name: e.name, start_date: e.start_date, end_date: e.end_date });
+    }
+    return res.json({
+        event_id: null,
+        reason: rows.length === 0 ? 'none' : 'ambiguous',
+        candidates: rows.map(e => ({ id: e.id, name: e.name, start_date: e.start_date, end_date: e.end_date })),
+        hint: rows.length === 0
+            ? 'Sæt fluebenet "Der tages imod forudbestillinger" på eventet i Bon v2.'
+            : 'Flere events har forudbestilling slået til på samme tid — slå det fra på alle undtagen ét.',
+    });
+});
+
 // ─── POST /webhook/event-refresh-menu ──────────────────────────────────────
 // Office trykker "Opdater menu i event-ordre" → vi beder event-order-3 hente
 // menuen NU (ellers venter den på sin 10-min-cache). Kræver login (kaldes fra

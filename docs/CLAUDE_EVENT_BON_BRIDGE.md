@@ -80,6 +80,36 @@ tælles aldrig to gange. Alt defaulter til **slukket** indtil deploy-config (§0
    (`BON_V2_DIR=/sti/til/bon-v2 node --experimental-sqlite test-grocy-live.js`) — bekræfter
    at event-order-3 kan hente menuen fra bon-v2 (fetch + secret-gate + menu-overlay) mod ægte Grocy.
 
+### 0.4b Eventet erklærer selv koblingen (22. august 2026)
+
+Før lå koblingen to steder, og ingen af dem på eventet:
+
+- `event_order_admin_url` + `event_order_base_url` er **globale** settings, så
+  knapperne "Event-ordre-admin" og "Opdater i event-ordre" dukkede op på HVERT
+  event — også dem der intet har med forudbestilling at gøre.
+- Hvilket event event-order-siden faktisk hører til, stod i **den anden
+  applikations** konfigurationsfil (`event-config.json` → `bonV2.eventId`). Et nyt
+  event krævede: opret i Bon → kopiér id → redigér fil på en anden server →
+  deploy. Tre af de fire skridt kunne glemmes.
+
+**Migration 155** giver eventet `event_order_enabled` (default 0, som `pos_enabled`).
+Fluebenet sættes i event-modalen, og de to knapper vises kun når det er sat.
+
+**`GET /webhook/event-active`** (secret-gated) svarer på "hvilket event tages der
+imod forudbestillinger til?" ud fra fluebenet: præcis ét aktivt/kommende, ikke
+aflyst event → dets id. Ellers `event_id: null` med `reason` (`none`/`ambiguous`),
+kandidatliste og en anvisning. **Vi gætter aldrig** — et forkert valg ville lægge
+kundernes forudbestillinger på det forkerte event, og det ville se helt rigtigt ud.
+
+**event-order-3** (`bonV2Bridge.js`) opløser nu event-id'et gennem det endpoint
+(`resolveEventId`, 5 min cache). `bonV2.eventId` i config bliver en **valgfri
+override**/nødudgang. Er Bon nede, beholdes sidst kendte id frem for at holde op
+med at pushe. Er der ikke ét aktivt event, pushes der ikke — og hvorfor står i
+loggen.
+
+**Tests:** `tests/event_active.test.js` (9, mutations-testet) ·
+`event-order-3/test-bonV2-bridge.js` 33 → **46** (mutations-testet).
+
 ### 0.4 Link til event-order-3-admin (point 2) — BYGGET
 Setting `event_order_admin_url` (migration 132) → "🔗 Event-ordre-admin"-knap i office
 event-detaljens header (`office/views/events.js`), vises kun når URL'en er sat (kun
