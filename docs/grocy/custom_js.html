@@ -1,0 +1,90 @@
+<!--
+  docs/grocy/custom_js.html
+  ══════════════════════════════════════════════════════════════
+  Grocy-instansens navn i topbaren og i browserfanen.
+
+  HVORFOR
+  De tre instanser (grocy-hq, grocy-test, grocy-trailer) kører samme version
+  og har efter en databasekopi fuldstændig ens indhold. Der er intet i UI'et
+  der siger hvilken man sidder i.
+
+  Det kostede 21.-22.08.2026 både en aftens målinger mod en udfaset instans og
+  en prisrettelse foretaget i produktion i stedet for på test — begge gange
+  fordi skærmen så ens ud.
+
+  TEST og TRAILER skriger; HQ er rolig i husets brune. Meningen er ikke at
+  pynte, men at man opdager det med det samme hvis man står i produktion og
+  troede noget andet.
+
+  INSTALLATION
+  Læg filen som `data/custom_js.html` i hver Grocy-instans. Den samme fil
+  virker alle tre steder — navnet udledes af værtsnavnet.
+
+  Denne udgave gør KUN det. Den tidligere version tilføjede også knapper på
+  lageroversigten og en optællings-funktion; begge dele er siden bygget
+  ordentligt i Bon (kitchen/stock.html), og at have to udgaver af den slags
+  er værre end ingen.
+-->
+
+<style>
+  .rr-instans {
+    display: inline-block;
+    margin: 0 10px;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    vertical-align: middle;
+  }
+  /* Produktion: husets brune, roligt — det er her man normalt hører hjemme. */
+  .rr-instans--prod { color: #8e631f; }
+  /* Alt andet end produktion råber, så en fejltagelse ses med det samme. */
+  .rr-instans--test { background: #b8860b; color: #fff; }
+  .rr-instans--ukendt { background: #6c757d; color: #fff; }
+</style>
+
+<script>
+(function () {
+    'use strict';
+
+    // Værtsnavnet er den eneste kilde der ikke kan følge med en databasekopi.
+    // `Grocy.BaseUrl` ville også virke, men den kan sættes forkert i config —
+    // og en forkert konfiguration er netop det man vil kunne se.
+    var host = window.location.hostname || '';
+    var kort = host.split('.')[0];                 // "grocy-test"
+    var navn = kort.replace(/^grocy-?/i, '');      // "test"
+
+    var erProd = /^(hq|prod|produktion)$/i.test(navn);
+    var visning = navn ? navn.toUpperCase() : 'UKENDT';
+    var klasse = navn ? (erProd ? 'rr-instans--prod' : 'rr-instans--test') : 'rr-instans--ukendt';
+
+    // Fanen først: den virker også når topbaren ikke er nået at blive tegnet,
+    // og det er ofte fanen man skimmer når man har flere åbne.
+    try {
+        document.title = visning + ' · ' + document.title;
+    } catch (e) { /* ligegyldigt hvis den fejler */ }
+
+    function saetMaerke() {
+        var brand = document.querySelector('.navbar-brand');
+        if (!brand || brand.querySelector('.rr-instans')) return true;
+        var el = document.createElement('span');
+        el.className = 'rr-instans ' + klasse;
+        el.textContent = visning;
+        el.title = host;
+        brand.appendChild(el);
+        return true;
+    }
+
+    // Grocy tegner topbaren på forskellige tidspunkter alt efter side.
+    // Vi prøver med det samme, ved DOMContentLoaded, og giver derefter op —
+    // et mærke der aldrig kommer er bedre end en evig poller.
+    if (!saetMaerke()) {
+        document.addEventListener('DOMContentLoaded', saetMaerke);
+        var forsoeg = 0;
+        var timer = setInterval(function () {
+            if (saetMaerke() || ++forsoeg > 20) clearInterval(timer);
+        }, 250);
+    }
+})();
+</script>
