@@ -42,6 +42,20 @@ const { yieldPerBatchStockOf } = require('../services/ingredientResolver');
 
 const VIS_ALLE = process.argv.includes('--alle');
 
+// Grocy-kaldene har ingen timeout i adapteren. Et hængende kald ville få
+// scriptet til at stå helt stille uden en linje output — netop den slags
+// tavse stilstand resten af arbejdet handler om at fjerne.
+const TIMEOUT_MS = Number(process.env.AUDIT_TIMEOUT_MS) || 60000;
+
+function medTimeout(navn, p) {
+    return Promise.race([
+        p,
+        new Promise((_, afvis) => setTimeout(
+            () => afvis(new Error(`${navn}: intet svar fra Grocy inden for ${TIMEOUT_MS / 1000} s`)),
+            TIMEOUT_MS).unref()),
+    ]);
+}
+
 // Et udbytte må gerne ligge en anelse over input — afrundinger i
 // konverteringer alene skal ikke give en alarm.
 const TOLERANCE_PCT = 1;
@@ -68,13 +82,25 @@ async function main() {
     // rapporterer kontrollen en fejl der ikke findes. Set under udviklingen.
     if (grocy.clearCache) grocy.clearCache();
 
-    const [recipes, allPos, products, units, conversions] = await Promise.all([
+    // Sig hvor der læses fra, FØR der læses. Kører nogen scriptet mod den
+    // forkerte Grocy, skal det stå der — ikke opdages bagefter.
+    let hvor = '(ukendt)';
+    try { hvor = require('../services/grocyAdapter').getGrocyConfig?.().url || hvor; } catch (e) {}
+    console.log(DIM(`Database: ${process.env.DB_PATH}`));
+    console.log(DIM(`Grocy:    ${hvor}`));
+    // Egen linje, ikke en halv: Nodes ExperimentalWarning skrives til stderr og
+    // lander oven i en uafsluttet linje, så beskeden forsvandt i terminalen.
+    console.log(DIM('Henter opskrifter, råvarer, produkter og enheder fra Grocy...'));
+
+    const t0 = Date.now();
+    const [recipes, allPos, products, units, conversions] = await medTimeout('Grocy', Promise.all([
         grocy.getRecipesRaw(),
         grocy.getAllRecipesPos(),
         grocy.getProducts(),
         grocy.getQuantityUnits(),
         grocy.getQuantityUnitConversions(),
-    ]);
+    ]));
+    console.log(DIM(`hentet på ${((Date.now() - t0) / 1000).toFixed(1)} s`));
 
     const productMap = new Map(products.map(p => [p.id, p]));
     const unitMap = new Map(units.map(u => [Number(u.id), u]));
