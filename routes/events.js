@@ -18,7 +18,7 @@ const express = require('express');
 const router  = express.Router();
 const {
     handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId,
-    getPrepPackingOverrides, todayISO, nextBonNumber, recalcBonTotalUnits, transaction,
+    getPrepPackingOverrides, todayISO, sqlTime, nextBonNumber, recalcBonTotalUnits, transaction,
     inclToExcl
 } = require('../db/helpers');
 const { getDb }    = require('../db/database');
@@ -267,6 +267,32 @@ async function resolvePackedRaw(bonId, applyOverrides) {
 // Beregn event-beholdning (rest_på_eventet) pr. råvare:
 //   rest = (prep + top-ups, m/overrides)  −  solgt (BOM-eksploderet)
 // Alt i stock-units. Returnerer { items: [{product_id, name, unit, prepped, sold, suggested_rest}] }.
+// ─── ALLEREDE BOGFØRT RETUR (#536) ─────────────────────────────────────────
+// Summen af hvad der er lagt tilbage på HQ pr. produkt. Hver række i
+// event_returns er en hændelse, så summen er tilstanden.
+function getReturnedByProduct(eventId) {
+    const rows = getDb().prepare(`
+        SELECT product_id, COALESCE(SUM(amount), 0) AS amount
+        FROM event_returns WHERE event_id = ? GROUP BY product_id
+    `).all(eventId);
+    return new Map(rows.map(r => [parseInt(r.product_id), Number(r.amount) || 0]));
+}
+
+// Bogføringerne som de skete — nyeste først. Driver "er returen gjort?" i UI'et
+// og advarslen inden man bogfører igen. Grupperet pr. tidsstempel, fordi én
+// bogføring skriver mange rækker i samme sekund.
+function getReturnBookings(eventId) {
+    return getDb().prepare(`
+        SELECT MAX(r.booked_at) AS booked_at, COUNT(*) AS product_count,
+               MAX(u.name) AS booked_by_name
+        FROM event_returns r
+        LEFT JOIN users u ON r.booked_by_user_id = u.id
+        WHERE r.event_id = ?
+        GROUP BY COALESCE(r.booking_ref, r.booked_at)
+        ORDER BY booked_at DESC, MAX(r.id) DESC
+    `).all(eventId);
+}
+
 async function computeReturnSuggestion(event) {
     const bons = activeBons(getEventBons(event.id));
     const [products, qus] = await Promise.all([grocy.getProducts(), grocy.getQuantityUnits()]);
@@ -289,12 +315,17 @@ async function computeReturnSuggestion(event) {
         }
     }
 
-    const allPids = new Set([...prepped.keys(), ...sold.keys()]);
+    // Allerede lagt tilbage på HQ. Uden dette led foreslår en anden kørsel de
+    // samme mængder igen, og lageret bliver for højt (#536).
+    const returned = getReturnedByProduct(event.id);
+
+    const allPids = new Set([...prepped.keys(), ...sold.keys(), ...returned.keys()]);
     const items = [];
     for (const pid of allPids) {
         const p = prepped.get(pid) || 0;
         const s = sold.get(pid) || 0;
-        const rest = Math.max(0, p - s);
+        const r = returned.get(pid) || 0;
+        const rest = Math.max(0, p - s - r);
         const prod = prodMap.get(pid) || {};
         const unit = quMap.get(parseInt(prod.qu_id_stock))?.name || '';
         items.push({
@@ -303,11 +334,12 @@ async function computeReturnSuggestion(event) {
             unit,
             prepped: Math.round(p * 100) / 100,
             sold: Math.round(s * 100) / 100,
+            returned: Math.round(r * 100) / 100,
             suggested_rest: Math.round(rest * 100) / 100,
         });
     }
     items.sort((a, b) => (a.product_name || '').localeCompare(b.product_name || '', 'da'));
-    return { items };
+    return { items, bookings: getReturnBookings(event.id) };
 }
 
 // ─── TOP-UP-FORSLAG (§6) ───────────────────────────────────────────────────
@@ -747,7 +779,13 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
         ? getDb().prepare(`SELECT COUNT(*) AS n FROM bons WHERE event_id = ? AND customer_id IS NULL`).get(event.id).n
         : 0;
 
+    // Er returen bogført? Uden dette så eventet ud som om intet var sket, og
+    // man kunne bogføre den samme retur igen (#536). Ren SQL — kræver ikke
+    // Grocy, så den svarer også når forslaget ikke kan beregnes.
+    const returnBookings = getReturnBookings(event.id);
+
     res.json({ event, bons, pnl, forecast, days, categories, prepped,
+               return_bookings: returnBookings,
                bons_missing_contact: missingContact,
                event_order_admin_url: eventOrderAdminUrl });
 }));
@@ -1311,6 +1349,7 @@ router.get('/:id/return-suggestion', requireAuth(), handle(async (req, res) => {
 }));
 
 router.post('/:id/return', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
     const event = getEvent(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
     const items = Array.isArray(req.body?.items) ? req.body.items : null;
@@ -1352,6 +1391,21 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
 
     // Læg hver talt rest tilbage på HQ-lageret via Grocy stock-add. Sekventielt
     // så fejlede produkter er kendte; partial success tilladt (fortsæt ved fejl).
+    // Ét tidsstempel for hele bogføringen, så rækkerne kan grupperes som én
+    // handling i historikken. `datetime('now')` pr. række ville splitte en
+    // langsom kørsel op over flere sekunder og se ud som flere bogføringer.
+    const bookedAt = sqlTime(new Date());   // utc-ok: matcher datetime('now')
+    // Entydig nøgle pr. bogføring. Tidsstemplet alene er utæt til gruppering —
+    // det har sekund-opløsning, så to bogføringer i samme sekund ville se ud
+    // som én i historikken.
+    const bookingRef = require('crypto').randomUUID();
+    const insReturn = db.prepare(`
+        INSERT INTO event_returns
+            (event_id, product_id, product_name, amount, unit, added_to_product_id,
+             booked_by_user_id, booked_at, booking_ref)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
     const results = [];
     for (const it of items) {
         const pid = parseInt(it.product_id);
@@ -1363,6 +1417,22 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
             const r = { product_id: pid, amount: amt, success: true };
             if (target !== pid) r.added_to_child = target;
             results.push(r);
+            // Sporet skrives KUN når Grocy faktisk tog imod. Skrev vi det
+            // ubetinget, ville en fejlet linje tælle som returneret og blive
+            // trukket fra næste forslag — så ville varerne aldrig komme hjem.
+            // Samme lære som #359: flaget må ikke sættes på en kodesti der
+            // ikke afhænger af om bivirkningen lykkedes.
+            try {
+                insReturn.run(event.id, pid, it.product_name ?? null, amt, it.unit ?? null,
+                              target !== pid ? target : null, req.session?.userId ?? null,
+                              bookedAt, bookingRef);
+            } catch (logErr) {
+                // Lageret ER flyttet. At vi ikke kunne skrive sporet må ikke
+                // vælte svaret — men det skal kunne ses i driftsloggen.
+                console.error('[events] retur lagt på lager men ikke logget:',
+                              { event: event.id, product: pid, amount: amt, err: logErr.message });
+                results[results.length - 1].untracked = true;
+            }
         } catch (err) {
             results.push({ product_id: pid, amount: amt, success: false, error: err.message });
         }
@@ -1374,7 +1444,7 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
         userId: req.session?.userId,
     });
     broadcast('event_updated', { id: event.id });
-    res.json({ results, returned_count: ok });
+    res.json({ results, returned_count: ok, booked_at: ok > 0 ? bookedAt : null });
 }));
 
 module.exports = router;
@@ -1394,3 +1464,5 @@ module.exports.getMenuItems = getMenuItems;
 module.exports.buildMenuResponse = buildMenuResponse;
 module.exports.menuKey = menuKey;
 module.exports.eventContactFields = eventContactFields;
+module.exports.getReturnedByProduct = getReturnedByProduct;
+module.exports.getReturnBookings = getReturnBookings;

@@ -199,6 +199,9 @@ async function _evRenderDetail(id) {
         _evState.categories = categories;
         _evState.prepped = data.prepped || {};   // "date|category" → allerede prepped
         _evState.event = ev;
+        // Bogførte returer (#536) — så Retur-sektionen kan vise at den er gjort
+        // uden at man først skal trykke "beregn".
+        const returnBookings = data.return_bookings || [];
         const byRole = { prep: [], topup: [], sales: [], expense: [] };
         bons.forEach(b => { (byRole[b.role] || (byRole[b.role] = [])).push(b); });
 
@@ -287,11 +290,13 @@ async function _evRenderDetail(id) {
 
                 <div class="ev-return-section" id="evReturnSection">
                     <div class="ev-return-head">
-                        <div class="ev-role-head">↩️ Retur &amp; afstemning</div>
-                        <button class="ev-btn" data-act="return-calc">Beregn retur-forslag</button>
+                        <div class="ev-role-head">↩️ Retur &amp; afstemning ${_evReturnBadge(returnBookings)}</div>
+                        <button class="ev-btn" data-act="return-calc">${returnBookings.length ? 'Beregn igen' : 'Beregn retur-forslag'}</button>
                     </div>
                     <div class="ev-return-body" id="evReturnBody">
-                        <div class="ev-return-intro">Når eventet er slut: beregn hvad der er tilbage (pakket − solgt), tæl fysisk, og bogfør resten tilbage på HQ-lageret.</div>
+                        ${returnBookings.length
+                            ? _evReturnBookingsHtml(returnBookings)
+                            : '<div class="ev-return-intro">Når eventet er slut: beregn hvad der er tilbage (pakket − solgt), tæl fysisk, og bogfør resten tilbage på HQ-lageret.</div>'}
                     </div>
                 </div>
 
@@ -343,6 +348,42 @@ async function _evRenderDetail(id) {
 
 // ── RETUR (§6) ───────────────────────────────────────────────────────────
 
+// ─── ER RETUREN BOGFØRT? (#536) ────────────────────────────────────────────
+// Kvitteringen var før en flygtig statuslinje der forsvandt ved næste render,
+// så efter en genindlæsning så eventet ud som om intet var sket — og man kunne
+// bogføre den samme retur igen. Nu er tilstanden synlig fra sekundet siden
+// indlæses, uden at man skal trykke "beregn" først.
+
+function _evReturnBadge(bookings) {
+    if (!bookings || bookings.length === 0) return '';
+    const n = bookings.reduce((s, b) => s + (b.product_count || 0), 0);
+    return `<span class="ev-return-badge" title="Returen er lagt på HQ-lageret. Klik &quot;Beregn igen&quot; hvis der er dukket mere op.">✓ bogført · ${n} ${n === 1 ? 'råvare' : 'råvarer'}</span>`;
+}
+
+function _evReturnBookingsHtml(bookings) {
+    const rows = bookings.map(b => `
+        <div class="ev-return-booking">
+            <span class="ev-return-booking-when">${_evFmtDateTime(b.booked_at)}</span>
+            <span class="ev-return-booking-what">${b.product_count} ${b.product_count === 1 ? 'råvare' : 'råvarer'} lagt på HQ-lager</span>
+            ${b.booked_by_name ? `<span class="ev-return-booking-who">${_evEsc(b.booked_by_name)}</span>` : ''}
+        </div>`).join('');
+    return `<div class="ev-return-done">
+            <div class="ev-return-done-head">↩️ Retur bogført</div>
+            ${rows}
+            <div class="ev-return-done-hint">Er der dukket mere op i traileren, kan du beregne og bogføre igen — forslaget trækker det allerede returnerede fra.</div>
+        </div>`;
+}
+
+// Dansk lokal tid. Tidsstemplet er UTC (som resten af databasen, jf. migration
+// 150), så det skal konverteres — ikke vises råt.
+function _evFmtDateTime(sqlTs) {
+    if (!sqlTs) return '';
+    const d = new Date(String(sqlTs).replace(' ', 'T') + 'Z');
+    if (isNaN(d)) return String(sqlTs);
+    return d.toLocaleString('da-DK', { day: '2-digit', month: 'short', year: 'numeric',
+                                       hour: '2-digit', minute: '2-digit' });
+}
+
 async function _evLoadReturnSuggestion(ev) {
     const body = document.getElementById('evReturnBody');
     if (!body) return;
@@ -354,19 +395,26 @@ async function _evLoadReturnSuggestion(ev) {
             body.innerHTML = '<div class="ev-return-intro">Ingen råvarer at returnere — opret prep-bons (og evt. salgsbons) først.</div>';
             return;
         }
+        // Er der bogført før, vises det HER — ikke kun som en advarsel når man
+        // trykker. Man skal kunne se det mens man taster de faktiske tal.
+        const bookings = data.bookings || [];
+        const harTidligere = bookings.length > 0;
+
         body.innerHTML = `
+            ${harTidligere ? _evReturnBookingsHtml(bookings) : ''}
             <div class="ev-return-explain">
-                <strong>Forslag</strong> = pakket (prep + top-up) − solgt. Justér "Faktisk talt" til det I tæller på pladsen (differencen er spild). Klik <em>Bogfør retur</em> for at lægge det tilbage på HQ.
+                <strong>Forslag</strong> = pakket (prep + top-up) − solgt${harTidligere ? ' − allerede returneret' : ''}. Justér "Faktisk talt" til det I tæller på pladsen (differencen er spild). Klik <em>Bogfør retur</em> for at lægge det tilbage på HQ.
             </div>
             <div class="ev-return-tablewrap">
             <table class="ev-return-table">
-                <thead><tr><th>Råvare</th><th>Pakket</th><th>Solgt</th><th>Forslag (rest)</th><th>Faktisk talt</th></tr></thead>
+                <thead><tr><th>Råvare</th><th>Pakket</th><th>Solgt</th>${harTidligere ? '<th>Returneret</th>' : ''}<th>Forslag (rest)</th><th>Faktisk talt</th></tr></thead>
                 <tbody>
                 ${items.map(it => `
                     <tr data-ret-pid="${it.product_id}">
                         <td class="ev-ret-name">${_evEsc(it.product_name)}</td>
                         <td class="ev-num">${_evFmtNum(it.prepped)} <span class="ev-ret-unit">${_evEsc(it.unit)}</span></td>
                         <td class="ev-num">${_evFmtNum(it.sold)}</td>
+                        ${harTidligere ? `<td class="ev-num ev-ret-returned">${it.returned ? _evFmtNum(it.returned) : '—'}</td>` : ''}
                         <td class="ev-num ev-ret-suggest">${_evFmtNum(it.suggested_rest)}</td>
                         <td><input type="number" min="0" step="any" class="ev-ret-input" value="${_evFmtNum(it.suggested_rest)}" data-ret-pid="${it.product_id}"></td>
                     </tr>`).join('')}
@@ -377,20 +425,44 @@ async function _evLoadReturnSuggestion(ev) {
                 <span id="evReturnStatus" class="ev-fc-status"></span>
                 <button class="ev-btn ev-btn-primary" data-act="return-book">↩️ Bogfør retur til HQ</button>
             </div>`;
-        body.querySelector('[data-act="return-book"]')?.addEventListener('click', () => _evBookReturn(ev, body));
+        body.querySelector('[data-act="return-book"]')
+            ?.addEventListener('click', () => _evBookReturn(ev, body, bookings));
     } catch (err) {
         body.innerHTML = `<div class="ev-error">Kunne ikke beregne retur: ${_evEsc(err.message)}</div>`;
     }
 }
 
-async function _evBookReturn(ev, body) {
+async function _evBookReturn(ev, body, previousBookings) {
     const items = [];
     body.querySelectorAll('.ev-ret-input').forEach(inp => {
         const pid = parseInt(inp.dataset.retPid);
         const amt = Number(inp.value);
-        if (pid && amt > 0) items.push({ product_id: pid, amount: amt });
+        const row = inp.closest('tr');
+        if (pid && amt > 0) items.push({
+            product_id: pid,
+            amount: amt,
+            // Navn og enhed gemmes som snapshot i sporet, så historikken kan
+            // læses uden at slå produktet op i Grocy igen.
+            product_name: row?.querySelector('.ev-ret-name')?.textContent?.trim() || null,
+            unit: row?.querySelector('.ev-ret-unit')?.textContent?.trim() || null,
+        });
     });
     if (items.length === 0) { alert('Ingen mængder at returnere.'); return; }
+
+    // Bogfører man igen, lægges mængderne OVENI det der allerede står på HQ.
+    // Det kan være helt rigtigt (der dukkede mere op i traileren), så vi
+    // spærrer ikke — men det skal være et bevidst valg, ikke et gentaget klik.
+    const prev = previousBookings || [];
+    if (prev.length > 0) {
+        const sidst = _evFmtDateTime(prev[0].booked_at);
+        const ok = confirm(
+            `Der er allerede bogført retur på dette event — senest ${sidst}.\n\n` +
+            `Mængderne nedenfor lægges OVENI det der allerede står på HQ-lageret.\n` +
+            `Forslaget har trukket det tidligere returnerede fra, så det passer hvis ` +
+            `du bogfører det der er dukket op siden.\n\n` +
+            `Bogfør ${items.length} ${items.length === 1 ? 'råvare' : 'råvarer'} igen?`);
+        if (!ok) return;
+    }
     const btn = body.querySelector('[data-act="return-book"]');
     const status = document.getElementById('evReturnStatus');
     if (btn) btn.disabled = true;
@@ -398,10 +470,19 @@ async function _evBookReturn(ev, body) {
     try {
         const res = await _evFetch(`/events/${ev.id}/return`, { method: 'POST', body: JSON.stringify({ items }) });
         const failed = (res.results || []).filter(r => !r.success);
+        // Lageret er flyttet, men sporet kunne ikke skrives. Det skal siges højt:
+        // næste forslag vil foreslå de mængder igen, som om de aldrig kom hjem.
+        const untracked = (res.results || []).filter(r => r.untracked);
         if (status) {
-            status.textContent = `✓ ${res.returned_count} råvarer lagt på HQ-lager${failed.length ? ` · ${failed.length} fejl` : ''}`;
-            status.className = 'ev-fc-status ' + (failed.length ? 'err' : 'ok');
+            status.textContent = `✓ ${res.returned_count} råvarer lagt på HQ-lager`
+                + (failed.length ? ` · ${failed.length} fejl` : '')
+                + (untracked.length ? ` · ⚠ ${untracked.length} kunne ikke registreres` : '');
+            status.className = 'ev-fc-status ' + (failed.length || untracked.length ? 'err' : 'ok');
         }
+        // Genindlæs så badgen og bogførings-historikken slår igennem med det
+        // samme. Uden det ville sporet først dukke op ved næste sidebesøg — og
+        // det var netop dét der gjorde returen usynlig (#536).
+        if (res.returned_count > 0) setTimeout(() => _evRender(), 1200);
     } catch (err) {
         if (status) { status.textContent = 'Fejl: ' + err.message; status.className = 'ev-fc-status err'; }
     } finally {

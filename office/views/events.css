@@ -255,6 +255,28 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-return-head .ev-role-head { margin-bottom: 0; }
 .ev-return-intro { color: #888; font-size: 13px; margin-top: 8px; line-height: 1.5; }
 .ev-return-explain { background: #fcf7e8; padding: 10px 12px; border-radius: 4px; font-size: 12px; color: #5a4a2a; margin: 10px 0; line-height: 1.5; }
+
+/* Er returen bogført? (#536) — tilstanden skal kunne ses uden at trykke
+   "beregn", og en gentagen bogføring skal være et bevidst valg. */
+.ev-return-head .ev-role-head { display: flex; align-items: center; gap: 8px; }
+.ev-return-badge {
+    display: inline-block; padding: 2px 9px; border-radius: 10px;
+    background: #d6f0d8; color: #1e6b2c; font-size: 11px; font-weight: 600;
+    white-space: nowrap; cursor: help;
+}
+.ev-return-done {
+    margin-top: 10px; padding: 10px 12px; background: #f2f8f2;
+    border-left: 3px solid #1e6b2c; border-radius: 4px;
+}
+.ev-return-done-head { font-weight: 600; color: #1e6b2c; font-size: 13px; margin-bottom: 6px; }
+.ev-return-booking {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline;
+    font-size: 12px; color: #3a5a3a; padding: 3px 0;
+}
+.ev-return-booking-when { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ev-return-booking-who { color: #6a7a6a; }
+.ev-return-done-hint { margin-top: 8px; font-size: 11px; color: #6a7a6a; line-height: 1.5; }
+.ev-ret-returned { color: #1e6b2c; }
 .ev-return-tablewrap { overflow-x: auto; }
 .ev-return-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ev-return-table th { text-align: right; padding: 6px 8px; color: #888; font-weight: 500; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; }

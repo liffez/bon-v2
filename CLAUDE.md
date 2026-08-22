@@ -5039,6 +5039,57 @@ sendt som events gennem de ægte lyttere, fordi browser-panelet var frosset (vie
 > giver fortsat 1 drawer / 1 overlay og genbruger `_todayDrawer`, hvor den gamle
 > gren gav 4/4.
 
+### Retur til HQ kunne bogføres to gange — uden spor (#536, 23. august 2026)
+
+Kontoret kunne ikke se om returen var lavet. Kvitteringen var en flygtig
+statuslinje der forsvandt ved næste render, så efter en genindlæsning stod
+**Retur & afstemning** med sin intro-tekst præcis som før.
+
+**Men det var ikke kosmetik.** `POST /api/events/:id/return` havde ingen
+beskyttelse mod gentagelse, og `computeReturnSuggestion` regnede
+`rest = preppet − solgt` uden at vide noget om tidligere retur. Et tryk mere
+foreslog derfor de **samme** mængder og lagde dem på HQ-lageret **igen**.
+Lageret blev for højt, og fejlen dukkede først op ved næste optælling som en
+uforklarlig difference — samme fejlklasse som #305 og #319: handlingen påstod
+at være sket, bivirkningen efterlod intet spor, og de to mødtes aldrig.
+`logChange` skrev faktisk en linje, men den blev ikke vist nogen steder.
+
+- **Migration 157**: `event_returns` (event, produkt, mængde, enhed, hvem, hvornår).
+  Hver række er en **hændelse**, ikke en tilstand — derfor ingen UNIQUE på
+  `(event_id, product_id)`: man kan legitimt bogføre ad flere omgange når første
+  kørsel fejlede delvist hos Grocy, eller der dukker mere op i traileren.
+  `added_to_product_id` bærer parent→barn-omdirigeringen (fx "kål" → Spidskål),
+  så sporet peger på det produkt Grocy faktisk rørte.
+- **Forslaget trækker det returnerede fra**: `rest = preppet − solgt − returneret`,
+  klampet ved 0. En anden bogføring foreslår dermed **resten**, ikke det hele.
+- **Sporet skrives KUN når Grocy tog imod.** Skrev vi det ubetinget, ville en
+  fejlet linje tælle som returneret og blive trukket fra næste forslag — så ville
+  varerne aldrig komme hjem. Samme lære som #359. Lykkes lagertrækket men fejler
+  skrivningen, siges det højt (`untracked` i svaret + fejl i driftsloggen) frem for
+  at svaret ser rent ud.
+- **`booking_ref`** (uuid pr. bogføring) grupperer historikken. `booked_at` alene
+  er utæt: tidsstemplet har sekund-opløsning, så to bogføringer i samme sekund
+  ville smelte sammen til én linje. Rækker uden ref falder tilbage på tidsstemplet.
+- **UI**: `/overview` leverer `return_bookings`, så Retur-sektionen viser
+  `✓ bogført · N råvarer` + hvornår og af hvem **ved indlæsning** — uden at man
+  først skal trykke "beregn". Knappen hedder da "Beregn igen", tabellen får en
+  **Returneret**-kolonne, og en gentagen bogføring kræver en bekræftelse der
+  nævner det tidligere tidspunkt. Ingen spærring: en delvist fejlet retur skal
+  kunne køres om.
+
+**Tests**: `npm run test:event-retur` — 40 asserts. Den positive gren kører
+**in-process med stubbet Grocy** mod den ægte route-handler; uden det blev
+"vellykket bogføring skriver sporet" sprunget over hver gang grocytest ikke var
+nåelig, og testen bestod af den forkerte grund. **Mutations-testet:** syv
+kerneregler rulles hver især tilbage og fælder navngivne asserts. Første runde
+afslørede at `rest = preppet − solgt − returneret` **ikke** var dækket — kernen i
+issuet — fordi forslaget aldrig blev beregnet i testen; hullet er lukket med en
+prep-bon + stubbet BOM. Regression grøn: topup 35, event-menu 42, event-contact 26,
+prep-packing 12, event-gate 15, event-cancelled 26, event-polish 27.
+Browser-verificeret ende-til-ende mod grocytest: bogfør → badge + historik →
+genindlæsning bevarer dem → forslaget falder fra 0,05 til 0,03 → gentagelse
+advarer med tidspunktet. Grocytest-lageret rettet tilbage, testdata ryddet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
