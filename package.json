@@ -75,7 +75,8 @@
     "test:economic": "node --experimental-sqlite scripts/test-economic-invoice.js && node scripts/test-fakturering-render.js && node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js",
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js",
     "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js",
-    "test:kostpris": "node scripts/test-recipe-cost.js"
+    "test:kostpris": "node scripts/test-recipe-cost.js",
+    "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
