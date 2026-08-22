@@ -1,16 +1,26 @@
 // scripts/refresh-recipe-costs.js
 // ==========================================
-// Nightly refresh af recipe_cost_cache fra Grocy fulfillment.
+// Nightly refresh af recipe_cost_cache.
+//
+// Kostprisen regnes af `services/recipeCost.js` — IKKE af Grocys
+// `/recipes/fulfillment`. Det felt viste sig upålideligt på fire uafhængige
+// måder (#517): skaleret efter `desired_servings`, forældet, forkert for
+// bundter (#455), og med forældre-produkter prissat til 0.
+//
+// Prisopslagene er dyre: Grocy har ingen bulk-vej for udsolgte varer, så
+// `getProductUnitCosts()` falder tilbage på ét kald pr. produkt uden lager.
+// Derfor findes det natlige job. Knappen "Opdater priser" i viewet regner
+// det samme og tager derfor også tid — men langsom og rigtig slår hurtig og
+// forkert, og det var netop dét valg der gik galt.
 //
 // Køres af system-crontab fx kl 03:00:
 //   0 3 * * * cd /opt/bon-v2 && node --experimental-sqlite scripts/refresh-recipe-costs.js >> logs/recipe-costs.log 2>&1
 //
 // Færdigt før folk møder ind og før v1-sync kl 05.
-// Scriptet:
-//   1. Henter alle recipes fra Grocy (inkl. userfields)
-//   2. Henter /recipes/fulfillment (cost-beregning pr. opskrift)
-//   3. UPSERT'er recipe_cost_cache pr. recipe_id
-//   4. Enkelt fejlende recipe afbryder ikke batch
+// Selve beregningen ligger i `services/recipeCostRefresh.js`, som knappen
+// "Opdater priser" i Opskrifter & priser kalder PRAECIS samme vej. To kopier
+// af den beslutning drev fra hinanden en gang og skrev Grocys tal tilbage i
+// cachen; derfor kun en.
 //
 // Spec: docs/CLAUDE_OPSKRIFTER.md
 // ==========================================
@@ -30,10 +40,7 @@ if (fs.existsSync(envPath)) {
 process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 
 const { openDb } = require('../db/compat');
-const grocyAdapter = require('../services/grocyAdapter');
-const { syncPricesFromGrocy } = require('../services/itemPriceBackfill');
-
-function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
+const { refreshRecipeCosts } = require('../services/recipeCostRefresh');
 
 function logLine(msg) {
     console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -53,56 +60,27 @@ async function main() {
         process.exit(1);
     }
 
-    logLine('Henter recipes + fulfillment fra Grocy...');
-    let rawRecipes, fulfillment;
+    logLine('Henter opskrifter, priser og struktur fra Grocy...');
+    let out;
     try {
-        [rawRecipes, fulfillment] = await Promise.all([
-            grocyAdapter.getRecipesRaw(),
-            grocyAdapter.getRecipeFulfillment(),
-        ]);
+        out = await refreshRecipeCosts(db, { log: logLine });
     } catch (err) {
-        logLine(`FEJL: Grocy ikke tilgængelig — ${err.message}`);
+        logLine(`FEJL: Grocy ikke tilgaengelig - ${err.message}`);
         process.exit(2);
     }
 
-    const costMap = {};
-    for (const f of fulfillment) costMap[f.recipe_id] = f.costs ?? 0;
-
-    const upsert = db.prepare(`
-        INSERT INTO recipe_cost_cache (grocy_recipe_id, cost_price_excl_moms, ingredients_json, co2e, refreshed_at)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(grocy_recipe_id) DO UPDATE SET
-            cost_price_excl_moms = excluded.cost_price_excl_moms,
-            ingredients_json = excluded.ingredients_json,
-            co2e = excluded.co2e,
-            refreshed_at = CURRENT_TIMESTAMP
-    `);
-
-    let refreshed = 0;
-    let errors = 0;
-    for (const recipe of rawRecipes) {
-        try {
-            const uf = recipe.userfields || {};
-            const cost = costMap[recipe.id] ?? (parseFloat(uf.costprice) || 0);
-            const co2e = parseFloat(uf.Co2e) || null;
-            upsert.run(recipe.id, r2(cost), '[]', co2e);
-            refreshed++;
-        } catch (err) {
-            errors++;
-            logLine(`  fejl ved recipe ${recipe.id} (${recipe.name}): ${err.message}`);
-        }
-    }
-
-    // Synk salgspriser Grocy → item_prices (Grocy er master)
-    try {
-        const sync = syncPricesFromGrocy(rawRecipes, { db });
-        logLine(`Pris-sync: ${sync.updated} opdateret, ${sync.deleted} slettet (af ${sync.scanned} recipes)`);
-    } catch (err) {
-        errors++;
-        logLine(`  fejl ved pris-sync: ${err.message}`);
+    const refreshed = out.refreshed;
+    const errors = out.errors;
+    out.errorDetails.forEach(e => logLine(`  fejl: ${e.name || e.recipe_id || 'pris-sync'} - ${e.error}`));
+    if (out.priceSync) {
+        logLine(`Pris-sync: ${out.priceSync.updated} opdateret, ${out.priceSync.deleted} slettet (af ${out.priceSync.scanned} recipes)`);
     }
 
     const duration = Date.now() - t0;
+    const kilder = db.prepare(
+        `SELECT COALESCE(cost_source,'?') k, COUNT(*) n FROM recipe_cost_cache GROUP BY 1 ORDER BY n DESC`
+    ).all().map(r => `${r.k}=${r.n}`).join(' · ');
+    logLine(`Kilder: ${kilder}`);
     logLine(`Færdig: refreshed=${refreshed}, errors=${errors}, duration_ms=${duration}`);
     process.exit(errors > 0 ? 3 : 0);
 }

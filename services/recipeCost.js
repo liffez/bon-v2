@@ -204,4 +204,31 @@ function compute(recipeId, ctx, memo, stack) {
     return result;
 }
 
-module.exports = { computeAll, unitCostFromRow, yieldInStockUnits, unitIdByName };
+
+/**
+ * Pris på en FORÆLDRE-vare, arvet som gennemsnit af de børn der har en pris.
+ *
+ * Grocy ruller børnenes LAGER op på forælderen (derfor `makeEffectiveStock`),
+ * men ikke deres PRIS — forælderen står bare til 0. `kål` har ingen egen pris;
+ * Spidskål og Hvidkål har. Uden denne regel bliver et halvt kilo kål gratis i
+ * Frisk Grønt, som ligger i 26 menuer.
+ *
+ * Reglen bor her, fordi to steder skal være enige om den: bulk-opslaget der
+ * fylder cachen, og drill-down-panelet der viser prisen linje for linje.
+ * Var de uenige, ville linjen stå som "—" mens totalen indeholdt beløbet.
+ *
+ * @param products  hele produktlisten (til at finde børnene)
+ * @param parentId  forælderens id
+ * @param priceOf   (childId) => pris | null
+ * @returns gennemsnit, eller null hvis intet barn har en pris
+ */
+function parentPriceFromChildren(products, parentId, priceOf) {
+    const priser = (products || [])
+        .filter(x => String(x.parent_product_id) === String(parentId))
+        .map(x => priceOf(String(x.id)))
+        .filter(v => Number.isFinite(v) && v > 0);
+    if (!priser.length) return null;
+    return priser.reduce((a, b) => a + b, 0) / priser.length;
+}
+
+module.exports = { computeAll, unitCostFromRow, yieldInStockUnits, unitIdByName, parentPriceFromChildren };
