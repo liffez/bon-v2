@@ -5030,8 +5030,14 @@ sendt som events gennem de ægte lyttere, fordi browser-panelet var frosset (vie
 >
 > Fallbacken i `bon_kort.js` er **uden for rækkevidde i dag** — bon-kort renderes
 > kun af `kitchen/today.js` og `kitchen/later.js`, og begge sætter handleren.
-> Skulle en ny side rendere bon-kort uden at sætte den, ville hvert klik på
-> leveringsindikatoren lave en ny drawer.
+> Den er alligevel gjort robust: `openBonDeliveryFromCard` genbruger nu sidens
+> egen drawer (`window._drawerInstance`) i stedet for at bygge en ny ved hvert
+> klik. `new BonDrawer()` hænger et overlay, et panel og et sæt lyttere på
+> `<body>`, og den nye instans ville ikke være den som sidens URL-synk og
+> "ugemte ændringer"-dialog hænger på — draweren ville altså se rigtig ud og
+> opføre sig forkert. Efterprøvet i browseren med handleren fjernet: tre klik
+> giver fortsat 1 drawer / 1 overlay og genbruger `_todayDrawer`, hvor den gamle
+> gren gav 4/4.
 
 ## Næste opgave
 
