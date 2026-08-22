@@ -389,7 +389,7 @@ function getRecipesRaw() {
  * @returns {Promise<Map<string, number>>}  product_id → kr/stock-enhed
  */
 async function getProductUnitCosts(concurrency = 6) {
-    const { unitCostFromRow } = require('./recipeCost');
+    const { unitCostFromRow, parentPriceFromChildren } = require('./recipeCost');
     const [products, stockRows] = await Promise.all([
         getProducts(),
         grocyFetch('/objects/stock').catch(() => []),
@@ -423,12 +423,11 @@ async function getProductUnitCosts(concurrency = 6) {
     }));
 
     // 3) Forældre arver gennemsnittet af de børn der HAR en pris.
+    //    Samme regel som drill-down-panelet bruger — se recipeCost.js.
     for (const p of products) {
         if (priser.has(String(p.id))) continue;
-        const born = products.filter(x => String(x.parent_product_id) === String(p.id) && priser.has(String(x.id)));
-        if (!born.length) continue;
-        const snit = born.reduce((s, b) => s + priser.get(String(b.id)), 0) / born.length;
-        priser.set(String(p.id), snit);
+        const snit = parentPriceFromChildren(products, p.id, cid => priser.get(cid) ?? null);
+        if (snit != null) priser.set(String(p.id), snit);
     }
 
     return priser;

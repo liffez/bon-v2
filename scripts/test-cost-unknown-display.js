@@ -142,10 +142,24 @@ console.log('\nR · Hvad står der på skærmen?\n');
     ok(pMin.includes('gurkemeje'), 'og navngiver de manglende');
     ok(!pMin.includes('ukendt'), 'men skjuler ikke tallet');
 
+    // Forældre-varen `kål` har ingen egen pris; totalen bruger gennemsnittet af
+    // Spidskål og Hvidkål. Stod linjen som "—" mens totalen indeholdt 9,63 kr,
+    // så det ud som om husets største linje var gratis.
+    const pArvet = comp({ ...basisPanel, name: 'Frisk Grønt', total_cost: 21.02,
+        total_cost_source: 'bon', total_cost_missing: [],
+        ingredients: [
+            { product_id: 28, name: 'Spinat', amount: 100, unit: 'g', cost: 7.80 },
+            { product_id: 199, name: 'kål', amount: 500, unit: 'g', cost: 9.63, cost_inherited: true },
+            { product_id: 33, name: 'Rødkål - Rå', amount: 400, unit: 'g', cost: 3.60 },
+        ] });
+    ok(pArvet.includes('9,63'), 'kål har en pris på linjen, ikke "—"');
+    ok(pArvet.includes('ops-inherited'), 'og linjen selv bærer arve-mærket (ikke bare fodnoten)');
+    ok(/gennemsnit af en forældre-vares/.test(pArvet), 'med en forklaring under tabellen');
+
     const pHel = comp({ ...basisPanel, name: 'Kartoflen - Salat', total_cost: 16.74,
         total_cost_source: 'bon', total_cost_missing: [],
         ingredients: [{ product_id: 1, name: 'Spidskål', amount: 160, unit: 'g', cost: 3.84 }] });
-    ok(pHel.includes('16,74') && !pHel.includes('ukendt') && !pHel.includes('mindst'),
+    ok(pHel.includes('16,74') && !pHel.includes('ukendt') && !pHel.includes('mindst') && !pHel.includes('~'),
        'komplet total står uden forbehold');
 
     const helHtml = rowHtml({ ...basis, name: 'Kartoflen - Salat', cost_price_excl_moms: 16.74,
@@ -154,6 +168,32 @@ console.log('\nR · Hvad står der på skærmen?\n');
         loss_making: false, under_target: false });
     ok(!helHtml.includes('ukendt') && !helHtml.includes('delvis kostpris') && !helHtml.includes('≤'),
        'en komplet række bærer ingen forbehold');
+}
+
+// ─── A · arve-reglen ───────────────────────────────────────────
+console.log('\nA · Forældre-vare uden egen pris\n');
+{
+    const { parentPriceFromChildren } = require('../services/recipeCost');
+    const produkter = [
+        { id: 199, name: 'kål' },
+        { id: 27, name: 'Spidskål', parent_product_id: 199 },
+        { id: 67, name: 'Hvidkål', parent_product_id: 199 },
+        { id: 50, name: 'Enlig far' },
+        { id: 51, name: 'Barn uden pris', parent_product_id: 50 },
+    ];
+    const pris = { '27': 24, '67': 14.5 };
+    const slaaOp = id => pris[id] ?? null;
+
+    ok(parentPriceFromChildren(produkter, 199, slaaOp) === 19.25,
+       'kål arver 19,25 — gennemsnittet af Spidskål 24,00 og Hvidkål 14,50');
+    ok(parentPriceFromChildren(produkter, 50, slaaOp) === null,
+       'ingen børn med pris → null, ikke 0 (0 ville se ud som gratis)');
+    ok(parentPriceFromChildren(produkter, 27, slaaOp) === null,
+       'en vare uden børn arver ikke noget');
+    // Kun børn MED pris tæller — ellers ville et prisløst barn trække snittet ned.
+    const blandet = [...produkter, { id: 68, name: 'Grønkål', parent_product_id: 199 }];
+    ok(parentPriceFromChildren(blandet, 199, slaaOp) === 19.25,
+       'et barn uden pris trækker ikke gennemsnittet ned');
 }
 
 // ─── S · genberegningen ────────────────────────────────────────

@@ -139,6 +139,16 @@ function _opsRender() {
             </div>
 
             <div class="ops-kpi-strip">
+                <div class="ops-kpi info">
+                    <div class="ops-kpi-label">Omsætning i perioden</div>
+                    <div class="ops-kpi-value">${_opsFmtKr(s.total_revenue_excl_moms)}</div>
+                    <div class="ops-kpi-sub">DB: ${_opsFmtKr(s.total_db_kr_excl_moms)}</div>
+                </div>
+                <div class="ops-kpi info">
+                    <div class="ops-kpi-label">Gns. DB% (vægtet)</div>
+                    <div class="ops-kpi-value">${_opsFmtPct(s.avg_db_pct_weighted)}</div>
+                    <div class="ops-kpi-sub">vægtet på omsætning</div>
+                </div>
                 <div class="ops-kpi clickable ${_opsState.activeFilters.has('active') ? 'active' : ''}" data-filter="active">
                     <div class="ops-kpi-label">Aktive opskrifter</div>
                     <div class="ops-kpi-value">${s.active_count}</div>
@@ -175,16 +185,6 @@ function _opsRender() {
                     <div class="ops-kpi-label">Økologiske</div>
                     <div class="ops-kpi-value">${s.oko_count}</div>
                     <div class="ops-kpi-sub">${s.active_count ? Math.round(s.oko_count / s.active_count * 100) + '% af aktive' : '—'}</div>
-                </div>
-                <div class="ops-kpi info">
-                    <div class="ops-kpi-label">Gns. DB% (vægtet)</div>
-                    <div class="ops-kpi-value">${_opsFmtPct(s.avg_db_pct_weighted)}</div>
-                    <div class="ops-kpi-sub">vægtet på omsætning</div>
-                </div>
-                <div class="ops-kpi info">
-                    <div class="ops-kpi-label">Omsætning i perioden</div>
-                    <div class="ops-kpi-value">${_opsFmtKr(s.total_revenue_excl_moms)}</div>
-                    <div class="ops-kpi-sub">DB: ${_opsFmtKr(s.total_db_kr_excl_moms)}</div>
                 </div>
             </div>
 
@@ -789,7 +789,9 @@ function _opsCompBodyHtml(data) {
         return `<tr>
             <td class="ops-comp-name">${_opsStockDot(i.in_stock)}${nameHtml}</td>
             <td class="num">${_opsEsc(_opsCompAmount(i))}</td>
-            <td class="num">${_opsCompCost(i.cost)}</td>
+            <td class="num">${_opsCompCost(i.cost)}${i.cost_inherited
+                ? '<span class="ops-inherited" title="Forældre-vare uden egen pris — gennemsnit af underprodukterne">~</span>'
+                : ''}</td>
         </tr>`;
     };
     const subRow = (s) => `<tr class="ops-comp-sub" data-comp-recipe="${s.recipe_id}">
@@ -831,7 +833,9 @@ function _opsCompBodyHtml(data) {
         : manglendeRaavarer.length
         ? `<div class="ops-comp-note">Mangler pris på ${_opsEsc(manglendeTxt)} — totalen er derfor et minimum.</div>`
         : anyMissingCost
-        ? '<div class="ops-comp-note">— = prisen kendes ikke pr. linje (fx en forældre-vare), men indgår i totalen</div>'
+        ? '<div class="ops-comp-note">— = ingen pris registreret på råvaren i Grocy. ~ = pris arvet som gennemsnit af en forældre-vares underprodukter.</div>'
+        : ings.some(i => i.cost_inherited)
+        ? '<div class="ops-comp-note">~ = pris arvet som gennemsnit af en forældre-vares underprodukter.</div>'
         : '';
 
     const table = rows
