@@ -1,8 +1,8 @@
 # CLAUDE_ZETTLE_POS.md — Zettle (PayPal POS) → Bon v2
 
-> **Status:** Fase 1 + Fase 2 + Fase 3 **BYGGET** (21.–22. august 2026). Migration 153, `services/posSales.js`
+> **Status:** Alle fire faser **BYGGET** (21.–22. august 2026). Migration 153, `services/posSales.js`
 > + `posSync.js` + `posFinance.js`, `routes/pos.js`, Settings-panel, flueben på eventet.
-> Fase 4 (kurve) ikke bygget.
+
 > Verificeret ende-til-ende mod ægte Zettle- og grocy-hq-data — se §15 og §17.
 > **Beslægtet:** `docs/CLAUDE_EVENT_BON_BRIDGE.md` (samme mønster, modsat retning) ·
 > `docs/CLAUDE_EVENT.md` §5 (lager-gaten) + §6 (top-up/retur) + §15.3 (festival-bemanding) ·
@@ -376,14 +376,37 @@ Med Finance API'et bliver to ting bedre:
 
 ---
 
-## 11. Kurve og timefordeling (Fase 4)
+## 11. Kurve og timefordeling (Fase 4) ✅
 
-`GET /api/pos/day?date=` → timefordeling (`GROUP BY` time på `pos_purchases`) + top-varer
-+ betalingsmiddel-split. Vises på event-detaljen ved siden af P&L-strippen.
+`GET /api/pos/days/:date` giver `hours`, `peak` og `top_items`;
+`GET /api/pos/events/:id/sales-curve` samler det pr. event-dag. Vises på event-detaljen.
 
 Formålet er ikke at kopiere Zettles graf, men at få **ordre-fordeling pr. time** ind i
 huset — datagrundlaget for festival-bemanding som `CLAUDE_EVENT.md` §15.3 pkt. 2 har
-parkeret indtil vi havde det.
+parkeret indtil vi havde det. Derfor er **antal ordrer** søjlernes højde; kronerne står
+som tekst. Man bemander efter hvor mange der står i kø, ikke efter hvor meget de køber.
+
+Tre valg der betyder noget:
+
+- **Timen aflæses i København**, ikke i UTC. Ellers ville hele kurven ligge to timer
+  forskudt om sommeren, og bemandingen være regnet på det forkerte tidsrum.
+- **Timerne ordnes efter forretningsdagen**, ikke efter urets tal: med skæring 04:00
+  læses en festivaldag 10, 11 … 23, 00, 01. Ellers ville en aften der trækker over
+  midnat lægge sig som en pukkel i venstre kant og se ud som morgentravlhed.
+- **Refunderinger tælles ikke som ordrer** (ingen bemandes for en refundering), men
+  beløbet trækkes fra, så timerne summer til dagens omsætning.
+- **`varer` er alt der gik over disken** — hver vare er arbejde uanset kategori. Det er
+  bevidst IKKE husets `enheder` (`bons.total_units`), som kun tæller
+  `unit_count_categories` (sandwich/salat/slider). På festivalen ville Luxus hotdog og
+  pølserne tælle nul dér, og de er ~30 % af salget — en bemanding regnet på "enheder"
+  ville være regnet på det halve køkken. Forskellen står i hjælpeteksten på skærmen.
+
+`top_items` er uafhængig af Grocy-koblingen: listen skal kunne vises når Grocy er nede,
+og den ukoblede vare (Luxus hotdog, 20 % af festivalens omsætning) hører i toppen.
+
+**Målt på festivalen 13.–15. august:** spidsbelastning kl. 17–19 alle tre dage, travleste
+time 40 ordrer. Fælles skala på tværs af dagene, så en stille dag ikke ser lige så travl
+ud som spidsbelastningen.
 
 ---
 

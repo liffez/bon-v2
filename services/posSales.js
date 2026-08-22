@@ -277,7 +277,98 @@ function resolveEventForDay(events, siteUuids = []) {
     return { event_id: null, status: 'ambiguous', reason: 'multiple_events', candidates: list };
 }
 
+/* ══════════════════════════════════════════════════════════════
+   TIMEFORDELING (§11)
+   ══════════════════════════════════════════════════════════════ */
+
+/** Klokketimen i København — ikke i UTC. Samme fælde som forretningsdagen. */
+function localHour(occurredAt) {
+    const d = new Date(occurredAt);
+    if (Number.isNaN(d.getTime())) return null;
+    return Number(new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Copenhagen', hour: '2-digit', hour12: false,
+    }).format(d)) % 24;
+}
+
+/**
+ * Salget fordelt på timer.
+ *
+ * Formålet er **bemanding**, ikke pynt: `CLAUDE_EVENT.md` §15.3 pkt. 2 parkerede
+ * festival-kapacitet netop fordi ordre-fordelingen pr. time kun kan komme fra
+ * eget POS. Derfor er ANTAL ORDRER det primære tal — det er dét man bemander
+ * efter — og kronerne det sekundære.
+ *
+ * Timerne ordnes efter deres plads i FORRETNINGSDAGEN, ikke efter urets tal:
+ * med skæring 04:00 læses en festivaldag 10, 11 … 23, 00, 01. Ellers ville en
+ * aften der trækker over midnat lægge sig som en pukkel i venstre kant og se
+ * ud som om der var run på om morgenen.
+ *
+ * Refunderinger tælles ikke som ordrer (ingen bemandes for en refundering),
+ * men beløbet trækkes fra, så summen af timerne rammer dagens omsætning.
+ *
+ * `items` er ALT der gik over disken — hver vare er arbejde uanset kategori.
+ * ⚠️ Det er bevidst IKKE husets "enheder" (`bons.total_units`), som kun tæller
+ * kategorierne i `unit_count_categories` (sandwich/salat/slider). På festivalen
+ * ville Luxus hotdog og pølserne tælle nul dér, og de er ~30 % af salget — så
+ * en bemanding regnet på "enheder" ville være regnet på det halve køkken.
+ */
+function hourlyCurve(purchases, cutoff = '04:00') {
+    const m = CUTOFF_RE.exec(String(cutoff || '').trim());
+    if (!m) throw new Error(`døgnskifte skal være HH:MM, fik "${cutoff}"`);
+    const startHour = Number(m[1]);
+
+    const buckets = new Map();
+    for (const p of purchases || []) {
+        const h = localHour(p.occurred_at);
+        if (h === null) continue;
+        const b = buckets.get(h) || { hour: h, orders: 0, refunds: 0, items: 0, gross_incl: 0 };
+        if (p.is_refund) b.refunds++; else b.orders++;
+        b.items += (p.lines || []).reduce((s, l) => s + (Number(l.quantity) || 0), 0);
+        b.gross_incl = round2(b.gross_incl + p.amount_incl);
+        buckets.set(h, b);
+    }
+    if (!buckets.size) return { hours: [], peak: null, total_orders: 0, total_items: 0 };
+
+    // Placering i forretningsdagen: 0 = skæringstimen.
+    const pos = h => (h - startHour + 24) % 24;
+    const hours = [...buckets.values()]
+        .sort((a, b) => pos(a.hour) - pos(b.hour))
+        .map(b => ({ ...b, label: String(b.hour).padStart(2, '0') + ':00' }));
+
+    const peak = hours.reduce((best, h) => (!best || h.orders > best.orders ? h : best), null);
+    return {
+        hours,
+        peak: peak ? { hour: peak.hour, label: peak.label, orders: peak.orders, items: peak.items, gross_incl: peak.gross_incl } : null,
+        total_orders: hours.reduce((s, h) => s + h.orders, 0),
+        total_items: hours.reduce((s, h) => s + h.items, 0),
+    };
+}
+
+/**
+ * Dagens mest solgte varer — rå navne fra kassen, uden Grocy.
+ * Bevidst uafhængig af opskrift-koblingen: listen skal kunne vises selv når
+ * Grocy er nede, og en ukoblet vare (fx Luxus hotdog, 20 % af en festivals
+ * omsætning) hører absolut med i toppen.
+ */
+function topItems(purchases, limit = 10) {
+    const agg = new Map();
+    for (const p of purchases || []) {
+        for (const l of p.lines || []) {
+            const key = l.product_uuid || ('adhoc:' + normalizeName(l.name));
+            const e = agg.get(key) || { name: l.name, quantity: 0, gross_incl: 0 };
+            e.quantity += l.quantity;
+            e.gross_incl = round2(e.gross_incl + l.line_total_incl);
+            agg.set(key, e);
+        }
+    }
+    return [...agg.values()]
+        .filter(x => x.quantity !== 0)
+        .sort((a, b) => b.gross_incl - a.gross_incl)
+        .slice(0, limit);
+}
+
 module.exports = {
+    localHour, hourlyCurve, topItems,
     businessDate,
     normalizeName, tokenKey, buildRecipeIndex, matchRecipeByName,
     aggregateDay, resolveEventForDay,

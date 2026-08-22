@@ -487,3 +487,32 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
    ingen POS-salgsbon (docs/CLAUDE_ZETTLE_POS.md §6.2). */
 .ev-check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
 .ev-check input { width: auto; margin: 0; }
+
+/* ── Salg pr. time (§11) ─────────────────────────────────────────────────
+   Søjlehøjden er ANTAL ORDRER — det er dét man bemander efter, ikke kroner.
+   Rene CSS-søjler: ingen canvas, ingen nye afhængigheder. */
+.ev-curve { margin-bottom: var(--space-m, 14px); }
+.ev-curve-hint { font-size: 11px; color: var(--color-text-dim); margin: 0 0 12px; line-height: 1.5; max-width: 640px; }
+.ev-curve-busiest { font-size: 12px; color: var(--brand-primary); font-weight: 600; }
+.ev-curve-day { margin-bottom: 16px; }
+.ev-curve-day:last-child { margin-bottom: 0; }
+.ev-curve-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; font-size: 12px;
+                 color: var(--color-text-dim); margin-bottom: 6px; }
+.ev-curve-head strong { font-size: 13px; color: var(--color-text); }
+.ev-curve-peak { margin-left: auto; color: var(--brand-primary); font-weight: 600; }
+.ev-curve-bars { display: flex; align-items: flex-end; gap: 3px; height: 96px;
+                 border-bottom: 1px solid var(--color-border); padding-bottom: 2px; }
+.ev-curve-bar { flex: 1; min-width: 14px; height: 100%; display: flex; flex-direction: column;
+                justify-content: flex-end; align-items: center; position: relative; }
+.ev-curve-fill { width: 100%; background: var(--brand-primary-light, #f1e6b2);
+                 border-radius: 2px 2px 0 0; transition: height .2s; }
+.ev-curve-fill.is-peak { background: var(--brand-primary, #8e631f); }
+.ev-curve-h { font-size: 9px; color: var(--color-text-dim); margin-top: 3px; }
+.ev-curve-top { font-size: 11px; color: var(--color-text-dim); margin-top: 8px; line-height: 1.5; }
+
+/* ── Tilbage ─────────────────────────────────────────────────────────────
+   Lå som .ev-btn-ghost med BÅDE gennemsigtig baggrund og kant, så den
+   læste som ren tekst ved siden af overskriften. Den bruger nu sidens egen
+   knapstil — samme som "Redigér" og "Slet" i højre side. */
+.ev-back { font-weight: 500; }
+.ev-back:hover { background: var(--brand-primary-light, #f1e6b2); border-color: var(--brand-primary, #8e631f); }

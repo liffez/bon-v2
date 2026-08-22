@@ -101,7 +101,9 @@ test('GET /days/:date har kandidat-events, så en glemt kobling kan rettes', asy
     const { status, body } = await api('GET', '/api/pos/days/2026-08-14');
     assert.equal(status, 200);
     assert.ok(body.candidate_events.some(e => e.id === 1));
-    assert.ok(body.purchases.length > 0, 'købene skal med — de driver timekurven');
+    assert.ok(body.hours.length > 0, 'timefordelingen skal med — den er det bemandingen læses af');
+    assert.ok(body.peak, 'og den travleste time');
+    assert.ok(body.top_items.length > 0);
 });
 
 test('GET /days/:date afviser en dato der ikke er en dato', async () => {
@@ -182,6 +184,40 @@ test('GET /health svarer også når integrationen ikke kan nå Zettle', async ()
     assert.equal(body.enabled, true);
     assert.ok('unassigned_days' in body);
     assert.ok(body.connection, 'forbindelsens tilstand skal med — også når den er dårlig');
+});
+
+/* ══════════════════════════════════════════════════════════
+   TIMEFORDELING (Fase 4)
+   ══════════════════════════════════════════════════════════ */
+
+test('GET /events/:id/sales-curve giver kurven pr. dag + den travleste time', async () => {
+    const { status, body } = await api('GET', '/api/pos/events/1/sales-curve');
+    assert.equal(status, 200);
+    assert.equal(body.event_id, 1);
+    assert.equal(body.cutoff, '04:00');
+    assert.ok(body.days.length, 'eventets POS-dage skal med');
+
+    const d = body.days[0];
+    assert.ok(d.hours.length, 'og hver dag sin timefordeling');
+    assert.ok(d.peak.orders > 0);
+    assert.ok(d.top_items.length, 'top-varer uden Grocy-afhængighed');
+    assert.ok(body.busiest, 'den travleste time på tværs af dagene — tallet man bemander efter');
+
+    // Timerne skal summe til dagens omsætning, ellers viser kurven noget andet
+    // end bonnen gør.
+    const sum = Math.round(d.hours.reduce((s, h) => s + h.gross_incl, 0) * 100) / 100;
+    assert.equal(sum, d.gross_incl);
+});
+
+test('GET /events/:id/sales-curve på et event uden POS-dage giver tom liste', async () => {
+    const { status, body } = await api('GET', '/api/pos/events/9999/sales-curve');
+    assert.equal(status, 200, 'et event uden kassesalg er ikke en fejl');
+    assert.deepEqual(body.days, []);
+    assert.equal(body.busiest, null);
+});
+
+test('GET /events/:id/sales-curve afviser et id der ikke er et tal', async () => {
+    assert.equal((await api('GET', '/api/pos/events/abc/sales-curve')).status, 400);
 });
 
 /* ══════════════════════════════════════════════════════════
