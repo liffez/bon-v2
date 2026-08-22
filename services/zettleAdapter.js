@@ -163,6 +163,25 @@ function normalizePurchase(raw) {
 }
 
 /**
+ * Rå hovedbogspost → den form resten af systemet arbejder i.
+ * Beløb i kroner med Zettles eget fortegn: en udbetaling er NEGATIV (pengene
+ * forlader Zettle-kontoen), gebyrer er negative, betalinger positive.
+ */
+function normalizeFinanceTx(raw) {
+    if (!raw || typeof raw !== 'object') {
+        throw new ZettleError('normalizeFinanceTx kaldt uden postering', { code: 'bad_input' });
+    }
+    return {
+        source: 'zettle',
+        tx_type: raw.originatorTransactionType ?? null,
+        originating_uuid: raw.originatingTransactionUuid ?? null,
+        occurred_at: raw.timestamp ?? null,
+        amount_incl: oereToKr(raw.amount),
+        raw,
+    };
+}
+
+/**
  * Vagt mod at momsgrundlaget skifter under os. Hele designet hviler på at
  * Zettle-priser er incl moms; ville et køb komme EXCLUSIVE, ville bonnen få
  * for lave priser uden at nogen kunne se det på tallet.
@@ -332,25 +351,39 @@ function createZettleAdapter({
     }
 
     /**
-     * Finance-transaktioner (udbetalinger + faktiske gebyrer) — Fase 3.
-     * ⚠️ Endnu ikke afprøvet mod ægte data; svaret returneres urørt indtil
-     * formen er verificeret, netop for ikke at bygge en normalisering på et gæt.
+     * Zettles hovedbog: betalinger, gebyrer og udbetalinger.
+     *
+     * Rækkerne er `{timestamp, amount, originatorTransactionType,
+     * originatingTransactionUuid}` med beløb i ØRE — konverteres her, som alle
+     * andre beløb (se filhovedet).
+     *
+     * ⚠️ To ting målt mod produktionskontoen, som en kalder ellers ville falde i:
+     *   • `start`/`end` skal være FULDE tidsstempler. En ren dato giver
+     *     `400 … could not be parsed at index 10`. Adapteren tager et
+     *     inklusivt dato-interval og laver dem selv.
+     *   • `originatingTransactionUuid` er **betalingens** uuid
+     *     (`purchase.payments[].uuid`) — IKKE købets. Købets uuid matcher 0 %.
      */
-    async function getFinanceTransactions({ from, to, account = 'liquid' } = {}) {
+    async function getFinanceTransactions({ from, to, account = 'liquid', raw = false } = {}) {
         if (!DATE_RE.test(String(from || '')) || !DATE_RE.test(String(to || ''))) {
             throw new ZettleError('from og to skal være YYYY-MM-DD', { code: 'bad_input' });
         }
+        if (from > to) {
+            throw new ZettleError(`from (${from}) er efter to (${to})`, { code: 'bad_input' });
+        }
         const headers = await authHeaders();
         const u = new URL(`/v2/accounts/${encodeURIComponent(account)}/transactions`, FINANCE_URL);
-        u.searchParams.set('start', from);
-        u.searchParams.set('end', addDays(to, 1));
+        u.searchParams.set('start', from + 'T00:00:00.000Z');
+        u.searchParams.set('end', addDays(to, 1) + 'T00:00:00.000Z');
         const res = await request(u.toString(), { headers });
         if (!res.ok) {
             const body = await res.text().catch(() => '');
             throw new ZettleError(`Kunne ikke hente finans-transaktioner (HTTP ${res.status})`,
                 { status: res.status, code: 'http_error', body: body.slice(0, 400) });
         }
-        return res.json();
+        const json = await res.json();
+        const list = Array.isArray(json) ? json : (json.data || json.transactions || []);
+        return raw ? list : list.map(normalizeFinanceTx);
     }
 
     /** Til Settings-panelet: virker nøglen, og har den de scopes vi skal bruge? */
@@ -404,6 +437,7 @@ module.exports = {
     ZettleError,
     // rene hjælpere (testes direkte)
     normalizePurchase,
+    normalizeFinanceTx,
     findExclusiveVat,
     decodeJwtPayload,
     scopesFromToken,

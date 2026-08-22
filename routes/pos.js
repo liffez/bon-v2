@@ -18,7 +18,7 @@ const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const { getZettleAdapter } = require('../services/zettleAdapter');
 const {
-    SOURCE, getPosSettings, rebuildDay, syncPos, assignDay,
+    SOURCE, getPosSettings, rebuildDay, syncPos, syncFinance, assignDay, matchPayout, suggestBankMatch,
 } = require('../services/posSync');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -55,6 +55,9 @@ router.get('/days', requireAuth(), handle((req, res) => {
             assign_status: r.assign_status,
             bon_id: r.bon_id, bon_number: r.bon_number, bon_status: r.bon_status,
             gross_incl: r.gross_incl,
+            card_gross_incl: r.card_gross_incl,
+            fee_incl: r.fee_incl,
+            fee_bon_id: r.fee_bon_id,
             by_payment: parse(r.by_payment_json, {}),
             purchase_count: r.purchase_count, refund_count: r.refund_count,
             unmatched: parse(r.unmatched_json, []),
@@ -234,6 +237,74 @@ router.post('/products/map', requireAuth(), handle(async (req, res) => {
         }
     }
     res.json({ ok: true, pos_product_uuid: uuid, grocy_recipe_id: recipeId, rebuilt_days: rebuilt });
+}));
+
+/* ── GET /api/pos/payouts ──────────────────────────────────────────────── */
+// Zettle udbetaler netto og fejer saldoen, så en udbetaling dækker alt siden
+// den forrige. Sammensætningen er udregnet, ikke gættet — se services/posFinance.js.
+router.get('/payouts', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT p.*, t.dato AS tx_dato, t.tekst AS tx_tekst, t.beloeb AS tx_beloeb
+        FROM pos_payouts p
+        LEFT JOIN cf_transactions t ON t.id = p.cf_transaction_id
+        WHERE p.source = ? ORDER BY p.occurred_at DESC
+    `).all(SOURCE);
+
+    // Kandidater til de umatchede: samme beløb, og datoen efter udbetalingen.
+    const open = db.prepare(`
+        SELECT t.id, t.dato, t.tekst, t.beloeb FROM cf_transactions t
+        WHERE t.beloeb > 0 AND NOT EXISTS (SELECT 1 FROM cf_allocations a WHERE a.transaction_id = t.id)
+    `).all();
+
+    res.json({
+        payouts: rows.map(r => {
+            const meta = parse(r.covered_json, {});
+            const p = {
+                payout_uuid: r.payout_uuid,
+                occurred_at: r.occurred_at,
+                amount_incl: r.amount_incl,
+                gross_incl: r.gross_incl,
+                fee_incl: r.fee_incl,
+                covered: meta.covered || [],
+                partial: !!meta.partial,
+                cf_transaction_id: r.cf_transaction_id,
+                matched_at: r.matched_at,
+                bank: r.cf_transaction_id ? { dato: r.tx_dato, tekst: r.tx_tekst, beloeb: r.tx_beloeb } : null,
+            };
+            if (!r.cf_transaction_id) p.candidates = suggestBankMatch(p, open);
+            return p;
+        }),
+    });
+}));
+
+/* ── POST /api/pos/payouts/:uuid/match ─────────────────────────────────── */
+router.post('/payouts/:uuid/match', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const transactionId = Number(req.body?.transaction_id);
+    if (!Number.isInteger(transactionId)) {
+        return res.status(400).json({ error: 'transaction_id skal være et tal' });
+    }
+    try {
+        res.json(matchPayout(db, { payoutUuid: req.params.uuid, transactionId, userId: req.session?.userId ?? null }));
+    } catch (err) {
+        const status = {
+            unknown_payout: 404, unknown_transaction: 404,
+            already_matched: 409, already_allocated: 409,
+            amount_mismatch: 400, allocation_mismatch: 409,
+        }[err.code] || 500;
+        if (status === 500) throw err;
+        res.status(status).json({ error: err.message, code: err.code, ...(err.sum !== undefined ? { sum: err.sum, expected: err.expected } : {}) });
+    }
+}));
+
+/* ── POST /api/pos/finance/sync ────────────────────────────────────────── */
+router.post('/finance/sync', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const { from, to } = req.body || {};
+    if (from && !DATE_RE.test(from)) return res.status(400).json({ error: 'from skal være YYYY-MM-DD' });
+    if (to && !DATE_RE.test(to)) return res.status(400).json({ error: 'to skal være YYYY-MM-DD' });
+    res.json(await syncFinance(db, { from: from || null, to: to || null, userId: req.session?.userId ?? null }));
 }));
 
 /* ── GET /api/pos/health ───────────────────────────────────────────────── */

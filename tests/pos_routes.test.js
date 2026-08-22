@@ -33,11 +33,13 @@ const RECIPES = [
 grocy.getRecipes = async () => RECIPES;
 
 const posRouter = require('../routes/pos');
-const { normalizePurchase } = require('../services/zettleAdapter');
+const { normalizePurchase, normalizeFinanceTx } = require('../services/zettleAdapter');
 const posSync = require('../services/posSync');
 
 const MIGRATIONS = path.join(__dirname, '..', 'db', 'migrations');
-const RAW = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/zettle/purchases_festival.json'), 'utf8')).purchases;
+const FIXD = f => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/zettle', f), 'utf8'));
+const RAW = [...FIXD('purchases_festival.json').purchases, FIXD('purchases_synthetic.json').purchases[5]];
+const LEDGER = FIXD('finance_ledger.json').transactions;
 
 let server, base;
 
@@ -53,7 +55,11 @@ test.before(async () => {
                      VALUES (1, 'Testfestival', ?, '2026-08-14', '2026-08-15', 'active', 1)`).run(loc);
 
     await posSync.syncPos(_testDb, {
-        adapter: { isConfigured: () => true, getPurchases: async () => RAW.map(normalizePurchase) },
+        adapter: {
+            isConfigured: () => true,
+            getPurchases: async () => RAW.map(normalizePurchase),
+            getFinanceTransactions: async () => LEDGER.map(normalizeFinanceTx),
+        },
         from: '2026-08-13', to: '2026-08-16',
         deps: { getRecipes: async () => RECIPES, todayISO: () => '2026-08-16', offsetISO: () => '2026-08-13' },
     });
@@ -62,6 +68,7 @@ test.before(async () => {
     app.use(express.json());
     app.use((req, _res, next) => { req.session = { userId: 1, userRole: 'admin' }; next(); });
     app.use('/api/pos', posRouter);
+    app.use('/api/cashflow', require('../routes/cashflow'));
     server = http.createServer(app);
     await new Promise(r => server.listen(0, r));
     base = 'http://127.0.0.1:' + server.address().port;
@@ -175,6 +182,73 @@ test('GET /health svarer også når integrationen ikke kan nå Zettle', async ()
     assert.equal(body.enabled, true);
     assert.ok('unassigned_days' in body);
     assert.ok(body.connection, 'forbindelsens tilstand skal med — også når den er dårlig');
+});
+
+/* ══════════════════════════════════════════════════════════
+   UDBETALINGER (Fase 3)
+   ══════════════════════════════════════════════════════════ */
+
+test('GET /payouts viser sammensætningen og foreslår en bankpostering', async () => {
+    _testDb.prepare("INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-08-19','ZETTLE AB',142.10)").run();
+    const { status, body } = await api('GET', '/api/pos/payouts');
+    assert.equal(status, 200);
+    const p = body.payouts[0];
+    assert.equal(p.amount_incl, 142.10);
+    assert.equal(p.covered.length, 2, 'begge dækkede dage skal kunne ses');
+    assert.equal(p.cf_transaction_id, null);
+    assert.equal(p.candidates.length, 1, 'forslaget er et forslag — ikke en bogføring');
+    assert.equal(p.candidates[0].tekst, 'ZETTLE AB');
+});
+
+test('POST /payouts/:uuid/match fordeler indbetalingen', async () => {
+    const tx = _testDb.prepare('SELECT id FROM cf_transactions ORDER BY id DESC LIMIT 1').get();
+    const { status, body } = await api('POST',
+        '/api/pos/payouts/2beafe94-9a1b-11f1-bdf3-b815b5c95c0c/match', { transaction_id: tx.id });
+    assert.equal(status, 200);
+    const sum = Math.round(body.allocations.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    assert.equal(sum, 142.10);
+
+    const after = (await api('GET', '/api/pos/payouts')).body.payouts[0];
+    assert.equal(after.cf_transaction_id, tx.id);
+    assert.ok(after.bank, 'og bankposteringen vises ved siden af');
+});
+
+test('POST /payouts/:uuid/match afviser en ukendt udbetaling og et dobbelt-match', async () => {
+    const tx = _testDb.prepare('SELECT id FROM cf_transactions ORDER BY id DESC LIMIT 1').get();
+    assert.equal((await api('POST', '/api/pos/payouts/findes-ikke/match', { transaction_id: tx.id })).status, 404);
+    const igen = await api('POST', '/api/pos/payouts/2beafe94-9a1b-11f1-bdf3-b815b5c95c0c/match', { transaction_id: tx.id });
+    assert.equal(igen.status, 409);
+    assert.equal(igen.body.code, 'already_matched');
+});
+
+/* ══════════════════════════════════════════════════════════
+   DOBBELTTÆLLINGS-VÆRNET I PENGESTRØM
+   ══════════════════════════════════════════════════════════ */
+
+test('Pengestrøms "opret salgsbon" afvises når POS allerede ejer dagens bon', async () => {
+    // Uden værnet ville omsætningen stå to gange — og begge bons ville se
+    // rigtige ud. Præcis den fejlklasse vi kender fra #305/#319.
+    const txId = _testDb.prepare("INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-08-20','KONTANT',500)")
+        .run().lastInsertRowid;
+    const { status, body } = await api('POST', '/api/cashflow/create-bon-from-tx', {
+        transaction_id: txId, event_id: 1, lines: [{ name: 'Direkte salg', amount: 500 }],
+    });
+    assert.equal(status, 409);
+    assert.equal(body.code, 'pos_bon_exists');
+    assert.ok(body.pos_days.length, 'og den peger på de bons der allerede findes');
+    assert.match(body.error, /to gange/);
+});
+
+test('… men et event uden POS-bon er upåvirket', async () => {
+    const loc = _testDb.prepare('SELECT id FROM locations ORDER BY id LIMIT 1').get().id;
+    _testDb.prepare(`INSERT INTO events (id, name, location_id, start_date, status)
+                     VALUES (42, 'Uden POS', ?, '2026-09-01', 'active')`).run(loc);
+    const txId = _testDb.prepare("INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-09-02','KONTANT',300)")
+        .run().lastInsertRowid;
+    const { status } = await api('POST', '/api/cashflow/create-bon-from-tx', {
+        transaction_id: txId, event_id: 42, lines: [{ name: 'Direkte salg', amount: 300 }],
+    });
+    assert.equal(status, 200, 'den gamle vej skal stadig virke hvor POS ikke er i spil');
 });
 
 test('ruterne kræver login', async () => {

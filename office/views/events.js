@@ -218,7 +218,7 @@ async function _evRenderDetail(id) {
                         <span class="ev-badge ev-status-${ev.status}">${_EV_STATUS_LABEL[ev.status] || ev.status}</span>
                     </div>
                     <div class="ev-detail-actions">
-                        ${adminUrl ? `<a class="ev-btn ev-btn-small" href="${_evEsc(adminUrl)}" target="_blank" rel="noopener" title="Åbn event-ordre-forudbestilling (admin)">🔗 Event-ordre-admin</a>` : ''}
+                        ${adminUrl && ev.event_order_enabled ? `<a class="ev-btn ev-btn-small" href="${_evEsc(adminUrl)}" target="_blank" rel="noopener" title="Åbn event-ordre-forudbestilling (admin)">🔗 Event-ordre-admin</a>` : ''}
                         <button class="ev-btn ev-btn-small" data-act="edit-event">✎ Redigér</button>
                         <button class="ev-btn ev-btn-small ev-btn-danger" data-act="delete-event">🗑 Slet</button>
                     </div>
@@ -463,8 +463,8 @@ function _evMenuPanel() {
                     title="Ret fundet på pladsen — uden opskrift, så ingen kostpris/CO₂/lagereffekt">+ Tilføj linje</button>
                 <button class="ev-btn ev-btn-small" data-act="menu-print"
                     title="Åbner en ren udskriftsvisning — skiltet til vognen">🖨 Print menu</button>
-                <button class="ev-btn ev-btn-small" data-act="menu-push"
-                    title="Beder event-ordre-siden hente menuen NU (ellers opdaterer den selv hvert 10. minut)">🔄 Opdater i event-ordre</button>
+                ${_evState.event?.event_order_enabled ? `<button class="ev-btn ev-btn-small" data-act="menu-push"
+                    title="Beder event-ordre-siden hente menuen NU (ellers opdaterer den selv hvert 10. minut)">🔄 Opdater i event-ordre</button>` : ''}
             </div>
         </div>
         <span class="ev-menu-status" id="ev-menu-status"></span>
@@ -1287,6 +1287,14 @@ function _evOpenEventModal(ev) {
             <span class="ev-field-hint">Slås til her, hentes dagens kassesalg automatisk og bliver til en salgsbon.
                 Uden fluebenet laves der ingen — og vi gætter aldrig ud fra datoen alene.</span>
         </div>
+        <div class="ev-modal-field">
+            <label class="ev-check">
+                <input type="checkbox" id="evm-eo" ${ev && ev.event_order_enabled ? 'checked' : ''}>
+                <span>Der tages imod forudbestillinger (event-ordre) til dette event</span>
+            </label>
+            <span class="ev-field-hint">Kobler event-ordre-siden til dette event, så forudbestillingerne
+                lander som prep- og salgsbons her. Slå det kun til på ét event ad gangen.</span>
+        </div>
         <label>Noter<textarea id="evm-notes" rows="3" placeholder="Særlige aftaler, parkering, check-in…">${v(ev && ev.notes)}</textarea></label>
     `, async () => {
         const addrText = document.getElementById('evm-address').value.trim();
@@ -1303,6 +1311,7 @@ function _evOpenEventModal(ev) {
             day_contact_name:  document.getElementById('evm-dc-name').value.trim() || null,
             day_contact_phone: document.getElementById('evm-dc-phone').value.trim() || null,
             pos_enabled: document.getElementById('evm-pos').checked ? 1 : 0,
+            event_order_enabled: document.getElementById('evm-eo').checked ? 1 : 0,
         };
         if (!body.name) throw new Error('Navn er påkrævet');
         if (!body.start_date) throw new Error('Startdato er påkrævet');

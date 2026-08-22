@@ -21,7 +21,7 @@ const {
 } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { resolveMenuItemLines } = require('../services/menuItemsToLines');
-const { eventContactFields } = require('./events');
+const { eventContactFields, resolveActiveOrderEvent } = require('./events');
 const grocyAdapter = require('../services/grocyAdapter');
 
 // ─── Secret (optionel — som web-orders) ────────────────────────────────────
@@ -488,6 +488,36 @@ router.post('/event-prep', async (req, res) => {
         console.error('[event-bridge] prep-fejl:', err);
         return res.status(500).json({ error: 'prep_failed' });
     }
+});
+
+// ─── GET /webhook/event-active ─────────────────────────────────────────────
+// "Hvilket event tages der imod forudbestillinger til lige nu?"
+//
+// Findes fordi koblingen før lå i event-order-3's egen konfigurationsfil
+// (`bonV2.eventId`). Et nyt event krævede: opret i Bon → kopiér id → redigér
+// fil på en anden server → deploy. Nu erklærer eventet det selv med et flueben,
+// og broen kan spørge.
+//
+// Vi gætter aldrig: er der ikke præcis ét, siger vi hvad vi fandt i stedet for
+// at vælge. Et forkert valg ville lægge kundernes forudbestillinger på det
+// forkerte event — og det ville se helt rigtigt ud.
+router.get('/event-active', (req, res) => {
+    if (!checkBridgeSecret(req, res)) return;
+    // Reglen ejes af routes/events.js og deles med Settings-panelet, så de to
+    // ikke kan sige forskellige ting om hvilket event der er aktivt.
+    const r = resolveActiveOrderEvent(getDb(), todayISO());
+    if (r.event) {
+        return res.json({
+            event_id: r.event.id, name: r.event.name,
+            start_date: r.event.start_date, end_date: r.event.end_date,
+        });
+    }
+    return res.json({
+        event_id: null,
+        reason: r.reason,
+        candidates: r.candidates.map(e => ({ id: e.id, name: e.name, start_date: e.start_date, end_date: e.end_date })),
+        hint: r.hint,
+    });
 });
 
 // ─── POST /webhook/event-refresh-menu ──────────────────────────────────────

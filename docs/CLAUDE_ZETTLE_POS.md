@@ -1,7 +1,8 @@
 # CLAUDE_ZETTLE_POS.md — Zettle (PayPal POS) → Bon v2
 
-> **Status:** Fase 1 + Fase 2 **BYGGET** (21. august 2026). Migration 153, `services/posSales.js`
-> + `posSync.js`, `routes/pos.js`, Settings-panel, flueben på eventet. Fase 3–4 ikke bygget.
+> **Status:** Fase 1 + Fase 2 + Fase 3 **BYGGET** (21.–22. august 2026). Migration 153, `services/posSales.js`
+> + `posSync.js` + `posFinance.js`, `routes/pos.js`, Settings-panel, flueben på eventet.
+> Fase 4 (kurve) ikke bygget.
 > Verificeret ende-til-ende mod ægte Zettle- og grocy-hq-data — se §15 og §17.
 > **Beslægtet:** `docs/CLAUDE_EVENT_BON_BRIDGE.md` (samme mønster, modsat retning) ·
 > `docs/CLAUDE_EVENT.md` §5 (lager-gaten) + §6 (top-up/retur) + §15.3 (festival-bemanding) ·
@@ -459,7 +460,7 @@ Kørt read-only mod produktionskontoen. Periode: 2025-08-22 → 2026-08-22 (646 
 | 1 | Refunderingernes format | **Ingen stikprøve** — 0 i 12 måneder. Felterne findes; formatet kan ikke verificeres endnu (§9). |
 | 2 | MobilePay som eget betalingsmiddel | **Ja.** Observeret: `IZETTLE_CARD`, `MOBILE_PAY`. **Ingen** `CASH`. |
 | 3 | Rabatter på linje eller kvittering | Begge felter findes (`purchase.discounts`, `products[].discounts`). **0 forekomster.** |
-| 4 | Finance API's gebyr-granularitet | Ikke afprøvet endnu — `READ:FINANCE` er tildelt. Afklares i Fase 3. |
+| 4 | Finance API's gebyr-granularitet | **Pr. betaling** (`PAYMENT_FEE`), ikke pr. udbetaling. Se §17. |
 | 5 | Hvor mange POS-varer matcher Grocy | Eksakt **50 %** af omsætningen, ordsæt **65 %**. Delstreng er farligt (§7). |
 | 6 | Drikkepenge | **Nej.** 0 forekomster, `customAmountSale` = 0. |
 | 7 | Identifikator for salgsstedet | **Ja:** `purchase.site` = `{uuid, displayName, addressLine, postalCode, city, primary}`. I dag ét salgssted ("Primært salgssted"). ⇒ `events.pos_store_ref` = `site.uuid`. |
@@ -527,7 +528,52 @@ splitning af én dag på to salgssteder (§6.3).
 
 ---
 
-## 17. Bevidst ikke bygget
+## 17. Fase 3 — bygget og verificeret (22. august 2026)
+
+**Målt mod produktionskontoen, ikke antaget.** Fire ting bærer hele fasen:
+
+| # | Fund | Konsekvens |
+|---|---|---|
+| 1 | Gebyret ligger **pr. betaling** (`PAYMENT_FEE`), ikke pr. udbetaling | Dagens gebyr kan gøres op præcist |
+| 2 | Nøglen til købet er **`purchase.payments[].uuid`** — købets eget uuid matcher **0 %** | Ligger allerede i `pos_purchases.raw_json`; intet ekstra kald |
+| 3 | Gebyret bogføres **samtidig** med betalingen (484/484 inden for 5 sek) | Ingen "sene gebyrer" at jage |
+| 4 | En udbetaling **fejer saldoen** — 4 af 4 stemte til øren | Vi kan udlede nøjagtigt hvilke dage den dækker |
+
+**Det faktiske gebyr er 1,95 % af kortsalget** — ikke 3 %. Et skøn ville have været over 50 %
+for højt.
+
+> ⚠️ **Gebyret dækker kun kort.** MobilePay (158 køb på et år) og kontant har ingen
+> gebyrposter og går uden om Zettles konto. Derfor allokeres kun **kortdelen** af en dag mod
+> udbetalingen. Målt: 15. august var kun 12.188 af 25.673 kr kortsalg — en fordeling af hele
+> dagen ville have været 13.485 kr forkert.
+
+### Hvad der er bygget
+
+- **`services/posFinance.js`** — rene funktioner: betalings-uuid-opslaget, fordelingen af
+  hovedbogen på dage og udbetalinger, og bank-forslaget.
+- **Gebyr-bon pr. salgsdag** (`event_role='expense'`, `is_internal=1`, negativ,
+  `moms_included=0`) — spejler event-broens gebyr-rolle, men med et **målt** tal.
+  Kun på dage der er koblet til et event; ellers vises gebyret bare.
+- **Udbetalinger** (`pos_payouts`) med udregnet sammensætning + foreslået bankpostering.
+  `POST /payouts/:uuid/match` fordeler: én `bon`-allokering pr. dags kortsalg + én negativ
+  `fee`-linje. Summen rammer udbetalingen, ellers afvises den — der gættes ikke.
+- **Dobbelttællings-værnet:** Pengestrøms `create-bon-from-tx` afviser (409 `pos_bon_exists`)
+  når eventet allerede har POS-salgsbons, og peger på dem.
+
+### Verificeret ende-til-ende (frisk temp-database, ægte Zettle + grocy-hq)
+
+645 køb · 972 hovedbogsposter · 4 udbetalinger. **Alle fire udbetalinger går op.**
+Den største (43.315,29 kr, 17. august) fordeltes præcist på to dages kortsalg
+(31.989 + 12.188) plus gebyr (−861,71). Gentaget synk ændrede intet.
+Eventets P&L: omsætning 73.495 kr, gebyr −1.135,42 kr.
+
+**Tests:** `npm run test:pos` → **90 grønne** i fire lag. Mutations-testet: fem kerneregler
+rullet tilbage, hver fældet af navngivne asserts — herunder at allokering af *hele* dagen i
+stedet for kortdelen fælder fem tests.
+
+---
+
+## 18. Bevidst ikke bygget
 
 - **Butikssalg gennem POS.** Kræver at POS-bons rutes gennem LEVERET for at trække fra
   HQ (`CLAUDE_EVENT.md` §5's fremtidsnote). Væsentligt større, og lager er fravalgt nu.

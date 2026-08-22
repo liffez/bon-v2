@@ -33,6 +33,36 @@ function getPriceCategoryByCode(code) {
     return getDb().prepare(`SELECT id, code, label FROM price_categories WHERE code = ? AND is_active = 1`).get(code);
 }
 
+/**
+ * Hvilket event tages der imod forudbestillinger til lige nu?
+ *
+ * Én regel, delt af broen (`GET /webhook/event-active`) og Settings-panelet, så
+ * de to ikke kan sige forskellige ting. Vi gætter aldrig: er der ikke præcis ét
+ * aktivt/kommende event med fluebenet, siger vi hvad vi fandt — et forkert valg
+ * ville lægge kundernes forudbestillinger på det forkerte event, og det ville
+ * se helt rigtigt ud.
+ */
+function resolveActiveOrderEvent(db, today) {
+    const rows = db.prepare(`
+        SELECT id, name, start_date, end_date, status
+        FROM events
+        WHERE event_order_enabled = 1
+          AND status != 'cancelled'
+          AND COALESCE(end_date, start_date) >= ?
+        ORDER BY start_date, id
+    `).all(today);
+
+    if (rows.length === 1) return { event: rows[0], reason: 'ok', candidates: rows };
+    return {
+        event: null,
+        reason: rows.length === 0 ? 'none' : 'ambiguous',
+        candidates: rows,
+        hint: rows.length === 0
+            ? 'Sæt fluebenet "Der tages imod forudbestillinger" på eventet i Bon v2.'
+            : 'Flere events har forudbestilling slået til på samme tid — slå det fra på alle undtagen ét.',
+    };
+}
+
 function getEvent(id) {
     return getDb().prepare(`
         SELECT e.*, l.name AS location_name, l.code AS location_code,
@@ -516,6 +546,19 @@ router.get('/', requireAuth(), handle((req, res) => {
     res.json({ events: rows });
 }));
 
+// ⚠ SKAL ligge før GET /:id — ellers matcher wildcard-ruten "order-status"
+// som et event-id og svarer "Event ikke fundet".
+// Status til Settings → Event-ordre. Samme regel som broen bruger, men bag
+// login — Settings-siden skal ikke kende bro-hemmeligheden.
+router.get('/order-status', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const r = resolveActiveOrderEvent(db, todayISO());
+    res.json({
+        active: r.event, reason: r.reason, hint: r.hint || null,
+        candidates: r.candidates.map(e => ({ id: e.id, name: e.name, start_date: e.start_date, end_date: e.end_date })),
+    });
+}));
+
 router.get('/:id', requireAuth(), handle((req, res) => {
     const event = getEvent(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
@@ -534,8 +577,8 @@ router.post('/', requireAuth(), handle((req, res) => {
     const locationId = b.location_id ?? getDefaultLocationId();
     const result = db.prepare(`
         INSERT INTO events (name, location_id, model, start_date, end_date, status, notes, event_address, event_address_id,
-                            customer_id, company_id, day_contact_name, day_contact_phone, pos_enabled, created_by_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            customer_id, company_id, day_contact_name, day_contact_phone, pos_enabled, event_order_enabled, created_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         b.name, locationId, model, b.start_date,
         b.end_date ?? null, b.status ?? 'planning',
@@ -544,6 +587,7 @@ router.post('/', requireAuth(), handle((req, res) => {
         b.customer_id ?? null, b.company_id ?? null,
         b.day_contact_name ?? null, b.day_contact_phone ?? null,
         b.pos_enabled ? 1 : 0,
+        b.event_order_enabled ? 1 : 0,
         req.session?.userId ?? null
     );
     const ev = getEvent(result.lastInsertRowid);
@@ -559,7 +603,7 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
     if (!ev) return res.status(404).json({ error: 'Event ikke fundet' });
     const ALLOWED = ['name','start_date','end_date','status','notes','model','location_id','event_address','event_address_id','open_hours_json',
                      'customer_id','company_id','day_contact_name','day_contact_phone',
-                     'pos_enabled','pos_store_ref'];
+                     'pos_enabled','pos_store_ref','event_order_enabled'];
     const updates = [], params = [];
     for (const key of ALLOWED) {
         if (key in req.body) { updates.push(`${key} = ?`); params.push(req.body[key]); }
@@ -1334,6 +1378,7 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
 }));
 
 module.exports = router;
+module.exports.resolveActiveOrderEvent = resolveActiveOrderEvent;
 // Eksponér rene helpers til test (rammer den ægte aggregering + festival-opslag).
 module.exports.computeSalesPrefill = computeSalesPrefill;
 module.exports.computeTopupSuggestion = computeTopupSuggestion;

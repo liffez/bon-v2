@@ -36,6 +36,9 @@ const MIGRATIONS = path.join(__dirname, '..', 'db', 'migrations');
 const FIX = p => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/zettle', p), 'utf8')).purchases;
 const RAW_REAL = FIX('purchases_festival.json');
 const RAW_SYN = FIX('purchases_synthetic.json');
+// Køb hovedbogs-fixturen henviser til: festivalen (14/8) + kortkøbet den 15/8.
+const RAW_LEDGER = [...FIX('purchases_festival.json'), FIX('purchases_synthetic.json')[5]];
+const LEDGER = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/zettle/finance_ledger.json'), 'utf8')).transactions;
 
 const RECIPES = [
     { id: 57, name: 'Kartoflen slider', category: '04 Slider', cost_price: 11.2, co2e: 0.2, unit: 'stk' },
@@ -64,16 +67,18 @@ function makeEvent(db, { id = 1, name = 'Testfestival', posEnabled = 1, storeRef
     return id;
 }
 
-/** Stub-adapter: leverer fixture-køb som var de hentet fra Zettle. */
-function stubAdapter(raws) {
+/** Stub-adapter: leverer fixture-køb og -hovedbog som var de hentet fra Zettle. */
+const { normalizeFinanceTx } = require('../services/zettleAdapter');
+function stubAdapter(raws, ledger = []) {
     return {
         isConfigured: () => true,
         getPurchases: async () => raws.map(normalizePurchase),
+        getFinanceTransactions: async () => ledger.map(normalizeFinanceTx),
     };
 }
 
 const sync = (db, raws, opts = {}) => posSync.syncPos(db, {
-    adapter: stubAdapter(raws),
+    adapter: stubAdapter(raws, opts.ledger || []),
     from: '2026-08-13', to: '2026-08-16',
     deps: { getRecipes: async () => RECIPES, todayISO: () => '2026-08-16', offsetISO: () => '2026-08-13' },
     ...opts,
@@ -415,6 +420,202 @@ test('er Grocy nede, gemmes købene — men der bygges ingen halv bon', async ()
     posSync.rebuildDay(db, '2026-08-14', { recipes: RECIPES });
     assert.ok(bonOf(db, '2026-08-14'));
     assert.equal(day(db, '2026-08-14').last_error, null);
+});
+
+/* ══════════════════════════════════════════════════════════
+   GEBYR + UDBETALING (Fase 3)
+   ══════════════════════════════════════════════════════════ */
+
+test('gebyret hentes fra hovedbogen og bogføres som udgiftsbon', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_REAL, { ledger: LEDGER });
+
+    const d = day(db, '2026-08-14');
+    assert.equal(d.fee_incl, -1.3, 'et MÅLT gebyr, ikke en procentsats');
+    assert.equal(d.card_gross_incl, 65);
+    assert.ok(d.fee_bon_id, 'gebyret skal bogføres — en udgift man skal huske, bliver glemt');
+
+    const fee = db.prepare('SELECT * FROM bons WHERE id = ?').get(d.fee_bon_id);
+    assert.equal(fee.event_role, 'expense');
+    assert.equal(fee.is_internal, 1, 'gebyret må ikke tælle som omsætning');
+    assert.equal(fee.total_price, -1.3);
+    const line = db.prepare('SELECT * FROM bon_lines WHERE bon_id = ?').get(fee.id);
+    assert.equal(line.moms_included, 0, 'gebyret bærer ingen moms');
+    assert.match(line.product_name, /Kortgebyr/);
+});
+
+test('gebyr-bonnen er adskilt fra salgsbonnen — ellers gik omsætningen i nul', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_REAL, { ledger: LEDGER });
+    const d = day(db, '2026-08-14');
+    assert.notEqual(d.bon_id, d.fee_bon_id);
+    const salg = db.prepare('SELECT total_price FROM bons WHERE id = ?').get(d.bon_id);
+    assert.ok(salg.total_price > 0, 'salget er urørt af gebyret');
+});
+
+test('gentagen synk giver ikke to gebyr-bons', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_REAL, { ledger: LEDGER });
+    const first = day(db, '2026-08-14').fee_bon_id;
+    await sync(db, RAW_REAL, { ledger: LEDGER });
+    assert.equal(day(db, '2026-08-14').fee_bon_id, first);
+    assert.equal(db.prepare("SELECT COUNT(*) c FROM bons WHERE event_role='expense'").get().c, 1);
+});
+
+test('en dag uden event får ingen gebyr-bon — men gebyret er stadig regnet ud', async () => {
+    const db = _testDb;
+    makeEvent(db, { posEnabled: 0 });
+    await sync(db, RAW_REAL, { ledger: LEDGER });
+    const d = day(db, '2026-08-14');
+    assert.equal(d.fee_incl, -1.3, 'tallet skal kunne ses');
+    assert.equal(d.fee_bon_id, null, 'men der bogføres intet før dagen har et event');
+});
+
+test('udbetalingen gemmes med sin sammensætning', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const p = db.prepare('SELECT * FROM pos_payouts').get();
+    assert.ok(p, 'udbetalingen skal gemmes');
+    assert.equal(p.amount_incl, 142.10);
+    assert.equal(p.cf_transaction_id, null, 'og aldrig kobles til banken af sig selv');
+    const meta = JSON.parse(p.covered_json);
+    assert.deepEqual(meta.covered.map(c => c.business_date), ['2026-08-14', '2026-08-15']);
+});
+
+test('hovedbogen kan fejle uden at vælte salget', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    const r = await posSync.syncPos(db, {
+        adapter: {
+            isConfigured: () => true,
+            getPurchases: async () => RAW_REAL.map(normalizePurchase),
+            getFinanceTransactions: async () => { throw new Error('Zettle finans utilgængelig'); },
+        },
+        from: '2026-08-13', to: '2026-08-16',
+        deps: { getRecipes: async () => RECIPES, todayISO: () => '2026-08-16', offsetISO: () => '2026-08-13' },
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.finance.ok, false);
+    assert.ok(bonOf(db, '2026-08-14'), 'salgsbonnen er der');
+    assert.equal(day(db, '2026-08-14').fee_incl, 0, 'gebyret mangler bare — og samles op næste gang');
+});
+
+/* ══════════════════════════════════════════════════════════
+   BANK-KOBLING
+   ══════════════════════════════════════════════════════════ */
+
+function bankTx(db, { dato = '2026-08-19', tekst = 'ZETTLE AB', beloeb = 142.10 } = {}) {
+    return db.prepare('INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES (?,?,?)')
+        .run(dato, tekst, beloeb).lastInsertRowid;
+}
+
+test('udbetalingen fordeles på dagenes KORTsalg plus én gebyr-linje', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db);
+
+    const out = posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId });
+    const alloc = db.prepare('SELECT * FROM cf_allocations WHERE transaction_id = ? ORDER BY id').all(txId);
+    assert.equal(alloc.length, out.allocations.length);
+    const sum = Math.round(alloc.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    assert.equal(sum, 142.10, 'fordelingen skal ramme indbetalingen præcist');
+    assert.ok(alloc.some(a => a.amount < 0), 'gebyret som negativ linje');
+    assert.ok(alloc.some(a => a.target_type === 'bon'), 'kortsalget på dagens bon');
+});
+
+test('gebyret allokeres til dagens UDGIFTSBON, ikke som en løs gebyr-linje', async () => {
+    // Beslutningen fra 29. juni: på et event bogføres afgiften som udgiftsbon,
+    // og afstemningen vælger salgsbon (+) sammen med udgiftsbon (−). En løs
+    // fee-allokering ville lade udgiftsbonnen stå som uafstemt for evigt.
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db);
+    posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId });
+
+    const d = day(db, '2026-08-14');
+    assert.ok(d.fee_bon_id);
+    const feeAlloc = db.prepare('SELECT * FROM cf_allocations WHERE transaction_id = ? AND target_id = ?')
+        .get(txId, String(d.fee_bon_id));
+    assert.ok(feeAlloc, 'gebyr-bonnen skal være afstemt');
+    assert.equal(feeAlloc.target_type, 'bon');
+    assert.equal(feeAlloc.amount, d.fee_incl);
+    assert.equal(db.prepare("SELECT COUNT(*) c FROM cf_allocations WHERE transaction_id = ? AND target_type='fee'").get(txId).c,
+        0, 'ingen løs fee-linje når udgiftsbonnen findes — den ville tælle samme krone et andet sted');
+});
+
+test('uden udgiftsbon falder gebyret tilbage til en løs fee-linje', async () => {
+    // Fx hvis gebyr-bogføring er slået fra: fordelingen skal stadig gå op.
+    const db = _testDb;
+    makeEvent(db);
+    db.prepare("UPDATE settings SET value='0' WHERE key='zettle_fee_bon_enabled'").run();
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    assert.equal(day(db, '2026-08-14').fee_bon_id, null);
+    const txId = bankTx(db);
+    const out = posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId });
+    assert.ok(out.allocations.some(a => a.target_type === 'fee'));
+    const sum = Math.round(out.allocations.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    assert.equal(sum, 142.10);
+});
+
+test('kun kortdelen allokeres — MobilePay og kontant hører til andre penge', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db);
+    posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId });
+
+    const d = day(db, '2026-08-14');
+    const bonAlloc = db.prepare("SELECT amount FROM cf_allocations WHERE transaction_id = ? AND target_id = ?")
+        .get(txId, String(d.bon_id));
+    assert.equal(bonAlloc.amount, d.card_gross_incl);
+    assert.ok(d.gross_incl > d.card_gross_incl, 'dagen indeholder mere end kort');
+});
+
+test('samme udbetaling kan ikke kobles to gange', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db);
+    posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId });
+    assert.throws(() => posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: bankTx(db, { dato: '2026-08-20' }) }),
+        e => e.code === 'already_matched');
+});
+
+test('en postering med et andet beløb afvises', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db, { beloeb: 999 });
+    assert.throws(() => posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId }),
+        e => e.code === 'amount_mismatch');
+});
+
+test('en allerede fordelt postering røres ikke', async () => {
+    const db = _testDb;
+    makeEvent(db);
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db);
+    db.prepare("INSERT INTO cf_allocations (transaction_id, target_type, target_id, amount) VALUES (?,'invoice','X',142.10)").run(txId);
+    assert.throws(() => posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId }),
+        e => e.code === 'already_allocated');
+});
+
+test('går fordelingen ikke op, siges det — der gættes ikke', async () => {
+    // En dækket dag uden salgsbon (fx utildelt) ⇒ dens kortsalg kan ikke placeres.
+    const db = _testDb;
+    makeEvent(db, { start: '2026-08-14', end: '2026-08-14' });   // dækker kun den 14.
+    await sync(db, RAW_LEDGER, { ledger: LEDGER });
+    const txId = bankTx(db);
+    assert.throws(() => posSync.matchPayout(db, { payoutUuid: '2beafe94-9a1b-11f1-bdf3-b815b5c95c0c', transactionId: txId }),
+        e => e.code === 'allocation_mismatch');
+    assert.equal(db.prepare('SELECT COUNT(*) c FROM cf_allocations WHERE transaction_id = ?').get(txId).c, 0,
+        'og der efterlades ingen halv fordeling');
 });
 
 /* ══════════════════════════════════════════════════════════

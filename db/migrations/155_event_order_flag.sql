@@ -1,0 +1,22 @@
+-- 155_event_order_flag.sql
+-- ════════════════════════════════════════════════════════════
+-- Eventet erklærer selv om der tages imod forudbestillinger gennem
+-- event-order-siden — samme mønster som `pos_enabled` (migration 153).
+--
+-- Før dette lå koblingen to steder, og ingen af dem på eventet:
+--   • `event_order_admin_url` + `event_order_base_url` er GLOBALE settings, så
+--     de to knapper ("Event-ordre-admin", "Opdater i event-ordre") dukkede op
+--     på HVERT event — også dem der intet har med forudbestilling at gøre.
+--   • Hvilket event event-order-siden faktisk hører til, stod i den ANDEN
+--     applikations konfigurationsfil (`event-config.json` → `bonV2.eventId`).
+--     Et nyt event krævede derfor: opret i Bon → kopiér id → redigér fil på
+--     en anden server → deploy. Tre af de fire skridt kunne glemmes.
+--
+-- Med fluebenet her kan Bon svare på "hvilket event tages der imod
+-- forudbestillinger til?" (`GET /webhook/event-active`), og knapperne kan vises
+-- hvor de hører hjemme.
+--
+-- Default 0 ⇒ migrationen ændrer intet for eksisterende events.
+-- ════════════════════════════════════════════════════════════
+
+ALTER TABLE events ADD COLUMN event_order_enabled INTEGER NOT NULL DEFAULT 0;

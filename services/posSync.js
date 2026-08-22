@@ -22,6 +22,7 @@ const { getZettleAdapter } = require('./zettleAdapter');
 const {
     businessDate, buildRecipeIndex, aggregateDay, resolveEventForDay,
 } = require('./posSales');
+const { paymentUuidIndex, attributeLedger, suggestBankMatch, round2 } = require('./posFinance');
 
 const SOURCE = 'zettle';
 
@@ -401,13 +402,289 @@ async function syncPos(db, { adapter = null, from = null, to = null, userId = nu
         }
     }
 
+    // Hovedbogen hentes bagefter, fordi gebyret kobles til dagen gennem
+    // betalings-uuid'et i de køb vi lige har gemt. Fejler den, står salget
+    // stadig rigtigt — gebyret mangler bare og samles op ved næste synk.
+    let finance = null;
+    try {
+        finance = await syncFinance(db, { adapter: zettle, from: windowFrom, to: windowTo, userId, deps });
+    } catch (err) {
+        console.error('[pos-sync] hovedbogen kunne ikke hentes:', err.message);
+        finance = { ok: false, error: err.message };
+    }
+
     return {
         ok: true,
         from: windowFrom, to: windowTo,
         purchases: purchases.length, inserted, updated,
         recipes_available: Boolean(recipes),
         days,
+        finance,
     };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   GEBYR + UDBETALING (Fase 3)
+   ══════════════════════════════════════════════════════════════ */
+
+const FEE_LINE_NAME = 'Kortgebyr (Zettle)';
+
+/** Broens egen gebyr-bon for dagen — aldrig en andens. */
+function ownFeeBon(db, date) {
+    return db.prepare(`
+        SELECT b.id, b.bon_number, sd.code AS status_code
+        FROM pos_sales_days d
+        JOIN bons b ON b.id = d.fee_bon_id
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE d.source = ? AND d.business_date = ?
+          AND b.status_id != (SELECT id FROM status_definitions WHERE code = 'AFLYST')
+    `).get(SOURCE, date);
+}
+
+/**
+ * Dagens kortgebyr som udgiftsbon. Spejler event-broens gebyr-rolle
+ * (migration 137): event_role='expense', is_internal=1, negativt beløb.
+ *
+ * Bogføres automatisk med vilje: en udgift man skal huske at taste, bliver
+ * systematisk glemt. Forskellen fra broen er at dette er et MÅLT tal fra
+ * Zettles hovedbog, ikke et procent-skøn.
+ *
+ * Momsen: gebyret er en finansiel ydelse og bærer ingen moms. `moms_included=0`
+ * er den nærmeste sandhed skemaet kan udtrykke (jf. #317 — flaget kan ikke
+ * skelne "ex moms" fra "momsfri"), og det er samme valg broen traf.
+ */
+function applyFeeBon(db, { event, date, feeIncl, priceCategory, userId = null }) {
+    const existing = ownFeeBon(db, date);
+    const amount = round2(feeIncl);
+
+    if (existing && !RECONCILE_STATUSES.includes(existing.status_code)) {
+        return { action: 'frozen', bon_id: existing.id, bon_number: existing.bon_number, status: existing.status_code };
+    }
+    if (!amount && !existing) return { action: 'skipped', reason: 'no_fee' };
+
+    const writeFeeLine = (bonId) => {
+        db.prepare('DELETE FROM bon_lines WHERE bon_id = ?').run(bonId);
+        db.prepare(`
+            INSERT INTO bon_lines (bon_id, product_name, quantity, unit, unit_price, line_total, moms_included, sort_order)
+            VALUES (?, ?, 1, 'stk', ?, ?, 0, 0)
+        `).run(bonId, FEE_LINE_NAME, amount, amount);
+        db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(amount, amount, bonId);
+    };
+
+    if (existing) {
+        transaction(db, () => writeFeeLine(existing.id));
+        broadcast('bon_updated', { id: existing.id, event_id: event.id });
+        return { action: 'updated', bon_id: existing.id, bon_number: existing.bon_number, amount };
+    }
+
+    const pc = db.prepare('SELECT id, code FROM price_categories WHERE code = ? AND is_active = 1').get(priceCategory);
+    if (!pc) throw new Error(`Priskategori '${priceCategory}' findes ikke`);
+    const statusId = getStatusId('BETALT');
+    const bonNumber = nextBonNumber();
+    const contact = eventContactFields(event);
+
+    const bonId = transaction(db, () => {
+        const r = db.prepare(`
+            INSERT INTO bons (
+                bon_number, status_id, location_id, price_category_id, price_category,
+                event_id, event_role, order_date, delivery_date,
+                delivery_type, pax, total_units, payment_type,
+                customer_id, company_id, day_contact_name, day_contact_phone,
+                internal_notes, created_by_user_id, is_internal,
+                total_price, total_with_delivery,
+                prep_ingredients_ready, prep_supplies_ready, kitchen_selects, customer_collects,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'expense', ?, ?, 'event', 0, 0, 'pos', ?, ?, ?, ?, ?, ?, 1, 0, 0, 0, 0, 0, 0,
+                      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(
+            bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, date, date,
+            contact.customer_id, contact.company_id, contact.day_contact_name, contact.day_contact_phone,
+            `Zettles kortgebyr for ${date}. Målt fra Zettles hovedbog, ikke et skøn. Opdateres ved hver synk.`,
+            userId,
+        );
+        const id = r.lastInsertRowid;
+        db.prepare('UPDATE pos_sales_days SET fee_bon_id = ? WHERE source = ? AND business_date = ?')
+            .run(id, SOURCE, date);
+        writeFeeLine(id);
+        return id;
+    });
+
+    logChange({
+        entityType: 'bon', entityId: bonId, action: 'create', fieldName: 'pos_fee',
+        newValue: `${bonNumber} (Zettle-kortgebyr, ${date}, ${amount} kr)`, userId,
+    });
+    broadcast('bon_created', { id: bonId, bon_number: bonNumber, event_id: event.id });
+    return { action: 'created', bon_id: bonId, bon_number: bonNumber, amount };
+}
+
+/**
+ * Hent Zettles hovedbog, fordel den på dage og udbetalinger, og bogfør
+ * dagens gebyr.
+ *
+ * Kræver at købene er hentet først — gebyret kobles til dagen gennem
+ * betalings-uuid'et i den rå payload. Er et køb ikke gemt endnu, står gebyret
+ * uden dag og tælles ikke med; næste synk samler det op.
+ */
+async function syncFinance(db, { adapter = null, from = null, to = null, userId = null, deps = {} } = {}) {
+    const cfg = getPosSettings(db);
+    if (!cfg.enabled) return { ok: false, skipped: true, reason: 'disabled' };
+    const zettle = adapter || getZettleAdapter();
+    if (!zettle.isConfigured()) return { ok: false, skipped: true, reason: 'not_configured' };
+
+    const today = deps.todayISO ? deps.todayISO() : require('../db/helpers').todayISO();
+    const offset = deps.offsetISO ? deps.offsetISO : require('../db/helpers').offsetISO;
+    const windowFrom = from || offset(-cfg.resyncDays);
+    const windowTo = to || today;
+
+    const ledger = await zettle.getFinanceTransactions({ from: windowFrom, to: windowTo });
+    const purchases = db.prepare(
+        'SELECT purchase_uuid, business_date, raw_json FROM pos_purchases WHERE source = ?'
+    ).all(SOURCE);
+    const index = paymentUuidIndex(purchases);
+    const { rows, payouts, days } = attributeLedger(ledger, index);
+
+    transaction(db, () => {
+        const ins = db.prepare(`
+            INSERT INTO pos_finance_tx (source, tx_type, originating_uuid, occurred_at, amount_incl, payout_uuid, business_date, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(source, tx_type, originating_uuid) DO UPDATE SET
+                occurred_at   = excluded.occurred_at,
+                amount_incl   = excluded.amount_incl,
+                payout_uuid   = COALESCE(excluded.payout_uuid, pos_finance_tx.payout_uuid),
+                business_date = COALESCE(excluded.business_date, pos_finance_tx.business_date),
+                synced_at     = datetime('now')
+        `);
+        for (const r of rows) {
+            if (!r.originating_uuid || !r.tx_type) continue;
+            ins.run(SOURCE, r.tx_type, r.originating_uuid, r.occurred_at, r.amount_incl, r.payout_uuid, r.business_date);
+        }
+        // Udbetalingen: sammensætningen genberegnes, men et godkendt bank-match
+        // røres ALDRIG — det er et menneskes beslutning.
+        const insP = db.prepare(`
+            INSERT INTO pos_payouts (source, payout_uuid, occurred_at, amount_incl, gross_incl, fee_incl, covered_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, payout_uuid) DO UPDATE SET
+                occurred_at  = excluded.occurred_at,
+                amount_incl  = excluded.amount_incl,
+                gross_incl   = excluded.gross_incl,
+                fee_incl     = excluded.fee_incl,
+                covered_json = excluded.covered_json
+        `);
+        for (const p of payouts) {
+            insP.run(SOURCE, p.payout_uuid, p.occurred_at, p.amount_incl, p.gross_incl, p.fee_incl,
+                JSON.stringify({ covered: p.covered, partial: p.partial, explained_incl: p.explained_incl }));
+        }
+        for (const d of days) {
+            db.prepare(`UPDATE pos_sales_days SET fee_incl = ?, card_gross_incl = ?
+                        WHERE source = ? AND business_date = ?`)
+                .run(d.fee_incl, d.card_gross_incl, SOURCE, d.business_date);
+        }
+    });
+
+    // Gebyr-bons — kun på dage der er koblet til et event.
+    const feeBons = [];
+    if (db.prepare("SELECT value FROM settings WHERE key='zettle_fee_bon_enabled'").get()?.value === '1') {
+        for (const d of days) {
+            if (!d.fee_incl) continue;
+            const day = db.prepare('SELECT * FROM pos_sales_days WHERE source = ? AND business_date = ?')
+                .get(SOURCE, d.business_date);
+            if (!day?.event_id) continue;
+            const event = db.prepare(`
+                SELECT e.id, e.name, e.location_id, e.event_address_id, e.customer_id, e.company_id,
+                       e.day_contact_name, e.day_contact_phone,
+                       NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') AS contact_name,
+                       c.phone AS contact_phone
+                FROM events e LEFT JOIN customers c ON e.customer_id = c.id WHERE e.id = ?
+            `).get(day.event_id);
+            if (!event) continue;
+            try {
+                feeBons.push({ date: d.business_date,
+                    ...applyFeeBon(db, { event, date: d.business_date, feeIncl: d.fee_incl, priceCategory: cfg.priceCategory, userId }) });
+            } catch (err) {
+                console.error(`[pos-finance] gebyr-bon for ${d.business_date} fejlede:`, err.message);
+            }
+        }
+    }
+
+    return { ok: true, from: windowFrom, to: windowTo, ledger: rows.length, payouts: payouts.length, days: days.length, fee_bons: feeBons };
+}
+
+/**
+ * Kobl en udbetaling til bankposteringen og fordel beløbet.
+ *
+ * Fordelingen er præcis: hver dækket dags KORTsalg allokeres til dagens
+ * salgsbon, og gebyret som én negativ linje. Summen rammer udbetalingen —
+ * det er brutto+gebyr-modellen fra CLAUDE_PENGESTROEM §2.F.4.
+ *
+ * ⚠️ Kun kortdelen. MobilePay og kontant i dagens bon hører til andre penge og
+ *    må ikke allokeres mod denne indbetaling.
+ */
+function matchPayout(db, { payoutUuid, transactionId, userId = null }) {
+    const payout = db.prepare('SELECT * FROM pos_payouts WHERE source = ? AND payout_uuid = ?').get(SOURCE, payoutUuid);
+    if (!payout) throw Object.assign(new Error('Udbetalingen findes ikke'), { code: 'unknown_payout' });
+    if (payout.cf_transaction_id) {
+        throw Object.assign(new Error(`Udbetalingen er allerede koblet til postering ${payout.cf_transaction_id}`), { code: 'already_matched' });
+    }
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(transactionId);
+    if (!tx) throw Object.assign(new Error('Bankposteringen findes ikke'), { code: 'unknown_transaction' });
+    if (Math.abs(tx.beloeb - payout.amount_incl) > 0.01) {
+        throw Object.assign(
+            new Error(`Beløbene er ikke ens: udbetaling ${payout.amount_incl} kr, postering ${tx.beloeb} kr`),
+            { code: 'amount_mismatch' });
+    }
+    const alreadyAllocated = db.prepare('SELECT COUNT(*) c FROM cf_allocations WHERE transaction_id = ?').get(transactionId).c;
+    if (alreadyAllocated) {
+        throw Object.assign(new Error('Posteringen er allerede fordelt — ryd fordelingen først'), { code: 'already_allocated' });
+    }
+
+    const meta = JSON.parse(payout.covered_json || '{}');
+    const covered = meta.covered || [];
+    const alloc = [];
+    let looseFee = 0;
+    for (const c of covered) {
+        const day = db.prepare('SELECT bon_id, fee_bon_id FROM pos_sales_days WHERE source = ? AND business_date = ?')
+            .get(SOURCE, c.business_date);
+        if (day?.bon_id && c.gross_incl) {
+            alloc.push({ target_type: 'bon', target_id: String(day.bon_id), amount: round2(c.gross_incl),
+                         note: `Zettle kortsalg ${c.business_date}` });
+        }
+        // Gebyret allokeres til dagens UDGIFTSBON når den findes. Beslutningen
+        // fra 29. juni (CLAUDE_PENGESTROEM §2.F): på et event bogføres afgiften
+        // som en udgiftsbon, og afstemningen vælger salgsbonnen (+) sammen med
+        // udgiftsbonnerne (−) så Σ rammer netto-indbetalingen. En løs
+        // fee-allokering ville lade udgiftsbonnen stå som uafstemt for evigt.
+        if (!c.fee_incl) continue;
+        if (day?.fee_bon_id) {
+            alloc.push({ target_type: 'bon', target_id: String(day.fee_bon_id), amount: round2(c.fee_incl),
+                         note: `Zettle kortgebyr ${c.business_date}` });
+        } else {
+            looseFee = round2(looseFee + c.fee_incl);   // dag uden event ⇒ ingen udgiftsbon at pege på
+        }
+    }
+    if (looseFee) alloc.push({ target_type: 'fee', target_id: 'zettle', amount: looseFee, note: 'Zettle kortgebyr' });
+
+    const sum = round2(alloc.reduce((s, a) => s + a.amount, 0));
+    if (Math.abs(sum - payout.amount_incl) > 0.01) {
+        throw Object.assign(
+            new Error(`Fordelingen går ikke op: ${sum} kr mod udbetalingens ${payout.amount_incl} kr. `
+                    + 'Sandsynligvis er en af de dækkede dage ikke koblet til et event endnu.'),
+            { code: 'allocation_mismatch', sum, expected: payout.amount_incl });
+    }
+
+    transaction(db, () => {
+        const ins = db.prepare(`INSERT INTO cf_allocations (transaction_id, target_type, target_id, amount, note, created_by)
+                                VALUES (?, ?, ?, ?, ?, ?)`);
+        for (const a of alloc) ins.run(transactionId, a.target_type, a.target_id, a.amount, a.note, userId);
+        db.prepare(`UPDATE pos_payouts SET cf_transaction_id = ?, matched_at = datetime('now'), matched_by_user_id = ?
+                    WHERE source = ? AND payout_uuid = ?`).run(transactionId, userId, SOURCE, payoutUuid);
+    });
+
+    logChange({
+        entityType: 'cf_transaction', entityId: transactionId, action: 'update', fieldName: 'pos_payout',
+        newValue: payoutUuid, notes: `Zettle-udbetaling ${payout.amount_incl} kr fordelt på ${alloc.length} mål`, userId,
+    });
+    return { ok: true, allocations: alloc, payout_uuid: payoutUuid, transaction_id: transactionId };
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -499,7 +776,8 @@ function stopPolling() {
 }
 
 module.exports = {
-    SOURCE, RECONCILE_STATUSES, assignDay, ownBon, startPolling, stopPolling,
+    SOURCE, RECONCILE_STATUSES, assignDay, ownBon, ownFeeBon, startPolling, stopPolling,
+    applyFeeBon, syncFinance, matchPayout, suggestBankMatch,
     getPosSettings, upsertPurchases, loadDayPurchases,
     candidateEvents, applyDayBon, rebuildDay, syncPos,
 };
