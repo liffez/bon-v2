@@ -9,6 +9,15 @@
 .dr-mode-btn { border: none; background: #fff; padding: 8px 16px; cursor: pointer; font-size: 14px; }
 .dr-mode-btn.active { background: var(--brand-primary, #8e631f); color: #fff; }
 .dr-mode-note { color: #999; font-size: 13px; }
+
+/* Lokations-snit (§18.7). Samme form som mode-knapperne, men egen accentfarve
+   så det er synligt at man ser en DEL af driften og ikke det hele. */
+.dr-loc { display: inline-flex; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px; overflow: hidden; }
+.dr-loc-btn { border: none; background: #fff; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+.dr-loc-btn + .dr-loc-btn { border-left: 1px solid var(--color-border, #d7d1ca); }
+.dr-loc-btn.active { background: #4a7ab0; color: #fff; }
+.dr-loc-banner { background: #eef4fb; border: 1px solid #bcd3ea; border-left: 4px solid #4a7ab0;
+                 border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; color: #2e5680; font-size: 14px; }
 .dr-week-label { font-size: 15px; font-weight: 600; min-width: 190px; text-align: center; }
 
 .dr-loading, .dr-empty { color: #999; padding: 20px; }

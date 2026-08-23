@@ -9,7 +9,7 @@
  * Plain script — global initDrift(container) / cleanupDrift().
  * ════════════════════════════════════════════════════════════ */
 
-let _driftState = { date: null, mode: 'realiseret', el: null };
+let _driftState = { date: null, mode: 'realiseret', location: 'all', el: null };
 
 function _drMoney(n) {
     if (n == null) return '—';
@@ -208,6 +208,9 @@ function initDrift(container, opts) {
     _driftState.openDrawer = (opts && opts.openDrawer) || null;
     if (!_driftState.date) _driftState.date = _drTodayISO();
     if (!_driftState.view) _driftState.view = 'day';
+    // Nulstil altid til hele driften. Et lokations-snit er et halvt regnskab —
+    // det skal vælges bevidst, ikke arves fra sidste besøg og forveksles med alt.
+    _driftState.location = 'all';
     if (!_driftState.to)   { _driftState.to = _drShiftDate(_drTodayISO(), -1); _driftState.from = _drShiftDate(_driftState.to, -6); }
     if (!_driftState.weekFrom) _driftState.weekFrom = _drMonday(_drTodayISO());
     container.innerHTML = '<div class="dr-wrap"><div class="dr-loading">Henter driftsregnskab…</div></div>';
@@ -215,6 +218,24 @@ function initDrift(container, opts) {
 }
 
 function cleanupDrift() { _driftState.el = null; }
+
+// ── Lokations-snit (§18.7) ───────────────────────────────────
+// Driften er ÉN motor med to visninger. HQ og Events er to disjunkte snit af
+// den samme dag: hq + events = alt. Reglen der skal stå ét sted — og står her —
+// er at de to snit ALDRIG må lægges sammen med "alt": så tælles dagen dobbelt.
+var LOC_OPTS = [
+    { key: 'all',    label: 'Alt',     title: 'Hele driften — HQ og events samlet' },
+    { key: 'hq',     label: '🏠 HQ',   title: 'Kun HQ: catering, butik, prep. Løn fra vagter på HQ-lokationen i Smartplan.' },
+    { key: 'events', label: '🎪 Event', title: 'Kun events: salgs- og udgiftsbonner. Løn fra vagter på event-lokationen i Smartplan.' },
+];
+
+function _drLocBanner(loc) {
+    if (!loc || loc === 'all') return '';
+    var o = LOC_OPTS.filter(function (x) { return x.key === loc; })[0];
+    var name = o ? o.label : loc;
+    return '<div class="dr-loc-banner">Viser <strong>' + _drEsc(name) + '</strong> — et snit af driften, ikke hele huset. ' +
+           'HQ og Event er to halvdele af samme dag: læg dem aldrig oven i «Alt».</div>';
+}
 
 function _drRenderShell() {
     var s = _driftState;
@@ -229,6 +250,16 @@ function _drRenderShell() {
             '<button class="dr-mode-btn' + (s.mode === 'realiseret' ? ' active' : '') + '" data-mode="realiseret">Realiseret</button>' +
             '<button class="dr-mode-btn' + (s.mode === 'forecast' ? ' active' : '') + '" data-mode="forecast">Forecast</button>' +
         '</div>';
+    // Lokations-snit (§18.7). 'Alt' er hele driften; HQ og Events er to
+    // disjunkte halvdele af den. De må aldrig lægges sammen på tværs af
+    // visninger — derfor står der en advarsel så snart et snit er valgt.
+    var locBtns =
+        '<div class="dr-loc">' +
+            LOC_OPTS.map(function (o) {
+                return '<button class="dr-loc-btn' + (s.location === o.key ? ' active' : '') +
+                       '" data-loc="' + o.key + '" title="' + _drEsc(o.title) + '">' + _drEsc(o.label) + '</button>';
+            }).join('') +
+        '</div>';
 
     var weekTo = _drShiftDate(s.weekFrom, 6);
     var weekLabel = 'Uge ' + _drISOWeek(s.weekFrom) + ' · ' + _drFmtRange(s.weekFrom, weekTo);
@@ -238,7 +269,7 @@ function _drRenderShell() {
         toolbar = '<div class="dr-toolbar">' + viewToggle +
             '<label class="dr-pl">Fra <input type="date" id="drFrom" value="' + _drEsc(s.from) + '"></label>' +
             '<label class="dr-pl">Til <input type="date" id="drTo" value="' + _drEsc(s.to) + '"></label>' +
-            modeBtns +
+            modeBtns + locBtns +
           '</div>';
     } else if (s.view === 'week') {
         toolbar = '<div class="dr-toolbar">' + viewToggle +
@@ -246,7 +277,7 @@ function _drRenderShell() {
             '<span class="dr-week-label" id="drWeekLabel">' + _drEsc(weekLabel) + '</span>' +
             '<button class="dr-nav" id="drWeekNext">▶</button>' +
             '<button class="dr-today" id="drWeekToday">Denne uge</button>' +
-            modeBtns +
+            modeBtns + locBtns +
           '</div>';
     } else {
         toolbar = '<div class="dr-toolbar">' + viewToggle +
@@ -254,12 +285,13 @@ function _drRenderShell() {
             '<input type="date" id="drDate" value="' + _drEsc(s.date) + '">' +
             '<button class="dr-nav" id="drNext">▶</button>' +
             '<button class="dr-today" id="drToday">I dag</button>' +
-            modeBtns +
+            modeBtns + locBtns +
             '<span class="dr-mode-note" id="drModeNote"></span>' +
           '</div>';
     }
 
-    s.el.innerHTML = '<div class="dr-wrap">' + toolbar + '<div id="drBody"><div class="dr-loading">Henter…</div></div></div>';
+    s.el.innerHTML = '<div class="dr-wrap">' + toolbar + _drLocBanner(s.location) +
+                     '<div id="drBody"><div class="dr-loading">Henter…</div></div></div>';
 
     var byId = function (id) { return s.el.querySelector('#' + id); };
     s.el.querySelectorAll('.dr-view-btn').forEach(function (b) {
@@ -267,6 +299,9 @@ function _drRenderShell() {
     });
     s.el.querySelectorAll('.dr-mode-btn').forEach(function (b) {
         b.addEventListener('click', function (e) { s.mode = e.currentTarget.getAttribute('data-mode'); _drRenderShell(); });
+    });
+    s.el.querySelectorAll('.dr-loc-btn').forEach(function (b) {
+        b.addEventListener('click', function (e) { s.location = e.currentTarget.getAttribute('data-loc'); _drRenderShell(); });
     });
 
     if (s.view === 'period') {
@@ -351,9 +386,9 @@ function _drLoadPeriod() {
     }
 
     body.innerHTML = '<div class="dr-loading">Beregner ' + span + ' dage… et øjeblik.</div>';
-    var rf = s.from, rt = s.to, rm = s.mode;
-    fetchDriftPeriod(rf, rt, rm).then(function (p) {
-        if (s.from !== rf || s.to !== rt || s.mode !== rm) return;   // forældet svar
+    var rf = s.from, rt = s.to, rm = s.mode, rl = s.location;
+    fetchDriftPeriod(rf, rt, rm, rl).then(function (p) {
+        if (s.from !== rf || s.to !== rt || s.mode !== rm || s.location !== rl) return;   // forældet svar
         _drRenderPeriod(p);
     }).catch(function (err) {
         body.innerHTML = '<div class="dr-error">Kunne ikke hente: ' + _drEsc(err.message) + '</div>';
@@ -367,6 +402,18 @@ function _drRenderPeriod(p) {
     var days = p.days || [];
     _driftState.targets = p.targets || {};   // måltal til farvekodning
     var resultCls = (t.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg';
+
+    // En hel uge med "Løn 0 kr" ser ud som om ingen har arbejdet. Var det i
+    // stedet vagtplanen der ikke svarede, SKAL det stå der — ellers læses et
+    // manglende tal som et rigtigt tal, og DB% og Løn% er lige så forkerte.
+    var laborWarn = '';
+    if (p.labor_error) {
+        laborWarn = '<div class="dr-warn"><div>⚠ Løn mangler på ' + (p.labor_missing_days || 0)
+            + ' af ' + (t.day_count || 0) + ' dage — vagtplanen kunne ikke hentes ('
+            + _drEsc(p.labor_error) + ').</div>'
+            + '<div>Løn, DB% og Løn% er derfor for gode i denne visning. Tallene retter sig selv '
+            + 'når kilden svarer igen — der er ikke frosset noget forkert.</div></div>';
+    }
 
     var kpi = function (label, val, cls, sub) {
         return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div><div class="dr-kpi-label">' + label + '</div>' +
@@ -385,6 +432,11 @@ function _drRenderPeriod(p) {
         '</div>';
     }).join('');
 
+    var missingMark = function (d) {
+        return d.labor_error
+            ? ' <span class="dr-sub" title="Vagtplanen kunne ikke hentes for denne dag — 0 kr er ikke et måltal">⚠</span>'
+            : '';
+    };
     var rows = days.map(function (d) {
         return '<tr>' +
             '<td>' + d.date + (d.frozen ? ' <span class="dr-flag">🔒</span>' : '') + '</td>' +
@@ -392,7 +444,7 @@ function _drRenderPeriod(p) {
             '<td class="dr-r">' + _drMoney(d.cost_ex_moms) + '</td>' +
             _drShareCell(d.cost_ex_moms, d.revenue_ex_moms, 'food') +
             '<td class="dr-r">' + _drMoney(d.delivery_ex_moms) + '</td>' +
-            '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + '</td>' +
+            '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + missingMark(d) + '</td>' +
             _drShareCell(d.labor_ex_moms, d.revenue_ex_moms, 'labor') +
             '<td class="dr-r ' + ((d.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg') + '">' + _drMoney(d.driftsresultat_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drPct(d.db_pct) + '</td>' +
@@ -404,7 +456,7 @@ function _drRenderPeriod(p) {
         ? 'rå −' + _drMoney(t.labor_raw_ex_moms) + ' + tillæg' : '';
     var pLoenSub = [_drShareSub(t.labor_ex_moms, t.revenue_ex_moms, 'labor'), pRaw].filter(Boolean).join('<br>');
 
-    body.innerHTML = '' +
+    body.innerHTML = laborWarn +
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(t.revenue_ex_moms)) +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms), '',
@@ -454,9 +506,9 @@ function _drLoadItems(from, to) {
     var s = _driftState;
     var host = s.el && s.el.querySelector('#drItems');
     if (!host) return;
-    var reqKey = from + '|' + to + '|' + s.mode;
+    var reqKey = from + '|' + to + '|' + s.mode + '|' + s.location;
     s.itemsKey = reqKey;
-    fetchDriftItems(from, to, s.mode).then(function (r) {
+    fetchDriftItems(from, to, s.mode, s.location).then(function (r) {
         if (s.itemsKey !== reqKey) return;                       // forældet svar
         var h = s.el && s.el.querySelector('#drItems');
         if (h) _drRenderItems(h, r);
@@ -520,8 +572,9 @@ function _drLoad() {
     if (!body) return;
     body.innerHTML = '<div class="dr-loading">Henter…</div>';
     var reqDate = s.date, reqMode = s.mode;
-    fetchDriftDay(reqDate, reqMode).then(function (d) {
-        if (s.date !== reqDate || s.mode !== reqMode) return;   // forældet svar
+    var reqLoc = s.location;
+    fetchDriftDay(reqDate, reqMode, reqLoc).then(function (d) {
+        if (s.date !== reqDate || s.mode !== reqMode || s.location !== reqLoc) return;   // forældet svar
         _drRender(d);
     }).catch(function (err) {
         body.innerHTML = '<div class="dr-error">Kunne ikke hente: ' + _drEsc(err.message) + '</div>';
@@ -673,7 +726,7 @@ function _drOpenBonModal() {
     if (Array.isArray(d.bons)) {
         _drShowBonModal(d, d.bons, false);
     } else {
-        fetchDriftDayBons(d.date, d.mode).then(function (r) {
+        fetchDriftDayBons(d.date, d.mode, d.location).then(function (r) {
             if (_driftState.day === d) _drShowBonModal(d, r.bons || [], true);
         }).catch(function (err) {
             openModal({ title: 'Bonner — ' + _drEsc(d.date), bodyHtml: '<div class="dr-error">Kunne ikke hente: ' + _drEsc(err.message) + '</div>' });

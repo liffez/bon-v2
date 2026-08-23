@@ -5132,6 +5132,50 @@ let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'
 // NB: må IKKE hedde ROLE_LABELS — kolliderer med bruger-rolle-labels (~1822) og brækker hele scriptet
 const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', volunteer: 'Frivillig (ulønnet)', other: 'Andet' };
 
+// Forbrug: ét logisk opslag kan være mange HTTP-kald (Smartplan paginerer),
+// og rammer man grænsen, ser vagtplanen tom ud. Uden tallet er "vi henter vel
+// ikke så tit" en fornemmelse frem for en oplysning. Vises i BEGGE tilstande —
+// det er netop når vi er afvist, at forbruget er værd at kunne se.
+function smartplanUsageHtml(u) {
+    u = u || {};
+    if (u.requests == null) return '';
+    return '<div style="margin-top:8px;color:#888;font-size:12px">'
+        + 'Forbrug siden serverstart (' + (u.uptime_min || 0) + ' min): '
+        + '<strong>' + u.requests + '</strong> kald til Smartplan'
+        + (u.pages ? ' (heraf ' + u.pages + ' ekstra sider fra paginering)' : '')
+        + (u.throttled
+            ? ' · <span style="color:#b3771f">' + u.throttled + ' afvist (429), senest '
+              + esc(String(u.lastThrottleAt || '').replace('T', ' ').slice(0, 16)) + ' UTC</span>'
+            : ' · ingen afvisninger')
+        + '</div>';
+}
+
+// Nedtælling til karantænen er ovre. Uden den står der et sekundtal der var
+// rigtigt da siden blev hentet, og som aldrig ændrer sig — og så ser det ud som
+// om vi hænger fast for evigt. Når tiden er gået, prøver siden selv igen, så
+// man ikke skal sidde og genindlæse.
+var _spCountdown = null;
+function startSmartplanCountdown(untilIso) {
+    if (_spCountdown) { clearInterval(_spCountdown); _spCountdown = null; }
+    var el = document.getElementById('sp-countdown');
+    if (!el || !untilIso) return;
+    var until = Date.parse(untilIso);
+    if (!until) return;
+    var tick = function () {
+        var left = Math.ceil((until - Date.now()) / 1000);
+        if (left <= 0) {
+            clearInterval(_spCountdown); _spCountdown = null;
+            el.textContent = 'Prøver igen…';
+            loadSmartplanStatus();
+            return;
+        }
+        var m = Math.floor(left / 60), sec = left % 60;
+        el.textContent = m > 0 ? (m + ' min ' + sec + ' sek') : (sec + ' sek');
+    };
+    tick();
+    _spCountdown = setInterval(tick, 1000);
+}
+
 async function loadSmartplanStatus() {
     var box = document.getElementById('sp-status');
     var sel = document.getElementById('sp-hq-select');
@@ -5140,9 +5184,27 @@ async function loadSmartplanStatus() {
     try {
         var d = await fetchSmartplanStatus();
         if (!d.connected) {
-            box.innerHTML = '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
-                + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
-            sel.innerHTML = '<option value="">Kunne ikke hente lokationer</option>';
+            // To fejl der ligner hinanden og kræver stik modsatte handlinger:
+            // throttling går over af sig selv, manglende nøgler gør ikke. Rådet
+            // "tjek .env" på en 429 sender folk ud at rette noget der er i orden.
+            var throttled = /429|limit|minut/i.test(d.error || '');
+            var u2 = d.usage || {};
+            var countdown = u2.blocked_until
+                ? '<br><span style="color:#b3771f">Vi prøver igen om <strong id="sp-countdown">…</strong>'
+                  + ' (kl. ' + esc(u2.blocked_until_clock || '') + ') — siden opdaterer sig selv.</span>'
+                : '';
+            box.innerHTML = throttled
+                ? '<span style="color:#b3771f">⏳ Kan ikke spørge lige nu</span> — ' + esc(d.error)
+                  + countdown
+                  + '<br><span style="color:#888">Vagterne er der stadig — indstillingen er ikke i stykker.</span>'
+                : '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
+                  + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
+            // Ingen lokationer betyder her "vi fik ikke svar", ikke "der er
+            // ingen". Det gemte valg skal blive stående, ikke se ud som tabt.
+            box.innerHTML += smartplanUsageHtml(d.usage);
+            startSmartplanCountdown(u2.blocked_until);
+            sel.innerHTML = '<option value="' + esc(d.hq_location || '') + '" selected>'
+                          + esc(d.hq_location || '(ikke sat)') + ' — kunne ikke tjekkes lige nu</option>';
             return;
         }
         // Rækkerne fortæller om indstillingen passer — uden dem er "HQ" bare et
@@ -5160,8 +5222,10 @@ async function loadSmartplanStatus() {
             + '⚠ Indstillingen siger <strong>' + esc(d.hq_location) + '</strong>, men Smartplan har ingen lokation med det navn. '
             + 'Alle vagter regnes derfor som Festival &amp; Events. Vælg den rigtige nedenfor.</div>';
         box.innerHTML = '<span style="color:#2e7d32">✓ Forbundet</span> — '
-            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper det seneste år'
-            + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn;
+            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper de seneste 180 dage'
+            + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn
+            + smartplanUsageHtml(d.usage);
+        if (_spCountdown) { clearInterval(_spCountdown); _spCountdown = null; }
 
         sel.innerHTML = d.locations.map(function (l) {
             return '<option value="' + esc(l.title) + '"' + (l.title === d.hq_location ? ' selected' : '') + '>'

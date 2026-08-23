@@ -869,6 +869,35 @@ function workloadRoleSql(col = 'event_role') {
 }
 
 /**
+ * Driftsregnskabets lokations-snit (CLAUDE_EVENT.md §18.7).
+ *
+ * "Hvor foregik arbejdet bag denne bon?"
+ *   hq     — HQ-køkkenet. Almindelige bons OG event-prep/top-up: de laves på
+ *            HQ, af HQ-folk, på en HQ-vagt. Derfor bliver de i driften.
+ *   events — det der sker PÅ PLADSEN: event-salg og event-udgifter.
+ *   all    — begge (uændret adfærd, og fortsat default).
+ *
+ * De to snit er DISJUNKTE, så hq + events = all. Det er med vilje: kan man
+ * ikke lægge dem sammen og få totalen, er der noget der falder ned mellem dem.
+ *
+ * Prædikatet er det samme som `workloadRoleSql` — og det er ikke tilfældigt:
+ * "tæller som produktions-workload" og "foregik på HQ" partitionerer ens i dag.
+ * De besvarer alligevel hver sit spørgsmål og kan skride fra hinanden (fx hvis
+ * en ny rolle er HQ-arbejde uden at være workload), så de holdes adskilt frem
+ * for at dele én funktion der så skulle betyde to ting.
+ *
+ * @param {'hq'|'events'|'all'} location
+ * @param {string} bonAlias
+ * @returns {string} SQL-prædikat — '1=1' for 'all'
+ */
+function driftLocationSql(location, bonAlias = 'b') {
+    const col = `${bonAlias}.event_role`;
+    if (location === 'hq')     return `COALESCE(${col}, '') NOT IN ('sales','expense')`;
+    if (location === 'events') return `COALESCE(${col}, '') IN ('sales','expense')`;
+    return '1=1';
+}
+
+/**
  * "Ejer denne bon sin egen lagerbevægelse — og dermed sit vareforbrug?"
  *
  * For en almindelig bon: ja. Den både trækker lager og har omsætning, så dens
@@ -974,6 +1003,7 @@ module.exports = {
     bonUnitsExpr, unitCountablePredicate,
     recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, hasDeliveryLine,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql, bonOwnsStockCostSql,
+    driftLocationSql,
     countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
     transaction,

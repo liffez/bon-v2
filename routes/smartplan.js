@@ -36,7 +36,16 @@ router.get('/status', requireAuth('admin'), handle(async (req, res) => {
     try {
         // Samme vindue som rolle-synken: et år tilbage fanger arkiverede
         // worklogs, 60 dage frem fanger kommende vagter på nye lokationer.
-        rows = await smartplan.getLaborRows(offsetISO(-365), offsetISO(60));
+        // Vinduet er 180 dage bagud, ikke et helt år. Spørgsmålet siden skal
+        // besvare er "passer HQ-indstillingen med de lokationer der er i brug"
+        // — og dét kan et halvt år svare på. Et helt år var 2/3 af Smartplans
+        // minut-budget (60 kald) i ét burst, fordi svaret paginerer.
+        //
+        // 30 minutters cache: det er en diagnose-visning, ikke live data. Med
+        // standard-cachen på 5 min kostede hvert Settings-besøg en ny
+        // gennemløbning, og det var nok til at ramme grænsen — hvorefter siden
+        // viste "0 vagter" og det lignede at timerne var væk.
+        rows = await smartplan.getLaborRows(offsetISO(-180), offsetISO(60), 30 * 60 * 1000);
     } catch (err) {
         error = err.message;
     }
@@ -66,10 +75,19 @@ router.get('/status', requireAuth('admin'), handle(async (req, res) => {
         hq_location: hqName,
         // Matcher indstillingen overhovedet en lokation Smartplan kender?
         // Gør den ikke, er ALT havnet i 'events' — den fejl er tavs i dag.
-        hq_location_found: locations.some(l => l.title === hqName),
+        //
+        // MEN: kun når vi rent faktisk fik et svar. Uden data er `locations`
+        // tom, og så ville vi råde brugeren til at rette en indstilling der er
+        // helt rigtig — et forkert råd er værre end intet råd. `null` betyder
+        // "vi ved det ikke", og UI'et skal tie i det tilfælde.
+        hq_location_found: error ? null : locations.some(l => l.title === hqName),
         locations,
         jobtypes: new Set(rows.map(r => r.jobtype_uuid).filter(Boolean)).size,
         shifts_total: rows.length,
+        // Forbrug siden serveren startede. Et logisk opslag kan være mange
+        // kald (paginering), så det er tallet der afgør om vi er tæt på
+        // Smartplans grænse — ikke hvor tit et menneske har klikket.
+        usage: smartplan.getStats(),
     });
 }));
 
