@@ -5077,7 +5077,7 @@ let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'
 
 /* ── Jobtype-kategorisering (smartplan_role_map — admin-only) ─ */
 // NB: må IKKE hedde ROLE_LABELS — kolliderer med bruger-rolle-labels (~1822) og brækker hele scriptet
-const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', other: 'Andet' };
+const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', volunteer: 'Frivillig (ulønnet)', other: 'Andet' };
 
 async function loadRoleMap() {
     const tb = document.getElementById('rolemap-table');

@@ -826,11 +826,49 @@ endpoint frem for et felt på P&L'en. Skjules tallet kun i frontenden, kan det s
 `Resultat på pladsen · efter løn` (kun for dem der må se lønnen). To utvetydige etiketter frem
 for ét ord der betyder to ting alt efter hvem der kigger.
 
-**Test:** `npm run test:event-labor` — 60 asserts mod det ægte endpoint (in-process, isoleret
+**Test:** `npm run test:event-labor` — 67 asserts, plus `npm run test:labor` (9) for adapter-reglen mod det ægte endpoint (in-process, isoleret
 temp-DB; Smartplan og ORS stubbet, `getStandardHourlyRate` ægte). Dækker de fire afgrænsninger,
 overhead på begge kilder, sats-fallback til gennemsnittet, køretid der ikke kan udledes,
 vagtplan der er nede, rolle-gaten, og hele frys-adfærden. Mutationstestet: 13 bevidste fejl,
 alle fældet af navngivne asserts.
+
+### 18.3b Frivillige — de var der hele tiden ✅ (august 2026)
+
+**De frivillige står allerede i Smartplan**, så deres timer blev talt med fra dag ét. Det der
+var galt, var kronerne: uden en timeløn blev de flagget *"mangler timeløn"* — præcis som en
+ansat hvis sats ikke er tastet ind. To modsatte ting så ens ud:
+
+| | Hvad tallet betyder |
+|---|---|
+| Frivillig | 0 kr **er** det rigtige tal |
+| Manglende sats | lønnen er for lav, og nogen skal rette det |
+
+Målt på Smartplan juni–september 2026: **18 personer** har vagter på event-lokationen,
+**10 uden timeløn**. 8 af de 10 ses aldrig på HQ (typiske frivillige), 2 har også HQ-vagter
+(ansatte der mangler en sats). Advarslen druknede altså de 2 ægte tilfælde i 8 falske.
+
+**Løst med en jobtype.** Smartplan får en `Frivillig`-jobtype, som mappes til
+`role_class = 'volunteer'` (migration 161). Reglen bor i `laborAdapter._transformRow`, så
+**både** driftsregnskabet og event-lønnen får det rigtige svar uden hver især at kende til
+frivillige: `sats = 0`, `kostpris = 0`, `rate_missing = false`. **Vagten afgør, ikke personen**
+— en der både er ansat og frivillig får ikke løn for sit frivillige arbejde.
+
+Det skalerer af sig selv: næste sæsons frivillige kræver ingen oprydning, de skal bare
+planlægges på den rigtige jobtype. Der fandtes i øvrigt kun ÉN jobtype i Smartplan
+("Salgsassistent", brugt både på HQ og events), så der var intet at skelne på før nu.
+
+> **Fravalgt: en `wage_rates`-række med 0 kr.** Den ville virke — men
+> `getStandardHourlyRate` midler ALLE satser, og den middelværdi bruges både til eventets
+> standardtimer og til opskrift-kalkulationen (`routes/recipes_overview.js`). Ti nuller ville
+> halvere "standard-medarbejderens" timeløn et helt andet sted i systemet, og ingen ville
+> koble dét til frivillige på en festival.
+
+I vagtplan-panelet står de som et grønt `frivillig`-mærke, ikke det ravgule `ingen sats` —
+den farve er forbeholdt tilfældet hvor tallet faktisk er for lavt.
+
+**Konsekvens for §18.6:** `event_labor`-tabellen skulle bl.a. bære frivillige. Det behøver den
+ikke længere. Tilbage står kun folk der slet ikke er i Smartplan — og det er nu undtagelsen,
+ikke reglen.
 
 ### 18.4 Timer og kroner er to forskellige tal
 

@@ -25,7 +25,7 @@ const labor   = require('../services/laborAdapter');
 
 const ADMIN = requireAuth('admin');
 
-const ROLE_CLASSES = ['production', 'delivery', 'other'];
+const ROLE_CLASSES = ['production', 'delivery', 'other', 'volunteer'];
 
 // Sync-vindue: ét år tilbage fanger arkiverede worklogs, 60 dage frem fanger
 // planlagte shifts med nye jobtyper. Sync er additiv (INSERT OR IGNORE) og

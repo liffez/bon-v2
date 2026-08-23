@@ -615,9 +615,11 @@ function _evRenderLaborPanel(ev, d) {
                         <td class="ev-lp-time">${_evEsc(r.start || '')}–${_evEsc(r.slut || '')}${
                             r.planned_only ? ' <span class="ev-lp-tag" title="Fremmøde er ikke registreret endnu — det er den planlagte vagt.">planlagt</span>' : ''}</td>
                         <td class="ev-num">${_evFmtNum(r.hours)} t</td>
-                        <td class="ev-num">${r.cost == null
-                            ? '<span class="ev-lp-tag" title="Ingen timeløn registreret — timerne tæller, kronerne gør ikke.">ingen sats</span>'
-                            : _evFmtKr(r.cost)}</td>
+                        <td class="ev-num">${r.role_class === 'volunteer'
+                            ? '<span class="ev-lp-tag ev-lp-tag-ok" title="Frivillig — 0 kr er det rigtige tal. Timerne tæller med.">frivillig</span>'
+                            : r.cost == null
+                                ? '<span class="ev-lp-tag" title="Ingen timeløn registreret — timerne tæller, kronerne gør ikke.">ingen sats</span>'
+                                : _evFmtKr(r.cost)}</td>
                     </tr>`).join('')}
                 </tbody>
             </table>

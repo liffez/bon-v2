@@ -7,7 +7,7 @@
  * Smartplan bærer KUN timer (verificeret 2. juni 2026) — ingen sats. Derfor
  * join'er denne adapter timer fra Smartplan mod lokale tabeller:
  *   wage_rates          — timeløn per medarbejder (owner.uuid), tidsversioneret
- *   smartplan_role_map  — jobtype.uuid → {production|delivery|other}
+ *   smartplan_role_map  — jobtype.uuid → {production|delivery|other|volunteer}
  *
  * Resten af systemet kalder kun getLabor(dato, mode). Output er ex moms.
  * ════════════════════════════════════════════════════════════
@@ -86,12 +86,18 @@ function _transformRow(r, dato, m, db, roleMap) {
         }
     }
 
-    const sats = _wageRate(db, r.employee_id, dato);
-    const rateMissing = sats == null;
-    const kostpris = (rateMissing || timer == null) ? null : timer * sats;
-
     const roleUnmapped = !roleMap.has(r.jobtype_uuid);
     const roleClass = roleMap.get(r.jobtype_uuid) || 'other';
+
+    // En frivillig koster 0 — og det er et SVAR, ikke et manglende svar.
+    // Uden denne skelnen så "frivillig" og "vi har glemt at taste Annes sats"
+    // fuldstændig ens ud: begge gav kostpris null og en advarsel om manglende
+    // timeløn. De to betyder modsatte ting — det ene tal er rigtigt, det andet
+    // er for lavt — og de 8 frivillige druknede de 2 ægte tilfælde.
+    const isVolunteer = roleClass === 'volunteer';
+    const sats = isVolunteer ? 0 : _wageRate(db, r.employee_id, dato);
+    const rateMissing = !isVolunteer && sats == null;
+    const kostpris = (sats == null || timer == null) ? null : timer * sats;
 
     return {
         employee_id:        r.employee_id,

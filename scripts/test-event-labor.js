@@ -247,6 +247,35 @@ async function main() {
     assert(kind('onsite').shifts[0].planned_only === true,
         'vagt uden registreret fremmøde markeres som planlagt');
 
+    // ── 9c) Frivillige koster 0 — og det er ikke en manglende sats ────────
+    // De frivillige står i Smartplan, så deres TIMER blev talt med hele tiden.
+    // Det der var galt, var at 0 kr og "vi har glemt at taste satsen" så helt
+    // ens ud. Nu er den ene et svar og den anden en advarsel.
+    console.log('\n— Frivillige —');
+    SP_ROWS = { [DATO]: [
+        vagt({ employee_name: 'Sofie' }),
+        // Sådan ser rækken ud NÅR den kommer fra laborAdapter: sats 0, ikke null,
+        // og rate_missing false. Selve reglen testes i tests/labor_location.test.js.
+        vagt({ employee_id: 'friv', employee_name: 'Walter', jobtype_uuid: 'jt-friv',
+               jobtype_title: 'Frivillig', role_class: 'volunteer', sats: 0, kostpris: 0 }),
+        vagt({ employee_id: 'glemt', employee_name: 'Emilie', sats: null, kostpris: null, rate_missing: true }),
+    ] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    near(kind('onsite').hours, 24, 'den frivilliges timer tæller med — hun stod der jo');
+    near(kind('onsite').cost, 1200, 'men koster 0 kr; kun Sofies løn tælles');
+
+    const friv = kind('onsite').shifts.find(x => x.employee_name === 'Walter');
+    assert(friv.role_class === 'volunteer', 'vagten er mærket frivillig');
+    near(friv.cost, 0, '0 kr er et SVAR, ikke null — vi ved hvad hun koster');
+    assert(friv.rate_missing === false, 'og det er ikke en manglende sats');
+
+    // Den ægte advarsel må ikke drukne i de frivillige.
+    assert(d.warnings.some(w => /mangler en timeløn/.test(w) && /Emilie/.test(w)),
+        'den ansatte uden sats advares der stadig om');
+    assert(!d.warnings.some(w => /Walter/.test(w)),
+        'men den frivillige nævnes IKKE — ellers er advarslen bare støj');
+
+
     // ── 10) Frys ved 'done' ──────────────────────────────────────────────
     console.log('\n— Frys —');
     ROLE = 'admin';

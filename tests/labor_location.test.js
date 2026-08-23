@@ -36,7 +36,10 @@ require.cache[spPath] = {
 const fakeDb = {
     prepare(sql) {
         if (sql.includes('smartplan_role_map')) {
-            return { all: () => [{ jobtype_uuid: 'jt-kok', role_class: 'production' }] };
+            return { all: () => [
+                { jobtype_uuid: 'jt-kok',  role_class: 'production' },
+                { jobtype_uuid: 'jt-friv', role_class: 'volunteer' },
+            ] };
         }
         if (sql.includes('wage_rates')) {
             return { get: (ref) => (ref === 'emp-anne' ? { hourly_rate: 200 } : undefined) };
@@ -157,4 +160,47 @@ test('forecast-mode bærer også lokationen', async () => {
     assert.equal(row.mode, 'forecast');
     assert.equal(row.location_class, 'events', 'forecast-grenen taber ikke klassen');
     assert.equal(row.location, 'Festivaler og Events');
+});
+
+/* ── Frivillige (§18.4) ───────────────────────────────────────
+   De frivillige står i Smartplan, så deres TIMER blev talt med hele tiden.
+   Det der var galt, var at 0 kr og "vi har glemt at taste satsen" så helt ens
+   ud: begge gav kostpris null og en advarsel om manglende timeløn. De to
+   betyder modsatte ting — det ene tal er rigtigt, det andet er for lavt. */
+
+test('en frivillig koster 0 — og det er et svar, ikke et manglende svar', async () => {
+    SMARTPLAN_ROWS = [shift({
+        employee_id: 'friv', employee_name: 'Walter',
+        jobtype_uuid: 'jt-friv', jobtype_title: 'Frivillig',
+    })];
+    const [row] = await labor.getLabor(DATO);
+
+    assert.equal(row.role_class, 'volunteer', 'jobtypen bestemmer rollen');
+    assert.equal(row.sats, 0, 'satsen er 0, ikke null');
+    assert.equal(row.kostpris, 0, 'og kostprisen dermed 0 — ikke null');
+    assert.equal(row.rate_missing, false, 'det er IKKE en manglende sats');
+    assert.equal(row.timer, 8, 'timerne tæller med — hun stod der jo');
+});
+
+test('en frivillig med registreret timeløn koster stadig 0', async () => {
+    // emp-anne HAR en sats i wage_rates (200). Står hun på en frivillig-vagt,
+    // er det vagten der afgør — ellers ville en person der både er ansat og
+    // frivillig få løn for sit frivillige arbejde.
+    SMARTPLAN_ROWS = [shift({
+        employee_id: 'emp-anne', jobtype_uuid: 'jt-friv', jobtype_title: 'Frivillig',
+    })];
+    const [row] = await labor.getLabor(DATO);
+
+    assert.equal(row.kostpris, 0, 'vagten afgør, ikke personens sats andre steder');
+    assert.equal(row.rate_missing, false);
+});
+
+test('en ansat uden sats flagges stadig — advarslen må ikke tabes', async () => {
+    SMARTPLAN_ROWS = [shift({ employee_id: 'ukendt', employee_name: 'Emilie' })];
+    const [row] = await labor.getLabor(DATO);
+
+    assert.equal(row.role_class, 'production');
+    assert.equal(row.sats, null, 'vi VED ikke hvad hun koster');
+    assert.equal(row.kostpris, null, 'så vi opfinder ikke et tal');
+    assert.equal(row.rate_missing, true, 'og det siges — lønnen er for lav uden');
 });
