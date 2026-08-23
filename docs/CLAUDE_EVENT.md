@@ -966,6 +966,32 @@ rate      REAL            -- kr/t ex moms. NULL = standardsats. 0 = frivillig.
 skriver en række. Så har et event ingen har rørt alligevel et tal, og en ændret setting
 rammer ikke lukkede events. Samme mønster som top-up, salgs-prefill og event-menuen (§16).
 
+**✅ Bygget som migration 162** — med den forskel at `source` udgik: en række i tabellen ER en
+rettelse, og for `onsite`/`other` er den pr. definition manuel. Kolonnen ville kun kunne
+modsige `kind`.
+
+`PUT /api/events/:id/labor/:kind` (rolle-gated som resten af løn-delen). Felterne i
+vagtplan-panelet står på standarden og gemmes på blur — ingen gem-knap at glemme, og man
+retter kun det der faktisk afveg.
+
+Tre ting reglen skal kunne:
+
+- **En rettelse ERSTATTER sin linje**, den lægges ikke ved siden af. Unique-indekset er
+  partielt (kun de fire standard-linjer), så `onsite`/`other` kan have flere rækker — og
+  upserten gentager derfor indeksets `WHERE`, ellers matcher SQLite ikke conflict-målet.
+- **0 timer er et gyldigt svar** ("vi hentede ikke traileren denne gang") og vises stadig.
+  Skjulte vi den, ville det ligne at rettelsen ikke blev gemt.
+- **"Tilbage til standard" er sin egen handling** (`{ reset: true }`), ikke en magisk værdi.
+  Ellers kunne man ikke skelne "nul timer" fra "brug Settings igen".
+
+En rettelse **rydder et frosset snapshot**, så ændringen slår igennem også på et lukket event;
+næste visning fryser på det nye grundlag. Uden det ville brugeren se sin egen rettelse blive
+ignoreret.
+
+**Test:** `npm run test:event-labor` — 81 asserts. Mutationstestet: rettelser ignoreret,
+lagt til frem for at erstatte, 0-timer skjult, reset der ikke sletter, manglende rolle-gate og
+negative timer fælder hver sine asserts.
+
 Settings: `event_labor_setup_hours` (2) · `event_labor_teardown_hours` (2) ·
 `event_labor_trailer_hours` (0,5 hver vej) · `event_labor_default_persons` ·
 `event_labor_owner_rate` · `event_labor_transport_hours` (fallback når ORS ikke svarer).

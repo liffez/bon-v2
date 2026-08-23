@@ -1923,6 +1923,17 @@ function fetchRoleMap() {
     return apiFetch('/role-map');
 }
 
+/**
+ * Ret en standard-linje (transport/opsætning/nedtagning/trailer) for ét event.
+ * `{ reset: true }` fjerner rettelsen og går tilbage til Settings-standarden.
+ */
+function saveEventLaborRow(eventId, kind, body) {
+    return apiFetch(`/events/${eventId}/labor/${encodeURIComponent(kind)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+    });
+}
+
 /** Smartplan: forbindelse + hvordan lokations-splittet lander (admin). */
 function fetchSmartplanStatus() {
     return apiFetch('/smartplan/status');

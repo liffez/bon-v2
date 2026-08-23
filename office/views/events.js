@@ -631,13 +631,33 @@ function _evRenderLaborPanel(ev, d) {
         </div>`;
     }).join('');
 
-    const stdRows = standard.map(s => `
-        <tr>
-            <td class="ev-lp-name">${_evEsc(s.label)}</td>
-            <td class="ev-lp-job" colspan="2">${_evEsc(s.note || '')}</td>
+    // Standard-linjerne kan rettes for netop dette event. Feltet starter ALDRIG
+    // tomt — det står på standarden, så man kun retter det der afviger.
+    const stdRows = standard.map(s => {
+        const editable = ['setup', 'teardown', 'trailer', 'transport'].includes(s.kind);
+        if (!editable) {
+            return `<tr>
+                <td class="ev-lp-name">${_evEsc(s.label)}</td>
+                <td class="ev-lp-job" colspan="2">${_evEsc(s.note || '')}</td>
+                <td class="ev-num">${_evFmtNum(s.hours)} t</td>
+                <td class="ev-num">${_evFmtKr(s.cost)}</td>
+            </tr>`;
+        }
+        const perOne = s.persons ? Math.round((s.hours / s.persons) * 100) / 100 : s.hours;
+        return `<tr data-lp-kind="${s.kind}"${s.overridden ? ' class="ev-lp-edited"' : ''}>
+            <td class="ev-lp-name">${_evEsc(s.label)}${
+                s.overridden ? ' <span class="ev-lp-tag ev-lp-tag-edit" title="Rettet for dette event — Settings-standarden er uændret.">rettet</span>' : ''}</td>
+            <td class="ev-lp-edit" colspan="2">
+                <input type="number" min="0" step="0.25" class="ev-lp-in" data-lp-f="hours" value="${perOne}"> t
+                ×
+                <input type="number" min="0" step="1" class="ev-lp-in ev-lp-in-p" data-lp-f="persons" value="${s.persons ?? 1}"> pers.
+                ${s.overridden ? '<button type="button" class="ev-link" data-lp-reset>standard</button>' : ''}
+                <span class="ev-lp-saved"></span>
+            </td>
             <td class="ev-num">${_evFmtNum(s.hours)} t</td>
             <td class="ev-num">${_evFmtKr(s.cost)}</td>
-        </tr>`).join('');
+        </tr>`;
+    }).join('');
 
     const el = document.createElement('div');
     el.id = 'ev-labor-panel';
@@ -658,6 +678,8 @@ function _evRenderLaborPanel(ev, d) {
             <div class="ev-lp-foot">Står ikke i vagtplanen. Tiderne sættes i Settings → Løn &amp; jobtyper.</div>` : ''}
         </div>`;
     document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', el);
+    _evBindLaborEdit(ev, el);
+
     const btn  = el.querySelector('[data-act="labor-panel-toggle"]');
     const body = el.querySelector('#ev-labor-panel-body');
     btn?.addEventListener('click', () => {
@@ -703,6 +725,41 @@ function _evRenderReturnGuard(ev, body, data, previousBookings) {
         if (!confirm('Bogfører du alligevel, lægges der varer på HQ-lageret som aldrig blev trukket derfra. Lagertallet bliver for højt indtil næste optælling.\n\nFortsæt?')) return;
         el.remove();
         _evBookReturn(ev, body, previousBookings, true);
+    });
+}
+
+// Auto-gem på blur: samme mønster som forecast og event-noten. Ingen gem-knap
+// at glemme, og feltet står på standarden indtil man faktisk retter noget.
+function _evBindLaborEdit(ev, root) {
+    root.querySelectorAll('tr[data-lp-kind]').forEach(tr => {
+        const kind = tr.dataset.lpKind;
+        const inputs = [...tr.querySelectorAll('.ev-lp-in')];
+        const saved = tr.querySelector('.ev-lp-saved');
+
+        const send = async (body) => {
+            if (saved) { saved.textContent = 'Gemmer…'; saved.className = 'ev-lp-saved'; }
+            try {
+                await saveEventLaborRow(ev.id, kind, body);
+                // Genindlæs: rettelsen ændrer både linjen, totalen og resultatet,
+                // og et halvt opdateret panel er værre end et der blinker.
+                _evRenderDetail(ev.id);
+            } catch (err) {
+                if (saved) { saved.textContent = 'Fejl: ' + err.message; saved.className = 'ev-lp-saved err'; }
+            }
+        };
+
+        inputs.forEach(inp => {
+            inp.addEventListener('blur', () => {
+                const hours   = tr.querySelector('[data-lp-f="hours"]').value;
+                const persons = tr.querySelector('[data-lp-f="persons"]').value;
+                if (hours === '' || persons === '') return;   // tomt felt = intet valg
+                send({ hours, persons });
+            });
+            // Enter gemmer uden at man skal klikke væk.
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+        });
+
+        tr.querySelector('[data-lp-reset]')?.addEventListener('click', () => send({ reset: true }));
     });
 }
 

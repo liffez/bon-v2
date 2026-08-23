@@ -77,6 +77,13 @@ const get = async (u, method = 'GET') => {
     const r = await fetch(BASE + u, { method, headers: { 'Content-Type': 'application/json' } });
     return { status: r.status, data: await r.json().catch(() => null) };
 };
+const http = async (method, u, body) => {
+    const r = await fetch(BASE + u, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: body == null ? undefined : JSON.stringify(body),
+    });
+    return { status: r.status, data: await r.json().catch(() => null) };
+};
 
 const DATO = '2026-09-20';
 const vagt = (over = {}) => ({
@@ -275,6 +282,52 @@ async function main() {
     assert(!d.warnings.some(w => /Walter/.test(w)),
         'men den frivillige nævnes IKKE — ellers er advarslen bare støj');
 
+
+    // ── 9d) Standard-timerne kan rettes for ét event ─────────────────────
+    // Settings er et udgangspunkt, ikke et facit: kranen kan være i stykker,
+    // eller pladsen ligge fem minutter væk. Uden en vej til at rette det er
+    // tallet enten forkert eller ubrugt.
+    console.log('\n— Rettelse af standard-timer —');
+    ROLE = 'admin';
+    SP_ROWS = { [DATO]: [] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    const opsFør = kind('setup').hours;
+    near(opsFør, 4, 'standard: 2 t × 2 pers.');
+
+    let r = await http('PUT', `/api/events/${evId}/labor/setup`, { hours: 5, persons: 3, note: 'kranen var i stykker' });
+    assert(r.status === 200, 'rettelsen gemmes');
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    near(kind('setup').hours, 15, 'rettet: 5 t × 3 pers.');
+    assert(kind('setup').overridden === true, 'linjen er mærket som rettet');
+    assert(/kranen/.test(kind('setup').note || ''), 'og noten følger med, så tallet kan forsvares');
+    near(kind('teardown').hours, 4, 'de andre linjer er urørte');
+
+    // En rettelse ERSTATTER sin linje — den lægges ikke ved siden af.
+    assert(d.sources.filter(x => x.kind === 'setup').length === 1, 'kun én opsætnings-linje');
+
+    // Nul timer er et gyldigt svar og skal kunne SES.
+    await http('PUT', `/api/events/${evId}/labor/trailer`, { hours: 0, persons: 2 });
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    assert(kind('trailer') && kind('trailer').hours === 0,
+        'rettet til 0 timer vises stadig — ellers ser det ud som om rettelsen forsvandt');
+
+    // Tilbage til standarden er sin EGEN handling, ikke en magisk værdi.
+    r = await http('PUT', `/api/events/${evId}/labor/setup`, { reset: true });
+    assert(r.status === 200 && r.data.reset === true, 'rettelsen kan fjernes');
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    near(kind('setup').hours, opsFør, 'og linjen er tilbage på Settings-standarden');
+    assert(!kind('setup').overridden, 'mærket er væk');
+
+    // Validering + adgang
+    assert((await http('PUT', `/api/events/${evId}/labor/vrøvl`, { hours: 1 })).status === 400,
+        'ukendt linje afvises');
+    assert((await http('PUT', `/api/events/${evId}/labor/setup`, { hours: -1 })).status === 400,
+        'negative timer afvises');
+    ROLE = 'kitchen';
+    assert((await http('PUT', `/api/events/${evId}/labor/setup`, { hours: 1 })).status === 403,
+        'køkkenrollen må ikke rette lønnen');
+    ROLE = 'admin';
+    await http('PUT', `/api/events/${evId}/labor/trailer`, { reset: true });
 
     // ── 10) Frys ved 'done' ──────────────────────────────────────────────
     console.log('\n— Frys —');

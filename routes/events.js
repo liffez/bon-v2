@@ -1479,6 +1479,13 @@ async function resolveEventLabor(event, userId) {
     return { ...labor, frozen: false, frozen_at: null };
 }
 
+// En rettelse af et input skal slå igennem, også på et lukket event. Uden det
+// ville tallet stå frosset på det gamle grundlag, og brugeren ville se sin egen
+// ændring blive ignoreret. Næste visning fryser igen — på det nye grundlag.
+function clearLaborSnapshot(db, eventId) {
+    db.prepare('DELETE FROM event_labor_snapshot WHERE event_id = ?').run(eventId);
+}
+
 // Resultat-felterne. Regnes ALTID live, også når lønnen er frosset: bogføres
 // et retur bagefter (§18.9), ændrer vareforbruget sig, og et frosset resultat
 // ville modsige /overview. Rækkefølgen af leddene findes kun her.
@@ -1543,6 +1550,68 @@ router.post('/:id/labor/refreeze', requireAuth('admin'), handle(async (req, res)
     const at = db.prepare('SELECT frozen_at FROM event_labor_snapshot WHERE event_id = ?').get(event.id);
     res.json({ ...labor, frozen: true, frozen_at: at?.frozen_at || null,
                ...eventResultFields(event, labor.cost_total) });
+}));
+
+// Ret en standard-linje for DETTE event (§18.6). Standarden i Settings er et
+// udgangspunkt; det ene event ligner sjældent det næste.
+//
+// Rolle-gated som resten af løn-delen. En rettelse RYDDER et evt. frosset
+// snapshot: brugeren har bevidst ændret et input, og et frosset tal der ikke
+// følger med ville være tavst forkert.
+router.put('/:id/labor/:kind', requireAuth('admin', 'office'), handle((req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const KINDS = ['setup', 'teardown', 'trailer', 'transport'];
+    const kind = String(req.params.kind || '');
+    if (!KINDS.includes(kind)) {
+        return res.status(400).json({ error: 'kind skal være en af: ' + KINDS.join(', ') });
+    }
+
+    const db = getDb();
+    const num = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+    const hours = num(req.body?.hours);
+    const persons = num(req.body?.persons);
+
+    // Slet rettelsen → tilbage til Settings-standarden. Egen vej frem for en
+    // magisk værdi, så "tilbage til standard" og "nul timer" ikke er det samme.
+    if (req.body?.reset === true) {
+        db.prepare('DELETE FROM event_labor WHERE event_id = ? AND kind = ?').run(event.id, kind);
+        clearLaborSnapshot(db, event.id);
+        logChange({ entityType: 'event', entityId: event.id, action: 'update',
+            fieldName: 'labor_' + kind, newValue: 'tilbage til standard',
+            userId: req.session?.userId });
+        broadcast('event_updated', { id: event.id });
+        return res.json({ ok: true, reset: true });
+    }
+
+    if (!Number.isFinite(hours) || hours < 0) {
+        return res.status(400).json({ error: 'hours skal være et tal ≥ 0' });
+    }
+    if (persons != null && (!Number.isFinite(persons) || persons < 0)) {
+        return res.status(400).json({ error: 'persons skal være et tal ≥ 0' });
+    }
+
+    db.prepare(`
+        INSERT INTO event_labor (event_id, kind, persons, hours, note, created_by_user_id)
+        VALUES (?,?,?,?,?,?)
+        -- Indekset er PARTIELT (kun standard-linjerne er unikke pr. event, så
+        -- 'onsite'/'other' kan have flere rækker). SQLite matcher kun et
+        -- partielt indeks som conflict-mål hvis WHERE gentages her.
+        ON CONFLICT(event_id, kind) WHERE kind IN ('setup','teardown','trailer','transport')
+        DO UPDATE SET
+            persons = excluded.persons, hours = excluded.hours,
+            note = excluded.note, updated_at = datetime('now')
+    `).run(event.id, kind, persons ?? 1, hours,
+           (req.body?.note || '').trim() || null, req.session?.userId ?? null);
+
+    clearLaborSnapshot(db, event.id);
+    logChange({ entityType: 'event', entityId: event.id, action: 'update',
+        fieldName: 'labor_' + kind, newValue: `${hours} t × ${persons ?? 1} pers.`,
+        notes: (req.body?.note || '').trim() || null,
+        userId: req.session?.userId });
+    broadcast('event_updated', { id: event.id });
+    res.json({ ok: true });
 }));
 
 // ─── RETUR / HJEMKOMST (§6) ────────────────────────────────────────────────

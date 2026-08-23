@@ -205,15 +205,40 @@ async function computeEventLabor(event) {
         warnings.push('Ingen timeløn kendt — transport og op-/nedtagning står med timer men 0 kr. Sæt en sats i Settings.');
     }
 
+    // Rettelser for DETTE event. En række her erstatter sin egen standard-linje
+    // — den lægges ikke ved siden af. Standarden er et udgangspunkt, ikke et
+    // facit: kranen kan være i stykker, eller pladsen ligge fem minutter væk.
+    const overrides = new Map();
+    for (const o of db.prepare(
+        `SELECT kind, label, persons, hours, rate, note FROM event_labor WHERE event_id = ?`
+    ).all(event.id)) {
+        overrides.set(o.kind, o);
+    }
+
     const std = (kind, label, hoursPerPerson, note) => {
-        const hours = r2((hoursPerPerson || 0) * persons);
-        if (hours <= 0) return;
+        const ov = overrides.get(kind);
+        const pers  = ov ? Number(ov.persons) : persons;
+        const perOne = ov ? Number(ov.hours) : (hoursPerPerson || 0);
+        const hours = r2(perOne * pers);
+        // En rettelse til 0 timer er et gyldigt svar ("vi hentede ikke traileren
+        // denne gang"), så en RETTET linje vises også når den er nul — ellers
+        // ser det ud som om rettelsen ikke blev gemt.
+        if (hours <= 0 && !ov) return;
+
+        const rate = ov && ov.rate != null ? Number(ov.rate) : rateInfo.rate;
         sources.push({
-            kind, label, hours,
-            cost: rateInfo.rate == null ? 0 : r2(hours * rateInfo.rate * overhead),
-            persons,
+            kind,
+            label: (ov && ov.label) || label,
+            hours,
+            cost: rate == null ? 0 : r2(hours * rate * overhead),
+            persons: pers,
             estimated: true,
-            note,
+            overridden: !!ov,
+            note: ov ? (ov.note || `${perOne} t × ${pers} pers. (rettet)`) : note,
+            // Standarden med, så UI'et kan vise hvad der blev fraveget og
+            // tilbyde at gå tilbage til den.
+            default_hours: hoursPerPerson ?? null,
+            default_persons: persons,
         });
     };
 
@@ -227,13 +252,36 @@ async function computeEventLabor(event) {
     std('trailer',  'Trailer frem/tilbage', trailerH * 2, `2 × ${trailerH} t × ${persons} pers.`);
 
     const tp = await _transportHoursOneWay(db, event);
-    if (tp.hours == null) {
+    if (tp.hours == null && overrides.has('transport')) {
+        // Rettet i hånden — så er den manglende adresse ikke længere et problem.
+        std('transport', 'Transport frem/tilbage', 0, null);
+    } else if (tp.hours == null) {
         warnings.push('Køretiden kunne ikke udledes (eventet mangler en geokodet adresse) — transporten er IKKE talt med. Sæt en adresse på eventet, eller udfyld nødplanen i Settings.');
     } else {
         std('transport', 'Transport frem/tilbage', tp.hours * 2,
             tp.source === 'beregnet'
                 ? `2 × ${tp.hours} t kørsel × ${persons} pers.${tp.distance_m ? ` · ${Math.round(tp.distance_m / 1000)} km hver vej` : ''}`
                 : `2 × ${tp.hours} t (fast tal fra Settings) × ${persons} pers.`);
+    }
+
+    // Frie rækker: folk der slet ikke er i vagtplanen. Ikke en standard-linje,
+    // så de lægges TIL frem for at erstatte noget.
+    for (const o of db.prepare(
+        `SELECT kind, label, persons, hours, rate, note FROM event_labor
+          WHERE event_id = ? AND kind IN ('onsite','other') ORDER BY id`
+    ).all(event.id)) {
+        const hours = r2(Number(o.hours) * Number(o.persons));
+        const rate = o.rate != null ? Number(o.rate) : rateInfo.rate;
+        sources.push({
+            kind: o.kind,
+            label: o.label || 'Uden for vagtplanen',
+            hours,
+            cost: rate == null ? 0 : r2(hours * rate * overhead),
+            persons: Number(o.persons),
+            estimated: true,
+            manual: true,
+            note: o.note || null,
+        });
     }
 
     const hoursTotal = r2(sources.reduce((s, x) => s + x.hours, 0));

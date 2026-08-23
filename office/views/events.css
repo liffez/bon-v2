@@ -673,3 +673,17 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
    hul i bemandingen er værd at se når man planlægger. */
 .ev-lp-open td { opacity: 0.6; }
 .ev-lp-strike { text-decoration: line-through; }
+
+/* Rettede standard-timer. Felterne står på standarden indtil man ændrer noget,
+   så man kun retter det der faktisk afveg. */
+.ev-lp-edit { color: #888; white-space: nowrap; }
+.ev-lp-in {
+    width: 58px; padding: 2px 4px; font: inherit; font-size: 13px;
+    border: 1px solid var(--color-border, #d7d1ca); border-radius: 4px; text-align: right;
+}
+.ev-lp-in-p { width: 44px; }
+.ev-lp-in:focus { outline: 2px solid #d9c79b; outline-offset: -1px; }
+.ev-lp-edited td { background: #fbf7ef; }
+.ev-lp-tag-edit { background: #efe4cd; color: #7a5600; }
+.ev-lp-saved { margin-left: 6px; font-size: 12px; color: #2e7d32; }
+.ev-lp-saved.err { color: #b32020; }
