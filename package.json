@@ -21,6 +21,7 @@
     "test:drift-location": "node --experimental-sqlite scripts/test-drift-location.js",
     "test:smartplan-honesty": "node --experimental-sqlite scripts/test-smartplan-honesty.js",
     "test:smartplan-mirror": "node --experimental-sqlite scripts/test-smartplan-mirror.js",
+    "smartplan:felter": "node --experimental-sqlite scripts/inspect-smartplan-fields.js",
     "check:frozen-zero-labor": "node --experimental-sqlite scripts/check-frozen-zero-labor.js",
     "test:event-return-cost": "node --experimental-sqlite scripts/test-event-return-cost.js",
     "test:event-labor": "node --experimental-sqlite scripts/test-event-labor.js",
