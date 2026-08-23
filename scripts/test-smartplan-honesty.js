@@ -147,9 +147,50 @@ async function partA2() {
     assert(err !== null, 'næste opslag afvises lokalt i stedet for at spørge igen');
     assert(hitNetwork === false, '…og der gik IKKE et kald afsted — det er dét der forlænger straffen');
     assert(/vent/i.test(err?.message || ''), 'beskeden siger at vi venter med vilje');
-    assert(/12\d|1\d\d/.test(err?.message || ''), '…og hvor længe, fra Smartplans eget svar');
+    // KLOKKESLÆT, ikke "om N sekunder": beskeden bliver stående på skærmen, og
+    // et relativt tal er forkert to minutter senere — så ville det se ud som om
+    // vi hænger fast for evigt.
+    assert(/til kl\. \d{2}[.:]\d{2}/.test(err?.message || ''), '…og hvornår vi må spørge igen, som et klokkeslæt');
+    const q = sp.getStats();
+    assert(/^\d{2}[.:]\d{2}$/.test(q.blocked_until_clock || ''), 'status bærer klokkeslættet i sig selv');
+    assert(Math.abs(q.blocked_for_sec - 120) <= 2,
+        `og sekunderne kommer fra Smartplans eget svar (fik ${q.blocked_for_sec}, ventede 120)`);
+    assert(!Number.isNaN(Date.parse(q.blocked_until || '')), 'plus et absolut tidspunkt en visning kan tælle ned fra');
     assert(sp.getStats().requests === before, 'karantæne-kald tæller ikke som forbrug');
     assert(sp.getStats().blocked_for_sec > 0, 'status kan se at vi er i karantæne');
+
+    // 1b) Gentagne afvisninger → vi holder os længere væk hver gang.
+    //     Når karantænen udløber sender vi ét prøve-kald; får DET også 429,
+    //     ville en fast ventetid betyde et evigt drop af prøve-kald der holder
+    //     blokeringen åben. (Min egen poll-løkke gjorde præcis det i dag.)
+    sp._resetRateLimit();
+    stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));   // uden availableIn
+    const waits = [];
+    for (let i = 0; i < 8; i++) {
+        const d = String(i + 1).padStart(2, '0');
+        try { await sp.getLaborRows('2026-06-' + d, '2026-06-' + d); } catch { /* forventet */ }
+        waits.push(sp.getStats().blocked_for_sec);
+        sp._expireQuarantine();        // lad som om ventetiden er gået
+    }
+    // PRÆCIS fordobling, ikke bare "voksende". Et løst krav bestod også når
+    // strikes blev talt pr. kald i stedet for pr. karantæne — og så eskalerer
+    // to mislykkede visninger til otte minutter.
+    assert(waits.slice(0, 4).join(',') === '60,120,240,480',
+        `ventetiden fordobles: 60,120,240,480 (fik ${waits.slice(0, 4).join(',')})`);
+    // Og den flader ud på loftet i stedet for at vokse i det uendelige.
+    assert(waits[7] === 15 * 60 && waits[6] === 15 * 60,
+        `loftet holder ved 900 sek (fik ${waits[6]},${waits[7]})`);
+
+    // Et vellykket kald nulstiller straffen — ellers ville en enkelt dårlig
+    // dag gøre systemet trægt resten af døgnet.
+    sp._resetRateLimit();
+    stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
+    try { await sp.getLaborRows('2026-07-01', '2026-07-01'); } catch {}
+    try { await sp.getLaborRows('2026-07-02', '2026-07-02'); } catch {}
+    sp._expireQuarantine();
+    stubFetch(() => OK({ results: [], next: null }));
+    await sp.getLaborRows('2026-07-03', '2026-07-03');
+    assert(sp.getStats().strikes === 0, 'et vellykket kald nulstiller backoff-trappen');
 
     // 2) Minut-grænsen: vi venter selv frem for at blive afvist.
     sp._resetRateLimit();

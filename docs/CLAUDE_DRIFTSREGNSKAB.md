@@ -402,8 +402,23 @@ Derfor tre ting i `services/smartplanAdapter.js`:
 1. **Glidende egen grænse** (50/min, 1900/døgn — margin ned til Smartplans).
    Vi venter selv når vi nærmer os, i stedet for at blive afvist. Et burst under
    grænsen forsinkes ikke, så normal brug mærker intet.
-2. **Karantæne efter 429**: vi holder helt op med at spørge til det tidspunkt
-   Smartplan selv oplyser. Uden det forlænger vi vores egen straf.
+2. **Karantæne efter 429 med eksponentiel backoff**: vi holder helt op med at
+   spørge til det tidspunkt Smartplan selv oplyser — og aldrig kortere end vores
+   egen trappe: **60 → 120 → 240 → 480 sek**, med loft ved 15 minutter. Et
+   vellykket kald nulstiller trappen.
+
+   Trappen er nødvendig fordi vi sender ét prøve-kald når karantænen udløber
+   (den eneste måde at opdage at blokeringen er hævet). Med fast ventetid bliver
+   det et evigt drop af prøve-kald der holder blokeringen åben — præcis det der
+   skete under fejlsøgningen 23. august.
+
+   Strikes tælles pr. **karantæne-periode**, ikke pr. kald: ét opslag sender to
+   kald parallelt (shifts + worklogs), så begge rammer 429 samtidig. Uden den
+   skelnen ville to mislykkede visninger give otte minutters karantæne.
+
+   Ventetiden vises som **klokkeslæt**, ikke "om N sekunder" — beskeden bliver
+   stående på skærmen, og et relativt tal er forkert to minutter senere. Settings
+   tæller ned og prøver selv igen når tiden er gået.
 3. **Ingen tavse fejl.** Adapteren returnerer aldrig en tom liste for en fejl —
    se `npm run test:smartplan-honesty`. Det er dét der gør at driftens og
    eventets frys-værn kan fyre; ellers kan "0 kr løn" blive frosset permanent.

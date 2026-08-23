@@ -70,8 +70,27 @@ const MAX_WAIT_MS   = 15000;   // et request må vente så længe — ikke læng
 
 const _recent = [];            // tidsstempler for kald i det seneste minut
 let _blockedUntil = 0;         // sat af 429 (epoch ms)
+let _strikes = 0;              // 429'er i træk uden et vellykket kald imellem
+
+// Eksponentiel backoff. Når karantænen udløber, sender vi ét prøve-kald for at
+// se om vi må igen — det er den eneste måde at opdage at blokeringen er hævet.
+// Men får DET også 429, må vi vente længere næste gang: ellers holder en
+// stribe prøve-kald blokeringen åben i det uendelige. Ét minut, så to, fire …
+// op til et kvarter.
+const BACKOFF_BASE_MS = 60_000;
+const BACKOFF_MAX_MS  = 15 * 60_000;
+function _backoffMs() {
+    return Math.min(BACKOFF_BASE_MS * Math.pow(2, Math.max(0, _strikes - 1)), BACKOFF_MAX_MS);
+}
 
 const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/** HH:MM i dansk tid — til beskeder mennesker skal kunne handle på. */
+function _clock(ms) {
+    return new Intl.DateTimeFormat('da-DK', {
+        timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit',
+    }).format(new Date(ms));
+}
 
 /** Dansk kalenderdato — dags-kvoten følger døgnet, ikke UTC. */
 function _dayKey() {
@@ -86,9 +105,11 @@ async function _reserveSlot() {
     const now = Date.now();
 
     if (now < _blockedUntil) {
-        const secs = Math.ceil((_blockedUntil - now) / 1000);
-        throw new Error(`Smartplan afviste os for lidt siden (429) — vi venter ${secs} sekunder `
-            + 'med at spørge igen, så blokeringen ikke forlænges. Timerne er der stadig.');
+        // Klokkeslæt, ikke "om 46 sekunder". Beskeden bliver stående på skærmen
+        // og i loggen, og et relativt tal er forkert to minutter senere — så
+        // ville det se ud som om vi hænger fast for evigt.
+        throw new Error(`Smartplan afviste os for lidt siden (429) — vi venter med at spørge igen `
+            + `til kl. ${_clock(_blockedUntil)}, så blokeringen ikke forlænges. Timerne er der stadig.`);
     }
 
     const day = _dayKey();
@@ -103,7 +124,7 @@ async function _reserveSlot() {
         const waitMs = 60_000 - (now - _recent[0]) + 50;
         if (waitMs > MAX_WAIT_MS) {
             throw new Error(`For mange opslag på kort tid — Smartplan tillader 60 kald i minuttet. `
-                + `Prøv igen om ${Math.ceil(waitMs / 1000)} sekunder.`);
+                + `Prøv igen fra kl. ${_clock(now + waitMs)}.`);
         }
         await _sleep(waitMs);
         return _reserveSlot();
@@ -121,14 +142,24 @@ function getStats() {
         per_minute_limit: RATE_PER_MIN,
         per_day_limit: RATE_PER_DAY,
         in_last_minute: _recent.filter(t => Date.now() - t <= 60_000).length,
+        strikes: _strikes,
         blocked_for_sec: _blockedUntil > Date.now() ? Math.ceil((_blockedUntil - Date.now()) / 1000) : 0,
+        // Absolut tidspunkt, så en visning kan tælle ned selv i stedet for at
+        // vise et tal der var rigtigt da svaret blev hentet.
+        blocked_until: _blockedUntil > Date.now() ? new Date(_blockedUntil).toISOString() : null,   // utc-ok: maskin-tidsstempel
+        blocked_until_clock: _blockedUntil > Date.now() ? _clock(_blockedUntil) : null,
     };
 }
+
+/** Kun til test — lader som om karantænens ventetid er gået, uden at nulstille
+ *  backoff-trappen (det er netop trappen scenariet handler om). */
+function _expireQuarantine() { _blockedUntil = 0; }
 
 /** Kun til test — nulstiller grænse-tilstanden mellem scenarier. */
 function _resetRateLimit() {
     _recent.length = 0;
     _blockedUntil = 0;
+    _strikes = 0;
     _stats.requests = 0; _stats.pages = 0; _stats.throttled = 0;
     _stats.lastThrottleAt = null; _stats.today = null; _stats.requestsToday = 0;
 }
@@ -259,7 +290,18 @@ async function smartplanFetch(path) {
                 try { wait = Math.ceil(Number(JSON.parse(text).availableIn)); } catch { /* ikke JSON */ }
                 // Karantæne: bliv væk til det tidspunkt Smartplan selv oplyser.
                 // Uden det forlænger vores egne forsøg blokeringen (målt: 161 → 243 s).
-                _blockedUntil = Date.now() + (Number.isFinite(wait) && wait > 0 ? wait : 60) * 1000;
+                //
+                // Smartplans eget tal er autoritativt, men aldrig kortere end vores
+                // backoff: oplyser den 60 sekunder tre gange i træk, er 60 sekunder
+                // åbenlyst ikke nok, og så skal vi holde os længere væk.
+                // Tæl karantæne-PERIODER, ikke kald. Ét opslag sender to kald
+                // parallelt (shifts + worklogs), så begge rammer 429 samtidig —
+                // uden denne skelnen ville én mislykket visning tælle som to
+                // strikes, og to visninger ville give otte minutters karantæne.
+                const alreadyBlocked = Date.now() < _blockedUntil;
+                if (!alreadyBlocked) _strikes++;
+                const fromApi = (Number.isFinite(wait) && wait > 0) ? wait * 1000 : 0;
+                _blockedUntil = Math.max(_blockedUntil, Date.now() + Math.max(fromApi, _backoffMs()));
                 throw new Error('Smartplan begrænser antallet af kald (429)'
                     + (Number.isFinite(wait) && wait > 0 ? ` — prøv igen om ca. ${wait} sekunder.` : '.')
                     + ' Timerne er der stadig; vi må bare ikke spørge lige nu.');
@@ -267,6 +309,7 @@ async function smartplanFetch(path) {
             throw new Error(`Smartplan API fejl ${res.status}: ${text.slice(0, 200)}`);
         }
 
+        _strikes = 0;   // vi er igennem — start forfra hvis det sker igen
         const json = JSON.parse(text);
         if (Array.isArray(json.results)) {
             all.push(...json.results);
@@ -682,6 +725,7 @@ module.exports = {
     getLaborRows,
     getStats,
     _resetRateLimit,
+    _expireQuarantine,
     getMembers,
     getLaborRoster,
     clearCache,
