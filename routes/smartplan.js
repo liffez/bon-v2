@@ -80,6 +80,10 @@ router.get('/status', requireAuth('admin'), handle(async (req, res) => {
         locations,
         jobtypes: new Set(rows.map(r => r.jobtype_uuid).filter(Boolean)).size,
         shifts_total: rows.length,
+        // Forbrug siden serveren startede. Et logisk opslag kan være mange
+        // kald (paginering), så det er tallet der afgør om vi er tæt på
+        // Smartplans grænse — ikke hvor tit et menneske har klikket.
+        usage: smartplan.getStats(),
     });
 }));
 

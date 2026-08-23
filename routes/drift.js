@@ -510,9 +510,12 @@ router.get('/period', ALL, handle(async (req, res) => {
 
     // Batch-hent løn for hele intervallet i ÉT Smartplan-kald (i stedet for ét
     // pr. dag). Frosne fortidsdage læses fra snapshot og rører ikke dette map.
-    let laborMap = {};
+    // Ét kald dækker HELE perioden. Fejler det, er lønnen 0 kr på hver eneste
+    // dag i visningen — og det så indtil nu ud som om ingen havde arbejdet i en
+    // hel uge. Fejlen bæres nu med ud, så ugen kan sige hvorfor.
+    let laborMap = {}, laborError = null;
     try { laborMap = await labor.getLaborMap(from, to, mode); }
-    catch (_) { laborMap = {}; }   // Smartplan nede → løn=0 (samme som per-dag-fejl)
+    catch (e) { laborMap = {}; laborError = e.message; }
 
     const days = [];
     for (const date of dates) {
@@ -524,6 +527,9 @@ router.get('/period', ALL, handle(async (req, res) => {
             labor_raw_ex_moms: d.labor_raw_ex_moms,
             driftsresultat_ex_moms: d.driftsresultat_ex_moms, db_pct: d.db_pct,
             units: d.units, bon_count: d.bon_count, kapacitetsrate: d.kapacitetsrate,
+            // Frosne dage har deres løn fra snapshottet og er upåvirkede af at
+            // kilden er nede lige nu — derfor pr. dag, ikke kun på toppen.
+            labor_error: d.frozen ? (d.labor_error || null) : (laborError || d.labor_error || null),
         });
     }
 
@@ -540,7 +546,12 @@ router.get('/period', ALL, handle(async (req, res) => {
         units: days.reduce((s, x) => s + (x.units || 0), 0),
         bon_count: days.reduce((s, x) => s + (x.bon_count || 0), 0),
     };
-    res.json({ days, totals, targets: readTargets(db) });
+    res.json({
+        days, totals, targets: readTargets(db),
+        // Sandt hvis mindst én dag i visningen mangler sin løn.
+        labor_error: days.some(d => d.labor_error) ? (laborError || days.find(d => d.labor_error).labor_error) : null,
+        labor_missing_days: days.filter(d => d.labor_error).length,
+    });
 }));
 
 module.exports = router;

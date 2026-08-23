@@ -403,6 +403,18 @@ function _drRenderPeriod(p) {
     _driftState.targets = p.targets || {};   // måltal til farvekodning
     var resultCls = (t.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg';
 
+    // En hel uge med "Løn 0 kr" ser ud som om ingen har arbejdet. Var det i
+    // stedet vagtplanen der ikke svarede, SKAL det stå der — ellers læses et
+    // manglende tal som et rigtigt tal, og DB% og Løn% er lige så forkerte.
+    var laborWarn = '';
+    if (p.labor_error) {
+        laborWarn = '<div class="dr-warn"><div>⚠ Løn mangler på ' + (p.labor_missing_days || 0)
+            + ' af ' + (t.day_count || 0) + ' dage — vagtplanen kunne ikke hentes ('
+            + _drEsc(p.labor_error) + ').</div>'
+            + '<div>Løn, DB% og Løn% er derfor for gode i denne visning. Tallene retter sig selv '
+            + 'når kilden svarer igen — der er ikke frosset noget forkert.</div></div>';
+    }
+
     var kpi = function (label, val, cls, sub) {
         return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div><div class="dr-kpi-label">' + label + '</div>' +
                (sub ? '<div class="dr-kpi-sub">' + sub + '</div>' : '') + '</div>';
@@ -420,6 +432,11 @@ function _drRenderPeriod(p) {
         '</div>';
     }).join('');
 
+    var missingMark = function (d) {
+        return d.labor_error
+            ? ' <span class="dr-sub" title="Vagtplanen kunne ikke hentes for denne dag — 0 kr er ikke et måltal">⚠</span>'
+            : '';
+    };
     var rows = days.map(function (d) {
         return '<tr>' +
             '<td>' + d.date + (d.frozen ? ' <span class="dr-flag">🔒</span>' : '') + '</td>' +
@@ -427,7 +444,7 @@ function _drRenderPeriod(p) {
             '<td class="dr-r">' + _drMoney(d.cost_ex_moms) + '</td>' +
             _drShareCell(d.cost_ex_moms, d.revenue_ex_moms, 'food') +
             '<td class="dr-r">' + _drMoney(d.delivery_ex_moms) + '</td>' +
-            '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + '</td>' +
+            '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + missingMark(d) + '</td>' +
             _drShareCell(d.labor_ex_moms, d.revenue_ex_moms, 'labor') +
             '<td class="dr-r ' + ((d.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg') + '">' + _drMoney(d.driftsresultat_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drPct(d.db_pct) + '</td>' +
@@ -439,7 +456,7 @@ function _drRenderPeriod(p) {
         ? 'rå −' + _drMoney(t.labor_raw_ex_moms) + ' + tillæg' : '';
     var pLoenSub = [_drShareSub(t.labor_ex_moms, t.revenue_ex_moms, 'labor'), pRaw].filter(Boolean).join('<br>');
 
-    body.innerHTML = '' +
+    body.innerHTML = laborWarn +
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(t.revenue_ex_moms)) +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms), '',

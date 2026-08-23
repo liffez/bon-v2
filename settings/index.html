@@ -5132,6 +5132,24 @@ let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'
 // NB: må IKKE hedde ROLE_LABELS — kolliderer med bruger-rolle-labels (~1822) og brækker hele scriptet
 const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', volunteer: 'Frivillig (ulønnet)', other: 'Andet' };
 
+// Forbrug: ét logisk opslag kan være mange HTTP-kald (Smartplan paginerer),
+// og rammer man grænsen, ser vagtplanen tom ud. Uden tallet er "vi henter vel
+// ikke så tit" en fornemmelse frem for en oplysning. Vises i BEGGE tilstande —
+// det er netop når vi er afvist, at forbruget er værd at kunne se.
+function smartplanUsageHtml(u) {
+    u = u || {};
+    if (u.requests == null) return '';
+    return '<div style="margin-top:8px;color:#888;font-size:12px">'
+        + 'Forbrug siden serverstart (' + (u.uptime_min || 0) + ' min): '
+        + '<strong>' + u.requests + '</strong> kald til Smartplan'
+        + (u.pages ? ' (heraf ' + u.pages + ' ekstra sider fra paginering)' : '')
+        + (u.throttled
+            ? ' · <span style="color:#b3771f">' + u.throttled + ' afvist (429), senest '
+              + esc(String(u.lastThrottleAt || '').replace('T', ' ').slice(0, 16)) + ' UTC</span>'
+            : ' · ingen afvisninger')
+        + '</div>';
+}
+
 async function loadSmartplanStatus() {
     var box = document.getElementById('sp-status');
     var sel = document.getElementById('sp-hq-select');
@@ -5152,6 +5170,7 @@ async function loadSmartplanStatus() {
                   + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
             // Ingen lokationer betyder her "vi fik ikke svar", ikke "der er
             // ingen". Det gemte valg skal blive stående, ikke se ud som tabt.
+            box.innerHTML += smartplanUsageHtml(d.usage);
             sel.innerHTML = '<option value="' + esc(d.hq_location || '') + '" selected>'
                           + esc(d.hq_location || '(ikke sat)') + ' — kunne ikke tjekkes lige nu</option>';
             return;
@@ -5172,7 +5191,8 @@ async function loadSmartplanStatus() {
             + 'Alle vagter regnes derfor som Festival &amp; Events. Vælg den rigtige nedenfor.</div>';
         box.innerHTML = '<span style="color:#2e7d32">✓ Forbundet</span> — '
             + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper det seneste år'
-            + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn;
+            + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn
+            + smartplanUsageHtml(d.usage);
 
         sel.innerHTML = d.locations.map(function (l) {
             return '<option value="' + esc(l.title) + '"' + (l.title === d.hq_location ? ' selected' : '') + '>'

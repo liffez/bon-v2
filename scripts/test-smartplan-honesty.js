@@ -136,7 +136,10 @@ require.cache[lPath] = {
                       location: 'Ristet Rug', location_class: 'hq', timer: 8, sats: 150, kostpris: 1200,
                       rate_missing: false, role_unmapped: false, mode: 'realiseret' }];
         },
-        getLaborMap: async () => ({}),
+        getLaborMap: async () => {
+            if (laborShouldFail) throw new Error(LABOR_ERROR);
+            return {};
+        },
     },
 };
 
@@ -198,6 +201,17 @@ async function partB() {
     near(ev.bon_count, 0, '…og kun event-bonner (her: ingen)');
     assert(snapCount() === 0, 'et snit på fejl-stien fryser heller ikke');
 
+    console.log('\n— En hel uge må ikke tie om manglende løn —');
+    // Perioden henter løn i ÉT kald for hele intervallet. Fejler det, er lønnen
+    // 0 kr på hver eneste dag — og en uge med "Løn 0 kr · 0 %" ser ud som om
+    // ingen har arbejdet. Det var samme løgn som adapterens, én visning længere ude.
+    const per = (await req('GET', `/api/drift/period?from=${PAST}&to=${PAST}&mode=realiseret`)).data;
+    assert(per.labor_error === LABOR_ERROR, 'periode-svaret bærer fejlen');
+    near(per.labor_missing_days, 1, 'og siger HVOR MANGE dage der mangler løn');
+    assert((per.days || []).every(d => d.labor_error === LABOR_ERROR),
+        'hver enkelt dag er mærket, så tabellen kan pege på de rigtige rækker');
+    near(per.totals.labor_ex_moms, 0, 'lønnen er 0 i totalen — derfor advarslen');
+
     console.log('\n— Genberegning kan heller ikke fryse nullerne —');
     const rf = await req('POST', '/api/drift/refreeze', { date: PAST });
     assert(rf.status === 503, 'refreeze afvises med 503');
@@ -206,10 +220,14 @@ async function partB() {
 
     console.log('\n— Og når Smartplan svarer igen, fryses dagen ═══════');
     laborShouldFail = false;
-    const ok = (await req('GET', `/api/drift/day?date=${PAST}&mode=realiseret`)).data;
-    assert(!ok.labor_error, 'ingen fejl længere');
-    near(ok.labor_raw_ex_moms, 1200, 'lønnen er med');
-    assert(ok.frozen === true, 'dagen fryses nu');
+    const perOk = (await req('GET', `/api/drift/period?from=${PAST}&to=${PAST}&mode=realiseret`)).data;
+    assert(!perOk.labor_error, 'perioden er ren igen når kilden svarer');
+    near(perOk.labor_missing_days, 0, 'ingen dage mangler løn');
+
+    const ok2 = (await req('GET', `/api/drift/day?date=${PAST}&mode=realiseret`)).data;
+    assert(!ok2.labor_error, 'ingen fejl længere');
+    near(ok2.labor_raw_ex_moms, 1200, 'lønnen er med');
+    assert(ok2.frozen === true, 'dagen fryses nu');
     assert(snapCount() === 1, 'og snapshottet er skrevet');
     const stored = JSON.parse(db.prepare(
         'SELECT data_json FROM labor_day_snapshot WHERE snapshot_date=?').get(PAST).data_json);

@@ -38,6 +38,17 @@ function clearCache() {
    OAUTH2 TOKEN
    ══════════════════════════════════════════════════════════════ */
 
+// Hvor mange HTTP-kald bruger vi egentlig? Smartplan paginerer, så ÉT logisk
+// opslag ("hent et år") kan være mange kald — og rammer man grænsen, ser
+// vagtplanen tom ud. Uden et tal er "vi henter vel ikke så tit" en fornemmelse
+// og ikke en oplysning. Token- og konto-kald tælles med, ellers ville tallet
+// være pænere end virkeligheden. In-memory; nulstilles ved genstart.
+const _stats = { requests: 0, pages: 0, throttled: 0, lastThrottleAt: null, startedAt: Date.now() };
+
+function getStats() {
+    return { ...(_stats), uptime_min: Math.round((Date.now() - _stats.startedAt) / 60000) };
+}
+
 const TOKEN_URL = process.env.SMARTPLAN_TOKEN_URL || 'https://api.smartplanapp.io/o/token/';
 const API_BASE  = process.env.SMARTPLAN_API_BASE  || 'https://api.smartplanapp.io/v2';
 
@@ -61,6 +72,7 @@ async function getAccessToken() {
         client_secret: clientSecret,
     });
 
+    _stats.requests++;   // tælles med: et tal der undertæller er ubrugeligt
     const res = await fetch(TOKEN_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -94,6 +106,7 @@ async function getAccountUUID() {
     if (cached) return cached;
 
     const token = await getAccessToken();
+    _stats.requests++;
     const res = await fetch(`${API_BASE}/accounts/`, {
         headers: {
             accept: 'application/json',
@@ -125,6 +138,11 @@ async function getAccountUUID() {
  * Authenticated fetch mod Smartplan API med pagination.
  * Returnerer alle results samlet.
  */
+// Hvor mange HTTP-kald bruger vi egentlig? Smartplan paginerer, så ÉT logisk
+// opslag ("hent et år") kan være mange kald — og rammer man grænsen, ser
+// vagtplanen tom ud. Uden et tal er "vi henter vel ikke så tit" en fornemmelse
+// og ikke en oplysning. Tælleren er in-memory og nulstilles ved genstart; det
+// er nok til at se et mønster over en arbejdsdag.
 async function smartplanFetch(path) {
     const token = await getAccessToken();
     const accountUUID = await getAccountUUID();
@@ -132,7 +150,11 @@ async function smartplanFetch(path) {
     let url = `${API_BASE}/accounts/${accountUUID}${path}`;
     const all = [];
 
+    let firstPage = true;
     while (url) {
+        _stats.requests++;
+        if (!firstPage) _stats.pages++;   // ekstra sider ud over det første kald
+        firstPage = false;
         const res = await fetch(url, {
             headers: {
                 accept: 'application/json',
@@ -147,6 +169,8 @@ async function smartplanFetch(path) {
             // kald. Den skal derfor kunne læses uden at slå statuskoder op —
             // ellers ser en midlertidig throttling ud som om vagtplanen er væk.
             if (res.status === 429) {
+                _stats.throttled++;
+                _stats.lastThrottleAt = new Date().toISOString();   // utc-ok: teknisk tidsstempel
                 let wait = null;
                 try { wait = Math.ceil(Number(JSON.parse(text).availableIn)); } catch { /* ikke JSON */ }
                 throw new Error('Smartplan begrænser antallet af kald (429)'
@@ -569,6 +593,7 @@ module.exports = {
     getShifts,
     getEmployees,
     getLaborRows,
+    getStats,
     getMembers,
     getLaborRoster,
     clearCache,
