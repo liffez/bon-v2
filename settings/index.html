@@ -5145,30 +5145,54 @@ function smartplanUsageHtml(u) {
         + (u.pages ? ' (heraf ' + u.pages + ' ekstra sider fra paginering)' : '')
         + (u.throttled
             ? ' · <span style="color:#b3771f">' + u.throttled + ' afvist (429), senest '
-              + esc(String(u.lastThrottleAt || '').replace('T', ' ').slice(0, 16)) + ' UTC</span>'
+              + esc(String(u.lastThrottleAt || '').replace('T', ' ').slice(0, 16)) + ' UTC'
+              // Trin på backoff-trappen. Uden det kan man ikke se om ventetiden
+              // vokser som den skal — og det var netop dét der gik galt: den
+              // stod på 60 sekunder mens afvisningerne blev ved med at stige.
+              + (u.strikes ? ' · trin ' + u.strikes + ' på ventetrappen' : '') + '</span>'
             : ' · ingen afvisninger')
+        // Dags-forbruget overlever genstart, så tallet er husets forbrug i dag
+        // og ikke bare denne process'. Det er dét der skal holdes op mod 2000.
+        + (u.requestsToday != null
+            ? '<br>I dag i alt: <strong>' + u.requestsToday + '</strong> af 2000 kald'
+              + ' (vores egen grænse: ' + (u.per_day_limit || 1900) + ')'
+            : '')
         + '</div>';
 }
 
 // Nedtælling til karantænen er ovre. Uden den står der et sekundtal der var
-// rigtigt da siden blev hentet, og som aldrig ændrer sig — og så ser det ud som
-// om vi hænger fast for evigt. Når tiden er gået, prøver siden selv igen, så
-// man ikke skal sidde og genindlæse.
+// rigtigt da siden blev hentet og aldrig ændrer sig — og så ser det ud som om
+// vi hænger fast for evigt.
+//
+// Den prøver med VILJE ikke selv igen. En side der genoptager af sig selv, gør
+// en glemt fane til en robot der banker på Smartplan hvert par minutter — også
+// når ingen kigger. Og hvert forsøg der bliver afvist, forlænger blokeringen.
+// To åbne faner ville være to forsøg pr. periode. Derfor: nedtællingen løber
+// ud, og så står der en knap. Et forsøg er noget et menneske beder om.
 var _spCountdown = null;
-function startSmartplanCountdown(untilIso) {
+function stopSmartplanCountdown() {
     if (_spCountdown) { clearInterval(_spCountdown); _spCountdown = null; }
+}
+function startSmartplanCountdown(untilIso) {
+    stopSmartplanCountdown();
+    var wrap = document.getElementById('sp-countdown-wrap');
     var el = document.getElementById('sp-countdown');
-    if (!el || !untilIso) return;
+    if (!wrap || !el || !untilIso) return;
     var until = Date.parse(untilIso);
     if (!until) return;
+    var done = function () {
+        stopSmartplanCountdown();
+        wrap.innerHTML = 'Ventetiden er gået. <button type="button" id="sp-retry" '
+            + 'style="padding:3px 10px;cursor:pointer">Prøv igen</button>';
+        var b = document.getElementById('sp-retry');
+        if (b) b.addEventListener('click', function () {
+            b.disabled = true; b.textContent = 'Spørger…';
+            loadSmartplanStatus();
+        });
+    };
     var tick = function () {
         var left = Math.ceil((until - Date.now()) / 1000);
-        if (left <= 0) {
-            clearInterval(_spCountdown); _spCountdown = null;
-            el.textContent = 'Prøver igen…';
-            loadSmartplanStatus();
-            return;
-        }
+        if (left <= 0) { done(); return; }
         var m = Math.floor(left / 60), sec = left % 60;
         el.textContent = m > 0 ? (m + ' min ' + sec + ' sek') : (sec + ' sek');
     };
@@ -5189,13 +5213,29 @@ async function loadSmartplanStatus() {
             // "tjek .env" på en 429 sender folk ud at rette noget der er i orden.
             var throttled = /429|limit|minut/i.test(d.error || '');
             var u2 = d.usage || {};
+            // Hvilken grænse ramte? De to ligner hinanden i beskeden fra
+            // Smartplan, men kræver modsatte handlinger: minut-grænsen går over
+            // af sig selv om lidt, dagskvoten først i morgen. Bliver vi afvist
+            // efter en håndfuld kald, er det ikke minut-grænsen.
+            var diag = '';
+            if (u2.likely_limit === 'daily') {
+                diag = '<br><span style="color:#8a5a16">Vi blev afvist efter kun <strong>'
+                    + (u2.rate_at_throttle || 0) + '</strong> kald i minuttet — så det er ikke '
+                    + 'minut-grænsen (60). Det ser ud til at <strong>dagskvoten på 2000 er brugt op</strong>, '
+                    + 'og så hjælper det ikke at vente et par minutter. Prøv igen i morgen.</span>';
+            } else if (u2.likely_limit === 'minute') {
+                diag = '<br><span style="color:#8a5a16">Vi blev afvist ved <strong>'
+                    + (u2.rate_at_throttle || 0) + '</strong> kald i minuttet — altså minut-grænsen. '
+                    + 'Den går over af sig selv.</span>';
+            }
             var countdown = u2.blocked_until
-                ? '<br><span style="color:#b3771f">Vi prøver igen om <strong id="sp-countdown">…</strong>'
-                  + ' (kl. ' + esc(u2.blocked_until_clock || '') + ') — siden opdaterer sig selv.</span>'
+                ? '<br><span id="sp-countdown-wrap" style="color:#b3771f">Vi kan spørge igen om '
+                  + '<strong id="sp-countdown">…</strong> (kl. ' + esc(u2.blocked_until_clock || '') + '). '
+                  + 'Siden prøver ikke selv — hvert forsøg der afvises, forlænger ventetiden.</span>'
                 : '';
             box.innerHTML = throttled
                 ? '<span style="color:#b3771f">⏳ Kan ikke spørge lige nu</span> — ' + esc(d.error)
-                  + countdown
+                  + diag + countdown
                   + '<br><span style="color:#888">Vagterne er der stadig — indstillingen er ikke i stykker.</span>'
                 : '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
                   + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
@@ -5225,7 +5265,7 @@ async function loadSmartplanStatus() {
             + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper de seneste 180 dage'
             + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn
             + smartplanUsageHtml(d.usage);
-        if (_spCountdown) { clearInterval(_spCountdown); _spCountdown = null; }
+        stopSmartplanCountdown();
 
         sel.innerHTML = d.locations.map(function (l) {
             return '<option value="' + esc(l.title) + '"' + (l.title === d.hq_location ? ' selected' : '') + '>'

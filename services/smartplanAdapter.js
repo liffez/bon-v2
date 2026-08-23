@@ -44,7 +44,7 @@ function clearCache() {
 // og ikke en oplysning. Token- og konto-kald tælles med, ellers ville tallet
 // være pænere end virkeligheden. In-memory; nulstilles ved genstart.
 const _stats = { requests: 0, pages: 0, throttled: 0, lastThrottleAt: null, startedAt: Date.now(),
-                 today: null, requestsToday: 0 };
+                 today: null, requestsToday: 0, rateAtThrottle: 0 };
 
 /* ══════════════════════════════════════════════════════════════
    RATE LIMIT — Smartplan tillader 60 kald/minut og 2000/dag
@@ -79,11 +79,51 @@ let _strikes = 0;              // 429'er i træk uden et vellykket kald imellem
 // op til et kvarter.
 const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_MAX_MS  = 15 * 60_000;
+// Smartplans eget `availableIn` er åbenlyst ikke nok: prøver vi præcis når det
+// udløber, bliver vi afvist igen med det samme. Læg et minut oveni, så
+// prøve-kaldet har en chance for at lykkes i stedet for at forlænge straffen.
+const QUARANTINE_GRACE_MS = 60_000;
 function _backoffMs() {
     return Math.min(BACKOFF_BASE_MS * Math.pow(2, Math.max(0, _strikes - 1)), BACKOFF_MAX_MS);
 }
 
 const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* ── Dags-forbruget skal overleve en genstart ────────────────
+   Tælleren lå kun i hukommelsen, og serveren genstartes ved hver udrulning.
+   Vores egen dagsgrænse (1900) har derfor aldrig kunnet fyre: den stod
+   reelt altid på nul. Dagskvoten på 2000 kunne brændes uden at noget sagde
+   fra — hvilket er præcis hvad der skete 23. august 2026.
+
+   Ét lille skriv pr. kald i `settings`. Kaldene er få (titals pr. handling),
+   og at kende sit eget forbrug er hele forudsætningen for at holde igen. */
+const USAGE_KEY = 'smartplan_daily_usage';
+let _usageLoaded = false;
+
+function _loadUsage() {
+    if (_usageLoaded) return;
+    _usageLoaded = true;
+    try {
+        const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(USAGE_KEY);
+        if (row && row.value) {
+            const v = JSON.parse(row.value);
+            if (v && v.date === _dayKey() && Number.isFinite(v.count)) {
+                _stats.today = v.date;
+                _stats.requestsToday = v.count;
+            }
+        }
+    } catch { /* ingen DB endnu → start på nul, ikke et crash */ }
+}
+
+function _saveUsage() {
+    try {
+        getDb().prepare(`
+            INSERT INTO settings (key, value, description)
+            VALUES (?, ?, 'Smartplan-kald brugt i dag (overlever genstart)')
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+        `).run(USAGE_KEY, JSON.stringify({ date: _stats.today, count: _stats.requestsToday }));
+    } catch { /* et fejlet tælle-skriv må aldrig vælte et opslag */ }
+}
 
 /** HH:MM i dansk tid — til beskeder mennesker skal kunne handle på. */
 function _clock(ms) {
@@ -112,6 +152,7 @@ async function _reserveSlot() {
             + `til kl. ${_clock(_blockedUntil)}, så blokeringen ikke forlænges. Timerne er der stadig.`);
     }
 
+    _loadUsage();
     const day = _dayKey();
     if (_stats.today !== day) { _stats.today = day; _stats.requestsToday = 0; }
     if (_stats.requestsToday >= RATE_PER_DAY) {
@@ -133,6 +174,7 @@ async function _reserveSlot() {
     _recent.push(Date.now());
     _stats.requests++;
     _stats.requestsToday++;
+    _saveUsage();
 }
 
 function getStats() {
@@ -148,6 +190,10 @@ function getStats() {
         // vise et tal der var rigtigt da svaret blev hentet.
         blocked_until: _blockedUntil > Date.now() ? new Date(_blockedUntil).toISOString() : null,   // utc-ok: maskin-tidsstempel
         blocked_until_clock: _blockedUntil > Date.now() ? _clock(_blockedUntil) : null,
+        // 'minute' | 'daily' | null — vores bedste bud på HVILKEN grænse der ramte.
+        likely_limit: _stats.throttled === 0 ? null
+            : (_stats.rateAtThrottle >= RATE_PER_MIN - 5 ? 'minute' : 'daily'),
+        rate_at_throttle: _stats.rateAtThrottle,
     };
 }
 
@@ -162,6 +208,7 @@ function _resetRateLimit() {
     _strikes = 0;
     _stats.requests = 0; _stats.pages = 0; _stats.throttled = 0;
     _stats.lastThrottleAt = null; _stats.today = null; _stats.requestsToday = 0;
+    _stats.rateAtThrottle = 0; _usageLoaded = true;   // test styrer selv tælleren
 }
 
 const TOKEN_URL = process.env.SMARTPLAN_TOKEN_URL || 'https://api.smartplanapp.io/o/token/';
@@ -286,6 +333,11 @@ async function smartplanFetch(path) {
             if (res.status === 429) {
                 _stats.throttled++;
                 _stats.lastThrottleAt = new Date().toISOString();   // utc-ok: teknisk tidsstempel
+                // Hvor travlt havde vi det, da vi blev afvist? Det er dét der
+                // skiller de to grænser ad: bliver vi afvist efter en håndfuld
+                // kald, er det ikke minut-grænsen på 60 — så er dagskvoten brugt.
+                // Uden tallet ligner de to hinanden, og man leder det forkerte sted.
+                _stats.rateAtThrottle = _recent.filter(t => Date.now() - t <= 60_000).length;
                 let wait = null;
                 try { wait = Math.ceil(Number(JSON.parse(text).availableIn)); } catch { /* ikke JSON */ }
                 // Karantæne: bliv væk til det tidspunkt Smartplan selv oplyser.
@@ -301,7 +353,8 @@ async function smartplanFetch(path) {
                 const alreadyBlocked = Date.now() < _blockedUntil;
                 if (!alreadyBlocked) _strikes++;
                 const fromApi = (Number.isFinite(wait) && wait > 0) ? wait * 1000 : 0;
-                _blockedUntil = Math.max(_blockedUntil, Date.now() + Math.max(fromApi, _backoffMs()));
+                _blockedUntil = Math.max(_blockedUntil,
+                    Date.now() + Math.max(fromApi, _backoffMs()) + QUARANTINE_GRACE_MS);
                 throw new Error('Smartplan begrænser antallet af kald (429)'
                     + (Number.isFinite(wait) && wait > 0 ? ` — prøv igen om ca. ${wait} sekunder.` : '.')
                     + ' Timerne er der stadig; vi må bare ikke spørge lige nu.');
@@ -309,7 +362,6 @@ async function smartplanFetch(path) {
             throw new Error(`Smartplan API fejl ${res.status}: ${text.slice(0, 200)}`);
         }
 
-        _strikes = 0;   // vi er igennem — start forfra hvis det sker igen
         const json = JSON.parse(text);
         if (Array.isArray(json.results)) {
             all.push(...json.results);
@@ -318,6 +370,20 @@ async function smartplanFetch(path) {
         url = json.next || null;
     }
 
+    // Straffen nulstilles først når HELE opslaget er i hus — OG kun hvis vi
+    // ikke står i karantæne.
+    //
+    // To ting kan gå galt her, og begge gjorde:
+    //   1. Lå nulstillingen pr. SIDE, ville en delvis paginering (side 1 ok,
+    //      side 2 afvist) nulstille trappen hver gang.
+    //   2. Ét opslag sender TO kald parallelt (shifts + worklogs). Lykkes det
+    //      ene og afvises det andet, lander succes'en typisk SIDST — og så
+    //      visker den den straf ud, som afvisningen lige har sat. Trappen stod
+    //      derfor på trin 1 uanset hvor mange afvisninger der kom.
+    //
+    // Karantæne-tjekket dækker begge: er `_blockedUntil` i fremtiden, har noget
+    // andet lige fået 429, og så er dette ikke en succes vi kan frikende os på.
+    if (Date.now() >= _blockedUntil) _strikes = 0;
     return all;
 }
 

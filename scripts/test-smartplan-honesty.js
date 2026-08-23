@@ -153,8 +153,10 @@ async function partA2() {
     assert(/til kl\. \d{2}[.:]\d{2}/.test(err?.message || ''), '…og hvornår vi må spørge igen, som et klokkeslæt');
     const q = sp.getStats();
     assert(/^\d{2}[.:]\d{2}$/.test(q.blocked_until_clock || ''), 'status bærer klokkeslættet i sig selv');
-    assert(Math.abs(q.blocked_for_sec - 120) <= 2,
-        `og sekunderne kommer fra Smartplans eget svar (fik ${q.blocked_for_sec}, ventede 120)`);
+    // Smartplan sagde 120 sek; vi lægger et minuts margin oveni, fordi et
+    // prøve-kald præcis ved udløb bliver afvist igen med det samme.
+    assert(Math.abs(q.blocked_for_sec - 180) <= 2,
+        `Smartplans 120 sek + 60 sek margin (fik ${q.blocked_for_sec}, ventede 180)`);
     assert(!Number.isNaN(Date.parse(q.blocked_until || '')), 'plus et absolut tidspunkt en visning kan tælle ned fra');
     assert(sp.getStats().requests === before, 'karantæne-kald tæller ikke som forbrug');
     assert(sp.getStats().blocked_for_sec > 0, 'status kan se at vi er i karantæne');
@@ -175,14 +177,73 @@ async function partA2() {
     // PRÆCIS fordobling, ikke bare "voksende". Et løst krav bestod også når
     // strikes blev talt pr. kald i stedet for pr. karantæne — og så eskalerer
     // to mislykkede visninger til otte minutter.
-    assert(waits.slice(0, 4).join(',') === '60,120,240,480',
-        `ventetiden fordobles: 60,120,240,480 (fik ${waits.slice(0, 4).join(',')})`);
+    // Trappen fordobles — 60,120,240,480 — plus et minuts margin oveni, fordi
+    // Smartplans eget availableIn ikke er nok: prøver vi præcis når det udløber,
+    // bliver vi afvist igen med det samme.
+    assert(waits.slice(0, 4).join(',') === '120,180,300,540',
+        `ventetiden fordobles + margin (fik ${waits.slice(0, 4).join(',')})`);
     // Og den flader ud på loftet i stedet for at vokse i det uendelige.
-    assert(waits[7] === 15 * 60 && waits[6] === 15 * 60,
-        `loftet holder ved 900 sek (fik ${waits[6]},${waits[7]})`);
+    assert(waits[7] === 960 && waits[6] === 960,
+        `loftet holder ved 900+60 sek (fik ${waits[6]},${waits[7]})`);
 
-    // Et vellykket kald nulstiller straffen — ellers ville en enkelt dårlig
-    // dag gøre systemet trægt resten af døgnet.
+    // REGRESSION — dette er fejlen der ramte drift 23. august. En DELVIST
+    // vellykket paginering må ikke nulstille trappen: side 1 lykkes, side 2
+    // giver 429. Lå nulstillingen pr. side, stod backoff'en på 60 sekunder for
+    // evigt mens afvisningerne blev ved med at stige — præcis det man så på
+    // skærmen ("12 afvist ... 14 afvist", og stadig 1 minut).
+    sp._resetRateLimit();
+    let pcall = 0;
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes('/o/token/'))  return OK({ access_token: 'tok', expires_in: 600 });
+        if (u.endsWith('/accounts/')) return OK({ results: [{ uuid: 'a' }] });
+        if (u.includes('_p=1'))       return { ok: false, status: 429, text: async () => '{}' };
+        pcall++;
+        return OK({ results: [{ uuid: 'r' + pcall, planned_start_dt: '2026-01-01T08:00:00Z',
+                                planned_end_dt: '2026-01-01T16:00:00Z' }], next: u + '&_p=1' });
+    };
+    const partial = [];
+    for (let i = 0; i < 3; i++) {
+        try { await sp.getLaborRows('2026-08-0' + (i + 1), '2026-08-0' + (i + 1)); } catch { /* forventet */ }
+        partial.push(sp.getStats().blocked_for_sec);
+        sp._expireQuarantine();
+    }
+    assert(partial[1] > partial[0] && partial[2] > partial[1],
+        `delvis succes nulstiller ikke trappen (${partial.join(' → ')} sek)`);
+    assert(pcall >= 3, '…og der lykkedes faktisk sider undervejs — ellers tester scenariet ikke sig selv');
+
+    // REGRESSION nr. 2 (samme dag, samme aften): ét opslag sender TO kald
+    // parallelt — shifts og worklogs. Lykkes det ene og afvises det andet,
+    // lander succes'en typisk SIDST, og så viskede den den straf ud som
+    // afvisningen lige havde sat. Trappen stod på trin 1 uanset hvor mange
+    // afvisninger der kom, præcis som skærmen viste.
+    //
+    // Den forrige rettelse ramte kun side-tilfældet inde i ÉT endpoint. Derfor
+    // aflæses der her FØRST når begge kald er landet — som skærmen gør ved
+    // næste request, ikke i samme millisekund. Uden den ventetid ser en
+    // ødelagt version rigtig ud.
+    sp._resetRateLimit();
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes('/o/token/'))  return OK({ access_token: 'tok', expires_in: 600 });
+        if (u.endsWith('/accounts/')) return OK({ results: [{ uuid: 'a' }] });
+        if (u.includes('/shifts/'))   return { ok: false, status: 429, text: async () => '{}' };
+        await new Promise(r => setTimeout(r, 20));      // worklogs lykkes — og lander sidst
+        return OK({ results: [{ uuid: 'w1', planned_start_dt: '2026-01-01T08:00:00Z',
+                                planned_end_dt: '2026-01-01T16:00:00Z' }], next: null });
+    };
+    const mixed = [];
+    for (let i = 0; i < 3; i++) {
+        try { await sp.getLaborRows('2026-10-0' + (i + 1), '2026-10-0' + (i + 1)); } catch { /* forventet */ }
+        await new Promise(r => setTimeout(r, 80));      // lad det sene, vellykkede kald lande
+        mixed.push(sp.getStats().strikes);
+        sp._expireQuarantine();
+    }
+    assert(mixed.join(',') === '1,2,3',
+        `et sent vellykket sidekald nulstiller ikke straffen (trin: ${mixed.join(',')})`);
+
+    // Et FULDT vellykket opslag nulstiller straffen — ellers ville en enkelt
+    // dårlig dag gøre systemet trægt resten af døgnet.
     sp._resetRateLimit();
     stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
     try { await sp.getLaborRows('2026-07-01', '2026-07-01'); } catch {}
@@ -247,7 +308,42 @@ async function partA2() {
     assert(over !== null && /minut/i.test(over.message), 'over grænsen siger vi selv fra, med en forklaring');
     assert(sentOnFailing === 0, '…og det afviste opslag sendte intet til Smartplan');
 
-    // 3) Dagsgrænsen kan ikke overskrides.
+    // 3) HVILKEN grænse ramte? De to ligner hinanden i Smartplans besked, men
+    //    kræver modsatte handlinger: minut-grænsen går over af sig selv om
+    //    lidt, dagskvoten først i morgen. Bliver vi afvist efter en håndfuld
+    //    kald, kan det ikke være minut-grænsen — og dét er den oplysning der
+    //    manglede da driften stod med "8 kald på 5 minutter, stadig afvist".
+    sp._resetRateLimit();
+    stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
+    try { await sp.getLaborRows('2026-09-01', '2026-09-01'); } catch { /* forventet */ }
+    const dg = sp.getStats();
+    assert(dg.likely_limit === 'daily',
+        `få kald + afvist ⇒ dagskvoten, ikke minut-grænsen (fik ${dg.likely_limit})`);
+    assert(dg.rate_at_throttle <= 5, `og vi kan se hvor travlt vi havde det (${dg.rate_at_throttle} kald)`);
+
+    // Omvendt: bliver vi afvist mens vi RENT FAKTISK kører på grænsen, er det
+    // minut-grænsen. Ellers ville rådet "prøv igen i morgen" være forkert.
+    sp._resetRateLimit();
+    let phase = 'ok';
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes('/o/token/'))  return OK({ access_token: 'tok', expires_in: 600 });
+        if (u.endsWith('/accounts/')) return OK({ results: [{ uuid: 'a' }] });
+        if (phase === 'deny') return { ok: false, status: 429, text: async () => '{}' };
+        return OK({ results: [], next: null });
+    };
+    let g2 = 0;
+    while (sp.getStats().in_last_minute < sp.getStats().per_minute_limit - 2 && g2 < 200) {
+        const mm = String((Math.floor(g2 / 28) % 12) + 1).padStart(2, '0');
+        const dd = String((g2++ % 28) + 1).padStart(2, '0');
+        await sp.getShifts(`2028-${mm}-${dd}`, `2028-${mm}-28`);
+    }
+    phase = 'deny';
+    try { await sp.getShifts('2029-01-01', '2029-01-02'); } catch { /* forventet */ }
+    assert(sp.getStats().likely_limit === 'minute',
+        `afvist mens vi kørte på grænsen ⇒ minut-grænsen (fik ${sp.getStats().likely_limit})`);
+
+    // 4) Dagsgrænsen kan ikke overskrides.
     sp._resetRateLimit();
     const stats = sp.getStats();
     assert(stats.requestsToday === 0, 'dagstælleren nulstilles med resten');
@@ -366,7 +462,29 @@ async function partB() {
     near(stored.labor_raw_ex_moms, 1200, 'det frosne bærer den rigtige løn, ikke et nul');
 }
 
-(async () => { await partA(); await partA2(); await partB(); })()
+/* ══ Del A3 — dags-forbruget overlever en genstart ══════════ */
+
+async function partA3() {
+    console.log('\n— Dags-tælleren overlever en genstart —');
+    // Uden det er vores dagsgrænse ren dekoration: serveren genstartes ved hver
+    // udrulning, og tælleren stod altid på nul. Dagskvoten på 2000 kunne derfor
+    // brændes uden at noget sagde fra — hvilket er præcis hvad der skete.
+    stubFetch(() => OK({ results: [], next: null }));
+    let sp = freshAdapter();
+    await sp.getLaborRows('2026-01-01', '2026-01-02');
+    const before = sp.getStats().requestsToday;
+    assert(before > 0, `der er talt kald op (${before})`);
+
+    sp = freshAdapter();                       // "genstart" af serveren
+    stubFetch(() => OK({ results: [], next: null }));
+    await sp.getLaborRows('2026-02-01', '2026-02-02');
+    const after = sp.getStats().requestsToday;
+    assert(after > before, `tælleren fortsætter efter genstart (${before} → ${after})`);
+
+    globalThis.fetch = realFetch;
+}
+
+(async () => { await partA(); await partA2(); await partA3(); await partB(); })()
     .catch(err => { console.error(err); fail++; })
     .finally(() => {
         globalThis.fetch = realFetch;
