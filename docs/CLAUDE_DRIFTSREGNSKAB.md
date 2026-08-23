@@ -407,12 +407,26 @@ Derfor tre ting i `services/smartplanAdapter.js`:
    egen trappe: **60 → 120 → 240 → 480 sek**, med loft ved 15 minutter. Et
    vellykket kald nulstiller trappen.
 
-   > ⚠️ **Nulstillingen skal ske når et OPSLAG er lykkedes, ikke når en SIDE er.**
+   > ⚠️ **Nulstillingen har to fælder, og begge kostede en udrulning.**
+   >
+   > **(a) Ikke pr. SIDE.**
    > Lå den pr. side, nulstiller en delvist vellykket paginering — side 1 ok,
    > side 2 afvist — trappen hver gang, og backoff'en står på 60 sekunder for
    > evigt. Det skete i drift 23. august: afvisningerne steg (12 → 14 → …)
    > mens ventetiden blev ved med at være ét minut. Dækket af en navngiven
    > regressionstest.
+   >
+   > **(b) Ikke mens vi står i karantæne.** Ét opslag sender to kald parallelt
+   > (shifts + worklogs). Lykkes det ene og afvises det andet, lander succes'en
+   > typisk *sidst* — og visker den straf ud som afvisningen lige har sat.
+   > Trappen stod derfor på trin 1 uanset hvor mange afvisninger der kom.
+   > Reglen er `if (Date.now() >= _blockedUntil) _strikes = 0;` — er der
+   > karantæne, har noget andet lige fået 429, og så er dette ikke en succes vi
+   > kan frikende os på.
+   >
+   > Testen for (b) skal aflæse tallene **efter begge kald er landet** — som
+   > skærmen gør ved næste request. Aflæser den i samme millisekund, ser en
+   > ødelagt version rigtig ud.
 
    Trappen er nødvendig fordi vi sender ét prøve-kald når karantænen udløber
    (den eneste måde at opdage at blokeringen er hævet). Med fast ventetid bliver

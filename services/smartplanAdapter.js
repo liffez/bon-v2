@@ -370,12 +370,20 @@ async function smartplanFetch(path) {
         url = json.next || null;
     }
 
-    // Straffen nulstilles først når HELE opslaget er i hus. Lå nulstillingen
-    // pr. side, ville en delvis vellykket paginering — side 1 ok, side 2 afvist —
-    // nulstille trappen hver gang, og backoff'en ville stå på 60 sekunder for
-    // evigt. Det var præcis hvad der skete i drift 23. august: afvisningerne
-    // steg, mens ventetiden blev ved med at være et minut.
-    _strikes = 0;
+    // Straffen nulstilles først når HELE opslaget er i hus — OG kun hvis vi
+    // ikke står i karantæne.
+    //
+    // To ting kan gå galt her, og begge gjorde:
+    //   1. Lå nulstillingen pr. SIDE, ville en delvis paginering (side 1 ok,
+    //      side 2 afvist) nulstille trappen hver gang.
+    //   2. Ét opslag sender TO kald parallelt (shifts + worklogs). Lykkes det
+    //      ene og afvises det andet, lander succes'en typisk SIDST — og så
+    //      visker den den straf ud, som afvisningen lige har sat. Trappen stod
+    //      derfor på trin 1 uanset hvor mange afvisninger der kom.
+    //
+    // Karantæne-tjekket dækker begge: er `_blockedUntil` i fremtiden, har noget
+    // andet lige fået 429, og så er dette ikke en succes vi kan frikende os på.
+    if (Date.now() >= _blockedUntil) _strikes = 0;
     return all;
 }
 

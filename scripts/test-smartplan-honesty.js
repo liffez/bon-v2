@@ -212,6 +212,36 @@ async function partA2() {
         `delvis succes nulstiller ikke trappen (${partial.join(' → ')} sek)`);
     assert(pcall >= 3, '…og der lykkedes faktisk sider undervejs — ellers tester scenariet ikke sig selv');
 
+    // REGRESSION nr. 2 (samme dag, samme aften): ét opslag sender TO kald
+    // parallelt — shifts og worklogs. Lykkes det ene og afvises det andet,
+    // lander succes'en typisk SIDST, og så viskede den den straf ud som
+    // afvisningen lige havde sat. Trappen stod på trin 1 uanset hvor mange
+    // afvisninger der kom, præcis som skærmen viste.
+    //
+    // Den forrige rettelse ramte kun side-tilfældet inde i ÉT endpoint. Derfor
+    // aflæses der her FØRST når begge kald er landet — som skærmen gør ved
+    // næste request, ikke i samme millisekund. Uden den ventetid ser en
+    // ødelagt version rigtig ud.
+    sp._resetRateLimit();
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes('/o/token/'))  return OK({ access_token: 'tok', expires_in: 600 });
+        if (u.endsWith('/accounts/')) return OK({ results: [{ uuid: 'a' }] });
+        if (u.includes('/shifts/'))   return { ok: false, status: 429, text: async () => '{}' };
+        await new Promise(r => setTimeout(r, 20));      // worklogs lykkes — og lander sidst
+        return OK({ results: [{ uuid: 'w1', planned_start_dt: '2026-01-01T08:00:00Z',
+                                planned_end_dt: '2026-01-01T16:00:00Z' }], next: null });
+    };
+    const mixed = [];
+    for (let i = 0; i < 3; i++) {
+        try { await sp.getLaborRows('2026-10-0' + (i + 1), '2026-10-0' + (i + 1)); } catch { /* forventet */ }
+        await new Promise(r => setTimeout(r, 80));      // lad det sene, vellykkede kald lande
+        mixed.push(sp.getStats().strikes);
+        sp._expireQuarantine();
+    }
+    assert(mixed.join(',') === '1,2,3',
+        `et sent vellykket sidekald nulstiller ikke straffen (trin: ${mixed.join(',')})`);
+
     // Et FULDT vellykket opslag nulstiller straffen — ellers ville en enkelt
     // dårlig dag gøre systemet trægt resten af døgnet.
     sp._resetRateLimit();
