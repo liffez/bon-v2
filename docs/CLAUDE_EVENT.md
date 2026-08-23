@@ -1049,6 +1049,58 @@ er forsvarligt (varerne kørte med traileren, arbejdet gjorde ikke), men linjen 
 **Besluttet: drift = alt, event = et snit + lokations-toggle i driften.** Én motor, to
 visninger. Reglen der skal skrives ét sted: **de to tal må aldrig lægges sammen.**
 
+#### Lokations-toggle ✅ bygget (august 2026)
+
+`Alt · 🏠 HQ · 🎪 Event` i driftsregnskabets værktøjslinje, på alle tre visninger
+(dag/uge/periode). Invarianten der bærer det hele:
+
+> **hq + events = alt**, krone for krone, på hver eneste metrik.
+
+Holder den ikke, er et snit ikke et snit men et selvstændigt regnskab — og så kan et tal
+falde ud mellem de to visninger uden at nogen opdager det. Den er derfor testet direkte,
+ikke udledt.
+
+**To kilder svarer på "hvor foregik arbejdet", og begge respekterer valget:**
+
+| Side | Kilde | Regel |
+|------|-------|-------|
+| Bonner | `bons.event_role` | `sales`/`expense` = event · alt andet (inkl. `prep`) = HQ |
+| Løn | `labor_rows[].location_class` | Smartplans lokation (migration 122) |
+
+Snittes kun den ene, viser HQ-visningen festivalens løn sammen med HQ's omsætning — et tal
+der ser rigtigt ud og er forkert. Prædikatet bor ét sted, `driftLocationSql()` i
+`db/helpers.js`, så bon-aggregat, drill-down og sammentælling ikke kan blive uenige.
+
+**Tre ting der er lette at gøre forkert:**
+
+1. **HQ-snittet ser tabsgivende ud på en eventdag** — prep-bonnens vareforbrug ligger dér
+   uden nogen omsætning, mens indtægten ligger i event-snittet. Det er ikke en fejl, det er
+   konsekvensen af beslutningen ovenfor. Derfor står der et banner så snart et snit er
+   valgt, og derfor nulstilles snittet til **Alt** hver gang viewet åbnes: et halvt regnskab
+   skal vælges bevidst, ikke arves fra sidste besøg.
+2. **Et snit må aldrig fryse en halv dag.** Første visning af en afsluttet dag fryser den
+   (migration 091). Sker det gennem et snit, fryses stadig **hele** dagen — ellers ville
+   "Alt" bagefter vise halvdelen, permanent, uden at nogen kunne se hvorfor.
+3. **Et snit af en frosset dag** bruger snapshottets **frosne løn-rækker** (det er dem der
+   skrider når Smartplan rettes) men regner bon-siden **live** — den ligger i vores egen
+   base. Svaret bærer `bons_live: true`, så en afvigelse kan forklares frem for at se ud
+   som en fejl.
+
+Ukendt `location` falder tilbage til hele driften — aldrig et tomt regnskab. Svaret bærer
+`location`, så en visning ikke kan forveksles med en anden.
+
+**Test:** `npm run test:drift-location` — 60 asserts mod de ægte endpoints (isoleret temp-DB,
+spawnet server). Løn-siden stubbes på **kilden**, ikke på logikken: `laborAdapter` leverer
+rigtige rækker med `location_class`, ellers ville løn-halvdelen af snittet være stubbet væk
+og testen måle ingenting. Mutations-testet: seks kerneregler rulles hver især tilbage og
+fælder hver sin navngivne assert.
+
+> **Fundet undervejs, ikke løst:** en frivillig har `role_class = 'volunteer'`, ikke
+> `'production'`. Timerne tæller derfor **ikke** i kapacitetsraten, selvom personen står og
+> arbejder — raten på en festivaldag bliver for høj. Det er en egenskab ved at `role_class`
+> er ét felt, ikke ved snittet, og det gælder uændret med og uden lokations-valg. Pinnet af
+> en assert, så det er synligt frem for at være en overraskelse.
+
 ### 18.8 Nabofejl 1 — driften talte event-vareforbrug to gange ✅ løst (august 2026)
 
 Verificeret med `computeDay`'s egne filtre (`realiseret`-status, `is_offer`/`is_internal`
@@ -1208,14 +1260,15 @@ fejl, alle fældet. Sporet i sig selv er dækket af `npm run test:event-retur` (
    eventet lukkes. Er der rettet i mellemtiden, skal det genberegnes bevidst —
    `POST /:id/labor/refreeze` (admin, som driftens `/refreeze`), med en knap i frys-noten.
 5. ~~*Eget issue:* driftens vareforbrug respekterer `event_prep_owns_stock` (18.8)~~ ✅ **udført**
-   (august 2026, `npm run test:drift-cost`). Lokations-toggle'et udestår stadig.
+   (august 2026, `npm run test:drift-cost`) — inkl. lokations-toggle'et, se 18.7
+   (`npm run test:drift-location`).
 6. ~~*Eget issue:* retur som modpost + advarsel ved talt > beregnet (18.9).~~ ✅ **udført**
    (august 2026, migration 160, `npm run test:event-return-cost`).
 
-Trin 1–4 er på plads, og trin 5–6 med dem: driften tæller ikke længere eventets varer to
-gange, og "Vareforbrug" er *hvad der blev brugt* så snart returen bogføres — men et event
-hvor returen ikke er bogført viser stadig hvad vi pakkede. Tilbage af 18.7 er
-lokations-toggle'et, så HQ-dagen kan ses uden eventet.
+Alle seks trin er på plads: driften tæller ikke længere eventets varer to gange,
+"Vareforbrug" er *hvad der blev brugt* så snart returen bogføres — et event hvor returen
+ikke er bogført viser stadig hvad vi pakkede — og HQ-dagen kan ses uden eventet via
+lokations-toggle'et.
 
 ### 18.11 Stadig ikke afklaret (blokerer ikke byg)
 

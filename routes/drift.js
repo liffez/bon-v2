@@ -24,12 +24,17 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }       = require('../db/database');
-const { handle, logChange, getDefaultLocationId, todayISO, bonUnitsExpr, revenueFactorSQL, bonOwnsStockCostSql } = require('../db/helpers');
+const { handle, logChange, getDefaultLocationId, todayISO, bonUnitsExpr, revenueFactorSQL, bonOwnsStockCostSql, driftLocationSql } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { inclToExcl }  = require('../shared/moms');
 const labor           = require('../services/laborAdapter');
 
 const ALL   = requireAuth('admin', 'office');
+
+// Lokations-snit (§18.7). Default 'all' — uændret adfærd for enhver kalder der
+// ikke beder om noget andet.
+const LOCATIONS = ['all', 'hq', 'events'];
+const parseLocation = (v) => (LOCATIONS.includes(v) ? v : 'all');
 const ADMIN = requireAuth('admin');
 
 const REALISERET_STATUS = ['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET'];
@@ -41,7 +46,8 @@ function r2(n) { return Math.round(((n || 0) + Number.EPSILON) * 100) / 100; }
 // krone for krone med pills'ene. Subqueries (ikke JOIN bon_lines) så bons
 // uden linjer stadig tæller med i levering/enheder — som i bonAgg.
 
-function computeDayBons(db, date, mode) {
+function computeDayBons(db, date, mode, location) {
+    const locSql = driftLocationSql(location, 'b');
     const statusClause = mode === 'realiseret'
         ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
         : `AND sd.code <> 'AFLYST'`;
@@ -64,7 +70,8 @@ function computeDayBons(db, date, mode) {
           JOIN status_definitions sd ON sd.id = b.status_id
           LEFT JOIN customers c  ON c.id  = b.customer_id
           LEFT JOIN companies co ON co.id = b.company_id
-         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0
+           AND ${locSql} ${statusClause}
          ORDER BY revenue_incl DESC, b.bon_number
     `).all(...unitsExpr.args, date, ...statusArgs);
 
@@ -97,7 +104,8 @@ function computeDayBons(db, date, mode) {
 //
 // Beregnes LIVE (ikke i snapshot): det er en optælling af bon-linjer, som
 // ligger i basen i forvejen, og som ikke skrider når Smartplan ændrer sig.
-function computeItems(db, from, to, mode) {
+function computeItems(db, from, to, mode, location) {
+    const locSql = driftLocationSql(location, 'b');
     const statusClause = mode === 'realiseret'
         ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
         : `AND sd.code <> 'AFLYST'`;
@@ -119,7 +127,8 @@ function computeItems(db, from, to, mode) {
           JOIN status_definitions sd ON sd.id = b.status_id
           ${u.join}
          WHERE b.delivery_date BETWEEN ? AND ?
-           AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+           AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0
+           AND ${locSql} ${statusClause}
          GROUP BY bl.category, bl.product_name, bl.unit
     `).all(...u.args, from, to, ...statusArgs);
     // GROUP BY på de RÅ kolonner, ikke på output-aliasset: `category` findes
@@ -168,7 +177,8 @@ function computeItems(db, from, to, mode) {
 
 // skipBons: periode-visningen smider per-bon data væk — spring beregningen over
 // dér (op til 366 dage). /day + /refreeze beregner den altid (ryger i snapshot).
-async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
+async function computeDay(db, date, mode, prefetchedLabor, skipBons, location = 'all') {
+    const locSql = driftLocationSql(location, 'b');
     const statusClause = mode === 'realiseret'
         ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
         : `AND sd.code <> 'AFLYST'`;
@@ -186,7 +196,8 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
           FROM bons b
           JOIN bon_lines bl ON bl.bon_id = b.id
           JOIN status_definitions sd ON sd.id = b.status_id
-         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0
+           AND ${locSql} ${statusClause}
     `).get(date, ...statusArgs);
 
     const bonAgg = db.prepare(`
@@ -194,7 +205,8 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
                COUNT(*)                         AS bon_count
           FROM bons b
           JOIN status_definitions sd ON sd.id = b.status_id
-         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0
+           AND ${locSql} ${statusClause}
     `).get(date, ...statusArgs);
 
     // Enheder beregnes LIVE fra bon_lines (boks-aware) — aldrig fra det cachede
@@ -206,7 +218,8 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
           JOIN status_definitions sd ON sd.id = b.status_id
           JOIN bon_lines bl ON bl.bon_id = b.id
           ${unitsExpr.join}
-         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0
+           AND ${locSql} ${statusClause}
            AND (bl.is_accessory = 0 OR bl.is_accessory IS NULL)
     `).get(...unitsExpr.args, date, ...statusArgs);
 
@@ -236,6 +249,13 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
         parseFloat(db.prepare(`SELECT value FROM settings WHERE key='labor_overhead_pct'`).get()?.value ?? '0') || 0);
     const overheadFactor = 1 + overheadPct / 100;
 
+    // Lønnen snittes på VAGTENS lokation (Smartplan), ikke på bonnens rolle.
+    // Det er to forskellige kilder til samme spørgsmål — hvor foregik arbejdet —
+    // og de skal begge respektere valget, ellers ville HQ-visningen vise
+    // festival-lønnen sammen med HQ's omsætning.
+    if (location === 'hq')     laborRows = laborRows.filter(l => l.location_class !== 'events');
+    if (location === 'events') laborRows = laborRows.filter(l => l.location_class === 'events');
+
     // Ledige vagter (udlagt, endnu ikke taget) er ikke udført arbejde. De talte
     // med i persontimerne og trak dermed kapacitetsraten ned — som om nogen
     // stod der. Ugeoversigten har altid ekskluderet dem; her manglede det.
@@ -253,7 +273,8 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
     const tlBons = db.prepare(`
         SELECT b.total_units AS units, b.delivery_time AS dtime, b.pickup_time AS ptime
           FROM bons b JOIN status_definitions sd ON sd.id = b.status_id
-         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0
+           AND ${locSql} ${statusClause}
     `).all(date, ...statusArgs);
     const hourOf = (t) => { const m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? parseInt(m[1], 10) : null; };
     const minOf  = (t) => { const m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
@@ -300,9 +321,14 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
         // og det er værd at se når man kigger på dagen.
         open_shift_count:    laborRows.filter(l => l.is_open).length,
         labor_error: laborError,
+        // Hvilket snit tallene er regnet på (§18.7). Med i svaret så frontenden
+        // kan mærke visningen — og så et gemt/delt svar ikke kan forveksles med
+        // hele driften. 'hq' + 'events' summerer til 'all'; de tre må aldrig
+        // lægges sammen på tværs.
+        location,
         // Per-bon nedbrydning til drill-down — med i frosne snapshots fremover,
         // så drill-down på en frosset dag viser præcis de tal der blev frosset.
-        ...(skipBons ? {} : { bons: computeDayBons(db, date, mode) }),
+        ...(skipBons ? {} : { bons: computeDayBons(db, date, mode, location) }),
     };
 }
 
@@ -354,14 +380,16 @@ router.get('/items', ALL, handle(async (req, res) => {
     if (!from || !to) return res.status(400).json({ error: 'from + to (eller date) i formatet YYYY-MM-DD kræves' });
     if (from > to)    return res.status(400).json({ error: 'from skal være ≤ to' });
     const mode = req.query.mode === 'forecast' ? 'forecast' : 'realiseret';
-    res.json({ from, to, mode, ...computeItems(getDb(), from, to, mode) });
+    const location = parseLocation(req.query.location);
+    res.json({ from, to, mode, location, ...computeItems(getDb(), from, to, mode, location) });
 }));
 
 router.get('/day/bons', ALL, handle(async (req, res) => {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
     if (!date) return res.status(400).json({ error: 'date (YYYY-MM-DD) kræves' });
     const mode = req.query.mode === 'forecast' ? 'forecast' : 'realiseret';
-    res.json({ date, mode, live: true, bons: computeDayBons(getDb(), date, mode) });
+    const location = parseLocation(req.query.location);
+    res.json({ date, mode, location, live: true, bons: computeDayBons(getDb(), date, mode, location) });
 }));
 
 /* ── GET /day ────────────────────────────────────────────── */
@@ -370,6 +398,7 @@ router.get('/day', ALL, handle(async (req, res) => {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
     if (!date) return res.status(400).json({ error: 'date (YYYY-MM-DD) kræves' });
     const mode = req.query.mode === 'forecast' ? 'forecast' : 'realiseret';
+    const location = parseLocation(req.query.location);
     const db = getDb();
     const isAdmin = req.session.userRole === 'admin';
 
@@ -378,15 +407,27 @@ router.get('/day', ALL, handle(async (req, res) => {
     if (isPast && mode === 'realiseret') {
         let snap = db.prepare('SELECT data_json, frozen_at FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
         if (!snap) {
-            const data = await computeDay(db, date, mode);
-            saveSnapshot(db, date, mode, data, req.session.userId);
-            snap = db.prepare('SELECT frozen_at FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
-            return res.json({ ...data, targets: readTargets(db), frozen: true, frozen_at: snap.frozen_at, can_refreeze: isAdmin });
+            // Frys ALTID hele dagen, uanset hvilket snit der spørges. Snapshottet
+            // bærer labor_rows med location_class, så snittene kan udledes af det
+            // bagefter — ellers ville et snit-kald fryse en halv dag.
+            const full = await computeDay(db, date, mode);
+            saveSnapshot(db, date, mode, full, req.session.userId);
+            snap = db.prepare('SELECT data_json, frozen_at FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
         }
-        return res.json({ ...JSON.parse(snap.data_json), targets: readTargets(db), frozen: true, frozen_at: snap.frozen_at, can_refreeze: isAdmin });
+        const frozen = JSON.parse(snap.data_json);
+        if (location === 'all') {
+            return res.json({ ...frozen, targets: readTargets(db), frozen: true, frozen_at: snap.frozen_at, can_refreeze: isAdmin });
+        }
+        // Snit af en frosset dag: brug de FROSNE løn-rækker (det er dem der
+        // skrider når Smartplan rettes), men regn bon-siden live — den ligger i
+        // vores egen base og skrider ikke. Frontenden får bons_live, så et
+        // afvigende tal kan forklares frem for at se ud som en fejl.
+        const data = await computeDay(db, date, mode, frozen.labor_rows || [], false, location);
+        return res.json({ ...data, targets: readTargets(db), frozen: true, frozen_at: snap.frozen_at,
+                          can_refreeze: isAdmin, bons_live: true });
     }
 
-    const data = await computeDay(db, date, mode);
+    const data = await computeDay(db, date, mode, undefined, false, location);
     res.json({ ...data, targets: readTargets(db), frozen: false, can_refreeze: false });
 }));
 
@@ -408,12 +449,18 @@ router.post('/refreeze', ADMIN, handle(async (req, res) => {
 
 // Læs én dag til periode-visning: frosset snapshot hvis det findes (afsluttet
 // dag), ellers live beregning. Opretter IKKE snapshot (kun /day fryser).
-async function readDay(db, date, mode, prefetchedLabor) {
+// Ved et lokations-snit genbruges snapshottets FROSNE løn-rækker, mens bon-siden
+// regnes live — samme regel som /day, så de to flader ikke kan svare forskelligt.
+async function readDay(db, date, mode, prefetchedLabor, location = 'all') {
     if (date < todayISO() && mode === 'realiseret') {
         const snap = db.prepare('SELECT data_json FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
-        if (snap) return { ...JSON.parse(snap.data_json), frozen: true };
+        if (snap) {
+            const frozen = JSON.parse(snap.data_json);
+            if (location === 'all') return { ...frozen, frozen: true };
+            return { ...(await computeDay(db, date, mode, frozen.labor_rows || [], true, location)), frozen: true, bons_live: true };
+        }
     }
-    return { ...(await computeDay(db, date, mode, prefetchedLabor, true)), frozen: false };
+    return { ...(await computeDay(db, date, mode, prefetchedLabor, true, location)), frozen: false };
 }
 
 router.get('/period', ALL, handle(async (req, res) => {
@@ -421,6 +468,7 @@ router.get('/period', ALL, handle(async (req, res) => {
     const to   = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)   ? req.query.to   : null;
     if (!from || !to) return res.status(400).json({ error: 'from + to (YYYY-MM-DD) kræves' });
     const mode = req.query.mode === 'forecast' ? 'forecast' : 'realiseret';
+    const location = parseLocation(req.query.location);
 
     // Byg dagsliste. Hårdt loft = 1 år: AFVIS (fejl) frem for tavs afkortning,
     // så et urealistisk stort interval ikke ser ud som om hele perioden er med.
@@ -445,7 +493,7 @@ router.get('/period', ALL, handle(async (req, res) => {
 
     const days = [];
     for (const date of dates) {
-        const d = await readDay(db, date, mode, laborMap[date] || []);
+        const d = await readDay(db, date, mode, laborMap[date] || [], location);
         days.push({
             date, frozen: d.frozen,
             revenue_ex_moms: d.revenue_ex_moms, cost_ex_moms: d.cost_ex_moms,
@@ -460,7 +508,7 @@ router.get('/period', ALL, handle(async (req, res) => {
     const revenue = sum('revenue_ex_moms');
     const driftsresultat = sum('driftsresultat_ex_moms');
     const totals = {
-        from, to, mode, day_count: days.length,
+        from, to, mode, location, day_count: days.length,
         revenue_ex_moms: revenue, cost_ex_moms: sum('cost_ex_moms'),
         delivery_ex_moms: sum('delivery_ex_moms'), labor_ex_moms: sum('labor_ex_moms'),
         labor_raw_ex_moms: sum('labor_raw_ex_moms'),
