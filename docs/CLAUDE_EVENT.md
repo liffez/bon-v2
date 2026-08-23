@@ -804,7 +804,7 @@ det siges. 0 timer ville se ud som en sandhed.
 |---|---|
 | HQ-vagter (`location_class = 'hq'`) | De bliver i driftsregnskabet (18.7) |
 | Bud (`role_class = 'delivery'`) | Afregnes separat — samme regel som driften (§6a) |
-| Frivillige, folk uden for vagtplanen | Ikke bygget endnu → tallet er et **estimat**, og det står på skærmen |
+| Frivillige, folk uden for vagtplanen | ✅ kan skrives ind pr. event (18.6) — men kun hvis nogen gør det |
 | HQ-prep-timer | 18.7 |
 
 **Vagtplanen bag tallet.** Et samlet timetal kan man ikke se en fejl i — er der en vagt for
@@ -988,9 +988,43 @@ En rettelse **rydder et frosset snapshot**, så ændringen slår igennem også p
 næste visning fryser på det nye grundlag. Uden det ville brugeren se sin egen rettelse blive
 ignoreret.
 
-**Test:** `npm run test:event-labor` — 81 asserts. Mutationstestet: rettelser ignoreret,
-lagt til frem for at erstatte, 0-timer skjult, reset der ikke sletter, manglende rolle-gate og
-negative timer fælder hver sine asserts.
+### Frie rækker — folk uden for vagtplanen
+
+Frivillige der ikke er oprettet i Smartplan, en nabo der gav en hånd, jer selv når I ikke står
+på planen. Uden dem står deres timer ingen steder, og mandetimerne er for lave.
+
+`POST/PUT/DELETE /api/events/:id/labor/rows`. Samme tabel som rettelserne — det er samme slags
+række, ikke en ny model. Derfor er unique-indekset partielt: `onsite`/`other` kan have flere
+rækker pr. event, standard-linjerne præcis én.
+
+**Satsen er tre-delt og skal vælges eksplicit**, aldrig udledes:
+
+| Valg | `rate` | Betyder |
+|---|---|---|
+| Frivillig | `0` | Ulønnet — 0 kr er **svaret** |
+| Standardsats | `NULL` | Brug eventets sats |
+| Egen sats | `> 0` | Denne person koster noget andet |
+
+`0` og `NULL` betyder modsatte ting — det ene er et svar, det andet et manglende svar — så de
+må ikke kunne forveksles. Samme skelnen som 18.3b. I brugerfladen er det en vælger, ikke et
+tal man skal vide betydningen af, og sats-feltet vises kun ved "egen sats" så et udfyldt felt
+ikke kan modsige et valg om standardsats.
+
+**De vises i deres eget afsnit**, ikke sammen med standardtiderne: det er indtastede timer for
+rigtige mennesker, ikke et skøn fra en fast tid. `manual`, ikke `estimated`.
+
+**Et navn er påkrævet.** En række uden navn kan ikke forsvares bagefter — og til forskel fra en
+*rettelse*, hvor 0 timer er et gyldigt svar, afvises 0 timer på en fri række: en person der ikke
+arbejdede er ikke en række.
+
+`event_id` står i WHERE på både PUT og DELETE, så et id fra et andet event ikke kan rettes
+eller slettes herfra.
+
+**Test:** `npm run test:event-labor` — 101 asserts. Mutationstestet: rettelser ignoreret, lagt
+til frem for at erstatte, 0-timer skjult, reset der ikke sletter, manglende rolle-gate,
+negative timer, "frivillig" der bliver til standardsats, `rate 0` læst som "ingen sats",
+manuelle rækker markeret som skøn, navn ikke påkrævet, og manglende `event_id` i WHERE — alle
+fælder deres egne asserts.
 
 Settings: `event_labor_setup_hours` (2) · `event_labor_teardown_hours` (2) ·
 `event_labor_trailer_hours` (0,5 hver vej) · `event_labor_default_persons` ·

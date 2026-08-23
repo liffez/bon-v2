@@ -588,9 +588,10 @@ async function _evBookReturn(ev, body, previousBookings, force = false) {
 function _evRenderLaborPanel(ev, d) {
     document.getElementById('ev-labor-panel')?.remove();
     const onsite = (d.sources || []).find(s => s.kind === 'onsite');
-    const standard = (d.sources || []).filter(s => s.estimated && s.hours > 0);
+    const standard = (d.sources || []).filter(s => s.estimated && !s.manual && s.hours > 0);
+    const manual   = (d.sources || []).filter(s => s.manual);
     const shifts = onsite?.shifts || [];
-    if (!shifts.length && !standard.length) return;
+    if (!shifts.length && !standard.length && !manual.length) return;
 
     // Vagterne grupperes pr. dag — sådan læses en vagtplan.
     const byDay = new Map();
@@ -682,6 +683,34 @@ function _evRenderLaborPanel(ev, d) {
             <table class="ev-lp-table"><tbody>${
                 sumRow('I alt på pladsen', onsite?.hours || 0, onsite?.cost || 0)}</tbody></table>` : `
             <div class="ev-lp-empty">Ingen vagter registreret på event-lokationen i perioden ${_evEsc(_evFmtDate(d.from))} – ${_evEsc(_evFmtDate(d.to))}.</div>`}
+            <div class="ev-lp-section-head">Uden for vagtplanen</div>
+            ${manual.length ? `<table class="ev-lp-table"><tbody>${manual.map(m => `
+                <tr data-lp-row="${m.id}">
+                    <td class="ev-lp-name">${_evEsc(m.label)}${
+                        m.rate === 0 ? ' <span class="ev-lp-tag ev-lp-tag-ok" title="Ulønnet — 0 kr er det rigtige tal.">frivillig</span>' : ''}</td>
+                    <td class="ev-lp-job" colspan="2">${_evEsc(m.note || '')}${
+                        m.rate_missing ? ' <span class="ev-lp-tag" title="Ingen sats kendt — timerne tæller, kronerne gør ikke.">ingen sats</span>' : ''}</td>
+                    <td class="ev-num">${_evFmtNum(m.hours_per_person)} t × ${m.persons % 1 === 0 ? m.persons : _evFmtNum(m.persons)} = ${_evFmtNum(m.hours)} t</td>
+                    <td class="ev-num">${_evFmtKr(m.cost)}
+                        <button type="button" class="ev-lp-del" data-lp-del="${m.id}" title="Fjern">×</button></td>
+                </tr>`).join('')}${sumRow('I alt uden for vagtplanen',
+                    manual.reduce((a, x) => a + (x.hours || 0), 0),
+                    manual.reduce((a, x) => a + (x.cost || 0), 0))}</tbody></table>`
+            : '<div class="ev-lp-empty">Ingen tilføjet. Frivillige og folk der ikke er oprettet i Smartplan skrives ind her — ellers står deres timer ingen steder.</div>'}
+            <div class="ev-lp-add">
+                <input class="ev-lp-in ev-lp-in-lbl" data-lp-new="label" placeholder="Hvem? (fx Frivillige lørdag)">
+                <input class="ev-lp-in" data-lp-new="hours" type="number" min="0" step="0.5" placeholder="timer"> t ×
+                <input class="ev-lp-in ev-lp-in-p" data-lp-new="persons" type="number" min="1" step="1" value="1"> pers.
+                <select class="ev-lp-in ev-lp-in-rate" data-lp-new="rate_mode">
+                    <option value="volunteer">frivillig (0 kr)</option>
+                    <option value="standard">standardsats</option>
+                    <option value="custom">egen sats…</option>
+                </select>
+                <input class="ev-lp-in" data-lp-new="rate" type="number" min="0" step="5" placeholder="kr/t" hidden>
+                <button type="button" class="ev-btn" data-lp-add>Tilføj</button>
+                <span class="ev-lp-saved" data-lp-msg></span>
+            </div>
+
             ${stdRows ? `
             <div class="ev-lp-section-head">Transport og opsætning — standardtider${d.persons ? ` · ${d.persons % 1 === 0 ? d.persons : _evFmtNum(d.persons)} ${d.persons === 1 ? 'person' : 'personer'}` : ''}</div>
             <table class="ev-lp-table"><tbody>${stdRows}${sumRow(
@@ -744,6 +773,41 @@ function _evRenderReturnGuard(ev, body, data, previousBookings) {
 // Auto-gem på blur: samme mønster som forecast og event-noten. Ingen gem-knap
 // at glemme, og feltet står på standarden indtil man faktisk retter noget.
 function _evBindLaborEdit(ev, root) {
+    // Frie rækker: tilføj og fjern.
+    const msg = root.querySelector('[data-lp-msg]');
+    const val = (f) => root.querySelector(`[data-lp-new="${f}"]`)?.value ?? '';
+    const rateSel = root.querySelector('[data-lp-new="rate_mode"]');
+    const rateIn  = root.querySelector('[data-lp-new="rate"]');
+    // Sats-feltet vises kun ved "egen sats". Ellers ville et udfyldt felt og et
+    // valg om standardsats kunne modsige hinanden på skærmen.
+    rateSel?.addEventListener('change', () => { rateIn.hidden = rateSel.value !== 'custom'; });
+
+    root.querySelector('[data-lp-add]')?.addEventListener('click', async () => {
+        if (msg) { msg.textContent = 'Gemmer…'; msg.className = 'ev-lp-saved'; }
+        try {
+            await createEventLaborRow(ev.id, {
+                label: val('label'), hours: val('hours'), persons: val('persons'),
+                rate_mode: val('rate_mode'), rate: val('rate'),
+            });
+            _evRenderDetail(ev.id);
+        } catch (err) {
+            if (msg) { msg.textContent = err.message; msg.className = 'ev-lp-saved err'; }
+        }
+    });
+
+    root.querySelectorAll('[data-lp-del]').forEach(b => {
+        b.addEventListener('click', async () => {
+            const navn = b.closest('tr')?.querySelector('.ev-lp-name')?.textContent?.trim() || 'rækken';
+            if (!confirm(`Fjern "${navn}" fra eventets løn?`)) return;
+            try {
+                await deleteEventLaborRow(ev.id, b.dataset.lpDel);
+                _evRenderDetail(ev.id);
+            } catch (err) {
+                if (msg) { msg.textContent = err.message; msg.className = 'ev-lp-saved err'; }
+            }
+        });
+    });
+
     root.querySelectorAll('tr[data-lp-kind]').forEach(tr => {
         const kind = tr.dataset.lpKind;
         const inputs = [...tr.querySelectorAll('.ev-lp-in')];

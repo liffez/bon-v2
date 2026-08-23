@@ -1934,6 +1934,20 @@ function saveEventLaborRow(eventId, kind, body) {
     });
 }
 
+/**
+ * Folk uden for vagtplanen på ét event.
+ * `rate_mode`: 'standard' | 'volunteer' (0 kr) | 'custom' (+ `rate`).
+ */
+function createEventLaborRow(eventId, body) {
+    return apiFetch(`/events/${eventId}/labor/rows`, { method: 'POST', body: JSON.stringify(body) });
+}
+function updateEventLaborRow(eventId, rowId, body) {
+    return apiFetch(`/events/${eventId}/labor/rows/${rowId}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+function deleteEventLaborRow(eventId, rowId) {
+    return apiFetch(`/events/${eventId}/labor/rows/${rowId}`, { method: 'DELETE' });
+}
+
 /** Smartplan: forbindelse + hvordan lokations-splittet lander (admin). */
 function fetchSmartplanStatus() {
     return apiFetch('/smartplan/status');

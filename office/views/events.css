@@ -697,3 +697,16 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
     font-weight: 600;
 }
 .ev-lp-sum .ev-lp-name { color: #6b5c42; }
+
+/* Folk uden for vagtplanen: tilføj-linje + fjern-knap. */
+.ev-lp-add {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 8px; font-size: 13px; color: #888;
+}
+.ev-lp-in-lbl { width: 200px; text-align: left; }
+.ev-lp-in-rate { width: auto; text-align: left; }
+.ev-lp-del {
+    margin-left: 8px; padding: 0 5px; border: none; background: none; cursor: pointer;
+    color: #b0a48e; font-size: 15px; line-height: 1;
+}
+.ev-lp-del:hover { color: #b23c17; }

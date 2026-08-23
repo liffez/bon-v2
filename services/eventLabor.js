@@ -266,20 +266,29 @@ async function computeEventLabor(event) {
 
     // Frie rækker: folk der slet ikke er i vagtplanen. Ikke en standard-linje,
     // så de lægges TIL frem for at erstatte noget.
-    for (const o of db.prepare(
-        `SELECT kind, label, persons, hours, rate, note FROM event_labor
+    const manualRows = db.prepare(
+        `SELECT id, kind, label, persons, hours, rate, note FROM event_labor
           WHERE event_id = ? AND kind IN ('onsite','other') ORDER BY id`
-    ).all(event.id)) {
+    ).all(event.id);
+    for (const o of manualRows) {
         const hours = r2(Number(o.hours) * Number(o.persons));
+        // rate NULL = brug eventets standardsats. 0 er en GYLDIG værdi og
+        // betyder ulønnet — derfor `!= null` og ikke en sandhedstest.
         const rate = o.rate != null ? Number(o.rate) : rateInfo.rate;
         sources.push({
+            id: o.id,
             kind: o.kind,
             label: o.label || 'Uden for vagtplanen',
             hours,
             cost: rate == null ? 0 : r2(hours * rate * overhead),
             persons: Number(o.persons),
-            estimated: true,
+            hours_per_person: r2(Number(o.hours)),
+            rate: o.rate != null ? Number(o.rate) : null,
+            // `manual`, ikke `estimated`: det er indtastede timer for rigtige
+            // mennesker, ikke et skøn fra en standardtid. Panelet viser dem i
+            // deres eget afsnit, så de to slags ikke blandes sammen.
             manual: true,
+            rate_missing: rate == null,
             note: o.note || null,
         });
     }
@@ -292,9 +301,12 @@ async function computeEventLabor(event) {
         cost_total: costTotal,
         sources,
         warnings,
-        // Det her er et ESTIMAT, ikke en lønopgørelse. Frivillige og folk uden
-        // for vagtplanen er ikke med, og HQ-prep hører til i driftsregnskabet.
+        // Et estimat, ikke en lønopgørelse: standardtiderne er skøn, og HQ-prep
+        // hører til i driftsregnskabet (§18.7). Frivillige og folk uden for
+        // vagtplanen KAN nu være med — men kun hvis nogen har tastet dem, så
+        // manual_rows siger om der faktisk er gjort noget ved det.
         is_estimate: true,
+        manual_rows: manualRows.length,
         rate: rateInfo.rate,
         rate_source: rateInfo.source,
         persons,
