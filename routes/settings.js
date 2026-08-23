@@ -231,6 +231,13 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
     if (req.params.key === 'auto_fee_rules') {
         require('../services/autoFees').invalidateFeeCache();
     }
+    // HQ-lokationens navn caches i EN TIME i smartplanAdapter, og det afgør
+    // hvad der regnes som HQ-drift kontra event. Uden denne rydning ville en
+    // rettelse først virke en time senere — og indtil da ville splittet være
+    // forkert uden at noget sagde fra.
+    if (req.params.key === 'smartplan_hq_location') {
+        require('../services/smartplanAdapter').clearCache();
+    }
     // Interne afsendere afgør hvor indgående mail lander — en ændring skal virke
     // ved næste polling, ikke først når 60s-cachen udløber.
     if (req.params.key === 'internal_mail_domains' || req.params.key === 'mail_domain') {

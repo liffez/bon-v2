@@ -1923,6 +1923,11 @@ function fetchRoleMap() {
     return apiFetch('/role-map');
 }
 
+/** Smartplan: forbindelse + hvordan lokations-splittet lander (admin). */
+function fetchSmartplanStatus() {
+    return apiFetch('/smartplan/status');
+}
+
 function updateRoleClass(jobtypeUuid, roleClass) {
     return apiFetch('/role-map/' + encodeURIComponent(jobtypeUuid), {
         method: 'PATCH',
