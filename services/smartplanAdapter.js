@@ -698,6 +698,11 @@ function _normalizeLabor(rec, isShift, hqName) {
                           ?? _hoursBetween(rec.attendance_start_dt, rec.attendance_end_dt);
 
     return {
+        // Vagtens egen identitet. Nødvendig for at kunne tildele den til et
+        // bestemt event når to kører samme weekend (event_shift_assignments).
+        // Parret (uuid, source) er samme nøgle som spejlet bruger.
+        uuid:              rec.uuid || null,
+        source:            isShift ? 'shift' : 'worklog',
         employee_id:       owner.uuid || null,
         employee_name:     [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null,
         is_open:           _isOpenShift(owner),
