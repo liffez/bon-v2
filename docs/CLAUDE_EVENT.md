@@ -911,7 +911,7 @@ bestemmes, `tests/labor_location.test.js` (11) at flaget bæres igennem og ikke 
 manglende sats. Mutationstestet: reglen fjernet, navnet som signal, og tom `uuid` som ejer
 fælder hver sine asserts.
 
-### 18.3c To events samme weekend ✅ bygget (august 2026)
+### 18.3d To events samme weekend ✅ bygget (august 2026)
 
 Lønnen hentes på **dato + lokation** (Model A ovenfor). Kører to events samtidig,
 ser de derfor BEGGE alle vagter på event-lokationen, og begge P&L'er tæller de
