@@ -1939,10 +1939,15 @@ function fetchWageRates() {
     return apiFetch('/wage-rates');
 }
 
-function importWageRates(csv) {
+/**
+ * @param {string} csv
+ * @param {string} [gyldigFra] 'YYYY-MM-DD' — bruges for rækker uden dato i
+ *        filen (Smartplans eksport har ingen dato-kolonne). Tom = i dag.
+ */
+function importWageRates(csv, gyldigFra) {
     return apiFetch('/wage-rates/import', {
         method: 'POST',
-        body: JSON.stringify({ csv }),
+        body: JSON.stringify({ csv, gyldig_fra: gyldigFra || '' }),
     });
 }
 

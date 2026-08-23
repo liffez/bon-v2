@@ -1754,9 +1754,18 @@
         <span id="wage-file-name" style="font-size:13px;color:#888"></span>
       </div>
       <div style="font-size:12px;color:#888;margin-bottom:6px">Vælg din udfyldte fil — indholdet vises nedenfor til gennemsyn, så klik "Importér satser". (Eller indsæt teksten direkte.)
-        <br><strong>Genvej:</strong> Smartplan → Medarbejdere → <em>Eksportér til Excel</em> kan indsættes direkte —
-        løntype-teksten ("køkkenbordet assistent (145,-)") læses som 145. Smartplans API udleverer ikke satsen,
-        så den vej er alternativet til at taste den af i hånden.</div>
+        <br><strong>Genvej:</strong> Smartplan → Medarbejdere → <em>Eksportér til Excel</em> kan indsættes direkte.
+        Fornavn + Efternavn, kolonnen <em>Løntype</em> og formatet "145,-" læses som de er.
+        Smartplans API udleverer ikke satsen, så den vej er alternativet til at taste den af i hånden.
+        <br>Rækker uden løntype springes over — de får ikke en sats af sig selv.
+      </p>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        <label><strong>Gælder fra</strong>
+          <input class="st-input" id="wage-from" type="date" style="width:170px;margin-left:6px">
+        </label>
+        — bruges for rækker uden dato i filen. Smartplans eksport har ingen dato-kolonne.
+        Sæt den samme som de eksisterende satser for at <em>rette</em> dem; sæt en senere dato for en
+        <em>lønstigning</em>, så gamle regnskaber står urørt. Tom = i dag.</div>
       <textarea id="wage-csv" class="st-input" rows="8" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12px"
                 placeholder="navn,initialer,timeloen,gyldig_fra&#10;Anne Lindhardt,AL,182.50,2026-01-01"></textarea>
       <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
@@ -5364,7 +5373,7 @@ async function doWageImport() {
     if (!csv) { out.style.color = '#c0392b'; out.textContent = 'Indsæt CSV først.'; return; }
     out.style.color = '#888'; out.textContent = 'Importerer…';
     try {
-        const r = await importWageRates(csv);
+        const r = await importWageRates(csv, document.getElementById('wage-from')?.value || '');
         let msg = '✓ ' + r.imported + ' sats(er) importeret.';
         if (r.unmatched && r.unmatched.length) msg += ' Ikke matchet: ' + r.unmatched.join(', ') + '.';
         if (r.invalid && r.invalid.length)     msg += ' Ugyldige: ' + r.invalid.join('; ') + '.';
