@@ -209,6 +209,44 @@ async function main() {
     assert((await get(`/api/events/${evId}/overview`)).status === 200,
         '/overview er urørt — den er åben for alle roller og bærer ikke løn');
 
+    // ── 9b) Vagterne kan efterprøves enkeltvis ───────────────────────────
+    // Et samlet timetal kan man ikke se en fejl i. Er der en vagt for meget
+    // eller for lidt, opdages det kun ved at kigge på listen — så den skal
+    // bære nok til at man kan genkende sin egen dag.
+    console.log('\n— Vagtplanen bag tallet —');
+    SP_ROWS = { [DATO]: [
+        vagt({ employee_name: 'Sofie', start: '12:00' }),
+        vagt({ employee_id: 'emp-2', employee_name: 'Jonas', start: '08:00', sats: null, kostpris: null, rate_missing: true }),
+    ] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    const sh = kind('onsite').shifts || [];
+    assert(sh.length === 2, 'begge vagter kommer med enkeltvis');
+    assert(sh[0].employee_name === 'Jonas', 'sorteret på mødetid — 08:00 før 12:00');
+    assert(sh[0].start === '08:00' && sh[0].slut === '16:00', 'mødetid og sluttid med');
+    assert(sh[0].jobtype_title === 'Salg', 'jobtypen med, så vagten kan genkendes');
+    near(sh[1].hours, 8, 'timer pr. vagt');
+    near(sh[1].cost, 1200, 'og kroner pr. vagt');
+    assert(sh[0].cost === null && sh[0].rate_missing === true,
+        'vagten uden timeløn har ingen kroner — og siger hvorfor');
+
+    // Bud og HQ-vagter skal heller ikke dukke op i LISTEN, ikke kun i summen.
+    SP_ROWS = { [DATO]: [
+        vagt(),
+        vagt({ employee_id: 'bud', employee_name: 'Bud', role_class: 'delivery' }),
+        vagt({ employee_id: 'hq', employee_name: 'HQ-kok', location_class: 'hq' }),
+    ] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    const navne = (kind('onsite').shifts || []).map(x => x.employee_name);
+    assert(navne.length === 1 && navne[0] === 'Sofie',
+        'listen viser præcis de vagter der tælles — ikke bud, ikke HQ');
+
+    // Planlagt vs. fremmødt skal kunne skelnes: et tal der bygger på en
+    // forventning må ikke se ud som en måling.
+    SP_ROWS = { [DATO]: [vagt({ used_fallback_hours: true })] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    assert(kind('onsite').shifts[0].planned_only === true,
+        'vagt uden registreret fremmøde markeres som planlagt');
+
     // ── 10) Frys ved 'done' ──────────────────────────────────────────────
     console.log('\n— Frys —');
     ROLE = 'admin';

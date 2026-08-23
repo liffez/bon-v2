@@ -788,7 +788,7 @@ i tid. I driftsdata i dag overlapper ingen af de otte events — men det er held
 garanti (august har fire events på 18 dage). Korrektionslaget (ekskludér/flyt enkeltvagt)
 bygges når det første overlap opstår, ikke før.
 
-**Implementeret som `services/eventLabor.js` + `GET /api/events/:id/labor`** (migration 157
+**Implementeret som `services/eventLabor.js` + `GET /api/events/:id/labor`** (migration 158
 for standard-tiderne). Alt beregnes **live ved visning** — ingen tabel, som top-up-forslaget og
 event-menuen — så et event ingen har rørt alligevel har et tal. De manuelle rækker (frivillige,
 folk uden for vagtplanen) og frys ved `done` er næste skridt; datamodellen i 18.6 er uændret.
@@ -807,6 +807,17 @@ det siges. 0 timer ville se ud som en sandhed.
 | Frivillige, folk uden for vagtplanen | Ikke bygget endnu → tallet er et **estimat**, og det står på skærmen |
 | HQ-prep-timer | 18.7 |
 
+**Vagtplanen bag tallet.** Et samlet timetal kan man ikke se en fejl i — er der en vagt for
+meget eller for lidt, opdages det kun ved at kigge på listen. Derfor et sammenklappeligt panel
+(`👤 Vagtplan & opsætning`) under P&L-strippen: hvem stod på pladsen hvornår, grupperet pr. dag,
+med jobtype, mødetid, timer og kroner. Standard-tiderne står i deres eget afsnit nedenunder med
+udregningen synlig (`2 t × 2 pers.`) — de er ikke vagter, de er et skøn, og de to må ikke se ens ud.
+
+To ting markeres i listen frem for kun i totalen, fordi de forklarer et tal der ellers ser
+forkert ud: en vagt uden registreret timeløn (ravgul række, `ingen sats`) og en vagt hvor
+fremmødet endnu ikke er registreret (`planlagt`). Afgrænsningerne gælder også listen — bud og
+HQ-vagter er hverken i summen eller i visningen, så de to ikke kan fortælle hver sin historie.
+
 **Løn er rolle-gated på serveren** (`requireAuth('admin','office')`, som driftsregnskabet).
 `/overview` er åbent for alle roller og bærer derfor **ikke** løn — derfor et selvstændigt
 endpoint frem for et felt på P&L'en. Skjules tallet kun i frontenden, kan det stadig hentes.
@@ -815,7 +826,7 @@ endpoint frem for et felt på P&L'en. Skjules tallet kun i frontenden, kan det s
 `Resultat på pladsen · efter løn` (kun for dem der må se lønnen). To utvetydige etiketter frem
 for ét ord der betyder to ting alt efter hvem der kigger.
 
-**Test:** `npm run test:event-labor` — 51 asserts mod det ægte endpoint (in-process, isoleret
+**Test:** `npm run test:event-labor` — 60 asserts mod det ægte endpoint (in-process, isoleret
 temp-DB; Smartplan og ORS stubbet, `getStandardHourlyRate` ægte). Dækker de fire afgrænsninger,
 overhead på begge kilder, sats-fallback til gennemsnittet, køretid der ikke kan udledes,
 vagtplan der er nede, rolle-gaten, og hele frys-adfærden. Mutationstestet: 13 bevidste fejl,
@@ -1040,9 +1051,9 @@ fejl, alle fældet. Sporet i sig selv er dækket af `npm run test:event-retur` (
    `syncRoleMap()` findes; den skal køres og listen udfyldes. Uden det bliver ethvert nyt
    lønstal forkert på samme måde.
 3. ~~settings + Smartplan-kilden + strip med `Mandetimer` / `Løn`, rolle-gated endpoint~~
-   ✅ **udført** (august 2026, migration 157, `npm run test:event-labor`). `event_labor`-tabellen
+   ✅ **udført** (august 2026, migration 158, `npm run test:event-labor`). `event_labor`-tabellen
    (frivillige + manuelle rækker) udestår — indtil da er tallet et estimat, og det siges.
-4. ~~Frys ved `status='done'`~~ ✅ **udført** (august 2026, migration 158). Frys ved **første
+4. ~~Frys ved `status='done'`~~ ✅ **udført** (august 2026, migration 159). Frys ved **første
    visning** efter at eventet er lukket — så bliver events der allerede står som `done` også
    frosset, og en fejlet PATCH kan ikke efterlade et event uden snapshot.
 

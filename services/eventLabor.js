@@ -159,6 +159,27 @@ async function computeEventLabor(event) {
         cost: spCost,
         rows: smartplanRows.length,
         estimated: false,
+        // De enkelte vagter med, så tallet kan efterprøves: HVEM stod der, og
+        // hvornår. Et samlet timetal kan man ikke se en fejl i — er der en vagt
+        // for meget eller for lidt, opdages det kun ved at kigge på listen.
+        // Sorteret som en vagtplan læses: dag, så mødetid, så navn.
+        shifts: smartplanRows
+            .map(r => ({
+                date: r.date,
+                employee_name: r.employee_name,
+                jobtype_title: r.jobtype_title,
+                role_class: r.role_class,
+                start: r.start, slut: r.slut,
+                hours: r2(r.timer || 0),
+                cost: r.kostpris != null ? r2(r.kostpris * overhead) : null,
+                rate_missing: !!r.rate_missing,
+                role_unmapped: !!r.role_unmapped,
+                // Fremmøde er endnu ikke registreret — timerne er de PLANLAGTE.
+                planned_only: !!r.used_fallback_hours,
+            }))
+            .sort((a, b) => (a.date || '').localeCompare(b.date || '')
+                || (a.start || '').localeCompare(b.start || '')
+                || (a.employee_name || '').localeCompare(b.employee_name || '', 'da')),
     });
 
     /* ── 2) Standard-timer: det vagtplanen ikke dækker ───────── */

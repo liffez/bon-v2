@@ -392,6 +392,8 @@ async function _evLoadLabor(ev) {
             <div class="ev-pnl-lbl">Resultat på pladsen<span class="ev-pnl-sub">efter løn</span></div>
         </div>`;
 
+    _evRenderLaborPanel(ev, d);
+
     if (d.frozen) {
         // Et frosset tal skal kunne forklares og kunne rettes. Ellers står man
         // med et beløb ingen kan gøre noget ved, hvis eventet er blevet
@@ -577,6 +579,86 @@ async function _evBookReturn(ev, body, previousBookings, force = false) {
     } finally {
         if (btn) btn.disabled = false;
     }
+}
+
+// Vagtplanen bag lønnen. Et samlet timetal kan man ikke se en fejl i — er der
+// en vagt for meget eller for lidt, opdages det kun ved at kigge på listen.
+// Derfor: hvem stod på pladsen hvornår, og hvad transport/opsætning er regnet
+// som. Foldet sammen, fordi det er efterprøvning, ikke dagligt overblik.
+function _evRenderLaborPanel(ev, d) {
+    document.getElementById('ev-labor-panel')?.remove();
+    const onsite = (d.sources || []).find(s => s.kind === 'onsite');
+    const standard = (d.sources || []).filter(s => s.estimated && s.hours > 0);
+    const shifts = onsite?.shifts || [];
+    if (!shifts.length && !standard.length) return;
+
+    // Vagterne grupperes pr. dag — sådan læses en vagtplan.
+    const byDay = new Map();
+    for (const sh of shifts) {
+        if (!byDay.has(sh.date)) byDay.set(sh.date, []);
+        byDay.get(sh.date).push(sh);
+    }
+    const dayBlocks = [...byDay.entries()].map(([dato, rows]) => {
+        const dagTimer = rows.reduce((a, r) => a + (r.hours || 0), 0);
+        return `
+        <div class="ev-lp-day">
+            <div class="ev-lp-day-head">
+                <span>${_evEsc(_evFmtDate(dato))}</span>
+                <span class="ev-lp-day-sum">${_evFmtNum(dagTimer)} t · ${rows.length} ${rows.length === 1 ? 'vagt' : 'vagter'}</span>
+            </div>
+            <table class="ev-lp-table">
+                <tbody>
+                ${rows.map(r => `
+                    <tr${r.rate_missing ? ' class="ev-lp-warn"' : ''}>
+                        <td class="ev-lp-name">${_evEsc(r.employee_name || '—')}</td>
+                        <td class="ev-lp-job">${_evEsc(r.jobtype_title || '')}</td>
+                        <td class="ev-lp-time">${_evEsc(r.start || '')}–${_evEsc(r.slut || '')}${
+                            r.planned_only ? ' <span class="ev-lp-tag" title="Fremmøde er ikke registreret endnu — det er den planlagte vagt.">planlagt</span>' : ''}</td>
+                        <td class="ev-num">${_evFmtNum(r.hours)} t</td>
+                        <td class="ev-num">${r.cost == null
+                            ? '<span class="ev-lp-tag" title="Ingen timeløn registreret — timerne tæller, kronerne gør ikke.">ingen sats</span>'
+                            : _evFmtKr(r.cost)}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+    }).join('');
+
+    const stdRows = standard.map(s => `
+        <tr>
+            <td class="ev-lp-name">${_evEsc(s.label)}</td>
+            <td class="ev-lp-job" colspan="2">${_evEsc(s.note || '')}</td>
+            <td class="ev-num">${_evFmtNum(s.hours)} t</td>
+            <td class="ev-num">${_evFmtKr(s.cost)}</td>
+        </tr>`).join('');
+
+    const el = document.createElement('div');
+    el.id = 'ev-labor-panel';
+    el.className = 'ev-plan collapsed';
+    el.innerHTML = `
+        <button type="button" class="ev-plan-toggle" data-act="labor-panel-toggle" aria-expanded="false">
+            <span class="ev-plan-ico">👤</span>
+            <span class="ev-plan-title">Vagtplan &amp; opsætning</span>
+            <span class="ev-plan-preview">${shifts.length} ${shifts.length === 1 ? 'vagt' : 'vagter'} på pladsen · ${_evFmtNum(d.hours_total)} mandetimer i alt</span>
+            <span class="ev-plan-caret">▾</span>
+        </button>
+        <div class="ev-plan-body" id="ev-labor-panel-body" hidden>
+            ${shifts.length ? `<div class="ev-lp-section-head">På pladsen — fra vagtplanen</div>${dayBlocks}` : `
+            <div class="ev-lp-empty">Ingen vagter registreret på event-lokationen i perioden ${_evEsc(_evFmtDate(d.from))} – ${_evEsc(_evFmtDate(d.to))}.</div>`}
+            ${stdRows ? `
+            <div class="ev-lp-section-head">Transport og opsætning — standardtider${d.persons ? ` · ${d.persons % 1 === 0 ? d.persons : _evFmtNum(d.persons)} ${d.persons === 1 ? 'person' : 'personer'}` : ''}</div>
+            <table class="ev-lp-table"><tbody>${stdRows}</tbody></table>
+            <div class="ev-lp-foot">Står ikke i vagtplanen. Tiderne sættes i Settings → Løn &amp; jobtyper.</div>` : ''}
+        </div>`;
+    document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', el);
+    const btn  = el.querySelector('[data-act="labor-panel-toggle"]');
+    const body = el.querySelector('#ev-labor-panel-body');
+    btn?.addEventListener('click', () => {
+        const nowCollapsed = !el.classList.contains('collapsed');
+        el.classList.toggle('collapsed', nowCollapsed);
+        body.hidden = nowCollapsed;
+        btn.setAttribute('aria-expanded', String(!nowCollapsed));
+    });
 }
 
 // Værnet fra §18.9: der er talt mere hjem end der er tilbage. Vi blokerer ikke
