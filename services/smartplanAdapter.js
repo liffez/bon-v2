@@ -142,6 +142,17 @@ async function smartplanFetch(path) {
 
         const text = await res.text();
         if (!res.ok) {
+            // 429 er den ENESTE fejl der går over af sig selv, og den er den
+            // hyppigste: et år med vagter er mange sider, og hver side er et
+            // kald. Den skal derfor kunne læses uden at slå statuskoder op —
+            // ellers ser en midlertidig throttling ud som om vagtplanen er væk.
+            if (res.status === 429) {
+                let wait = null;
+                try { wait = Math.ceil(Number(JSON.parse(text).availableIn)); } catch { /* ikke JSON */ }
+                throw new Error('Smartplan begrænser antallet af kald (429)'
+                    + (Number.isFinite(wait) && wait > 0 ? ` — prøv igen om ca. ${wait} sekunder.` : '.')
+                    + ' Timerne er der stadig; vi må bare ikke spørge lige nu.');
+            }
             throw new Error(`Smartplan API fejl ${res.status}: ${text.slice(0, 200)}`);
         }
 
@@ -286,13 +297,14 @@ async function getShifts(fromDate, toDate) {
     if (cached) return cached;
 
     // Hent begge parallelt: shifts (fremtidige) + worklogs (arkiverede/fortidige)
+    // Ingen .catch(() => []) her — og det er med vilje. "Vi kunne ikke spørge"
+// og "der er ingen vagter" er to forskellige svar, og det ene af dem er et
+// beløb på nul kroner der bliver frosset ind i regnskabet. Fejlen kastes, så
+// kaldernes egne værn (drift fryser ikke, eventet fryser ikke, viewet skriver
+// "vagtplan ikke tilgængelig") rent faktisk kan fyre.
     const [shifts, worklogs] = await Promise.all([
-        smartplanFetch(
-            `/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`
-        ).catch(() => []),
-        smartplanFetch(
-            `/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`
-        ).catch(() => []),
+        smartplanFetch(`/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`),
+        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`),
     ]);
 
     const hqName = _hqLocationName();
@@ -421,18 +433,14 @@ function _normalizeLabor(rec, isShift, hqName) {
  * fremmøde), modsat getShifts() der prioriterer shifts.
  * @returns {Promise<Array>} labor-rækker (se _normalizeLabor)
  */
-async function getLaborRows(fromDate, toDate) {
+async function getLaborRows(fromDate, toDate, ttlMs) {
     const cacheKey = `labor_${fromDate}_${toDate}`;
     const cached = getCached(cacheKey);
     if (cached) return cached;
 
     const [shifts, worklogs] = await Promise.all([
-        smartplanFetch(
-            `/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`
-        ).catch(() => []),
-        smartplanFetch(
-            `/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`
-        ).catch(() => []),
+        smartplanFetch(`/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`),
+        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`),
     ]);
 
     const hqName = _hqLocationName();
@@ -452,7 +460,11 @@ async function getLaborRows(fromDate, toDate) {
         if (!seen.has(keyOf(s))) rows.push(s);
     }
 
-    setCached(cacheKey, rows);
+    // Kaldere med et STORT vindue (diagnostik-siden trækker 425 dage) kan bede
+    // om en længere levetid. Smartplan paginerer, så et år er mange kald, og
+    // med 5 minutters cache brænder gentagne Settings-besøg kvoten — hvorefter
+    // 429 gør at vagtplanen ser tom ud. Default er uændret.
+    setCached(cacheKey, rows, ttlMs);
     return rows;
 }
 
@@ -467,7 +479,7 @@ async function getMembers() {
     const cached = getCached('members_full');
     if (cached) return cached;
 
-    const rows = await smartplanFetch('/members/').catch(() => []);
+    const rows = await smartplanFetch('/members/');
     const members = rows.map(m => ({
         uuid:       m.uuid || null,
         first_name: m.first_name || null,
@@ -502,8 +514,8 @@ async function getLaborRoster(sinceDate) {
     if (cached) return cached;
 
     const [members, worklogs] = await Promise.all([
-        smartplanFetch('/members/').catch(() => []),
-        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(sinceDate)}&end_date=${encodeURIComponent(today)}`).catch(() => []),
+        smartplanFetch('/members/'),
+        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(sinceDate)}&end_date=${encodeURIComponent(today)}`),
     ]);
 
     const map = new Map();

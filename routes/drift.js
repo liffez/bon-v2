@@ -411,6 +411,23 @@ router.get('/day', ALL, handle(async (req, res) => {
             // bærer labor_rows med location_class, så snittene kan udledes af det
             // bagefter — ellers ville et snit-kald fryse en halv dag.
             const full = await computeDay(db, date, mode);
+
+            // Vi fryser ALDRIG et tal vi ved er forkert. Kunne vagtplanen ikke
+            // hentes (Smartplan nede, eller throttlet med 429), er lønnen 0 kr —
+            // og et frosset 0 bliver stående for evigt uden at nogen kan se
+            // hvorfor. Vis dagen live med fejlen på, og frys når kilden svarer
+            // igen. Samme regel som eventets løn (CLAUDE_EVENT.md §18.6).
+            if (full.labor_error) {
+                // Snittet skal stadig respekteres — man bad om Event, ikke om
+                // hele huset. Løn-rækkerne genbruges (de er tomme, men det er
+                // netop pointen) så vi ikke rammer en throttlet Smartplan igen;
+                // fejlen bæres eksplicit med, ellers ville snittet se rask ud.
+                const live = location === 'all' ? full : {
+                    ...(await computeDay(db, date, mode, full.labor_rows, false, location)),
+                    labor_error: full.labor_error,
+                };
+                return res.json({ ...live, targets: readTargets(db), frozen: false, can_refreeze: false });
+            }
             saveSnapshot(db, date, mode, full, req.session.userId);
             snap = db.prepare('SELECT data_json, frozen_at FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
         }
@@ -438,6 +455,12 @@ router.post('/refreeze', ADMIN, handle(async (req, res) => {
     if (!date) return res.status(400).json({ error: 'date (YYYY-MM-DD) kræves' });
     const db = getDb();
     const data = await computeDay(db, date, 'realiseret');
+    // Samme værn som /day: en genberegning må ikke kunne fryse "0 kr løn"
+    // fordi Smartplan tilfældigvis var nede i det sekund der blev trykket.
+    if (data.labor_error) {
+        return res.status(503).json({ error: 'Vagtplanen kunne ikke hentes — dagen er ikke genberegnet.',
+                                      code: 'labor_unavailable', detail: data.labor_error });
+    }
     saveSnapshot(db, date, 'realiseret', data, req.session.userId);
     const snap = db.prepare('SELECT frozen_at FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, 'realiseret');
     logChange({ entityType: 'labor_day_snapshot', entityId: 0, action: 'refreeze',

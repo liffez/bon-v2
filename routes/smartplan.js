@@ -36,7 +36,12 @@ router.get('/status', requireAuth('admin'), handle(async (req, res) => {
     try {
         // Samme vindue som rolle-synken: et år tilbage fanger arkiverede
         // worklogs, 60 dage frem fanger kommende vagter på nye lokationer.
-        rows = await smartplan.getLaborRows(offsetISO(-365), offsetISO(60));
+        // 30 min: det her er en diagnose-visning, ikke live data. Med
+        // standard-cachen på 5 min kostede hvert Settings-besøg en ny
+        // gennemløbning af et helt år — og et års vagter er mange sider, altså
+        // mange kald. Det var nok til at ramme Smartplans grænse, hvorefter
+        // siden viste "0 vagter" og det lignede at timerne var væk.
+        rows = await smartplan.getLaborRows(offsetISO(-365), offsetISO(60), 30 * 60 * 1000);
     } catch (err) {
         error = err.message;
     }
@@ -66,7 +71,12 @@ router.get('/status', requireAuth('admin'), handle(async (req, res) => {
         hq_location: hqName,
         // Matcher indstillingen overhovedet en lokation Smartplan kender?
         // Gør den ikke, er ALT havnet i 'events' — den fejl er tavs i dag.
-        hq_location_found: locations.some(l => l.title === hqName),
+        //
+        // MEN: kun når vi rent faktisk fik et svar. Uden data er `locations`
+        // tom, og så ville vi råde brugeren til at rette en indstilling der er
+        // helt rigtig — et forkert råd er værre end intet råd. `null` betyder
+        // "vi ved det ikke", og UI'et skal tie i det tilfælde.
+        hq_location_found: error ? null : locations.some(l => l.title === hqName),
         locations,
         jobtypes: new Set(rows.map(r => r.jobtype_uuid).filter(Boolean)).size,
         shifts_total: rows.length,

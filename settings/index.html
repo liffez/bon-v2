@@ -5140,9 +5140,20 @@ async function loadSmartplanStatus() {
     try {
         var d = await fetchSmartplanStatus();
         if (!d.connected) {
-            box.innerHTML = '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
-                + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
-            sel.innerHTML = '<option value="">Kunne ikke hente lokationer</option>';
+            // To fejl der ligner hinanden og kræver stik modsatte handlinger:
+            // throttling går over af sig selv, manglende nøgler gør ikke. Rådet
+            // "tjek .env" på en 429 sender folk ud at rette noget der er i orden.
+            var throttled = /429|limit/i.test(d.error || '');
+            box.innerHTML = throttled
+                ? '<span style="color:#b3771f">⏳ Kan ikke spørge lige nu</span> — ' + esc(d.error)
+                  + '<br><span style="color:#888">Vagterne er der stadig — indstillingen er ikke i stykker. '
+                  + 'Vent lidt og genindlæs siden.</span>'
+                : '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
+                  + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
+            // Ingen lokationer betyder her "vi fik ikke svar", ikke "der er
+            // ingen". Det gemte valg skal blive stående, ikke se ud som tabt.
+            sel.innerHTML = '<option value="' + esc(d.hq_location || '') + '" selected>'
+                          + esc(d.hq_location || '(ikke sat)') + ' — kunne ikke tjekkes lige nu</option>';
             return;
         }
         // Rækkerne fortæller om indstillingen passer — uden dem er "HQ" bare et
