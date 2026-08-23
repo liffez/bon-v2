@@ -5151,6 +5151,12 @@ function smartplanUsageHtml(u) {
               // stod på 60 sekunder mens afvisningerne blev ved med at stige.
               + (u.strikes ? ' · trin ' + u.strikes + ' på ventetrappen' : '') + '</span>'
             : ' · ingen afvisninger')
+        // Dags-forbruget overlever genstart, så tallet er husets forbrug i dag
+        // og ikke bare denne process'. Det er dét der skal holdes op mod 2000.
+        + (u.requestsToday != null
+            ? '<br>I dag i alt: <strong>' + u.requestsToday + '</strong> af 2000 kald'
+              + ' (vores egen grænse: ' + (u.per_day_limit || 1900) + ')'
+            : '')
         + '</div>';
 }
 
@@ -5207,6 +5213,21 @@ async function loadSmartplanStatus() {
             // "tjek .env" på en 429 sender folk ud at rette noget der er i orden.
             var throttled = /429|limit|minut/i.test(d.error || '');
             var u2 = d.usage || {};
+            // Hvilken grænse ramte? De to ligner hinanden i beskeden fra
+            // Smartplan, men kræver modsatte handlinger: minut-grænsen går over
+            // af sig selv om lidt, dagskvoten først i morgen. Bliver vi afvist
+            // efter en håndfuld kald, er det ikke minut-grænsen.
+            var diag = '';
+            if (u2.likely_limit === 'daily') {
+                diag = '<br><span style="color:#8a5a16">Vi blev afvist efter kun <strong>'
+                    + (u2.rate_at_throttle || 0) + '</strong> kald i minuttet — så det er ikke '
+                    + 'minut-grænsen (60). Det ser ud til at <strong>dagskvoten på 2000 er brugt op</strong>, '
+                    + 'og så hjælper det ikke at vente et par minutter. Prøv igen i morgen.</span>';
+            } else if (u2.likely_limit === 'minute') {
+                diag = '<br><span style="color:#8a5a16">Vi blev afvist ved <strong>'
+                    + (u2.rate_at_throttle || 0) + '</strong> kald i minuttet — altså minut-grænsen. '
+                    + 'Den går over af sig selv.</span>';
+            }
             var countdown = u2.blocked_until
                 ? '<br><span id="sp-countdown-wrap" style="color:#b3771f">Vi kan spørge igen om '
                   + '<strong id="sp-countdown">…</strong> (kl. ' + esc(u2.blocked_until_clock || '') + '). '
@@ -5214,7 +5235,7 @@ async function loadSmartplanStatus() {
                 : '';
             box.innerHTML = throttled
                 ? '<span style="color:#b3771f">⏳ Kan ikke spørge lige nu</span> — ' + esc(d.error)
-                  + countdown
+                  + diag + countdown
                   + '<br><span style="color:#888">Vagterne er der stadig — indstillingen er ikke i stykker.</span>'
                 : '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
                   + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';

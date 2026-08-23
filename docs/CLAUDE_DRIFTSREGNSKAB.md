@@ -454,5 +454,16 @@ Målt forbrug pr. handling (sidestørrelse 100):
 > 429 ved hvert eneste Settings-besøg. Mål sidestørrelsen med ét kald når
 > Smartplan svarer igen (`results.length` på side 1) og justér hvis nødvendigt.
 
-Forbruget vises i **Settings → Integrationer → Smartplan**, sammen med antal
-afvisninger og hvornår senest. Tælleren er in-memory og nulstilles ved genstart.
+Forbruget vises i **Settings → Integrationer → Smartplan**: kald i denne process,
+kald **i dag i alt** (mod 2000), afvisninger, og hvilket trin vi er på ventetrappen.
+
+**Dags-forbruget overlever en genstart** (gemmes i `settings.smartplan_daily_usage`).
+Uden det var dagsgrænsen dekoration: serveren genstartes ved hver udrulning, så
+tælleren stod reelt altid på nul, og kvoten kunne brændes uden at noget sagde fra.
+
+**Hvilken grænse ramte?** De to ser ens ud i Smartplans svar, men kræver modsatte
+handlinger — minut-grænsen går over af sig selv, dagskvoten først i morgen. Blev
+vi afvist efter kun en håndfuld kald i minuttet, kan det ikke være minut-grænsen.
+`likely_limit` (`minute` | `daily`) på status-svaret siger hvilken, og Settings
+skriver det ud. Det var netop den oplysning der manglede da driften stod med
+"8 kald på 5 minutter, stadig afvist".

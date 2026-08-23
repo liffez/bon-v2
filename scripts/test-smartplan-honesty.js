@@ -278,7 +278,42 @@ async function partA2() {
     assert(over !== null && /minut/i.test(over.message), 'over grænsen siger vi selv fra, med en forklaring');
     assert(sentOnFailing === 0, '…og det afviste opslag sendte intet til Smartplan');
 
-    // 3) Dagsgrænsen kan ikke overskrides.
+    // 3) HVILKEN grænse ramte? De to ligner hinanden i Smartplans besked, men
+    //    kræver modsatte handlinger: minut-grænsen går over af sig selv om
+    //    lidt, dagskvoten først i morgen. Bliver vi afvist efter en håndfuld
+    //    kald, kan det ikke være minut-grænsen — og dét er den oplysning der
+    //    manglede da driften stod med "8 kald på 5 minutter, stadig afvist".
+    sp._resetRateLimit();
+    stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
+    try { await sp.getLaborRows('2026-09-01', '2026-09-01'); } catch { /* forventet */ }
+    const dg = sp.getStats();
+    assert(dg.likely_limit === 'daily',
+        `få kald + afvist ⇒ dagskvoten, ikke minut-grænsen (fik ${dg.likely_limit})`);
+    assert(dg.rate_at_throttle <= 5, `og vi kan se hvor travlt vi havde det (${dg.rate_at_throttle} kald)`);
+
+    // Omvendt: bliver vi afvist mens vi RENT FAKTISK kører på grænsen, er det
+    // minut-grænsen. Ellers ville rådet "prøv igen i morgen" være forkert.
+    sp._resetRateLimit();
+    let phase = 'ok';
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes('/o/token/'))  return OK({ access_token: 'tok', expires_in: 600 });
+        if (u.endsWith('/accounts/')) return OK({ results: [{ uuid: 'a' }] });
+        if (phase === 'deny') return { ok: false, status: 429, text: async () => '{}' };
+        return OK({ results: [], next: null });
+    };
+    let g2 = 0;
+    while (sp.getStats().in_last_minute < sp.getStats().per_minute_limit - 2 && g2 < 200) {
+        const mm = String((Math.floor(g2 / 28) % 12) + 1).padStart(2, '0');
+        const dd = String((g2++ % 28) + 1).padStart(2, '0');
+        await sp.getShifts(`2028-${mm}-${dd}`, `2028-${mm}-28`);
+    }
+    phase = 'deny';
+    try { await sp.getShifts('2029-01-01', '2029-01-02'); } catch { /* forventet */ }
+    assert(sp.getStats().likely_limit === 'minute',
+        `afvist mens vi kørte på grænsen ⇒ minut-grænsen (fik ${sp.getStats().likely_limit})`);
+
+    // 4) Dagsgrænsen kan ikke overskrides.
     sp._resetRateLimit();
     const stats = sp.getStats();
     assert(stats.requestsToday === 0, 'dagstælleren nulstilles med resten');
@@ -397,7 +432,29 @@ async function partB() {
     near(stored.labor_raw_ex_moms, 1200, 'det frosne bærer den rigtige løn, ikke et nul');
 }
 
-(async () => { await partA(); await partA2(); await partB(); })()
+/* ══ Del A3 — dags-forbruget overlever en genstart ══════════ */
+
+async function partA3() {
+    console.log('\n— Dags-tælleren overlever en genstart —');
+    // Uden det er vores dagsgrænse ren dekoration: serveren genstartes ved hver
+    // udrulning, og tælleren stod altid på nul. Dagskvoten på 2000 kunne derfor
+    // brændes uden at noget sagde fra — hvilket er præcis hvad der skete.
+    stubFetch(() => OK({ results: [], next: null }));
+    let sp = freshAdapter();
+    await sp.getLaborRows('2026-01-01', '2026-01-02');
+    const before = sp.getStats().requestsToday;
+    assert(before > 0, `der er talt kald op (${before})`);
+
+    sp = freshAdapter();                       // "genstart" af serveren
+    stubFetch(() => OK({ results: [], next: null }));
+    await sp.getLaborRows('2026-02-01', '2026-02-02');
+    const after = sp.getStats().requestsToday;
+    assert(after > before, `tælleren fortsætter efter genstart (${before} → ${after})`);
+
+    globalThis.fetch = realFetch;
+}
+
+(async () => { await partA(); await partA2(); await partA3(); await partB(); })()
     .catch(err => { console.error(err); fail++; })
     .finally(() => {
         globalThis.fetch = realFetch;
