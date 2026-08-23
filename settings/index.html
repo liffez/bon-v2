@@ -1549,10 +1549,16 @@
       <ul style="font-size:13px;color:#888;margin:0 0 14px;padding-left:20px;line-height:1.6">
         <li><strong>Produktion</strong> — tæller i kapacitetsrate + lønandel (kok, salg, assistent)</li>
         <li><strong>Levering</strong> — bud/chauffør, ekskluderet fra driften (hører til leveringsmodulet)</li>
+        <li><strong>Frivillig (ulønnet)</strong> — timerne tæller med, men koster 0 kr. Bruges når nulen er det RIGTIGE tal, så en frivillig ikke ligner en medarbejder hvis timeløn mangler</li>
         <li><strong>Andet</strong> — vises, men tæller hverken i rate eller lønandel</li>
       </ul>
       <p style="font-size:12px;color:#888;margin-bottom:8px">
         Nye jobtyper starter som <em>Andet</em> og markeres som ukategoriseret i driftsregnskabet, indtil du sætter dem her.
+      </p>
+      <p style="font-size:12px;color:#888;margin-bottom:8px">
+        <strong>Bemærk:</strong> Smartplan har intet API til at liste jobtyper — vi finder dem via vagterne.
+        En nyoprettet jobtype dukker derfor først op her når mindst &eacute;n vagt er planlagt p&aring; den.
+        Synkroniseringen kigger et &aring;r tilbage og 60 dage frem.
       </p>
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:28px">
         <thead>

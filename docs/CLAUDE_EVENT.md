@@ -854,8 +854,18 @@ frivillige: `sats = 0`, `kostpris = 0`, `rate_missing = false`. **Vagten afgør,
 — en der både er ansat og frivillig får ikke løn for sit frivillige arbejde.
 
 Det skalerer af sig selv: næste sæsons frivillige kræver ingen oprydning, de skal bare
-planlægges på den rigtige jobtype. Der fandtes i øvrigt kun ÉN jobtype i Smartplan
-("Salgsassistent", brugt både på HQ og events), så der var intet at skelne på før nu.
+planlægges på den rigtige jobtype.
+
+> **Udgangspunktet var ekstremt:** hele 2026 havde **én** jobtype i Smartplan —
+> `Salgsassistent`, ét og samme uuid, 505 vagter, 20 personer, brugt på BEGGE lokationer.
+> Der var altså bogstaveligt talt intet at skelne på; lokationen var det eneste signal
+> systemet havde. Jobtyperne `Frivillige` og `Bud` er oprettet 23. august 2026.
+
+> ⚠️ **En ny jobtype dukker først op i Settings når den er i brug.** Smartplans API har intet
+> jobtype-endpoint (verificeret: `/jobtypes/`, `/job-types/`, `/jobtype/`, `/positions/` giver
+> alle 404), så `syncRoleMap` udleder dem fra vagterne. Rækkefølgen er derfor: opret jobtypen
+> → planlæg mindst én vagt på den → synkronisér i Settings → sæt kategorien. Sync-vinduet er
+> et år tilbage og 60 dage frem.
 
 > **Fravalgt: en `wage_rates`-række med 0 kr.** Den ville virke — men
 > `getStandardHourlyRate` midler ALLE satser, og den middelværdi bruges både til eventets
