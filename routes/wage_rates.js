@@ -37,11 +37,30 @@ const norm = (s) => (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' 
  *   "182,50"   (kun komma)     → decimalkomma: 182.50
  *   "182.50"   (kun punktum)   → engelsk decimal: 182.50
  *   "180"      (ingen)         → 180
+ *
+ * Og Smartplans egen løntype-tekst, så deres "Eksportér til Excel" kan
+ * indsættes direkte i stedet for at satserne tastes af i hånden:
+ *   "køkkenbordet assistent (145,-)"  → 145
+ *   "Senior køkkenansvarlig (200,-)"  → 200
+ *   "Vælg timeløn"                    → null (ingen sats valgt)
+ * Uden det stopper importen på Smartplans eget format, og så bliver den
+ * håndholdte liste ved med at drive fra hinanden — hvilket den ER: seks
+ * satser afveg og tre manglede, målt august 2026.
  * @returns {number|null} positiv sats, eller null hvis tom/ugyldig.
  */
 function parseRate(raw) {
     let s = (raw || '').trim();
     if (!s) return null;
+
+    // Løntype-tekst: tag tallet i parentesen. Kun DÉR — et tal andre steder i
+    // strengen kan være hvad som helst (fx "assistent 2"), og et gæt på en
+    // timeløn er værre end at afvise rækken.
+    if (/[a-zA-ZæøåÆØÅ]/.test(s)) {
+        const m = s.match(/\(\s*([\d.,]+)\s*,?-?\s*\)/);
+        if (!m) return null;
+        s = m[1].replace(/[.,]\s*$/, '');
+    }
+
     if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); // dansk tusind+decimal
     else if (s.includes(',')) s = s.replace(',', '.');                                  // decimalkomma
     const n = Number(s);
