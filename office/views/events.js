@@ -198,6 +198,8 @@ async function _evRenderDetail(id) {
         _evState.days = days;
         _evState.categories = categories;
         _evState.prepped = data.prepped || {};   // "date|category" → allerede prepped
+        // Dage pakket med af en tidligere dags prep-bon (migration 156).
+        _evState.coveredDays = data.covered_days || {};
         _evState.event = ev;
         // Bogførte returer (#536) — så Retur-sektionen kan vise at den er gjort
         // uden at man først skal trykke "beregn".
@@ -998,23 +1000,35 @@ function _evForecastTable(ev, days, categories, forecast) {
                 </tr>
             </thead>
             <tbody>`;
+    // Dage der allerede er pakket med af en tidligere dags prep-bon (migration
+    // 156). Vi fordeler ikke mængden ud på dem — vi ved ikke hvor meget der
+    // hørte til dagen — men vi siger hvem der dækker den, så man ikke pakker
+    // det samme igen. Knappen bliver til "+ Top-up", som er det der reelt kan
+    // mangle: supplement hvis der er solgt mere end ventet.
+    const covered = _evState.coveredDays || {};
     for (const d of days) {
         let rowTotal = 0;
+        const cov = covered[d];
         const cells = categories.map(cat => {
             const qty = map[_evForecastKey(d, cat)] || 0;
             rowTotal += qty;
             return `<td><input type="number" min="0" step="1" value="${qty || ''}" placeholder="0"
                     data-fc-date="${d}" data-fc-cat="${_evEsc(cat)}" class="ev-fc-input"></td>`;
         }).join('');
-        html += `<tr>
-            <td class="ev-fc-day">${_evFmtDate(d)}</td>
+        const covNote = cov
+            ? `<div class="ev-fc-covered" title="Varerne til denne dag kørte med prep-bonnen fra ${_evFmtDate(cov.from)}. Skal der hentes mere, er det en top-up.">✓ pakket med ${_evEsc(cov.bon_number)}</div>`
+            : '';
+        html += `<tr${cov ? ' class="ev-fc-row-covered"' : ''}>
+            <td class="ev-fc-day">${_evFmtDate(d)}${covNote}</td>
             <td class="ev-fc-oh"><input type="text" class="ev-oh-input" maxlength="40"
                 value="${_evEsc(openHours[d] || '')}" placeholder="fx 10–18" data-oh-date="${d}"
                 title="Åbningstid på pladsen denne dag — vises også i prep-modalen"></td>
             ${cells}
             <td class="ev-fc-total" data-fc-rowtotal="${d}">${rowTotal || ''}</td>
             <td class="ev-fc-act">
-                <button class="ev-btn ev-btn-small" data-act="gen-from-forecast" data-fc-date="${d}" title="Generér prep-bon der dækker dagens forecast">+ Prep</button>
+                ${cov
+                    ? `<button class="ev-btn ev-btn-small" data-act="gen-topup" data-fc-date="${d}" title="Dagen er pakket med hjemmefra — hent kun mere hvis der er solgt mere end ventet">+ Top-up</button>`
+                    : `<button class="ev-btn ev-btn-small" data-act="gen-from-forecast" data-fc-date="${d}" title="Generér prep-bon der dækker dagens forecast">+ Prep</button>`}
             </td>
         </tr>`;
     }
@@ -1032,6 +1046,9 @@ function _evForecastTable(ev, days, categories, forecast) {
         </div>
         <div class="ev-forecast-foot">
             <span id="ev-fc-status" class="ev-fc-status"></span>
+            ${days.length > 1 ? `
+            <button class="ev-btn ev-btn-small" data-act="gen-prep-multi"
+                title="Pakker I alt til flere dage på én gang? Så bliver det ÉN prep-bon — én pakkeliste, ét lagertræk. Du vælger dagene i næste trin.">+ Prep for flere dage</button>` : ''}
         </div>
     </div>`;
     return html;
@@ -1296,6 +1313,24 @@ function _evBindForecastHandlers(ev) {
             _evOpenGenModal(_evState.event, 'prep', { forecastDate: date });
         });
     });
+
+    // Flerdags-pakning: samme modal, men med dags-checkbokse så én prep-bon kan
+    // dække flere dage. Åbner med alle dage valgt — den samlede pakning er hele
+    // pointen med knappen; skal kun nogle med, klikkes de fra.
+    _evContainer.querySelectorAll('[data-act="gen-prep-multi"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const days = _evState.days || [];
+            _evOpenGenModal(_evState.event, 'prep', { forecastDates: days.slice() });
+        });
+    });
+
+    // En dag der allerede er pakket med hjemmefra mangler ikke prep — den kan
+    // højst mangle supplement.
+    _evContainer.querySelectorAll('[data-act="gen-topup"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _evOpenGenModal(_evState.event, 'topup', { forecastDate: btn.dataset.fcDate });
+        });
+    });
 }
 
 function _evRecalcForecastTotals() {
@@ -1348,7 +1383,9 @@ function _evRoleSection(role, bons) {
                 ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. En prep-bon herfra er ALLEREDE SOLGT og indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.">🔗 forudbestilt</span>`
                 : ''}</td>
             <td>${_evBonStatusPill(b)}</td>
-            <td>${_evFmtDate(b.delivery_date)}</td>
+            <td>${_evFmtDate(b.delivery_date)}${b.event_covers_until
+                ? ` <span class="ev-bon-covers" title="Denne prep-bon er pakket samlet og dækker hele perioden. Én pakkeliste, ét lagertræk ved LEVERET.">→ ${_evFmtDate(b.event_covers_until)}</span>`
+                : ''}</td>
             <td class="ev-num">${b.total_units || 0}</td>
             <td class="ev-num">${_evFmtKr(b.total_price)}</td>
             <td class="ev-bon-flag">${_evDeductLabel(b)}</td>
@@ -1634,7 +1671,13 @@ async function _evOpenGenModal(event, role, opts) {
     // morgen-beregning), ellers start_date. Lokal dato — IKKE toISOString
     // (UTC-"i dag"-buggen).
     const isTopup = role === 'topup';
-    let defaultDate = opts.forecastDate || event.start_date;
+    // Flerdags-pakning: modalen kan åbnes for ÉN dag (opts.forecastDate) eller
+    // for flere (opts.forecastDates). I begge tilfælde arbejder vi videre med
+    // et sorteret sæt datoer — én dag er bare specialtilfældet med længde 1.
+    const multiDays = Array.isArray(opts.forecastDates) && opts.forecastDates.length > 1
+        ? opts.forecastDates.slice().sort()
+        : null;
+    let defaultDate = (multiDays ? multiDays[0] : opts.forecastDate) || event.start_date;
     if (isTopup && !opts.forecastDate) {
         const d = new Date();
         const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1665,24 +1708,59 @@ async function _evOpenGenModal(event, role, opts) {
     // prepped (fra eksisterende bons) så strippen viser reel fremdrift; det
     // brugeren tilføjer i denne modal lægges oveni (top-up-flow).
     const forecastDate = opts.forecastDate || null;
-    let targetStrip = '';
     const _prepped = _evState.prepped || {};
-    if (forecastDate && Array.isArray(_evState.forecast)) {
-        const todayTargets = _evState.forecast.filter(f => f.forecast_date === forecastDate);
-        if (todayTargets.length > 0) {
-            targetStrip = `<div class="ev-target-strip">
-                <div class="ev-target-head">📋 Måltal — ${_evFmtDate(forecastDate)} <span class="ev-target-sub">(allerede prepped + denne bon / forecast)</span></div>
-                ${todayTargets.map(t => {
-                    const base = _prepped[`${forecastDate}|${t.category}`] || 0;
-                    return `
-                    <div class="ev-target-pill ${base >= t.expected_qty ? 'ev-target-met' : ''}" data-target-cat="${_evEsc(t.category)}" data-target-base="${base}">
-                        <span class="ev-target-cat">${_evEsc(t.category)}</span>
-                        <span class="ev-target-progress"><span class="ev-target-current" data-target-current="${_evEsc(t.category)}">${base}</span> / ${t.expected_qty}</span>
-                    </div>`;
-                }).join('')}
-            </div>`;
+
+    // Måltal for et sæt dage: forecast og allerede-prepped summeres over dagene.
+    // Ved én dag er det præcis den gamle opførsel.
+    function _evTargetsFor(dates) {
+        if (!dates.length || !Array.isArray(_evState.forecast)) return [];
+        const set = new Set(dates);
+        const byCat = new Map();
+        for (const f of _evState.forecast) {
+            if (!set.has(f.forecast_date)) continue;
+            const cur = byCat.get(f.category) || { category: f.category, expected: 0, base: 0 };
+            cur.expected += f.expected_qty || 0;
+            byCat.set(f.category, cur);
         }
+        for (const [cat, t] of byCat) {
+            for (const d of dates) t.base += _prepped[`${d}|${cat}`] || 0;
+        }
+        return Array.from(byCat.values()).filter(t => t.expected > 0 || t.base > 0);
     }
+
+    function _evTargetStripHtml(dates) {
+        const targets = _evTargetsFor(dates);
+        if (targets.length === 0) return '';
+        const label = dates.length > 1
+            ? `${_evFmtDate(dates[0])} – ${_evFmtDate(dates[dates.length - 1])} (${dates.length} dage)`
+            : _evFmtDate(dates[0]);
+        return `<div class="ev-target-head">📋 Måltal — ${label} <span class="ev-target-sub">(allerede prepped + denne bon / forecast)</span></div>
+            ${targets.map(t => `
+                <div class="ev-target-pill ${t.base >= t.expected ? 'ev-target-met' : ''}" data-target-cat="${_evEsc(t.category)}" data-target-base="${t.base}">
+                    <span class="ev-target-cat">${_evEsc(t.category)}</span>
+                    <span class="ev-target-progress"><span class="ev-target-current" data-target-current="${_evEsc(t.category)}">${t.base}</span> / ${t.expected}</span>
+                </div>`).join('')}`;
+    }
+
+    const initialDates = multiDays || (forecastDate ? [forecastDate] : []);
+    const stripInner = initialDates.length ? _evTargetStripHtml(initialDates) : '';
+    const targetStrip = `<div class="ev-target-strip" id="evm-targets"${stripInner ? '' : ' style="display:none"'}>${stripInner}</div>`;
+
+    // Dags-checkbokse. Én prep-bon der dækker flere dage er ÉN pakning: én
+    // pakkeliste, ét lagertræk ved LEVERET. Derfor er "hvilke dage" et valg
+    // her og ikke noget der udledes bagefter.
+    const dayPicker = multiDays ? `
+        <div class="ev-daypick">
+            <div class="ev-daypick-head">Hvilke dage pakker I til nu?
+                <span class="ev-daypick-sub">Bliver ÉN prep-bon — én pakkeliste, ét lagertræk. Resten kan hentes som top-up undervejs.</span>
+            </div>
+            <div class="ev-daypick-days">
+                ${multiDays.map(d => `
+                    <label class="ev-daypick-day"><input type="checkbox" class="evm-day" value="${d}" checked> ${_evFmtDate(d)}</label>
+                `).join('')}
+            </div>
+            <div class="ev-daypick-summary" id="evm-daypick-summary"></div>
+        </div>` : '';
 
     const overlay = _evModal(`
         <h3>${_EV_ROLE_ICON[role]} ${_EV_ROLE_LABEL[role]} — ${_evEsc(event.name)}</h3>
@@ -1695,6 +1773,7 @@ async function _evOpenGenModal(event, role, opts) {
                 ? 'Indtast udgift (fee, benzin, bro) — eller vælg en udgifts-menu fra Grocy (fylder kun <em>navnet</em>; beløb og antal taster du selv). Total bliver negativ; udgiften netter ikke mod omsætning, men vises som omkostning. <strong>⚠ Sæt moms pr. linje</strong> — default er <em>uden moms</em> (Grocy-kostpris og service er ex moms), skift til <em>med moms</em> for kvitteringer hvor beløbet er incl moms.'
                 : 'Pre-udfyldt fra eventets <strong>prep-bonner</strong> (de færdige menuer vi tog med). Priskategori: <strong>festival</strong>. Antal = preppet — <em>justér ned</em> for spild, smagsprøver mm. Status: <strong>BETALT</strong> — omsætningen tæller med i økonomirapporten med det samme. Delrapporterer du, så opdater <em>samme</em> bon hen ad dagen.'}
         </div>
+        ${dayPicker}
         ${targetStrip}
         <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${defaultDate}"></label>
         ${isTopup ? '<div id="evm-topup" class="ev-topup-strip"></div>' : ''}
@@ -1749,6 +1828,14 @@ async function _evOpenGenModal(event, role, opts) {
             internal_notes: document.getElementById('evm-note').value.trim() || null,
             lines,
         };
+        // Flerdags-pakning: sidste valgte dag er den bonnen rækker til. Ligger
+        // den ikke efter pakkedagen, dækker bonnen kun sig selv, og serveren
+        // gemmer NULL — vi sender feltet med som det er og lader den afgøre det.
+        if (multiDays) {
+            const picked = Array.from(document.querySelectorAll('.evm-day:checked')).map(c => c.value).sort();
+            if (picked.length === 0) throw new Error('Vælg mindst én dag');
+            body.event_covers_until = picked[picked.length - 1];
+        }
         // Salg/udgift på et event sælges til festivalpris (matcher pre-fill + priceMode).
         if (!isProd && !isExpense) body.price_category_code = 'festival';
         await _evFetch(`/events/${event.id}/bons`, { method: 'POST', body: JSON.stringify(body) });
@@ -1873,6 +1960,48 @@ async function _evOpenGenModal(event, role, opts) {
             }
         });
     }
+
+    // ── Dags-checkbokse (flerdags-pakning) ──────────────────────────────────
+    if (multiDays) {
+        const dayBoxes = Array.from(document.querySelectorAll('.evm-day'));
+        const stripEl  = document.getElementById('evm-targets');
+        const sumEl    = document.getElementById('evm-daypick-summary');
+
+        const syncDays = (fillGap) => {
+            let picked = dayBoxes.filter(c => c.checked).map(c => c.value).sort();
+            // Hold intervallet sammenhængende: krydser man dag 1 og dag 3 af,
+            // krydses dag 2 med. Ellers ville bonnen dække en dag brugeren
+            // udtrykkeligt fravalgte — event_covers_until er et interval, ikke
+            // et sæt, og data skal svare til det UI'et viser.
+            if (fillGap && picked.length > 1) {
+                const first = picked[0], last = picked[picked.length - 1];
+                dayBoxes.forEach(c => { if (c.value > first && c.value < last) c.checked = true; });
+                picked = dayBoxes.filter(c => c.checked).map(c => c.value).sort();
+            }
+            if (sumEl) {
+                sumEl.textContent = picked.length === 0
+                    ? '⚠ Vælg mindst én dag.'
+                    : picked.length === 1
+                        ? `Dækker kun ${_evFmtDate(picked[0])} — som en almindelig prep-bon.`
+                        : `Én prep-bon der dækker ${_evFmtDate(picked[0])} – ${_evFmtDate(picked[picked.length - 1])}. Pakkes ${_evFmtDate(picked[0])}.`;
+                sumEl.classList.toggle('ev-daypick-warn', picked.length === 0);
+            }
+            // Pakkedagen følger første valgte dag. Brugeren kan stadig rette
+            // datofeltet bagefter (fx pakke dagen før eventet åbner).
+            if (picked.length && dateEl) dateEl.value = picked[0];
+            if (typeof updateOh === 'function') updateOh();
+            if (stripEl) {
+                const html = picked.length ? _evTargetStripHtml(picked) : '';
+                stripEl.innerHTML = html;
+                stripEl.style.display = html ? '' : 'none';
+                // Strippen er tegnet forfra — læg modalens egne linjer oveni igen.
+                _evRecalcTargets();
+            }
+        };
+        dayBoxes.forEach(c => c.addEventListener('change', () => syncDays(true)));
+        syncDays(false);
+    }
+
     if (selectEl) {
         selectEl.addEventListener('change', () => {
             const opt = selectEl.options[selectEl.selectedIndex];

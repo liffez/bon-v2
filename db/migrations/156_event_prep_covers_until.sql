@@ -1,0 +1,40 @@
+-- 156_event_prep_covers_until.sql
+-- ════════════════════════════════════════════════════════════
+-- Én prep-bon kan dække flere event-dage.
+-- Spec: docs/CLAUDE_EVENT.md §6 (buffer-pakning) — udvidelse.
+--
+-- Generatoren laver som udgangspunkt én prep-bon pr. dag, fordi forecasten
+-- er pr. dag. Men køkkenet pakker ofte ALT til hele eventet på én gang og
+-- topper først op dagen efter hvis der er solgt mere end ventet.
+--
+-- Fysisk er dét ÉN udlevering fra HQ. Og pakkelisten er ikke en visning —
+-- den er kilden til lagertrækket: prep_packing_overrides/_extras/
+-- _recipe_overrides er alle nøglet på bon_id, og ved LEVERET trækker netop
+-- dén bons mængder fra Grocy. To bons ville derfor kræve at den samlede
+-- pakning blev fordelt tilbage på dem — en fordeling der er ren fiktion,
+-- fordi alt forlod huset samme dag. Så i stedet: én bon der dækker begge dage.
+--
+--   delivery_date       = pakkedagen (uændret betydning)
+--   event_covers_until  = sidste dag bonnen dækker (inklusiv)
+--
+-- NULL = dækker kun sin egen delivery_date. Alle eksisterende bons er
+-- dermed uændrede, og feltet er kun sat på prep-bons.
+--
+-- Beregningerne nedstrøms er allerede rigtige uden ændring:
+--   • computeTopupSuggestion: rest = preppet(delivery_date ≤ dato) − solgt.
+--     Prep-bonnen på dag 1 tælles med på dag 2 → forslaget bliver ~0 indtil
+--     der faktisk er solgt. Præcis den ønskede adfærd.
+--   • computeReturnSuggestion + getPrepAggregate summerer over alle bons.
+--     Én bon i stedet for to giver samme sum.
+--
+-- Det ene sted feltet SKAL læses er overblikkets forecast-tabel: `prepped`
+-- opgøres pr. (delivery_date, kategori), så dag 2 ville ellers stå med 0 og
+-- invitere til at preppe igen. /overview returnerer derfor covered_days, og
+-- tabellen markerer dagen som dækket i stedet for at fordele mængden ud —
+-- vi ved ikke hvor meget der hørte til dag 2, og gætter ikke.
+--
+-- TEXT (ikke DATE): SQLite har ingen dato-type, og resten af skemaet gemmer
+-- ISO-datoer som TEXT (bons.delivery_date, event_forecast.forecast_date).
+-- ════════════════════════════════════════════════════════════
+
+ALTER TABLE bons ADD COLUMN event_covers_until TEXT;

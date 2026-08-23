@@ -5038,6 +5038,52 @@ sendt som events gennem de ægte lyttere, fordi browser-panelet var frosset (vie
 > opføre sig forkert. Efterprøvet i browseren med handleren fjernet: tre klik
 > giver fortsat 1 drawer / 1 overlay og genbruger `_todayDrawer`, hvor den gamle
 > gren gav 4/4.
+### Én prep-bon kan dække flere event-dage (22. august 2026)
+
+Generatoren laver én prep-bon pr. dag, fordi forecasten er pr. dag. Men køkkenet
+pakker ofte **alt** til hele eventet på én gang og topper først op dagen efter.
+Så skulle den samlede pakning tastes to steder — og pakkelisten kunne ikke vise
+hvad der reelt skulle ned i kasserne.
+
+**Hvorfor det ikke bare er en visning.** Pakkelisten ER lagertrækket:
+`prep_packing_overrides` / `_extras` / `_recipe_overrides` er alle `UNIQUE(bon_id, …)`,
+og ved LEVERET trækker netop dén bons mængder fra HQ. En samlet liste med redigering
+over to bons ville derfor kræve at de pakkede mængder blev **fordelt tilbage** — og
+den fordeling er ren fiktion, for alt forlod huset samme dag. Fiktionen ville
+oven i købet blive læst som en måling senere, i retur- og top-up-beregningen.
+
+Derfor: er det én fysisk udlevering, er det **én bon**.
+
+- **Migration 156**: `bons.event_covers_until` (TEXT, nullable). NULL = dækker kun
+  sin egen `delivery_date` ⇒ alle eksisterende bons uændrede. Sættes kun på prep;
+  `resolveCoversUntil` afviser rollen ellers, og en dato der ikke ligger **efter**
+  pakkedagen gemmes som NULL frem for at stå som en tom påstand i data.
+- **Nedstrøms er allerede rigtigt — ingen ændring nødvendig.** `computeTopupSuggestion`
+  regner `rest = preppet(delivery_date ≤ dato) − solgt`, så dag 1's bon tælles med
+  på dag 2: forslaget er 0 indtil der faktisk er solgt. `computeReturnSuggestion` og
+  `getPrepAggregate` summerer over alle bons — én i stedet for to giver samme sum.
+  Efterprøvet i drift-lignende forløb: 300 preppet, 260 solgt dag 1 ⇒ dag 2 foreslår 60.
+- **Det ene sted det knækkede** er overblikkets forecast-tabel: `prepped` opgøres pr.
+  `(delivery_date, kategori)`, så dag 2 ville stå med 0 og invitere til at pakke det
+  samme igen. `/overview` returnerer nu `covered_days`, og tabellen **markerer** dagen
+  (`✓ pakket med B-1234`, knappen bliver `+ Top-up`). Vi fordeler bevidst **ikke**
+  mængden pro-rata ud over dagene — vi ved ikke hvor meget der hørte til dag 2, og et
+  gæt ville forplante sig ind i top-up-forslaget som var det målt.
+- **UI**: `+ Prep for flere dage` i forecast-tabellens fod åbner den kendte modal med
+  **checkbokse pr. dag** (alle valgt). Måltal-strippen summerer forecast og allerede-
+  prepped over de valgte dage; pakkedagen følger første valgte dag og kan stadig rettes
+  i hånden. Intervallet holdes **sammenhængende** — krydser man dag 1 og 3, krydses dag 2
+  med, for `event_covers_until` er et interval og skal svare til det skærmen viser.
+  Pr-dags-knappen `+ Prep` er uændret.
+
+**Tests**: `npm run test:event-covers` — 33 asserts (18 rene helper-tilfælde + 15 mod de
+ægte endpoints over HTTP i isoleret temp-DB). **Mutations-testet:** de fire kerneregler
+rulles hver især tilbage og fælder 6/2/1/3 navngivne asserts. Regression grøn:
+event-contact 26, event-menu 42, topup 35, prep-packing 12, event-gate 15, event-cancelled 26.
+Browser-verificeret ende-til-ende på et 3-dages event: checkbokse summerer måltallet
+(120+100+80 = 300), hul-fyldning virker, én prep-bon oprettet med `event_covers_until`,
+dag 2+3 markeret som pakket med, pakkelisten viser alle 13 varer ét sted, og top-up
+reagerer korrekt på salg. Testdata ryddet.
 
 ### Retur til HQ kunne bogføres to gange — uden spor (#536, 23. august 2026)
 
