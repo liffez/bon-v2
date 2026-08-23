@@ -177,7 +177,7 @@ router.get('/', ALL, handle(async (req, res) => {
     const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since) ? req.query.since : ROSTER_SINCE;
     let roster = [];
     try {
-        roster = await smartplan.getLaborRoster(since);
+        roster = await smartplan.withCaller('wage_rates:liste', () => smartplan.getLaborRoster(since));
     } catch {
         roster = db.prepare(
             'SELECT DISTINCT smartplan_ref AS uuid, employee_name AS name FROM wage_rates'
@@ -267,7 +267,7 @@ router.post('/import', ALL, handle(async (req, res) => {
         return res.status(400).json({ error: `Ugyldig "gælder fra"-dato: ${fallbackFrom}` });
     }
 
-    const roster = await smartplan.getLaborRoster(ROSTER_SINCE);
+    const roster = await smartplan.withCaller('wage_rates:import', () => smartplan.getLaborRoster(ROSTER_SINCE));
     // dansk kalenderdato (UTC-slice ramte forkert dag nær midnat)
     res.json(importWageRows(getDb(), rows, roster, fallbackFrom || todayISO()));
 }));

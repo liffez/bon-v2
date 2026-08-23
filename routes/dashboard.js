@@ -453,7 +453,7 @@ router.get('/stats', handle(async (req, res) => {
     // Smartplan shifts (async, non-blocking) — with full details for badges
     let shiftsByDate = {};
     try {
-        const shifts = await getShifts(startDate, endDate);
+        const shifts = getShifts(startDate, endDate);   // spejlet — nul udgående kald
         for (const s of shifts) {
             if (!s.date) continue;
             const firstName = s.first_name || (s.employee_name ? s.employee_name.split(' ')[0] : null);

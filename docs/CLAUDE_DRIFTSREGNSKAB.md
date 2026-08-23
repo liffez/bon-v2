@@ -386,6 +386,56 @@ valid_to      TEXT      -- NULL = gældende; ellers så historiske regnskaber br
 6. **`labor_day_snapshot`** + frys-trigger (§7) — vælg cron vs. lazy-frys ved første visning.
 7. Færdiggør view (`office/views/drift.js`) → Claude Code.
 
+## Smartplan: ét spejl, én synkronisering
+
+**Vagtplanen læses fra et lokalt spejl (`smartplan_shifts`). Læsning koster nul
+udgående kald.** Kun `services/smartplanSync.js` taler med Smartplan, på en fast
+rytme (`smartplan_sync_interval_min`, default 20 min) plus en manuel knap i
+Settings.
+
+### Hvorfor
+
+Før dette hentede seks kaldesteder hver for sig, med hver sin cache-nøgle, og
+**fire skærme hentede ved HVER SSE-hændelse** (køkken-dashboard, kalender,
+ugeoversigt, office-dashboard — tre uden debounce). Kald-frekvensen var altså en
+funktion af hvor mange skærme der stod tændt, ikke af noget nogen havde besluttet.
+
+Det gik godt så længe alt virkede, fordi cachen opslugte det. Men **cachen fyldes
+kun ved succes**. I det sekund Smartplan fejlede, forsvandt vores eneste bremse,
+og hvert eneste opslag blev til et rigtigt kald igen. Målt: samme opslag tre gange
+efter en fejl → 6 kald ud. Throttlingen holdt derefter sig selv i live.
+
+> **Reglen der skal huskes:** en cache der kun fyldes ved succes, er ikke en
+> rate-limiter. Den forsvinder præcis når man har brug for den.
+
+### Konsekvenser at kende
+
+- **Smartplan nede ⇒ "vagtplanen er fra kl. 14.05"**, ikke "der er ingen vagter".
+  En fejlet synkronisering rører ikke spejlet.
+- **Rå records gemmes**, ikke udpakkede felter. Normaliseringen sker ved læsning
+  med adapterens egne funktioner, så der ikke findes to udpakninger der kan skride
+  fra hinanden — og et skift af HQ-lokation i Settings slår igennem med det samme,
+  uden at synkronisere om.
+- **Aflyste vagter fjernes** ved hver synkronisering (kun inden for vinduet).
+- Spejlets alder vises i Settings. **Forældet er en oplysning, ikke en fejl** —
+  en vagtplan ændrer sig sjældent — men det skal stå der, ellers præsenterer vi
+  et gammelt svar som et friskt.
+
+### Afbryderen
+
+`settings.smartplan_enabled = 0` standser **alle** udgående kald. Håndhæves i
+porten (`_reserveSlot`), ikke kun på synk-vejen, så heller ikke løn-importen kan
+kalde ud. Læsning fra spejlet virker uændret. Uden den kan en blokering aldrig
+få lov at løbe ud i fred — noget vil altid prøve igen.
+
+### Hvem ringer?
+
+Hvert udgående kald bærer en afsender-etiket (`withCaller`, via
+`AsyncLocalStorage` — et modul-flag bliver nulstillet før de asynkrone kald
+lander, og to samtidige kaldere ville overskrive hinandens etiket). De seneste 40
+vises i Settings. Vi havde et forbrugstal uden afsender: 142 kald på 101 minutter,
+og ingen måde at se hvad der udløste dem.
+
 ## Smartplan: grænser og fejl
 
 Smartplan tillader **60 kald i minuttet og 2000 i døgnet**. Det er minut-grænsen
