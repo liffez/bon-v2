@@ -98,6 +98,7 @@ function getEventBons(eventId) {
                b.pax, b.total_units, b.total_price, b.payment_type,
                b.created_at, b.kitchen_info, b.customer_wishes, b.internal_notes,
                b.inventory_deducted, b.inventory_deduct_status, b.event_role,
+               b.event_covers_until,
                sd.code  AS status_code,
                sd.label AS status_label,
                sd.color AS status_color,
@@ -127,6 +128,50 @@ const EXCLUDE_CANCELLED_SQL =
 
 const isCancelled = bon => bon.status_code === 'AFLYST';
 const activeBons  = bons => bons.filter(b => !isCancelled(b));
+
+// ─── FLERDAGS-PAKNING (migration 156) ──────────────────────────────────────
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Normalisér `event_covers_until` fra et bon-payload.
+//   null  = bonnen dækker kun sin egen delivery_date (det normale)
+//   false = ugyldigt input, kalderen skal svare 400
+// Tom/manglende værdi og alt der ikke er en prep-bon giver null uden at
+// klage: felterne er valgfrie, og en top-up-bon der ved et uheld bærer feltet
+// skal ikke afvises — den skal bare ikke dække andres dage.
+function resolveCoversUntil(raw, role, deliveryDate) {
+    if (raw == null || raw === '') return null;
+    if (typeof raw !== 'string' || !ISO_DATE_RE.test(raw)) return false;
+    if (role !== 'prep') return null;
+    // ISO-datoer sorterer korrekt som tekst — ingen Date-parsing (og dermed
+    // ingen tidszone-fælde, jf. todayISO-reglen i CLAUDE.md).
+    return raw > deliveryDate ? raw : null;
+}
+
+// Hvilke event-dage er dækket af en ANDEN dags prep-bon?
+// Returnerer { "YYYY-MM-DD": { bon_id, bon_number, from } } for dagene i
+// intervallet (delivery_date, event_covers_until] — selve pakkedagen er ikke
+// "dækket af en anden", den er dagen hvor mængderne står.
+//
+// Vi fordeler bevidst IKKE mængden ud over dagene: vi ved ikke hvor meget der
+// hørte til dag 2, og et pro-rata-gæt ville forplante sig ind i top-up-
+// forslaget som var det en måling. Dagen markeres som dækket, intet andet.
+function computeCoveredDays(bons, days) {
+    const covered = {};
+    if (!days || days.length === 0) return covered;
+    const dayset = new Set(days);
+    const sorted = activeBons(bons)
+        .filter(b => b.event_covers_until && b.delivery_date)
+        .sort((a, x) => (a.delivery_date || '').localeCompare(x.delivery_date || '') || a.id - x.id);
+    for (const b of sorted) {
+        for (const d of dayset) {
+            // Første bon der dækker dagen vinder — deterministisk via sorteringen.
+            if (d > b.delivery_date && d <= b.event_covers_until && !covered[d]) {
+                covered[d] = { bon_id: b.id, bon_number: b.bon_number, from: b.delivery_date };
+            }
+        }
+    }
+    return covered;
+}
 
 // Klassificer en event-bon i en af de fire roller.
 // Match spec'en (§3): prep + top-up + dagssalg + udgift. Hjemkomst er en
@@ -747,7 +792,13 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
         ? getDb().prepare(`SELECT COUNT(*) AS n FROM bons WHERE event_id = ? AND customer_id IS NULL`).get(event.id).n
         : 0;
 
+    // Dage der er pakket med af en tidligere dags prep-bon (migration 156).
+    // Uden den ville forecast-tabellen vise "0 prepped" på dag 2 og invitere
+    // til at preppe det samme igen.
+    const coveredDays = computeCoveredDays(bons, days);
+
     res.json({ event, bons, pnl, forecast, days, categories, prepped,
+               covered_days: coveredDays,
                bons_missing_contact: missingContact,
                event_order_admin_url: eventOrderAdminUrl });
 }));
@@ -1212,6 +1263,15 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     const orderDate    = b.order_date ?? todayISO();
     const addressId    = resolveEventAddressId(event);
 
+    // Flerdags-pakning (migration 156): én prep-bon kan dække flere event-dage.
+    // Kun prep — top-up er per definition dagens supplement, og salg/udgift
+    // hører til én dag. En dato der ikke ligger EFTER pakkedagen dækker intet
+    // ekstra og gemmes som NULL frem for at stå som en tom påstand i data.
+    const coversUntil = resolveCoversUntil(b.event_covers_until, role, deliveryDate);
+    if (coversUntil === false) {
+        return res.status(400).json({ error: 'event_covers_until skal være YYYY-MM-DD' });
+    }
+
     // Kontaktperson arves fra eventet (migration 139) med mindre kaldet
     // sætter noget selv. Uden den stod event-bons uden kunde — køkkenets
     // kort viste "Ukendt", og kontoret tastede samme person ind på hver bon.
@@ -1221,6 +1281,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
         const r = db.prepare(`
             INSERT INTO bons (
                 bon_number, status_id, location_id, price_category_id, price_category, event_id, event_role,
+                event_covers_until,
                 order_date, delivery_date, pickup_time, delivery_time,
                 delivery_type, delivery_address_id, pax, total_units, payment_type,
                 customer_id, company_id, day_contact_name, day_contact_phone,
@@ -1231,6 +1292,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
                 created_at, updated_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?,
+                ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -1242,6 +1304,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
             )
         `).run(
             bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, role,
+            coversUntil,
             orderDate, deliveryDate, b.pickup_time ?? null, b.delivery_time ?? null,
             b.delivery_type ?? 'event', addressId, b.pax ?? 0, 0, b.payment_type ?? (isProduction ? 'cash' : 'cash'),
             b.customer_id ?? contact.customer_id, b.company_id ?? contact.company_id,
@@ -1394,3 +1457,5 @@ module.exports.getMenuItems = getMenuItems;
 module.exports.buildMenuResponse = buildMenuResponse;
 module.exports.menuKey = menuKey;
 module.exports.eventContactFields = eventContactFields;
+module.exports.resolveCoversUntil = resolveCoversUntil;
+module.exports.computeCoveredDays = computeCoveredDays;
