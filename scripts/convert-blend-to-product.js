@@ -151,6 +151,9 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
         recipe_name: recipe.name,
         recipe_had_product_id: recipe.product_id || null,
         created_product_id: null,
+        // Genbrugt frem for oprettet? Så må rollback ALDRIG slette det.
+        reused_product_id: null,
+        reused_product_was_active: null,
         created_pos: [],
         removed_nestings: [],
         at: new Date().toISOString(),   // utc-ok: tidsstempel i en tilstandsfil
@@ -161,10 +164,37 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
     save();
 
     try {
-        const created = await grocy.createProduct(newProduct);
-        state.created_product_id = Number(created.created_object_id);
-        save();
-        console.log(`\n✓ produkt oprettet: ${state.created_product_id}`);
+        // Findes produktet allerede? Grocy har UNIQUE på `products.name`, og en
+        // rollback SLETTER ikke et produkt der har lager — den deaktiverer det.
+        // Uden genbrug kan en konvertering der er rullet tilbage derfor ikke
+        // køres igen: den falder på navnet. Fundet i generalprøven på test.
+        const eksisterende = products.find(x =>
+            String(x.name || '').trim().toLowerCase() === String(newProduct.name).trim().toLowerCase());
+
+        if (eksisterende) {
+            // Enheden SKAL passe. Peger vi et gammelt produkt med en anden
+            // lager-enhed på opskriften, lander udbyttet i den forkerte enhed —
+            // præcis fejlen #360 handlede om.
+            if (Number(eksisterende.qu_id_stock) !== Number(yieldUnit.id)) {
+                die(`Produktet "${eksisterende.name}" (#${eksisterende.id}) findes, men lagerføres i enhed `
+                  + `${eksisterende.qu_id_stock}, ikke ${yieldUnit.id} (${yieldUnit.name}). `
+                  + 'Ret enheden i Grocy, eller omdøb produktet.');
+            }
+            state.created_product_id = Number(eksisterende.id);
+            state.reused_product_id = Number(eksisterende.id);
+            state.reused_product_was_active = String(eksisterende.active);
+            save();
+            console.log(`\n✓ produkt genbrugt: ${eksisterende.id} "${eksisterende.name}"`
+                      + (String(eksisterende.active) === '0' ? ' (var deaktiveret — aktiveres)' : ''));
+            if (String(eksisterende.active) === '0') {
+                await grocy.updateProduct(eksisterende.id, { active: 1 });
+            }
+        } else {
+            const created = await grocy.createProduct(newProduct);
+            state.created_product_id = Number(created.created_object_id);
+            save();
+            console.log(`\n✓ produkt oprettet: ${state.created_product_id}`);
+        }
 
         await grocy.updateRecipe(recipe.id, { product_id: state.created_product_id });
         console.log(`✓ "${recipe.name}" producerer nu produktet`);
@@ -226,15 +256,29 @@ async function rollback(cfg) {
     await grocy.updateRecipe(state.recipe_id, { product_id: state.recipe_had_product_id || null });
     console.log(`✓ "${state.recipe_name}" producerer ikke længere et produkt`);
 
-    if (state.created_product_id) {
+    if (state.reused_product_id) {
+        // Produktet fandtes FØR konverteringen. Det er ikke vores at slette —
+        // vi må kun sætte `active` tilbage til det den var.
+        const foer = state.reused_product_was_active;
+        if (foer != null && String(foer) !== '1') {
+            await grocy.updateProduct(state.reused_product_id, { active: Number(foer) });
+        }
+        console.log(`✓ produkt ${state.reused_product_id} var der i forvejen — kun aktiv-flaget sat tilbage`);
+    } else if (state.created_product_id) {
         // Har nogen nået at producere ind i produktet, må det IKKE slettes —
         // så ville lagerhistorikken forsvinde med det. Deaktivér i stedet og
         // sig det højt.
+        //
+        // ⚠ Konsekvens, fundet i generalprøven: navnet er UNIQUE i Grocy, så
+        // et deaktiveret produkt spærrer for at konverteringen kan køres igen.
+        // Derfor genbruger konverteringen et eksisterende produkt med samme
+        // navn i stedet for at oprette et nyt.
         const stock = await grocy.getStock();
         const has = stock.some(s => Number(s.product_id) === Number(state.created_product_id) && parseFloat(s.amount) !== 0);
         if (has) {
             await grocy.updateProduct(state.created_product_id, { active: 0 });
             console.log(`⚠ produkt ${state.created_product_id} har lager — deaktiveret i stedet for slettet`);
+            console.log(`  (en ny konvertering vil GENBRUGE det, ikke oprette et nyt)`);
         } else {
             await grocy.deleteProduct(state.created_product_id);
             console.log(`✓ produkt ${state.created_product_id} slettet`);
