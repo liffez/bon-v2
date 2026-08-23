@@ -269,7 +269,7 @@ function _renderBonsListShell() {
     });
     document.addEventListener('click', function(e) {
         var dd = document.getElementById('blColDropdown');
-        if (dd && !dd.contains(e.target) && e.target.id !== 'blColBtn') {
+        if (dd && clickedOutside(e, dd) && e.target.id !== 'blColBtn') {
             dd.classList.remove('open');
         }
     });

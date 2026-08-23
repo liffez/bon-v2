@@ -233,7 +233,7 @@ function renderKitchenTopbar(container, opts) {
 
     // Close dropdown on outside click
     document.addEventListener('click', function(e) {
-        if (!details.contains(e.target)) {
+        if (clickedOutside(e, details)) {
             details.removeAttribute('open');
         }
     });

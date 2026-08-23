@@ -26,17 +26,11 @@
 
 'use strict';
 
-// `recipeunit` er fritekst ("kg"), Grocys enheder hedder "Kilo".
-const UNIT_ALIASES = {
-    kg: 'kilo', kilo: 'kilo', kilogram: 'kilo',
-    g: 'gram', gram: 'gram',
-    l: 'liter', liter: 'liter', ml: 'ml',
-    stk: 'antal', 'stk.': 'antal', styk: 'antal', antal: 'antal', pcs: 'antal',
-};
-const norm = (s) => {
-    const n = String(s || '').trim().toLowerCase();
-    return UNIT_ALIASES[n] || n;
-};
+// Udbytte-reglen bor i `shared/recipe_yield.js`, fordi produktions-batchen i
+// browseren skal svare det samme som kostpris-beregningen her. To kopier af
+// "hvad kom der ud af opskriften" ville drive fra hinanden, og forskellen
+// ville først vise sig ved en optælling.
+const { yieldInStockUnits, unitIdByName } = require('../shared/recipe_yield');
 
 /**
  * Enhedskost ex moms pr. LAGER-enhed for ét produkt, ud fra en Grocy-række.
@@ -55,40 +49,6 @@ function unitCostFromRow(row) {
     return null;
 }
 
-/** Enhed-id ud fra et fritekst-navn. null når navnet ikke er en enhed. */
-function unitIdByName(units, name) {
-    const want = norm(name);
-    if (!want) return null;
-    for (const u of units) {
-        if (norm(u.name) === want) return u.id;
-        if (u.name_plural && norm(u.name_plural) === want) return u.id;
-    }
-    return null;
-}
-
-/**
- * Udbytte for opskriften SOM INDTASTET, i produktets lager-enhed.
- * null = kan ikke bestemmes → der gættes ikke.
- */
-function yieldInStockUnits(recipe, product, units, conversions) {
-    const uf = recipe.userfields || {};
-    const per = parseFloat(uf.recipeunitnumber);
-    if (!Number.isFinite(per) || per <= 0) return null;
-    const base = parseFloat(recipe.base_servings);
-    const total = per * (Number.isFinite(base) && base > 0 ? base : 1);
-
-    const quId = unitIdByName(units, uf.recipeunit);
-    if (quId == null) return null;
-    if (Number(quId) === Number(product.qu_id_stock)) return total;
-
-    // Falaffel erklærer udbytte i "antal" men lagerføres i Kilo. Konverteringen
-    // ligger på produktet og skal bruges, ikke ignoreres.
-    const c = (conversions || []).find(x =>
-        String(x.product_id) === String(product.id)
-        && Number(x.from_qu_id) === Number(quId)
-        && Number(x.to_qu_id) === Number(product.qu_id_stock));
-    return c ? total * parseFloat(c.factor) : null;
-}
 
 /**
  * Beregn kostpris for ALLE opskrifter.

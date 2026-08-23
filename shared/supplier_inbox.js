@@ -452,7 +452,7 @@ function _siRenderNewMailModal() {
         hint = '<div class="si-chip-hint">Tip: Tilføj en standard-email på leverandøren under Settings → Indkøb → Leverandører.</div>';
     }
 
-    var html = '<div class="si-modal-overlay" id="siNewMailOverlay" onclick="if(event.target===this)_siCloseNewMailModal()">' +
+    var html = '<div class="si-modal-overlay" id="siNewMailOverlay">' +
         '<div class="si-modal">' +
             '<h3>' + mailIcon(16) + ' Ny mail til leverandør</h3>' +
 
@@ -487,6 +487,7 @@ function _siRenderNewMailModal() {
     '</div>';
 
     document.body.insertAdjacentHTML('beforeend', html);
+    closeOnOutsideClick(document.getElementById('siNewMailOverlay'), _siCloseNewMailModal);
     MailThread.renderSignatureHint(document.getElementById('siNewMailSigHint'));
     setTimeout(function() {
         var subEl = document.getElementById('siNewMailSubject');

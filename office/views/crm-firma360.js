@@ -853,9 +853,7 @@ function _f3RenderEnrichModal(preview) {
     _f3State.modalEl = overlay;
 
     // Bindings
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) _f3CloseEnrichModal();
-    });
+    closeOnOutsideClick(overlay, _f3CloseEnrichModal);
     overlay.querySelectorAll('[data-close]').forEach(b =>
         b.addEventListener('click', _f3CloseEnrichModal)
     );
@@ -1061,7 +1059,7 @@ function _f3OpenPaste() {
     document.body.appendChild(overlay);
     _f3State.modalEl = overlay;
 
-    overlay.addEventListener('click', e => { if (e.target === overlay) _f3CloseEnrichModal(); });
+    closeOnOutsideClick(overlay, _f3CloseEnrichModal);
     overlay.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', _f3CloseEnrichModal));
     document.addEventListener('keydown', _f3HandleEscape);
 

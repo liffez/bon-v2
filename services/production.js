@@ -15,6 +15,9 @@
  */
 
 const { findConversionFactor } = require('./quConvert');
+// Udbytte-reglen er delt med browseren (shared/recipe_yield.js), så batchen
+// og kostpris-beregningen ikke kan blive uenige om hvad opskriften giver.
+const { unitIdByName, factorToStock } = require('../shared/recipe_yield');
 
 const FLOAT_TOL = 1e-9;
 
@@ -217,8 +220,56 @@ function buildBatchPlan({ portions, actualYield, lines = [], conversions = [], c
     return { errors, consume, consumptionRows, masterCost, actualCost, pricePerUnit, conversionLog };
 }
 
+
+/**
+ * Udbyttet omregnet til produktets LAGER-enhed.
+ *
+ * Grocys `/stock/products/{id}/add` læser altid lager-enhed. Feltet i UI'et
+ * var mærket med opskriftens `recipeunit` — et fritekst-userfield uden nogen
+ * relation til produktets `qu_id_stock` — og tallet gik ukonverteret videre.
+ * 23 opskrifter i grocy-hq erklærer "kg"; producerede man 20 portioner af én
+ * af dem, landede der 20 kg på lageret uanset hvad opskriften giver (#360).
+ * Kostprisen blev samtidig kr/portion mærket som kr/kg.
+ *
+ * Vi gætter ikke. Kan enheden ikke afgøres, skal batchen fejle — et forkert
+ * lagertal er værre end en afvist registrering, fordi det ikke kan ses bagefter.
+ *
+ * @returns {{ amount:number|null, factor:number|null, error:string|null }}
+ */
+function resolveYieldToStock({ product, recipe, amount, quId, units, conversions }) {
+    const err = (msg) => ({ amount: null, factor: null, error: msg });
+
+    if (!product) return err('Output-produktet findes ikke i Grocy — kan ikke afgøre lager-enhed');
+    const stockQu = product.qu_id_stock != null ? parseInt(product.qu_id_stock) : null;
+    if (!stockQu) return err('Output-produktet har ingen lager-enhed i Grocy');
+
+    const from = (quId != null && quId !== '') ? parseInt(quId) : null;
+
+    if (from === null) {
+        // Ingen enhed oplyst (fx en cachet klient). Kun forsvarligt når
+        // opskriften ikke erklærer en ANDEN enhed end lagerets — ellers ved vi
+        // netop ikke om tallet er portioner eller kilo.
+        const erklaeret = unitIdByName(units || [], ((recipe && recipe.userfields) || {}).recipeunit);
+        if (erklaeret != null && Number(erklaeret) !== stockQu) {
+            return err('Enheden på udbyttet er ikke oplyst, og opskriften erklærer en anden '
+                     + 'enhed end produktets lager-enhed — genindlæs siden og prøv igen');
+        }
+        return { amount, factor: 1, error: null };
+    }
+
+    if (from === stockQu) return { amount, factor: 1, error: null };
+
+    const factor = factorToStock(product, from, conversions);
+    if (factor == null) {
+        return err(`Ingen enhedsomregning i Grocy fra enhed ${from} til lager-enhed ${stockQu} `
+                 + '— opret konverteringen på produktet og producér igen');
+    }
+    return { amount: amount * factor, factor, error: null };
+}
+
 module.exports = {
     ProductionError,
+    resolveYieldToStock,
     toStockAmount,
     scaleToPortions,
     computeBatchPrice,

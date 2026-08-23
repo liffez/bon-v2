@@ -1173,7 +1173,7 @@ async function _mcOpenInboxThread(id) {
         var data = await fetchMailThread(id);
         var t = data.thread;
         var ST = { aaben: 'Åben', afventer_kunde: 'Afventer', afsluttet: 'Afsluttet' };
-        host.innerHTML = '<div class="mc-sheet-ov" onclick="if(event.target===this)_mcCloseSheet()">' +
+        host.innerHTML = '<div class="mc-sheet-ov">' +
             '<div class="mc-sheet">' +
                 '<div class="mc-sheet-head">' +
                     '<div class="mc-sheet-subj">' + _mcEsc(t.subject || '') + '</div>' +
@@ -1190,6 +1190,7 @@ async function _mcOpenInboxThread(id) {
                     '<button class="mc-sbtn" style="width:100%;margin-top:6px" onclick="_mcCloseSheet()">Luk</button>' +
                 '</div>' +
             '</div></div>';
+        closeOnOutsideClick(host.querySelector('.mc-sheet-ov'), _mcCloseSheet);
         var body = document.getElementById('mcSheetBody');
         if (body && window.MailThread && MailThread.renderHistory) {
             MailThread.renderHistory(body, { messages: (data.messages || []).map(function(m) { return Object.assign({}, m, { created_at: m.at, is_read: true }); }) });

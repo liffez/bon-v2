@@ -555,7 +555,7 @@ function _k3BindDawa() {
     });
 
     document.addEventListener('click', (e) => {
-        if (!input.contains(e.target) && !resultsEl.contains(e.target)) {
+        if (clickedOutside(e, input, resultsEl)) {
             resultsEl.style.display = 'none';
         }
     });

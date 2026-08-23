@@ -49,9 +49,7 @@ function openModal({ title, bodyHtml }) {
     `;
 
     // Klik på overlay (uden for panel) lukker
-    _modalOverlay.addEventListener('click', (e) => {
-        if (e.target === _modalOverlay) closeModal();
-    });
+    closeOnOutsideClick(_modalOverlay, closeModal);
 
     document.body.appendChild(_modalOverlay);
 

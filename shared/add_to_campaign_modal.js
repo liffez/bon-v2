@@ -381,9 +381,7 @@
         document.body.appendChild(_overlay);
 
         // Klik på overlay (uden for modal) lukker
-        _overlay.addEventListener('click', (e) => {
-            if (e.target === _overlay && !_busy) close();
-        });
+        closeOnOutsideClick(_overlay, () => { if (!_busy) close(); });
         document.addEventListener('keydown', onEscape);
 
         document.getElementById('atc-close').addEventListener('click', () => { if (!_busy) close(); });

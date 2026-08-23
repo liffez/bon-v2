@@ -291,7 +291,7 @@ function _navShowRetry(url) {
 
     retryBtn.addEventListener('click', attempt);
     stayBtn.addEventListener('click', stop);
-    ov.addEventListener('click', function (e) { if (e.target === ov) stop(); });
+    closeOnOutsideClick(ov, stop);
 
     // Ingen prøve med det samme — vi har lige fejlet to gange i træk. Første
     // automatiske genforsøg kommer med intervallet.
@@ -834,4 +834,136 @@ function withFocusPreserved(containerEl, fn) {
             try { el.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore */ }
         }
     }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   KLIK UDEN FOR EN MODAL
+   ══════════════════════════════════════════════════════════════
+
+   Modaler lå historisk med `if (e.target === overlay) luk()`. Det ser rigtigt
+   ud, men `click` fyrer på den nærmeste FÆLLES forfader til dér hvor knappen
+   blev trykket ned og dér hvor den blev sluppet. Markerer man tekst i et felt
+   inde i modalen og trækker musen ud over overlayet, bliver den fælles
+   forfader netop overlayet — og modalen lukkede midt i en markering, med det
+   man havde skrevet.
+
+   Her kræver vi at BÅDE nedtrykket og slippet skete på selve overlayet.
+   Så lukker modalen på et ægte klik udenfor, og bliver stående når musen
+   bare passerer forbi undervejs. Samme princip som fold-ud-vagten i
+   shared/mail_thread.js.
+
+   Trykkets ophav spores ét sted på document (capture), så også delegerede
+   klik-handlere kan spørge — de har ikke et overlay-element at hænge en
+   lytter på. */
+
+var _POINTER_DOWN_EVT = window.PointerEvent ? 'pointerdown' : 'mousedown';
+var _POINTER_UP_EVT   = window.PointerEvent ? 'pointerup'   : 'mouseup';
+
+var _pressStartTarget = null;
+var _pressEndTarget = null;
+var _pressSelectionNodes = null;
+
+document.addEventListener(_POINTER_DOWN_EVT, function (e) {
+    _pressStartTarget = e.target;
+    _pressEndTarget = null;
+    _pressSelectionNodes = _selectionNodes();
+}, true);
+
+document.addEventListener(_POINTER_UP_EVT, function (e) {
+    _pressEndTarget = e.target;
+}, true);
+
+// Er dette klik et ægte klik på `el` — trykket ned OG sluppet dér?
+// `e` er klik-eventet; dets target skal også være `el` (ellers blev der
+// klikket på noget inde i modalen).
+function isOutsideClick(e, el) {
+    if (!el || !e || e.target !== el) return false;
+    return _pressStartTarget === el && _pressEndTarget === el;
+}
+
+// Hvor lå markeringen da trykket faldt? Skal aflæses i capture-fasen —
+// browseren rydder markeringen som standardhandling på nedtrykket.
+//
+// En markering inde i et <input>/<textarea> er usynlig for getSelection(),
+// så det felt der har fokus tjekkes særskilt. Netop dét felt er det
+// almindelige tilfælde i en bon-drawer.
+function _selectionNodes() {
+    try {
+        var sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && String(sel).length) {
+            return [sel.anchorNode, sel.focusNode];
+        }
+    } catch (err) { /* getSelection kan kaste i sjældne tilfælde */ }
+    var fa = document.activeElement;
+    if (fa && (fa.tagName === 'INPUT' || fa.tagName === 'TEXTAREA')) {
+        try {
+            if (fa.selectionStart !== fa.selectionEnd) return [fa];
+        } catch (err) { /* tal- og datofelter har ingen markering */ }
+    }
+    return null;
+}
+
+// Ryddede dette klik en markering inde i `el`? Så var det dét klikket handlede
+// om — og så må det ikke oveni lukke panelet.
+function pressClearedSelectionIn(el) {
+    if (!el || !_pressSelectionNodes) return false;
+    for (var i = 0; i < _pressSelectionNodes.length; i++) {
+        var n = _pressSelectionNodes[i];
+        if (n && el.contains(n)) return true;
+    }
+    return false;
+}
+
+// Luk-på-klik-udenfor. closeFn kaldes kun ved et ægte klik på overlayet selv.
+//
+// `panelEl` er det indhold der skal beskyttes. Udelades det, beskyttes alt
+// inde i overlayet — rigtigt for en modal, hvor panelet ligger indeni. En
+// drawer lægger derimod sin baggrund som SØSKENDE til panelet og skal sende
+// panelet med, ellers ved vagten ikke hvor markeringen lå.
+//
+// Uden dette led lukker draweren stadig: trækket lukker den ikke længere, men
+// det klik man laver bagefter for at fjerne markeringen gør. Første klik
+// rydder markeringen, næste klik lukker — som man ville forvente.
+function closeOnOutsideClick(overlayEl, closeFn, panelEl) {
+    if (!overlayEl || typeof closeFn !== 'function') return;
+    var guardEl = panelEl || overlayEl;
+    overlayEl.addEventListener('click', function (e) {
+        if (!isOutsideClick(e, overlayEl)) return;
+        if (pressClearedSelectionIn(guardEl)) return;
+        closeFn(e);
+    });
+}
+
+// Ramte klikket UDEN FOR alle de angivne elementer? Bruges af dropdowns,
+// menuer og autocomplete-lister der lukker når man klikker ved siden af —
+// de har ingen overlay at hænge closeOnOutsideClick på, men rammes af samme
+// fejl: trækker man en markering ud af listen, lander `click` på en fælles
+// forfader udenfor, og listen lukkede midt i markeringen.
+//
+//     if (clickedOutside(e, input, resultsEl)) resultsEl.style.display = 'none';
+function clickedOutside(e) {
+    var els = Array.prototype.slice.call(arguments, 1);
+    function inside(node) {
+        if (!node) return false;
+        for (var i = 0; i < els.length; i++) {
+            if (els[i] && els[i].contains(node)) return true;
+        }
+        return false;
+    }
+    if (inside(e && e.target)) return false;
+    if (inside(_pressStartTarget)) return false;   // trykket startede indeni
+    if (inside(_pressEndTarget)) return false;     // musen blev sluppet indeni
+    return true;
+}
+
+// Samme regel, men matchet med en CSS-selector — til delegerede handlere der
+// bruger closest() og altså ikke har et konkret element at pege på.
+function clickedOutsideSelector(e, selector) {
+    function inside(node) {
+        return !!(node && node.closest && node.closest(selector));
+    }
+    if (inside(e && e.target)) return false;
+    if (inside(_pressStartTarget)) return false;
+    if (inside(_pressEndTarget)) return false;
+    return true;
 }

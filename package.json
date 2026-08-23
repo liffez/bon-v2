@@ -15,6 +15,7 @@
     "dev-admin": "node --experimental-sqlite scripts/dev-admin.js",
     "test:help": "node scripts/test-help-visibility.js",
     "test:nav": "node --test --test-force-exit tests/safe_navigate.test.js tests/sse_stream.test.js",
+    "test:modal": "node --test tests/modal_outside_click.test.js",
     "test:flyver": "node --experimental-sqlite scripts/test-flyver-visibility.js",
     "test:event-covers": "node --experimental-sqlite scripts/test-event-prep-covers.js",
     "test:check": "node --env-file=.env.test tests/scripts/safety_check.js --skip-db-check",
@@ -78,7 +79,9 @@
     "test:economic": "node --experimental-sqlite scripts/test-economic-invoice.js && node scripts/test-fakturering-render.js && node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js",
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js",
     "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js",
+    "test:produktion": "node scripts/test-production-unit.js && node scripts/test-production-yield.js && node scripts/test-auto-batch.js",
     "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js",
+    "audit:udbytte": "node --env-file=.env --experimental-sqlite scripts/audit-recipe-yield.js",
     "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js"
   },
   "dependencies": {

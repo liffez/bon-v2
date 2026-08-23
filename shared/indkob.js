@@ -3088,9 +3088,7 @@ function _ibShowCartBlockedModal(groupKey) {
     document.body.appendChild(overlay);
 
     // Modal hører ikke under _ibContainer, så vi binder close-handlers direkte
-    overlay.addEventListener('click', function(e) {
-        if (e.target === overlay) _ibCloseCartBlockedModal();
-    });
+    closeOnOutsideClick(overlay, _ibCloseCartBlockedModal);
     overlay.querySelector('.ib-cb-btn-close').addEventListener('click', _ibCloseCartBlockedModal);
     var escHandler = function(e) {
         if (e.key === 'Escape') {
@@ -3496,7 +3494,7 @@ async function _ibDrawerRefreshIndkob() {
 }
 
 function _ibDrawerClick(e) {
-    if (e.target === _ibDrawer) { _ibCloseDrawer(); return; }
+    if (isOutsideClick(e, _ibDrawer)) { _ibCloseDrawer(); return; }
     var btn = e.target.closest('[data-dr]');
     if (!btn) return;
     switch (btn.getAttribute('data-dr')) {
