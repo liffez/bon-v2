@@ -153,8 +153,10 @@ async function partA2() {
     assert(/til kl\. \d{2}[.:]\d{2}/.test(err?.message || ''), '…og hvornår vi må spørge igen, som et klokkeslæt');
     const q = sp.getStats();
     assert(/^\d{2}[.:]\d{2}$/.test(q.blocked_until_clock || ''), 'status bærer klokkeslættet i sig selv');
-    assert(Math.abs(q.blocked_for_sec - 120) <= 2,
-        `og sekunderne kommer fra Smartplans eget svar (fik ${q.blocked_for_sec}, ventede 120)`);
+    // Smartplan sagde 120 sek; vi lægger et minuts margin oveni, fordi et
+    // prøve-kald præcis ved udløb bliver afvist igen med det samme.
+    assert(Math.abs(q.blocked_for_sec - 180) <= 2,
+        `Smartplans 120 sek + 60 sek margin (fik ${q.blocked_for_sec}, ventede 180)`);
     assert(!Number.isNaN(Date.parse(q.blocked_until || '')), 'plus et absolut tidspunkt en visning kan tælle ned fra');
     assert(sp.getStats().requests === before, 'karantæne-kald tæller ikke som forbrug');
     assert(sp.getStats().blocked_for_sec > 0, 'status kan se at vi er i karantæne');
@@ -175,14 +177,43 @@ async function partA2() {
     // PRÆCIS fordobling, ikke bare "voksende". Et løst krav bestod også når
     // strikes blev talt pr. kald i stedet for pr. karantæne — og så eskalerer
     // to mislykkede visninger til otte minutter.
-    assert(waits.slice(0, 4).join(',') === '60,120,240,480',
-        `ventetiden fordobles: 60,120,240,480 (fik ${waits.slice(0, 4).join(',')})`);
+    // Trappen fordobles — 60,120,240,480 — plus et minuts margin oveni, fordi
+    // Smartplans eget availableIn ikke er nok: prøver vi præcis når det udløber,
+    // bliver vi afvist igen med det samme.
+    assert(waits.slice(0, 4).join(',') === '120,180,300,540',
+        `ventetiden fordobles + margin (fik ${waits.slice(0, 4).join(',')})`);
     // Og den flader ud på loftet i stedet for at vokse i det uendelige.
-    assert(waits[7] === 15 * 60 && waits[6] === 15 * 60,
-        `loftet holder ved 900 sek (fik ${waits[6]},${waits[7]})`);
+    assert(waits[7] === 960 && waits[6] === 960,
+        `loftet holder ved 900+60 sek (fik ${waits[6]},${waits[7]})`);
 
-    // Et vellykket kald nulstiller straffen — ellers ville en enkelt dårlig
-    // dag gøre systemet trægt resten af døgnet.
+    // REGRESSION — dette er fejlen der ramte drift 23. august. En DELVIST
+    // vellykket paginering må ikke nulstille trappen: side 1 lykkes, side 2
+    // giver 429. Lå nulstillingen pr. side, stod backoff'en på 60 sekunder for
+    // evigt mens afvisningerne blev ved med at stige — præcis det man så på
+    // skærmen ("12 afvist ... 14 afvist", og stadig 1 minut).
+    sp._resetRateLimit();
+    let pcall = 0;
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes('/o/token/'))  return OK({ access_token: 'tok', expires_in: 600 });
+        if (u.endsWith('/accounts/')) return OK({ results: [{ uuid: 'a' }] });
+        if (u.includes('_p=1'))       return { ok: false, status: 429, text: async () => '{}' };
+        pcall++;
+        return OK({ results: [{ uuid: 'r' + pcall, planned_start_dt: '2026-01-01T08:00:00Z',
+                                planned_end_dt: '2026-01-01T16:00:00Z' }], next: u + '&_p=1' });
+    };
+    const partial = [];
+    for (let i = 0; i < 3; i++) {
+        try { await sp.getLaborRows('2026-08-0' + (i + 1), '2026-08-0' + (i + 1)); } catch { /* forventet */ }
+        partial.push(sp.getStats().blocked_for_sec);
+        sp._expireQuarantine();
+    }
+    assert(partial[1] > partial[0] && partial[2] > partial[1],
+        `delvis succes nulstiller ikke trappen (${partial.join(' → ')} sek)`);
+    assert(pcall >= 3, '…og der lykkedes faktisk sider undervejs — ellers tester scenariet ikke sig selv');
+
+    // Et FULDT vellykket opslag nulstiller straffen — ellers ville en enkelt
+    // dårlig dag gøre systemet trægt resten af døgnet.
     sp._resetRateLimit();
     stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
     try { await sp.getLaborRows('2026-07-01', '2026-07-01'); } catch {}

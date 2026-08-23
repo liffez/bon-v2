@@ -5145,7 +5145,11 @@ function smartplanUsageHtml(u) {
         + (u.pages ? ' (heraf ' + u.pages + ' ekstra sider fra paginering)' : '')
         + (u.throttled
             ? ' · <span style="color:#b3771f">' + u.throttled + ' afvist (429), senest '
-              + esc(String(u.lastThrottleAt || '').replace('T', ' ').slice(0, 16)) + ' UTC</span>'
+              + esc(String(u.lastThrottleAt || '').replace('T', ' ').slice(0, 16)) + ' UTC'
+              // Trin på backoff-trappen. Uden det kan man ikke se om ventetiden
+              // vokser som den skal — og det var netop dét der gik galt: den
+              // stod på 60 sekunder mens afvisningerne blev ved med at stige.
+              + (u.strikes ? ' · trin ' + u.strikes + ' på ventetrappen' : '') + '</span>'
             : ' · ingen afvisninger')
         + '</div>';
 }

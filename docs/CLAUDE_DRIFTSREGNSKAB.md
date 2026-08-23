@@ -407,6 +407,13 @@ Derfor tre ting i `services/smartplanAdapter.js`:
    egen trappe: **60 → 120 → 240 → 480 sek**, med loft ved 15 minutter. Et
    vellykket kald nulstiller trappen.
 
+   > ⚠️ **Nulstillingen skal ske når et OPSLAG er lykkedes, ikke når en SIDE er.**
+   > Lå den pr. side, nulstiller en delvist vellykket paginering — side 1 ok,
+   > side 2 afvist — trappen hver gang, og backoff'en står på 60 sekunder for
+   > evigt. Det skete i drift 23. august: afvisningerne steg (12 → 14 → …)
+   > mens ventetiden blev ved med at være ét minut. Dækket af en navngiven
+   > regressionstest.
+
    Trappen er nødvendig fordi vi sender ét prøve-kald når karantænen udløber
    (den eneste måde at opdage at blokeringen er hævet). Med fast ventetid bliver
    det et evigt drop af prøve-kald der holder blokeringen åben — præcis det der

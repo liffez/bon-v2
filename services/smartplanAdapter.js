@@ -79,6 +79,10 @@ let _strikes = 0;              // 429'er i træk uden et vellykket kald imellem
 // op til et kvarter.
 const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_MAX_MS  = 15 * 60_000;
+// Smartplans eget `availableIn` er åbenlyst ikke nok: prøver vi præcis når det
+// udløber, bliver vi afvist igen med det samme. Læg et minut oveni, så
+// prøve-kaldet har en chance for at lykkes i stedet for at forlænge straffen.
+const QUARANTINE_GRACE_MS = 60_000;
 function _backoffMs() {
     return Math.min(BACKOFF_BASE_MS * Math.pow(2, Math.max(0, _strikes - 1)), BACKOFF_MAX_MS);
 }
@@ -301,7 +305,8 @@ async function smartplanFetch(path) {
                 const alreadyBlocked = Date.now() < _blockedUntil;
                 if (!alreadyBlocked) _strikes++;
                 const fromApi = (Number.isFinite(wait) && wait > 0) ? wait * 1000 : 0;
-                _blockedUntil = Math.max(_blockedUntil, Date.now() + Math.max(fromApi, _backoffMs()));
+                _blockedUntil = Math.max(_blockedUntil,
+                    Date.now() + Math.max(fromApi, _backoffMs()) + QUARANTINE_GRACE_MS);
                 throw new Error('Smartplan begrænser antallet af kald (429)'
                     + (Number.isFinite(wait) && wait > 0 ? ` — prøv igen om ca. ${wait} sekunder.` : '.')
                     + ' Timerne er der stadig; vi må bare ikke spørge lige nu.');
@@ -309,7 +314,6 @@ async function smartplanFetch(path) {
             throw new Error(`Smartplan API fejl ${res.status}: ${text.slice(0, 200)}`);
         }
 
-        _strikes = 0;   // vi er igennem — start forfra hvis det sker igen
         const json = JSON.parse(text);
         if (Array.isArray(json.results)) {
             all.push(...json.results);
@@ -318,6 +322,12 @@ async function smartplanFetch(path) {
         url = json.next || null;
     }
 
+    // Straffen nulstilles først når HELE opslaget er i hus. Lå nulstillingen
+    // pr. side, ville en delvis vellykket paginering — side 1 ok, side 2 afvist —
+    // nulstille trappen hver gang, og backoff'en ville stå på 60 sekunder for
+    // evigt. Det var præcis hvad der skete i drift 23. august: afvisningerne
+    // steg, mens ventetiden blev ved med at være et minut.
+    _strikes = 0;
     return all;
 }
 
