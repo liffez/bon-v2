@@ -5155,24 +5155,38 @@ function smartplanUsageHtml(u) {
 }
 
 // Nedtælling til karantænen er ovre. Uden den står der et sekundtal der var
-// rigtigt da siden blev hentet, og som aldrig ændrer sig — og så ser det ud som
-// om vi hænger fast for evigt. Når tiden er gået, prøver siden selv igen, så
-// man ikke skal sidde og genindlæse.
+// rigtigt da siden blev hentet og aldrig ændrer sig — og så ser det ud som om
+// vi hænger fast for evigt.
+//
+// Den prøver med VILJE ikke selv igen. En side der genoptager af sig selv, gør
+// en glemt fane til en robot der banker på Smartplan hvert par minutter — også
+// når ingen kigger. Og hvert forsøg der bliver afvist, forlænger blokeringen.
+// To åbne faner ville være to forsøg pr. periode. Derfor: nedtællingen løber
+// ud, og så står der en knap. Et forsøg er noget et menneske beder om.
 var _spCountdown = null;
-function startSmartplanCountdown(untilIso) {
+function stopSmartplanCountdown() {
     if (_spCountdown) { clearInterval(_spCountdown); _spCountdown = null; }
+}
+function startSmartplanCountdown(untilIso) {
+    stopSmartplanCountdown();
+    var wrap = document.getElementById('sp-countdown-wrap');
     var el = document.getElementById('sp-countdown');
-    if (!el || !untilIso) return;
+    if (!wrap || !el || !untilIso) return;
     var until = Date.parse(untilIso);
     if (!until) return;
+    var done = function () {
+        stopSmartplanCountdown();
+        wrap.innerHTML = 'Ventetiden er gået. <button type="button" id="sp-retry" '
+            + 'style="padding:3px 10px;cursor:pointer">Prøv igen</button>';
+        var b = document.getElementById('sp-retry');
+        if (b) b.addEventListener('click', function () {
+            b.disabled = true; b.textContent = 'Spørger…';
+            loadSmartplanStatus();
+        });
+    };
     var tick = function () {
         var left = Math.ceil((until - Date.now()) / 1000);
-        if (left <= 0) {
-            clearInterval(_spCountdown); _spCountdown = null;
-            el.textContent = 'Prøver igen…';
-            loadSmartplanStatus();
-            return;
-        }
+        if (left <= 0) { done(); return; }
         var m = Math.floor(left / 60), sec = left % 60;
         el.textContent = m > 0 ? (m + ' min ' + sec + ' sek') : (sec + ' sek');
     };
@@ -5194,8 +5208,9 @@ async function loadSmartplanStatus() {
             var throttled = /429|limit|minut/i.test(d.error || '');
             var u2 = d.usage || {};
             var countdown = u2.blocked_until
-                ? '<br><span style="color:#b3771f">Vi prøver igen om <strong id="sp-countdown">…</strong>'
-                  + ' (kl. ' + esc(u2.blocked_until_clock || '') + ') — siden opdaterer sig selv.</span>'
+                ? '<br><span id="sp-countdown-wrap" style="color:#b3771f">Vi kan spørge igen om '
+                  + '<strong id="sp-countdown">…</strong> (kl. ' + esc(u2.blocked_until_clock || '') + '). '
+                  + 'Siden prøver ikke selv — hvert forsøg der afvises, forlænger ventetiden.</span>'
                 : '';
             box.innerHTML = throttled
                 ? '<span style="color:#b3771f">⏳ Kan ikke spørge lige nu</span> — ' + esc(d.error)
@@ -5229,7 +5244,7 @@ async function loadSmartplanStatus() {
             + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper de seneste 180 dage'
             + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn
             + smartplanUsageHtml(d.usage);
-        if (_spCountdown) { clearInterval(_spCountdown); _spCountdown = null; }
+        stopSmartplanCountdown();
 
         sel.innerHTML = d.locations.map(function (l) {
             return '<option value="' + esc(l.title) + '"' + (l.title === d.hq_location ? ' selected' : '') + '>'

@@ -425,7 +425,14 @@ Derfor tre ting i `services/smartplanAdapter.js`:
 
    Ventetiden vises som **klokkeslæt**, ikke "om N sekunder" — beskeden bliver
    stående på skærmen, og et relativt tal er forkert to minutter senere. Settings
-   tæller ned og prøver selv igen når tiden er gået.
+   tæller ned og stopper så med en **"Prøv igen"-knap**.
+
+   > **Ingen automatisk genoptagelse — med vilje.** En side der prøver igen af
+   > sig selv, gør en glemt fane til en robot der banker på Smartplan hvert par
+   > minutter, også når ingen kigger. To åbne faner = to forsøg pr. periode, og
+   > hvert afvist forsøg forlænger blokeringen. Et forsøg skal være noget et
+   > menneske beder om. Intet andet i systemet henter fra Smartplan uden at
+   > nogen har klikket — ingen cron, ingen SSE-drevet genindlæsning.
 3. **Ingen tavse fejl.** Adapteren returnerer aldrig en tom liste for en fejl —
    se `npm run test:smartplan-honesty`. Det er dét der gør at driftens og
    eventets frys-værn kan fyre; ellers kan "0 kr løn" blive frosset permanent.
