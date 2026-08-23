@@ -77,6 +77,13 @@ const get = async (u, method = 'GET') => {
     const r = await fetch(BASE + u, { method, headers: { 'Content-Type': 'application/json' } });
     return { status: r.status, data: await r.json().catch(() => null) };
 };
+const http = async (method, u, body) => {
+    const r = await fetch(BASE + u, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: body == null ? undefined : JSON.stringify(body),
+    });
+    return { status: r.status, data: await r.json().catch(() => null) };
+};
 
 const DATO = '2026-09-20';
 const vagt = (over = {}) => ({
@@ -208,6 +215,119 @@ async function main() {
     assert((await get(`/api/events/${evId}/labor`)).status === 200, 'det må admin også');
     assert((await get(`/api/events/${evId}/overview`)).status === 200,
         '/overview er urørt — den er åben for alle roller og bærer ikke løn');
+
+    // ── 9b) Vagterne kan efterprøves enkeltvis ───────────────────────────
+    // Et samlet timetal kan man ikke se en fejl i. Er der en vagt for meget
+    // eller for lidt, opdages det kun ved at kigge på listen — så den skal
+    // bære nok til at man kan genkende sin egen dag.
+    console.log('\n— Vagtplanen bag tallet —');
+    SP_ROWS = { [DATO]: [
+        vagt({ employee_name: 'Sofie', start: '12:00' }),
+        vagt({ employee_id: 'emp-2', employee_name: 'Jonas', start: '08:00', sats: null, kostpris: null, rate_missing: true }),
+    ] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    const sh = kind('onsite').shifts || [];
+    assert(sh.length === 2, 'begge vagter kommer med enkeltvis');
+    assert(sh[0].employee_name === 'Jonas', 'sorteret på mødetid — 08:00 før 12:00');
+    assert(sh[0].start === '08:00' && sh[0].slut === '16:00', 'mødetid og sluttid med');
+    assert(sh[0].jobtype_title === 'Salg', 'jobtypen med, så vagten kan genkendes');
+    near(sh[1].hours, 8, 'timer pr. vagt');
+    near(sh[1].cost, 1200, 'og kroner pr. vagt');
+    assert(sh[0].cost === null && sh[0].rate_missing === true,
+        'vagten uden timeløn har ingen kroner — og siger hvorfor');
+
+    // Bud og HQ-vagter skal heller ikke dukke op i LISTEN, ikke kun i summen.
+    SP_ROWS = { [DATO]: [
+        vagt(),
+        vagt({ employee_id: 'bud', employee_name: 'Bud', role_class: 'delivery' }),
+        vagt({ employee_id: 'hq', employee_name: 'HQ-kok', location_class: 'hq' }),
+    ] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    const navne = (kind('onsite').shifts || []).map(x => x.employee_name);
+    assert(navne.length === 1 && navne[0] === 'Sofie',
+        'listen viser præcis de vagter der tælles — ikke bud, ikke HQ');
+
+    // Planlagt vs. fremmødt skal kunne skelnes: et tal der bygger på en
+    // forventning må ikke se ud som en måling.
+    SP_ROWS = { [DATO]: [vagt({ used_fallback_hours: true })] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    assert(kind('onsite').shifts[0].planned_only === true,
+        'vagt uden registreret fremmøde markeres som planlagt');
+
+    // ── 9c) Frivillige koster 0 — og det er ikke en manglende sats ────────
+    // De frivillige står i Smartplan, så deres TIMER blev talt med hele tiden.
+    // Det der var galt, var at 0 kr og "vi har glemt at taste satsen" så helt
+    // ens ud. Nu er den ene et svar og den anden en advarsel.
+    console.log('\n— Frivillige —');
+    SP_ROWS = { [DATO]: [
+        vagt({ employee_name: 'Sofie' }),
+        // Sådan ser rækken ud NÅR den kommer fra laborAdapter: sats 0, ikke null,
+        // og rate_missing false. Selve reglen testes i tests/labor_location.test.js.
+        vagt({ employee_id: 'friv', employee_name: 'Walter', jobtype_uuid: 'jt-friv',
+               jobtype_title: 'Frivillig', role_class: 'volunteer', sats: 0, kostpris: 0 }),
+        vagt({ employee_id: 'glemt', employee_name: 'Emilie', sats: null, kostpris: null, rate_missing: true }),
+    ] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    near(kind('onsite').hours, 24, 'den frivilliges timer tæller med — hun stod der jo');
+    near(kind('onsite').cost, 1200, 'men koster 0 kr; kun Sofies løn tælles');
+
+    const friv = kind('onsite').shifts.find(x => x.employee_name === 'Walter');
+    assert(friv.role_class === 'volunteer', 'vagten er mærket frivillig');
+    near(friv.cost, 0, '0 kr er et SVAR, ikke null — vi ved hvad hun koster');
+    assert(friv.rate_missing === false, 'og det er ikke en manglende sats');
+
+    // Den ægte advarsel må ikke drukne i de frivillige.
+    assert(d.warnings.some(w => /mangler en timeløn/.test(w) && /Emilie/.test(w)),
+        'den ansatte uden sats advares der stadig om');
+    assert(!d.warnings.some(w => /Walter/.test(w)),
+        'men den frivillige nævnes IKKE — ellers er advarslen bare støj');
+
+
+    // ── 9d) Standard-timerne kan rettes for ét event ─────────────────────
+    // Settings er et udgangspunkt, ikke et facit: kranen kan være i stykker,
+    // eller pladsen ligge fem minutter væk. Uden en vej til at rette det er
+    // tallet enten forkert eller ubrugt.
+    console.log('\n— Rettelse af standard-timer —');
+    ROLE = 'admin';
+    SP_ROWS = { [DATO]: [] };
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    const opsFør = kind('setup').hours;
+    near(opsFør, 4, 'standard: 2 t × 2 pers.');
+
+    let r = await http('PUT', `/api/events/${evId}/labor/setup`, { hours: 5, persons: 3, note: 'kranen var i stykker' });
+    assert(r.status === 200, 'rettelsen gemmes');
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    near(kind('setup').hours, 15, 'rettet: 5 t × 3 pers.');
+    assert(kind('setup').overridden === true, 'linjen er mærket som rettet');
+    assert(/kranen/.test(kind('setup').note || ''), 'og noten følger med, så tallet kan forsvares');
+    near(kind('teardown').hours, 4, 'de andre linjer er urørte');
+
+    // En rettelse ERSTATTER sin linje — den lægges ikke ved siden af.
+    assert(d.sources.filter(x => x.kind === 'setup').length === 1, 'kun én opsætnings-linje');
+
+    // Nul timer er et gyldigt svar og skal kunne SES.
+    await http('PUT', `/api/events/${evId}/labor/trailer`, { hours: 0, persons: 2 });
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    assert(kind('trailer') && kind('trailer').hours === 0,
+        'rettet til 0 timer vises stadig — ellers ser det ud som om rettelsen forsvandt');
+
+    // Tilbage til standarden er sin EGEN handling, ikke en magisk værdi.
+    r = await http('PUT', `/api/events/${evId}/labor/setup`, { reset: true });
+    assert(r.status === 200 && r.data.reset === true, 'rettelsen kan fjernes');
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    near(kind('setup').hours, opsFør, 'og linjen er tilbage på Settings-standarden');
+    assert(!kind('setup').overridden, 'mærket er væk');
+
+    // Validering + adgang
+    assert((await http('PUT', `/api/events/${evId}/labor/vrøvl`, { hours: 1 })).status === 400,
+        'ukendt linje afvises');
+    assert((await http('PUT', `/api/events/${evId}/labor/setup`, { hours: -1 })).status === 400,
+        'negative timer afvises');
+    ROLE = 'kitchen';
+    assert((await http('PUT', `/api/events/${evId}/labor/setup`, { hours: 1 })).status === 403,
+        'køkkenrollen må ikke rette lønnen');
+    ROLE = 'admin';
+    await http('PUT', `/api/events/${evId}/labor/trailer`, { reset: true });
 
     // ── 10) Frys ved 'done' ──────────────────────────────────────────────
     console.log('\n— Frys —');

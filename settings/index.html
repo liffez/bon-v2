@@ -349,6 +349,7 @@
     <div class="st-nav-label st-group">Integrationer</div>
     <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
+    <button class="st-nav-item st-admin-only" data-section="smartplan">Smartplan</button>
     <button class="st-nav-item st-admin-only" data-section="whiteboard">Whiteboard</button>
     <button class="st-nav-item st-admin-only" data-section="zettle">Zettle (POS)</button>
     <button class="st-nav-item st-admin-only" data-section="event-order">Event-ordre</button>
@@ -591,6 +592,38 @@
     <div class="st-section st-admin-only" id="sec-mail">
       <h2>Mail</h2>
       <div id="mail-content"></div>
+    </div>
+
+    <!-- ════ SMARTPLAN ════ -->
+    <div class="st-section st-admin-only" id="sec-smartplan">
+      <h2>Smartplan</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Vagtplanen. Bon henter timer herfra til driftsregnskabet og til eventernes l&oslash;n
+        &mdash; Smartplan leverer kun timer, aldrig satser.
+      </p>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Forbindelse</h3>
+      <div id="sp-status" style="font-size:13px;color:#888;margin-bottom:20px">Henter&hellip;</div>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Hvilken lokation er HQ?</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        Vagter p&aring; denne lokation regnes som <strong>HQ-drift</strong>. Alt andet regnes som
+        <strong>Festival &amp; Events</strong> og holdes ude af driftsregnskabets daglige tal.
+        Vagter helt uden lokation regnes som HQ, s&aring; de ikke forsvinder.
+        <br>
+        V&aelig;lg fra listen &mdash; skrives navnet forkert, ryger <em>alle</em> vagter over i
+        Festival &amp; Events, og det sker uden en fejlmeddelelse.
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <select class="st-input" id="sp-hq-select" style="min-width:260px" onchange="saveSmartplanHq(this.value)">
+          <option value="">Henter lokationer&hellip;</option>
+        </select>
+        <span id="sp-hq-saved" style="font-size:13px;color:#2e7d32"></span>
+      </div>
+      <p style="font-size:12px;color:#888;margin-bottom:24px">
+        Jobtyperne (Produktion / Levering / Frivillig / Andet) s&aelig;ttes under
+        <strong>Team &amp; l&oslash;n &rarr; L&oslash;n &amp; jobtyper</strong>, hvor de bruges.
+      </p>
     </div>
 
     <!-- ════ WHITEBOARD ════ -->
@@ -1549,10 +1582,16 @@
       <ul style="font-size:13px;color:#888;margin:0 0 14px;padding-left:20px;line-height:1.6">
         <li><strong>Produktion</strong> — tæller i kapacitetsrate + lønandel (kok, salg, assistent)</li>
         <li><strong>Levering</strong> — bud/chauffør, ekskluderet fra driften (hører til leveringsmodulet)</li>
+        <li><strong>Frivillig (ulønnet)</strong> — timerne tæller med, men koster 0 kr. Bruges når nulen er det RIGTIGE tal, så en frivillig ikke ligner en medarbejder hvis timeløn mangler</li>
         <li><strong>Andet</strong> — vises, men tæller hverken i rate eller lønandel</li>
       </ul>
       <p style="font-size:12px;color:#888;margin-bottom:8px">
         Nye jobtyper starter som <em>Andet</em> og markeres som ukategoriseret i driftsregnskabet, indtil du sætter dem her.
+      </p>
+      <p style="font-size:12px;color:#888;margin-bottom:8px">
+        <strong>Bemærk:</strong> Smartplan har intet API til at liste jobtyper — vi finder dem via vagterne.
+        En nyoprettet jobtype dukker derfor først op her når mindst &eacute;n vagt er planlagt p&aring; den.
+        Synkroniseringen kigger et &aring;r tilbage og 60 dage frem.
       </p>
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:28px">
         <thead>
@@ -1714,7 +1753,19 @@
         <button type="button" class="st-btn-secondary" onclick="document.getElementById('wage-file').click()">📄 Vælg CSV-fil</button>
         <span id="wage-file-name" style="font-size:13px;color:#888"></span>
       </div>
-      <div style="font-size:12px;color:#888;margin-bottom:6px">Vælg din udfyldte fil — indholdet vises nedenfor til gennemsyn, så klik "Importér satser". (Eller indsæt teksten direkte.)</div>
+      <div style="font-size:12px;color:#888;margin-bottom:6px">Vælg din udfyldte fil — indholdet vises nedenfor til gennemsyn, så klik "Importér satser". (Eller indsæt teksten direkte.)
+        <br><strong>Genvej:</strong> Smartplan → Medarbejdere → <em>Eksportér til Excel</em> kan indsættes direkte.
+        Fornavn + Efternavn, kolonnen <em>Løntype</em> og formatet "145,-" læses som de er.
+        Smartplans API udleverer ikke satsen, så den vej er alternativet til at taste den af i hånden.
+        <br>Rækker uden løntype springes over — de får ikke en sats af sig selv.
+      </p>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        <label><strong>Gælder fra</strong>
+          <input class="st-input" id="wage-from" type="date" style="width:170px;margin-left:6px">
+        </label>
+        — bruges for rækker uden dato i filen. Smartplans eksport har ingen dato-kolonne.
+        Sæt den samme som de eksisterende satser for at <em>rette</em> dem; sæt en senere dato for en
+        <em>lønstigning</em>, så gamle regnskaber står urørt. Tom = i dag.</div>
       <textarea id="wage-csv" class="st-input" rows="8" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12px"
                 placeholder="navn,initialer,timeloen,gyldig_fra&#10;Anne Lindhardt,AL,182.50,2026-01-01"></textarea>
       <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
@@ -1826,6 +1877,8 @@ async function init() {
       if (sec === 'hastebestilling') coLoad();
       // Lazy load jobtype-kategorisering + løn
       if (sec === 'jobtype') { loadRoleMap(); loadWageRates(); }
+      // Lazy load Smartplan-status
+      if (sec === 'smartplan') loadSmartplanStatus();
       // Whiteboard-kobling (varemodtagelse → FVST-log)
       if (sec === 'whiteboard') loadWhiteboardSection();
       if (sec === 'zettle') loadZettleSection();
@@ -5077,7 +5130,63 @@ let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'
 
 /* ── Jobtype-kategorisering (smartplan_role_map — admin-only) ─ */
 // NB: må IKKE hedde ROLE_LABELS — kolliderer med bruger-rolle-labels (~1822) og brækker hele scriptet
-const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', other: 'Andet' };
+const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', volunteer: 'Frivillig (ulønnet)', other: 'Andet' };
+
+async function loadSmartplanStatus() {
+    var box = document.getElementById('sp-status');
+    var sel = document.getElementById('sp-hq-select');
+    if (!box) return;
+    box.textContent = 'Henter…';
+    try {
+        var d = await fetchSmartplanStatus();
+        if (!d.connected) {
+            box.innerHTML = '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
+                + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
+            sel.innerHTML = '<option value="">Kunne ikke hente lokationer</option>';
+            return;
+        }
+        // Rækkerne fortæller om indstillingen passer — uden dem er "HQ" bare et
+        // navn man skal huske stavemåden på.
+        var rows = d.locations.map(function (l) {
+            var tag = l.class === 'hq'
+                ? '<span style="background:#e6f0e6;color:#3d6b3d;padding:1px 6px;border-radius:3px">HQ-drift</span>'
+                : '<span style="background:#efece8;color:#7a6a55;padding:1px 6px;border-radius:3px">Festival &amp; Events</span>';
+            return '<tr><td style="padding:4px 8px 4px 0"><strong>' + esc(l.title) + '</strong></td>'
+                 + '<td style="padding:4px 8px">' + tag + '</td>'
+                 + '<td style="padding:4px 8px;color:#888">' + l.shifts + ' vagter · ' + l.people + ' personer</td></tr>';
+        }).join('');
+        var warn = d.hq_location_found ? '' :
+            '<div style="margin-top:10px;padding:8px 10px;border-left:4px solid #d99b1c;background:#fdf7e8;color:#5c4a2a">'
+            + '⚠ Indstillingen siger <strong>' + esc(d.hq_location) + '</strong>, men Smartplan har ingen lokation med det navn. '
+            + 'Alle vagter regnes derfor som Festival &amp; Events. Vælg den rigtige nedenfor.</div>';
+        box.innerHTML = '<span style="color:#2e7d32">✓ Forbundet</span> — '
+            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper det seneste år'
+            + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn;
+
+        sel.innerHTML = d.locations.map(function (l) {
+            return '<option value="' + esc(l.title) + '"' + (l.title === d.hq_location ? ' selected' : '') + '>'
+                 + esc(l.title) + '</option>';
+        }).join('');
+        // Står der et navn Smartplan ikke kender, skal det kunne SES i feltet —
+        // ikke skjules bag et vilkårligt valgt alternativ.
+        if (!d.hq_location_found) {
+            sel.insertAdjacentHTML('afterbegin',
+                '<option value="' + esc(d.hq_location) + '" selected>' + esc(d.hq_location) + ' (findes ikke i Smartplan)</option>');
+        }
+    } catch (e) {
+        box.innerHTML = '<span style="color:#b32020">Kunne ikke hente status:</span> ' + esc(e.message);
+    }
+}
+
+async function saveSmartplanHq(val) {
+    if (!val) return;
+    await saveSetting('smartplan_hq_location', val);
+    var s = document.getElementById('sp-hq-saved');
+    if (s) { s.textContent = '✓ gemt'; setTimeout(function () { s.textContent = ''; }, 2000); }
+    // Serveren rydder adapterens cache ved denne nøgle, så statussen herunder
+    // afspejler det nye valg med det samme.
+    loadSmartplanStatus();
+}
 
 async function loadRoleMap() {
     const tb = document.getElementById('rolemap-table');
@@ -5264,7 +5373,7 @@ async function doWageImport() {
     if (!csv) { out.style.color = '#c0392b'; out.textContent = 'Indsæt CSV først.'; return; }
     out.style.color = '#888'; out.textContent = 'Importerer…';
     try {
-        const r = await importWageRates(csv);
+        const r = await importWageRates(csv, document.getElementById('wage-from')?.value || '');
         let msg = '✓ ' + r.imported + ' sats(er) importeret.';
         if (r.unmatched && r.unmatched.length) msg += ' Ikke matchet: ' + r.unmatched.join(', ') + '.';
         if (r.invalid && r.invalid.length)     msg += ' Ugyldige: ' + r.invalid.join('; ') + '.';

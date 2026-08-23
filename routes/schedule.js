@@ -204,7 +204,10 @@ router.get('/week', handle(async (req, res) => {
         const dayShifts = allShifts
             .filter(s => s.date === date)
             .map(s => ({
-                is_open: !s.employee_name && !s.first_name,
+                // Flaget kommer fra smartplanAdapter, så driften, eventets løn og
+                // denne visning er enige. Navnet er ikke signalet: en vagt kan
+                // have en ejer uden udfyldt navn og er så taget alligevel.
+                is_open: !!s.is_open,
                 name: (s.employee_name || s.first_name) || 'Ledig vagt',
                 initials: (s.employee_name || s.first_name) ? _initials(s.employee_name) : '?',
                 start: s.start_time || '',

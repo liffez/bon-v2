@@ -16,7 +16,7 @@
     "test:help": "node scripts/test-help-visibility.js",
     "test:nav": "node --test --test-force-exit tests/safe_navigate.test.js tests/sse_stream.test.js",
     "test:modal": "node --test tests/modal_outside_click.test.js",
-    "test:labor": "node --test tests/labor_location.test.js",
+    "test:labor": "node --test tests/labor_location.test.js tests/open_shift.test.js tests/wage_csv.test.js",
     "test:drift-cost": "node --experimental-sqlite scripts/test-drift-event-cost.js",
     "test:event-return-cost": "node --experimental-sqlite scripts/test-event-return-cost.js",
     "test:event-labor": "node --experimental-sqlite scripts/test-event-labor.js",

@@ -788,7 +788,7 @@ i tid. I driftsdata i dag overlapper ingen af de otte events — men det er held
 garanti (august har fire events på 18 dage). Korrektionslaget (ekskludér/flyt enkeltvagt)
 bygges når det første overlap opstår, ikke før.
 
-**Implementeret som `services/eventLabor.js` + `GET /api/events/:id/labor`** (migration 157
+**Implementeret som `services/eventLabor.js` + `GET /api/events/:id/labor`** (migration 158
 for standard-tiderne). Alt beregnes **live ved visning** — ingen tabel, som top-up-forslaget og
 event-menuen — så et event ingen har rørt alligevel har et tal. De manuelle rækker (frivillige,
 folk uden for vagtplanen) og frys ved `done` er næste skridt; datamodellen i 18.6 er uændret.
@@ -807,6 +807,17 @@ det siges. 0 timer ville se ud som en sandhed.
 | Frivillige, folk uden for vagtplanen | Ikke bygget endnu → tallet er et **estimat**, og det står på skærmen |
 | HQ-prep-timer | 18.7 |
 
+**Vagtplanen bag tallet.** Et samlet timetal kan man ikke se en fejl i — er der en vagt for
+meget eller for lidt, opdages det kun ved at kigge på listen. Derfor et sammenklappeligt panel
+(`👤 Vagtplan & opsætning`) under P&L-strippen: hvem stod på pladsen hvornår, grupperet pr. dag,
+med jobtype, mødetid, timer og kroner. Standard-tiderne står i deres eget afsnit nedenunder med
+udregningen synlig (`2 t × 2 pers.`) — de er ikke vagter, de er et skøn, og de to må ikke se ens ud.
+
+To ting markeres i listen frem for kun i totalen, fordi de forklarer et tal der ellers ser
+forkert ud: en vagt uden registreret timeløn (ravgul række, `ingen sats`) og en vagt hvor
+fremmødet endnu ikke er registreret (`planlagt`). Afgrænsningerne gælder også listen — bud og
+HQ-vagter er hverken i summen eller i visningen, så de to ikke kan fortælle hver sin historie.
+
 **Løn er rolle-gated på serveren** (`requireAuth('admin','office')`, som driftsregnskabet).
 `/overview` er åbent for alle roller og bærer derfor **ikke** løn — derfor et selvstændigt
 endpoint frem for et felt på P&L'en. Skjules tallet kun i frontenden, kan det stadig hentes.
@@ -815,11 +826,90 @@ endpoint frem for et felt på P&L'en. Skjules tallet kun i frontenden, kan det s
 `Resultat på pladsen · efter løn` (kun for dem der må se lønnen). To utvetydige etiketter frem
 for ét ord der betyder to ting alt efter hvem der kigger.
 
-**Test:** `npm run test:event-labor` — 51 asserts mod det ægte endpoint (in-process, isoleret
+**Test:** `npm run test:event-labor` — 67 asserts, plus `npm run test:labor` (9) for adapter-reglen mod det ægte endpoint (in-process, isoleret
 temp-DB; Smartplan og ORS stubbet, `getStandardHourlyRate` ægte). Dækker de fire afgrænsninger,
 overhead på begge kilder, sats-fallback til gennemsnittet, køretid der ikke kan udledes,
 vagtplan der er nede, rolle-gaten, og hele frys-adfærden. Mutationstestet: 13 bevidste fejl,
 alle fældet af navngivne asserts.
+
+### 18.3b Frivillige — de var der hele tiden ✅ (august 2026)
+
+**De frivillige står allerede i Smartplan**, så deres timer blev talt med fra dag ét. Det der
+var galt, var kronerne: uden en timeløn blev de flagget *"mangler timeløn"* — præcis som en
+ansat hvis sats ikke er tastet ind. To modsatte ting så ens ud:
+
+| | Hvad tallet betyder |
+|---|---|
+| Frivillig | 0 kr **er** det rigtige tal |
+| Manglende sats | lønnen er for lav, og nogen skal rette det |
+
+Målt på Smartplan juni–september 2026: **18 personer** har vagter på event-lokationen,
+**10 uden timeløn**. 8 af de 10 ses aldrig på HQ (typiske frivillige), 2 har også HQ-vagter
+(ansatte der mangler en sats). Advarslen druknede altså de 2 ægte tilfælde i 8 falske.
+
+**Løst med en jobtype.** Smartplan får en `Frivillig`-jobtype, som mappes til
+`role_class = 'volunteer'` (migration 161). Reglen bor i `laborAdapter._transformRow`, så
+**både** driftsregnskabet og event-lønnen får det rigtige svar uden hver især at kende til
+frivillige: `sats = 0`, `kostpris = 0`, `rate_missing = false`. **Vagten afgør, ikke personen**
+— en der både er ansat og frivillig får ikke løn for sit frivillige arbejde.
+
+Det skalerer af sig selv: næste sæsons frivillige kræver ingen oprydning, de skal bare
+planlægges på den rigtige jobtype.
+
+> **Udgangspunktet var ekstremt:** hele 2026 havde **én** jobtype i Smartplan —
+> `Salgsassistent`, ét og samme uuid, 505 vagter, 20 personer, brugt på BEGGE lokationer.
+> Der var altså bogstaveligt talt intet at skelne på; lokationen var det eneste signal
+> systemet havde. Jobtyperne `Frivillige` og `Bud` er oprettet 23. august 2026.
+
+> ⚠️ **En ny jobtype dukker først op i Settings når den er i brug.** Smartplans API har intet
+> jobtype-endpoint (verificeret: `/jobtypes/`, `/job-types/`, `/jobtype/`, `/positions/` giver
+> alle 404), så `syncRoleMap` udleder dem fra vagterne. Rækkefølgen er derfor: opret jobtypen
+> → planlæg mindst én vagt på den → synkronisér i Settings → sæt kategorien. Sync-vinduet er
+> et år tilbage og 60 dage frem.
+
+> **Fravalgt: en `wage_rates`-række med 0 kr.** Den ville virke — men
+> `getStandardHourlyRate` midler ALLE satser, og den middelværdi bruges både til eventets
+> standardtimer og til opskrift-kalkulationen (`routes/recipes_overview.js`). Ti nuller ville
+> halvere "standard-medarbejderens" timeløn et helt andet sted i systemet, og ingen ville
+> koble dét til frivillige på en festival.
+
+I vagtplan-panelet står de som et grønt `frivillig`-mærke, ikke det ravgule `ingen sats` —
+den farve er forbeholdt tilfældet hvor tallet faktisk er for lavt.
+
+**Konsekvens for §18.6:** `event_labor`-tabellen skulle bl.a. bære frivillige. Det behøver den
+ikke længere. Tilbage står kun folk der slet ikke er i Smartplan — og det er nu undtagelsen,
+ikke reglen.
+
+### 18.3c Ledige vagter tæller ikke ✅ (august 2026)
+
+En vagt uden ejer er **udlagt, men ikke taget**. Ingen har arbejdet den, så den er hverken
+mandetimer eller løn — og der er ingen person at sætte en timeløn på.
+
+Den talte alligevel med: 7 timer på et event blev til mandetimer, trak driftens
+kapacitetsrate ned som om nogen stod der, og dukkede op i advarslen som et navnløst `?`
+der bad om en timeløn til et hul i bemandingen.
+
+**Reglen lå to steder med to definitioner.** Ugeoversigten (`routes/schedule.js`) testede på
+NAVN og gjorde det rigtige; driften og eventets løn testede slet ikke. En vagt med ejer men
+uden udfyldt navn ville dermed være ledig ét sted og taget et andet.
+
+Nu bor den i `smartplanAdapter._isOpenShift(owner)`, hvor alle tre normaliseringer
+(`_normalizeShift`, `_normalizeWorklog`, `_normalizeLabor`) går igennem. **`owner.uuid` er
+signalet, ikke navnet.** Ugeoversigten læser flaget i stedet for at udlede det selv.
+
+| Forbruger | Før | Nu |
+|---|---|---|
+| Ugeoversigt | ✅ ekskluderet (egen navne-test) | ✅ læser flaget |
+| Driftsregnskab | ❌ talt i persontimer + `rate_missing` | ✅ ekskluderet, `open_shift_count` med i svaret |
+| Event-løn | ❌ talt i mandetimer + advarsel | ✅ ekskluderet, vist som `ikke taget` |
+
+Vagten forsvinder ikke fra listen — et hul i bemandingen er værd at se når man planlægger.
+Den vises dæmpet med overstreget timetal, og dagsoverskriften siger `· 1 ledig`.
+
+**Test:** `npm run test:labor` — `tests/open_shift.test.js` (3) tester reglen dér hvor den
+bestemmes, `tests/labor_location.test.js` (11) at flaget bæres igennem og ikke tælles som
+manglende sats. Mutationstestet: reglen fjernet, navnet som signal, og tom `uuid` som ejer
+fælder hver sine asserts.
 
 ### 18.4 Timer og kroner er to forskellige tal
 
@@ -875,6 +965,32 @@ rate      REAL            -- kr/t ex moms. NULL = standardsats. 0 = frivillig.
 **Standard- og Smartplan-rækker beregnes live indtil eventet fryses** — først en *rettelse*
 skriver en række. Så har et event ingen har rørt alligevel et tal, og en ændret setting
 rammer ikke lukkede events. Samme mønster som top-up, salgs-prefill og event-menuen (§16).
+
+**✅ Bygget som migration 162** — med den forskel at `source` udgik: en række i tabellen ER en
+rettelse, og for `onsite`/`other` er den pr. definition manuel. Kolonnen ville kun kunne
+modsige `kind`.
+
+`PUT /api/events/:id/labor/:kind` (rolle-gated som resten af løn-delen). Felterne i
+vagtplan-panelet står på standarden og gemmes på blur — ingen gem-knap at glemme, og man
+retter kun det der faktisk afveg.
+
+Tre ting reglen skal kunne:
+
+- **En rettelse ERSTATTER sin linje**, den lægges ikke ved siden af. Unique-indekset er
+  partielt (kun de fire standard-linjer), så `onsite`/`other` kan have flere rækker — og
+  upserten gentager derfor indeksets `WHERE`, ellers matcher SQLite ikke conflict-målet.
+- **0 timer er et gyldigt svar** ("vi hentede ikke traileren denne gang") og vises stadig.
+  Skjulte vi den, ville det ligne at rettelsen ikke blev gemt.
+- **"Tilbage til standard" er sin egen handling** (`{ reset: true }`), ikke en magisk værdi.
+  Ellers kunne man ikke skelne "nul timer" fra "brug Settings igen".
+
+En rettelse **rydder et frosset snapshot**, så ændringen slår igennem også på et lukket event;
+næste visning fryser på det nye grundlag. Uden det ville brugeren se sin egen rettelse blive
+ignoreret.
+
+**Test:** `npm run test:event-labor` — 81 asserts. Mutationstestet: rettelser ignoreret,
+lagt til frem for at erstatte, 0-timer skjult, reset der ikke sletter, manglende rolle-gate og
+negative timer fælder hver sine asserts.
 
 Settings: `event_labor_setup_hours` (2) · `event_labor_teardown_hours` (2) ·
 `event_labor_trailer_hours` (0,5 hver vej) · `event_labor_default_persons` ·
@@ -1040,9 +1156,9 @@ fejl, alle fældet. Sporet i sig selv er dækket af `npm run test:event-retur` (
    `syncRoleMap()` findes; den skal køres og listen udfyldes. Uden det bliver ethvert nyt
    lønstal forkert på samme måde.
 3. ~~settings + Smartplan-kilden + strip med `Mandetimer` / `Løn`, rolle-gated endpoint~~
-   ✅ **udført** (august 2026, migration 157, `npm run test:event-labor`). `event_labor`-tabellen
+   ✅ **udført** (august 2026, migration 158, `npm run test:event-labor`). `event_labor`-tabellen
    (frivillige + manuelle rækker) udestår — indtil da er tallet et estimat, og det siges.
-4. ~~Frys ved `status='done'`~~ ✅ **udført** (august 2026, migration 158). Frys ved **første
+4. ~~Frys ved `status='done'`~~ ✅ **udført** (august 2026, migration 159). Frys ved **første
    visning** efter at eventet er lukket — så bliver events der allerede står som `done` også
    frosset, og en fejlet PATCH kan ikke efterlade et event uden snapshot.
 

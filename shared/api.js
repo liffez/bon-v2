@@ -1923,6 +1923,22 @@ function fetchRoleMap() {
     return apiFetch('/role-map');
 }
 
+/**
+ * Ret en standard-linje (transport/opsætning/nedtagning/trailer) for ét event.
+ * `{ reset: true }` fjerner rettelsen og går tilbage til Settings-standarden.
+ */
+function saveEventLaborRow(eventId, kind, body) {
+    return apiFetch(`/events/${eventId}/labor/${encodeURIComponent(kind)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+    });
+}
+
+/** Smartplan: forbindelse + hvordan lokations-splittet lander (admin). */
+function fetchSmartplanStatus() {
+    return apiFetch('/smartplan/status');
+}
+
 function updateRoleClass(jobtypeUuid, roleClass) {
     return apiFetch('/role-map/' + encodeURIComponent(jobtypeUuid), {
         method: 'PATCH',
@@ -1934,10 +1950,15 @@ function fetchWageRates() {
     return apiFetch('/wage-rates');
 }
 
-function importWageRates(csv) {
+/**
+ * @param {string} csv
+ * @param {string} [gyldigFra] 'YYYY-MM-DD' — bruges for rækker uden dato i
+ *        filen (Smartplans eksport har ingen dato-kolonne). Tom = i dag.
+ */
+function importWageRates(csv, gyldigFra) {
     return apiFetch('/wage-rates/import', {
         method: 'POST',
-        body: JSON.stringify({ csv }),
+        body: JSON.stringify({ csv, gyldig_fra: gyldigFra || '' }),
     });
 }
 
