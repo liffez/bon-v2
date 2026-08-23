@@ -599,27 +599,32 @@ function _evRenderLaborPanel(ev, d) {
         byDay.get(sh.date).push(sh);
     }
     const dayBlocks = [...byDay.entries()].map(([dato, rows]) => {
-        const dagTimer = rows.reduce((a, r) => a + (r.hours || 0), 0);
+        const dagTimer = rows.filter(r => !r.is_open).reduce((a, r) => a + (r.hours || 0), 0);
         return `
         <div class="ev-lp-day">
             <div class="ev-lp-day-head">
                 <span>${_evEsc(_evFmtDate(dato))}</span>
-                <span class="ev-lp-day-sum">${_evFmtNum(dagTimer)} t · ${rows.length} ${rows.length === 1 ? 'vagt' : 'vagter'}</span>
+                <span class="ev-lp-day-sum">${_evFmtNum(dagTimer)} t · ${rows.filter(r => !r.is_open).length} ${rows.filter(r => !r.is_open).length === 1 ? 'vagt' : 'vagter'}${
+                    rows.some(r => r.is_open) ? ` · ${rows.filter(r => r.is_open).length} ledig` : ''}</span>
             </div>
             <table class="ev-lp-table">
                 <tbody>
                 ${rows.map(r => `
-                    <tr${r.rate_missing ? ' class="ev-lp-warn"' : ''}>
-                        <td class="ev-lp-name">${_evEsc(r.employee_name || '—')}</td>
+                    <tr class="${r.is_open ? 'ev-lp-open' : (r.rate_missing ? 'ev-lp-warn' : '')}">
+                        <td class="ev-lp-name">${r.is_open
+                            ? '<em>Ledig vagt</em>'
+                            : _evEsc(r.employee_name || '—')}</td>
                         <td class="ev-lp-job">${_evEsc(r.jobtype_title || '')}</td>
                         <td class="ev-lp-time">${_evEsc(r.start || '')}–${_evEsc(r.slut || '')}${
                             r.planned_only ? ' <span class="ev-lp-tag" title="Fremmøde er ikke registreret endnu — det er den planlagte vagt.">planlagt</span>' : ''}</td>
-                        <td class="ev-num">${_evFmtNum(r.hours)} t</td>
-                        <td class="ev-num">${r.role_class === 'volunteer'
+                        <td class="ev-num">${r.is_open ? `<span class="ev-lp-strike">${_evFmtNum(r.hours)} t</span>` : `${_evFmtNum(r.hours)} t`}</td>
+                        <td class="ev-num">${r.is_open
+                            ? '<span class="ev-lp-tag" title="Ingen har taget vagten — hverken timer eller løn tælles med.">ikke taget</span>'
+                            : r.role_class === 'volunteer'
                             ? '<span class="ev-lp-tag ev-lp-tag-ok" title="Frivillig — 0 kr er det rigtige tal. Timerne tæller med.">frivillig</span>'
                             : r.cost == null
                                 ? '<span class="ev-lp-tag" title="Ingen timeløn registreret — timerne tæller, kronerne gør ikke.">ingen sats</span>'
-                                : _evFmtKr(r.cost)}</td>
+                                    : _evFmtKr(r.cost)}</td>
                     </tr>`).join('')}
                 </tbody>
             </table>
@@ -641,7 +646,7 @@ function _evRenderLaborPanel(ev, d) {
         <button type="button" class="ev-plan-toggle" data-act="labor-panel-toggle" aria-expanded="false">
             <span class="ev-plan-ico">👤</span>
             <span class="ev-plan-title">Vagtplan &amp; opsætning</span>
-            <span class="ev-plan-preview">${shifts.length} ${shifts.length === 1 ? 'vagt' : 'vagter'} på pladsen · ${_evFmtNum(d.hours_total)} mandetimer i alt</span>
+            <span class="ev-plan-preview">${shifts.filter(x => !x.is_open).length} ${shifts.filter(x => !x.is_open).length === 1 ? 'vagt' : 'vagter'} på pladsen · ${_evFmtNum(d.hours_total)} mandetimer i alt</span>
             <span class="ev-plan-caret">▾</span>
         </button>
         <div class="ev-plan-body" id="ev-labor-panel-body" hidden>

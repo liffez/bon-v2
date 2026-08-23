@@ -880,6 +880,37 @@ den farve er forbeholdt tilfældet hvor tallet faktisk er for lavt.
 ikke længere. Tilbage står kun folk der slet ikke er i Smartplan — og det er nu undtagelsen,
 ikke reglen.
 
+### 18.3c Ledige vagter tæller ikke ✅ (august 2026)
+
+En vagt uden ejer er **udlagt, men ikke taget**. Ingen har arbejdet den, så den er hverken
+mandetimer eller løn — og der er ingen person at sætte en timeløn på.
+
+Den talte alligevel med: 7 timer på et event blev til mandetimer, trak driftens
+kapacitetsrate ned som om nogen stod der, og dukkede op i advarslen som et navnløst `?`
+der bad om en timeløn til et hul i bemandingen.
+
+**Reglen lå to steder med to definitioner.** Ugeoversigten (`routes/schedule.js`) testede på
+NAVN og gjorde det rigtige; driften og eventets løn testede slet ikke. En vagt med ejer men
+uden udfyldt navn ville dermed være ledig ét sted og taget et andet.
+
+Nu bor den i `smartplanAdapter._isOpenShift(owner)`, hvor alle tre normaliseringer
+(`_normalizeShift`, `_normalizeWorklog`, `_normalizeLabor`) går igennem. **`owner.uuid` er
+signalet, ikke navnet.** Ugeoversigten læser flaget i stedet for at udlede det selv.
+
+| Forbruger | Før | Nu |
+|---|---|---|
+| Ugeoversigt | ✅ ekskluderet (egen navne-test) | ✅ læser flaget |
+| Driftsregnskab | ❌ talt i persontimer + `rate_missing` | ✅ ekskluderet, `open_shift_count` med i svaret |
+| Event-løn | ❌ talt i mandetimer + advarsel | ✅ ekskluderet, vist som `ikke taget` |
+
+Vagten forsvinder ikke fra listen — et hul i bemandingen er værd at se når man planlægger.
+Den vises dæmpet med overstreget timetal, og dagsoverskriften siger `· 1 ledig`.
+
+**Test:** `npm run test:labor` — `tests/open_shift.test.js` (3) tester reglen dér hvor den
+bestemmes, `tests/labor_location.test.js` (11) at flaget bæres igennem og ikke tælles som
+manglende sats. Mutationstestet: reglen fjernet, navnet som signal, og tom `uuid` som ejer
+fælder hver sine asserts.
+
 ### 18.4 Timer og kroner er to forskellige tal
 
 Den vigtigste skelnen i modellen, og den er tvunget frem af de frivillige: **en frivillig

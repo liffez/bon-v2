@@ -130,6 +130,8 @@ async function computeEventLabor(event) {
                 if (row.location_class !== 'events') continue;
                 if (row.role_class === 'delivery') continue;
                 smartplanRows.push({ ...row, date: dato });
+                // (ledige vagter sorteres fra i tællingen nedenfor, men bliver i
+                // listen — et hul i bemandingen er værd at se på et event)
             }
         }
     } catch (err) {
@@ -137,10 +139,16 @@ async function computeEventLabor(event) {
         warnings.push(`Vagtplanen kunne ikke hentes (${err.message}) — timerne på pladsen er ikke talt med.`);
     }
 
-    const spHours = r2(smartplanRows.reduce((s, r) => s + (r.timer || 0), 0));
-    const spCost  = r2(smartplanRows.reduce((s, r) => s + (r.kostpris || 0), 0) * overhead);
-    const rateMissing = smartplanRows.filter(r => r.rate_missing);
-    const fallbackHours = smartplanRows.filter(r => r.used_fallback_hours);
+    // En ledig vagt er udlagt, men ikke taget af nogen. Ingen har arbejdet den,
+    // så den er hverken mandetimer eller løn — og der er ingen person at sætte
+    // en timeløn på, så den hører heller ikke i advarslen om manglende satser.
+    const manned = smartplanRows.filter(r => !r.is_open);
+    const openShifts = smartplanRows.filter(r => r.is_open);
+
+    const spHours = r2(manned.reduce((s, r) => s + (r.timer || 0), 0));
+    const spCost  = r2(manned.reduce((s, r) => s + (r.kostpris || 0), 0) * overhead);
+    const rateMissing = manned.filter(r => r.rate_missing);
+    const fallbackHours = manned.filter(r => r.used_fallback_hours);
 
     if (rateMissing.length) {
         const navne = [...new Set(rateMissing.map(r => r.employee_name || '?'))];
@@ -151,13 +159,20 @@ async function computeEventLabor(event) {
     if (fallbackHours.length) {
         warnings.push(`${fallbackHours.length} vagt(er) har endnu ikke registreret fremmøde — planlagte timer bruges indtil videre.`);
     }
+    if (openShifts.length) {
+        const t = r2(openShifts.reduce((s, r) => s + (r.timer || 0), 0));
+        warnings.push(
+            `${openShifts.length} ledig${openShifts.length === 1 ? ' vagt' : 'e vagter'} på ${t} timer er ikke taget af nogen — de tæller hverken som mandetimer eller løn.`
+        );
+    }
 
     sources.push({
         kind: 'onsite',
         label: 'På pladsen (vagtplan)',
         hours: spHours,
         cost: spCost,
-        rows: smartplanRows.length,
+        rows: manned.length,
+        open_shifts: openShifts.length,
         estimated: false,
         // De enkelte vagter med, så tallet kan efterprøves: HVEM stod der, og
         // hvornår. Et samlet timetal kan man ikke se en fejl i — er der en vagt
@@ -169,6 +184,7 @@ async function computeEventLabor(event) {
                 employee_name: r.employee_name,
                 jobtype_title: r.jobtype_title,
                 role_class: r.role_class,
+                is_open: !!r.is_open,
                 start: r.start, slut: r.slut,
                 hours: r2(r.timer || 0),
                 cost: r.kostpris != null ? r2(r.kostpris * overhead) : null,

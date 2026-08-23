@@ -667,3 +667,9 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 /* Frivillig: 0 kr er det RIGTIGE tal, ikke et hul. Grøn, ikke ravgul — den
    ravgule er forbeholdt den ansatte hvis sats mangler, hvor tallet er for lavt. */
 .ev-lp-tag-ok { background: #e6f0e6; color: #3d6b3d; }
+
+/* Ledig vagt: udlagt, men ikke taget af nogen. Dæmpet og med streget timetal,
+   fordi den hverken er mandetimer eller løn — men den bliver i listen, for et
+   hul i bemandingen er værd at se når man planlægger. */
+.ev-lp-open td { opacity: 0.6; }
+.ev-lp-strike { text-decoration: line-through; }

@@ -236,8 +236,12 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
         parseFloat(db.prepare(`SELECT value FROM settings WHERE key='labor_overhead_pct'`).get()?.value ?? '0') || 0);
     const overheadFactor = 1 + overheadPct / 100;
 
-    const prod   = laborRows.filter(l => l.role_class === 'production');
-    const nonBud = laborRows.filter(l => l.role_class !== 'delivery');
+    // Ledige vagter (udlagt, endnu ikke taget) er ikke udført arbejde. De talte
+    // med i persontimerne og trak dermed kapacitetsraten ned — som om nogen
+    // stod der. Ugeoversigten har altid ekskluderet dem; her manglede det.
+    const manned = laborRows.filter(l => !l.is_open);
+    const prod   = manned.filter(l => l.role_class === 'production');
+    const nonBud = manned.filter(l => l.role_class !== 'delivery');
     const laborDriftRaw   = r2(nonBud.reduce((s, l) => s + (l.kostpris || 0), 0));
     const laborProdRaw    = r2(prod.reduce((s, l) => s + (l.kostpris || 0), 0));
     const laborDrift      = r2(laborDriftRaw * overheadFactor);   // reel omkostning (vist)
@@ -292,6 +296,9 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
         timeline,
         rate_missing_count:  laborRows.filter(l => l.rate_missing).length,
         role_unmapped_count: laborRows.filter(l => l.role_unmapped).length,
+        // Vises frem for at forsvinde: en ledig vagt er et hul i bemandingen,
+        // og det er værd at se når man kigger på dagen.
+        open_shift_count:    laborRows.filter(l => l.is_open).length,
         labor_error: laborError,
         // Per-bon nedbrydning til drill-down — med i frosne snapshots fremover,
         // så drill-down på en frosset dag viser præcis de tal der blev frosset.

@@ -204,3 +204,32 @@ test('en ansat uden sats flagges stadig — advarslen må ikke tabes', async () 
     assert.equal(row.kostpris, null, 'så vi opfinder ikke et tal');
     assert.equal(row.rate_missing, true, 'og det siges — lønnen er for lav uden');
 });
+
+/* ── Ledige vagter (§18.3) ────────────────────────────────────
+   En vagt uden ejer er udlagt, men ikke taget. Ingen har arbejdet den, så den
+   er hverken mandetimer eller løn — og der er ingen person at sætte en timeløn
+   på. Den talte med i driftens persontimer (og trak kapacitetsraten ned) og
+   dukkede op i advarslen som et navnløst "?". */
+
+test('en ledig vagt markeres — og er ikke en manglende timeløn', async () => {
+    SMARTPLAN_ROWS = [shift({
+        employee_id: null, employee_name: null, is_open: true,
+    })];
+    const [row] = await labor.getLabor(DATO);
+
+    assert.equal(row.is_open, true, 'flaget bæres igennem fra smartplanAdapter');
+    assert.equal(row.rate_missing, false,
+        'ingen person = ingen manglende sats; ellers beder advarslen om en timeløn til et hul');
+    assert.equal(row.timer, 8, 'timerne rapporteres stadig — forbrugeren afgør om de tæller');
+});
+
+test('en taget vagt uden udfyldt navn er IKKE ledig', async () => {
+    // Navnet er ikke signalet. En vagt kan have en ejer uden for-/efternavn,
+    // og så er den taget — bare af en vi ikke kan navngive.
+    SMARTPLAN_ROWS = [shift({ employee_name: null, is_open: false })];
+    const [row] = await labor.getLabor(DATO);
+
+    assert.equal(row.is_open, false);
+    assert.equal(row.rate_missing, false, 'emp-anne har en sats');
+    assert.equal(row.kostpris, 1600, 'og timerne koster som normalt');
+});

@@ -57,7 +57,7 @@ function _roleMap(db) {
  *        forecast   → planned_*    (planlagt vagt; eneste data på fremtid)
  * @returns {Promise<Array>} [{
  *   employee_id, employee_name, jobtype_uuid, jobtype_title, role_class,
- *   location, location_class, start, slut, timer, sats, kostpris,
+ *   is_open, location, location_class, start, slut, timer, sats, kostpris,
  *   rate_missing, role_unmapped, used_fallback_hours, mode
  * }]
  */
@@ -94,9 +94,16 @@ function _transformRow(r, dato, m, db, roleMap) {
     // fuldstændig ens ud: begge gav kostpris null og en advarsel om manglende
     // timeløn. De to betyder modsatte ting — det ene tal er rigtigt, det andet
     // er for lavt — og de 8 frivillige druknede de 2 ægte tilfælde.
+    // Ledig vagt: udlagt, men ikke taget af nogen. Ingen har arbejdet den, så
+    // den er hverken mandetimer eller løn — og der er ingen person at sætte en
+    // timeløn på, så den hører heller ikke i advarslen om manglende satser.
+    // Flaget kommer fra smartplanAdapter (_isOpenShift), så driften,
+    // ugeoversigten og eventets løn bruger SAMME definition.
+    const isOpen = !!r.is_open;
+
     const isVolunteer = roleClass === 'volunteer';
     const sats = isVolunteer ? 0 : _wageRate(db, r.employee_id, dato);
-    const rateMissing = !isVolunteer && sats == null;
+    const rateMissing = !isVolunteer && !isOpen && sats == null;
     const kostpris = (sats == null || timer == null) ? null : timer * sats;
 
     return {
@@ -113,6 +120,7 @@ function _transformRow(r, dato, m, db, roleMap) {
         // konteres bagud — derfor er tabet ikke bare kosmetisk.
         // Ukendt klasse → 'hq': samme konservative regel som _classifyLocation,
         // så en uklassificeret vagt aldrig tilskrives et event.
+        is_open:            isOpen,
         location:           r.location ?? null,
         location_class:     r.location_class === 'events' ? 'events' : 'hq',
         start, slut,

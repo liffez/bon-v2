@@ -191,6 +191,23 @@ function _classifyLocation(locTitle, hqName) {
    ══════════════════════════════════════════════════════════════ */
 
 /**
+ * Er vagten LEDIG — udlagt, men endnu ikke taget af nogen?
+ *
+ * Ét sted, fordi tre normaliseringer og fire forbrugere skal være enige.
+ * Ugeoversigten udledte den selv på navnet, driften og eventets løn slet ikke,
+ * og så talte de samme vagt forskelligt: 7 timer der hverken var mandetimer
+ * eller løn, men trak kapacitetsraten ned og bad om en timeløn for en person
+ * der ikke findes.
+ *
+ * `owner.uuid` er signalet, ikke navnet: en vagt KAN have en ejer uden at
+ * for- og efternavn er udfyldt, og så er den taget — bare af en vi ikke kan
+ * navngive.
+ */
+function _isOpenShift(owner) {
+    return !(owner && owner.uuid);
+}
+
+/**
  * Normalisér et Smartplan shift-objekt til vores faste format.
  * Smartplan v2 returnerer: owner.first_name/last_name, jobtype.title, location.title
  */
@@ -206,6 +223,7 @@ function _normalizeShift(shift, hqName) {
         employee_id:   owner.uuid || null,
         employee_name: name,
         first_name:    owner.first_name || null,
+        is_open:       _isOpenShift(owner),
         date:          shift.display_date || (startDt ? startDt.slice(0, 10) : null),
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
@@ -231,6 +249,7 @@ function _normalizeWorklog(wl, hqName) {
         employee_id:   owner.uuid || null,
         employee_name: name,
         first_name:    owner.first_name || null,
+        is_open:       _isOpenShift(owner),
         date:          wl.display_date || (startDt ? startDt.slice(0, 10) : null),
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
@@ -378,6 +397,7 @@ function _normalizeLabor(rec, isShift, hqName) {
     return {
         employee_id:       owner.uuid || null,
         employee_name:     [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null,
+        is_open:           _isOpenShift(owner),
         jobtype_uuid:      jt.uuid || null,
         jobtype_title:     jt.title || '',
         date:              rec.display_date || (startDt ? startDt.slice(0, 10) : null),
@@ -471,7 +491,12 @@ async function getMembers() {
  * @returns {Promise<Array>} [{ uuid, name, first_name, last_name, initials, email, active, last_shift }]
  */
 async function getLaborRoster(sinceDate) {
-    const today = new Date().toISOString().slice(0, 10);
+    // Dansk kalenderdato, ikke UTC. `today` er ikke kun en cache-nøgle — den er
+    // også `end_date` på worklog-forespørgslen, så mellem midnat og kl. 02 dansk
+    // sommertid ville UTC-datoen udelade dagens vagter fra rosteren. (Fanget af
+    // pre-commit-hooken; linjen er fra #117 og ældre end dette arbejde.)
+    const { todayISO } = require('../db/helpers');
+    const today = todayISO();
     const cacheKey = `roster_${sinceDate}_${today}`;
     const cached = getCached(cacheKey);
     if (cached) return cached;
@@ -525,7 +550,10 @@ async function getLaborRoster(sinceDate) {
 
 /* ══════════════════════════════════════════════════════════════ */
 
+// Eksponeret til test: reglen er ét udtryk, men fire forbrugere afhænger af
+// den, og en ændring her flytter både kapacitetsrater og lønsummer.
 module.exports = {
+    _isOpenShift,
     getShifts,
     getEmployees,
     getLaborRows,
