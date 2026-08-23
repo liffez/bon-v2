@@ -869,6 +869,42 @@ function workloadRoleSql(col = 'event_role') {
 }
 
 /**
+ * "Ejer denne bon sin egen lagerbevægelse — og dermed sit vareforbrug?"
+ *
+ * For en almindelig bon: ja. Den både trækker lager og har omsætning, så dens
+ * cost_price ER dagens vareforbrug.
+ *
+ * For et LET event: nej for salgsbonnen. Prep-bonnen ejer trækket
+ * (autoConsumeBonInventory's event-gate → 'event_prep_owns_stock'), men
+ * VarePicker snapshotter alligevel en cost_price på hver eneste linje. Summeres
+ * den råt, tælles eventets varer to gange — én gang på prep-bonnen og én gang
+ * på salgsbonnen. Målt på drift: 137.251 kr (prep) + 68.742 kr (salg).
+ *
+ * Festival-modellen gates IKKE — dér trækker salgsbonnen fra sin egen lokation
+ * og ejer altså sin omkostning. Derfor står `model` med i prædikatet.
+ *
+ * Skrevet som ÉT selvstændigt udtryk der kun kræver bon-aliaset, så det kan
+ * bruges i en aggregat-query uden at tvinge kalderen til at joine to tabeller.
+ *
+ * NB: kolonnen `inventory_deduct_status` kan IKKE bruges som genvej. Den er
+ * NULL på alle event-salgsbons fra før migration 141, så et opslag ville give
+ * det forkerte svar på præcis de historiske dage man kigger på. Reglen skal
+ * genberegnes, ikke aflæses.
+ *
+ * @param {string} bonAlias  alias for bons-tabellen (default 'b')
+ * @returns {string} SQL-prædikat til WHERE/CASE
+ */
+function bonOwnsStockCostSql(bonAlias = 'b') {
+    return `NOT (
+        ${bonAlias}.event_id IS NOT NULL
+        AND COALESCE((SELECT pc2.code FROM price_categories pc2
+                       WHERE pc2.id = ${bonAlias}.price_category_id), '') <> 'produktion'
+        AND COALESCE((SELECT e2.model FROM events e2
+                       WHERE e2.id = ${bonAlias}.event_id), '') = 'light'
+    )`;
+}
+
+/**
  * ── Salgs-enheder (økonomi-linsen) ──────────────────────────────────
  * Spejlbilledet af produktions-workload: økonomi-/omsætningsvisninger
  * (rapporter, dashboard MTD, top-produkter) tæller SOLGTE enheder. Dér må
@@ -937,7 +973,7 @@ module.exports = {
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
     bonUnitsExpr, unitCountablePredicate,
     recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, hasDeliveryLine,
-    WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
+    WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql, bonOwnsStockCostSql,
     countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
     transaction,

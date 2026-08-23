@@ -866,7 +866,7 @@ er forsvarligt (varerne kørte med traileren, arbejdet gjorde ikke), men linjen 
 **Besluttet: drift = alt, event = et snit + lokations-toggle i driften.** Én motor, to
 visninger. Reglen der skal skrives ét sted: **de to tal må aldrig lægges sammen.**
 
-### 18.8 Nabofejl 1 — driften tæller event-vareforbrug to gange
+### 18.8 Nabofejl 1 — driften talte event-vareforbrug to gange ✅ løst (august 2026)
 
 Verificeret med `computeDay`'s egne filtre (`realiseret`-status, `is_offer`/`is_internal`
 ude), Musik i Gentofte:
@@ -893,6 +893,29 @@ event_id != null && event_model='light' && price_category != 'produktion'
 Driften skal bruge samme regel på omkostningssiden: *en bon der ikke trak lager, må ikke
 bidrage vareforbrug.* Så bliver prep-dagen dyr og salgsdagene "gratis" — det er **datering**,
 ikke dobbelttælling, og det er præcis hvad lokations-toggle'et i 18.7 er til for.
+
+**Implementeret.** Reglen bor ét sted som `bonOwnsStockCostSql(alias)` i `db/helpers.js`,
+ved siden af `workloadRoleSql` — begge drifts-queries (aggregatet + per-bon-nedbrydningen) bruger
+den, så de ikke kan drive fra hinanden. Prædikatet er skrevet selvstændigt (subqueries frem for
+joins), så det kan bruges i en aggregat-query uden at tvinge kalderen til at joine to tabeller.
+
+**Festival-modellen gates ikke** — dér trækker salgsbonnen fra sin egen lokation og ejer altså
+sin omkostning. Derfor står `events.model` med i prædikatet.
+
+> **`inventory_deduct_status` kan IKKE bruges som genvej,** selvom kolonnen findes og siger
+> præcis det rigtige (`'event_prep_owns_stock'`). Den er NULL på alle event-salgsbons fra før
+> migration 141, så et opslag ville give det forkerte svar på præcis de historiske dage man
+> kigger på. Reglen skal genberegnes, ikke aflæses.
+
+**Det udeladte rapporteres** (`cost_excluded_ex_moms` på dagen, vist som "ekskl. N kr event-salg"
+under Vareforbrug). Et tal der bare er blevet mindre får folk til at lede efter en fejl i
+bonnerne i stedet for at kunne se hvad reglen gjorde.
+
+**Test:** `npm run test:drift-cost` — 13 asserts mod de ægte endpoints (in-process, isoleret
+temp-DB, Smartplan stubbet). Dækker at omsætningen er urørt, at drill-down summerer til pillen
+krone for krone, at festival-modellen er undtaget, og at en dag uden events er uændret.
+Mutationstestet: seks bevidste fejl, alle fældet — heriblandt "omsætningen gates ved en fejl",
+som er den nærliggende måde at overskyde målet på.
 
 *(Beslægtet, mindre: udgiftsbons har negative `line_total` og trækker derfor fra driftens
 omsætning i stedet for at være en omkostning. Bundlinjen bliver den samme, men løn-% og
@@ -947,12 +970,12 @@ registreringen og lageret er konsekvensen.
 3. `event_labor` + settings + de tre kilder + strip med `Mandetimer` / `Løn (ex moms)`,
    rolle-gated endpoint.
 4. Frys ved `status='done'`.
-5. *Eget issue:* driftens vareforbrug respekterer `event_prep_owns_stock` (18.8) +
-   lokations-toggle.
+5. ~~*Eget issue:* driftens vareforbrug respekterer `event_prep_owns_stock` (18.8)~~ ✅ **udført**
+   (august 2026, `npm run test:drift-cost`). Lokations-toggle'et udestår stadig.
 6. *Eget issue:* retur som modpost + advarsel ved talt > beregnet (18.9).
 
-Trin 1–4 giver et ærligt lønstal. Trin 5–6 gør vareforbruget ærligt — og indtil de er der,
-er eventets "Vareforbrug" stadig *hvad vi pakkede*.
+Trin 1–4 giver et ærligt lønstal. Trin 5 er på plads — driften tæller ikke længere eventets
+varer to gange. Trin 6 udestår, så eventets "Vareforbrug" er stadig *hvad vi pakkede*.
 
 ### 18.11 Stadig ikke afklaret (blokerer ikke byg)
 

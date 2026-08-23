@@ -168,3 +168,12 @@
 .dr-heavy-pill:hover { filter: brightness(1.08); }
 .dr-heavy-go { border: none; background: none; color: #888; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 4px 8px; }
 .dr-heavy-go:hover { color: #555; }
+
+/* Forklaring under Vareforbrug når event-salgsbonner er holdt ude (#533).
+   Dæmpet: det er en note om hvordan tallet er skruet sammen, ikke en advarsel. */
+.dr-sub-note {
+    display: block;
+    font-size: 0.85em;
+    opacity: 0.7;
+    margin-top: 2px;
+}
