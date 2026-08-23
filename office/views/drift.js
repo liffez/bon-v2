@@ -528,6 +528,17 @@ function _drLoad() {
     });
 }
 
+// Event-salgsbonner bærer en cost_price-snapshot uden at have trukket lager —
+// prep-bonnen ejer trækket. Beløbet holdes ude af vareforbruget (#533), men det
+// SKAL siges: et tal der bare er blevet mindre får folk til at lede efter en fejl
+// i bonnerne i stedet for at kunne se hvad reglen gjorde.
+function _drEventCostNote(d) {
+    if (!d || !d.cost_excluded_ex_moms) return '';
+    return '<span class="dr-sub-note" title="Event-salgsbonner rører ikke lageret — prep-bonnen ejer trækket, '
+         + 'og dens vareforbrug er allerede talt med på prep-dagen.">'
+         + 'ekskl. ' + _drMoney(d.cost_excluded_ex_moms) + ' event-salg</span>';
+}
+
 function _drRender(d) {
     var body = _driftState.el.querySelector('#drBody');
     if (!body) return;
@@ -613,7 +624,7 @@ function _drRender(d) {
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(d.revenue_ex_moms), '', '', 'bons') +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(d.cost_ex_moms), '',
-                _drShareSub(d.cost_ex_moms, d.revenue_ex_moms, 'food'), 'bons') +
+                _drShareSub(d.cost_ex_moms, d.revenue_ex_moms, 'food') + _drEventCostNote(d), 'bons') +
             kpi('Levering (ex moms)', '−' + _drMoney(d.delivery_ex_moms), '', '', 'logistik') +
             kpi('Løn', '−' + _drMoney(d.labor_ex_moms), '', loenSub) +
             kpi('Driftsresultat (ex moms)', _drMoney(d.driftsresultat_ex_moms), resultClass) +

@@ -57,8 +57,8 @@ function _roleMap(db) {
  *        forecast   → planned_*    (planlagt vagt; eneste data på fremtid)
  * @returns {Promise<Array>} [{
  *   employee_id, employee_name, jobtype_uuid, jobtype_title, role_class,
- *   start, slut, timer, sats, kostpris, rate_missing, role_unmapped,
- *   used_fallback_hours, mode
+ *   location, location_class, start, slut, timer, sats, kostpris,
+ *   rate_missing, role_unmapped, used_fallback_hours, mode
  * }]
  */
 /**
@@ -99,6 +99,16 @@ function _transformRow(r, dato, m, db, roleMap) {
         jobtype_uuid:       r.jobtype_uuid,
         jobtype_title:      r.jobtype_title,
         role_class:         roleClass,
+        // Lokationen er Smartplans eget svar på HVOR vagten hørte til
+        // ('Ristet Rug' vs. 'Festivaler og Events', jf. migration 122). Den
+        // skal bæres igennem: uden den kan hverken driften kontere HQ vs.
+        // event, eller eventet finde sine egne timer. Feltet ryger desuden
+        // med i labor_day_snapshot, så en dag frosset uden det kan ALDRIG
+        // konteres bagud — derfor er tabet ikke bare kosmetisk.
+        // Ukendt klasse → 'hq': samme konservative regel som _classifyLocation,
+        // så en uklassificeret vagt aldrig tilskrives et event.
+        location:           r.location ?? null,
+        location_class:     r.location_class === 'events' ? 'events' : 'hq',
         start, slut,
         timer:              timer != null ? Number(timer) : null,
         sats,

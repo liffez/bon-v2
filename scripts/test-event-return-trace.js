@@ -134,9 +134,17 @@ async function routeTestsWithStub(dbPath) {
         const agg = new Map();
         for (const l of lines) {
             if (l.grocy_recipe_id !== 101) continue;
+            const q = Number(l.quantity) || 0;
             const cur = agg.get(11) || { product_id: 11, product_name: 'Brød', amount_stock: 0 };
-            cur.amount_stock += (Number(l.quantity) || 0);   // 1 brød pr. styk
+            cur.amount_stock += q;                            // 1 brød pr. styk
             agg.set(11, cur);
+            // Kål med i BOM'en, så parent-omdirigeringen nedenfor returnerer
+            // noget der FAKTISK blev pakket. Uden det ville værnet (§18.9)
+            // afvise den — med rette: en kål der aldrig kom med ud, kan ikke
+            // komme hjem.
+            const k = agg.get(10) || { product_id: 10, product_name: 'Kål', amount_stock: 0 };
+            k.amount_stock += q * 0.2;                        // 0,2 kg kål pr. styk
+            agg.set(10, k);
         }
         return Array.from(agg.values());
     };
@@ -147,6 +155,25 @@ async function routeTestsWithStub(dbPath) {
     const evId = Number(db.prepare(
         `INSERT INTO events (name, location_id, start_date, status) VALUES ('Stub', 1, '2026-09-20', 'done')`
     ).run().lastInsertRowid);
+
+    // Prep-bon på eventet: 30 stk → 30 brød + 6 kg kål i BOM'en. Uden den er
+    // den beregnede rest 0, og værnet fra §18.9 afviser bogføringerne nedenfor
+    // — korrekt, men det er ikke dét denne test handler om. Med bonnen kører
+    // testen den normale vej, ikke en tilsidesat.
+    {
+        const stId = db.prepare(`SELECT id FROM status_definitions WHERE code='GODKENDT'`).get().id;
+        const pcId = db.prepare(`SELECT id FROM price_categories WHERE code='produktion'`).get().id;
+        const bId = Number(db.prepare(`
+            INSERT INTO bons (bon_number, status_id, location_id, price_category_id, price_category,
+                              event_id, event_role, order_date, delivery_date, total_price)
+            VALUES ('T-RET-STUB', ?, 1, ?, 'produktion', ?, 'prep', '2026-09-19', '2026-09-20', 0)
+        `).run(stId, pcId, evId).lastInsertRowid);
+        db.prepare(`
+            INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit,
+                                   unit_price, line_total)
+            VALUES (?, 101, 'Falaflen', '01 Sandwich', 30, 'stk', 0, 0)
+        `).run(bId);
+    }
 
     const app = express();
     app.use(express.json());
@@ -251,8 +278,11 @@ async function routeTestsWithStub(dbPath) {
             'resten er reduceret til 12 — en anden bogføring dobbelt-lægger IKKE de 8 på HQ');
         assert(efter.bookings.length === 1, 'forslaget bærer bogførings-historikken med');
 
-        // Returnér resten, og forslaget skal gå i nul — ikke negativt.
-        await post(`/api/events/${ev2}/return`, { items: [
+        // Returnér MERE end resten, og forslaget skal gå i nul — ikke negativt.
+        // 20 mod en rest på 12 er en bevidst over-returnering, og værnet fra
+        // §18.9 fanger den nu — derfor `force`. Klampningen der testes herunder
+        // er uændret.
+        await post(`/api/events/${ev2}/return`, { force: true, items: [
             { product_id: 11, amount: 20, product_name: 'Brød', unit: 'Antal' },
         ]});
         const tredje = await computeReturnSuggestion(evRow2);
@@ -263,6 +293,10 @@ async function routeTestsWithStub(dbPath) {
 
         db.prepare(`DELETE FROM bon_lines WHERE bon_id = ?`).run(bonId);
         db.prepare(`DELETE FROM bons WHERE id = ?`).run(bonId);
+        // Prep-bonnen på stub-eventet skal også væk, ellers spærrer FK'en for
+        // at eventet kan slettes nedenfor.
+        db.prepare(`DELETE FROM bon_lines WHERE bon_id IN (SELECT id FROM bons WHERE event_id = ?)`).run(evId);
+        db.prepare(`DELETE FROM bons WHERE event_id = ?`).run(evId);
         db.prepare(`DELETE FROM event_returns WHERE event_id IN (?, ?)`).run(evId, ev2);
         db.prepare(`DELETE FROM events WHERE id IN (?, ?)`).run(evId, ev2);
     } finally {

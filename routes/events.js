@@ -237,9 +237,10 @@ function computeEventExpenses(eventId) {
     return { incl: Math.round(incl * 100) / 100, excl: Math.round(excl * 100) / 100 };
 }
 
-function computeEventCost(eventId) {
-    // Vareforbrug ex moms = Σ over prep/top-up-bons (price_category='produktion')
-    // af bon_lines.cost_price * quantity. cost_price er allerede ex moms.
+// Hvad vi PAKKEDE, ex moms.
+function computeEventCostPacked(eventId) {
+    // Σ over prep/top-up-bons (price_category='produktion') af
+    // bon_lines.cost_price * quantity. cost_price er allerede ex moms.
     const row = getDb().prepare(`
         SELECT COALESCE(SUM(bl.cost_price * bl.quantity), 0) AS c
         FROM bons b
@@ -249,6 +250,27 @@ function computeEventCost(eventId) {
           ${EXCLUDE_CANCELLED_SQL}
     `).get(eventId);
     return row?.c ?? 0;
+}
+
+// Hvad der KOM HJEM, ex moms — modposten fra retur-bogføringen (§18.9).
+// Værdien er snapshottet ved bogføringen (event_returns.cost_total), ikke slået
+// op på ny: råvarepriser ændrer sig, og et afsluttet events regnskab må ikke
+// skride fordi nogen køber rødløg til en anden pris næste måned.
+function computeEventReturns(eventId) {
+    const row = getDb().prepare(`
+        SELECT COALESCE(SUM(cost_total), 0) AS c, COUNT(*) AS n
+          FROM event_returns WHERE event_id = ?
+    `).get(eventId);
+    return { cost: Math.round((row?.c ?? 0) * 100) / 100, count: row?.n ?? 0 };
+}
+
+// Faktisk vareforbrug = pakket − retur (§18.9). Uden modposten var dette tal
+// "alt hvad vi tog med", også det der kom uåbnet hjem igen — 32 % for højt på
+// Vig Festival. Er der intet bogført retur, er de to tal ens, og alt er som før.
+function computeEventCost(eventId) {
+    const packed = computeEventCostPacked(eventId);
+    const returned = computeEventReturns(eventId).cost;
+    return Math.round((packed - returned) * 100) / 100;
 }
 
 // Event-CO₂ (§7). co2e ligger på BÅDE prep- og salgsbons (samme opskrifter), så
@@ -736,6 +758,12 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     }
     const pnl = computeEventPnL(bons);
     pnl.cost_estimated = computeEventCost(event.id);
+    // Nedbrydningen med, så UI'et kan vise HVORFOR vareforbruget er som det er
+    // — et tal der pludselig falder uden forklaring er værre end intet tal.
+    pnl.cost_packed    = Math.round(computeEventCostPacked(event.id) * 100) / 100;
+    const evRet        = computeEventReturns(event.id);
+    pnl.cost_returned  = evRet.cost;
+    pnl.returned_lines = evRet.count;
     // Præcis udgifts-beregning pr. linje (incl/ex moms) — overskriver grov-summen
     // fra computeEventPnL, på samme måde som cost overskrives ovenfor.
     const exp = computeEventExpenses(event.id);
@@ -1400,6 +1428,123 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     res.status(201).json(getBon(result));
 }));
 
+// ─── LØN PÅ PLADSEN (§18) ──────────────────────────────────────────────────
+// EGET endpoint, ikke en del af /overview: løn er følsomt, og /overview er
+// åbent for alle roller. Gates som driftsregnskabet (admin + office). Skjules
+// den kun i frontenden, kan tallet stadig hentes.
+//
+// Resultatet er "på pladsen" — HQ-prep-lønnen bliver i driftsregnskabet (§18.7).
+// Derfor regnes den ikke ind i /overview's `result`; kalderen får i stedet
+// `result_on_site` og kan vise begge tal side om side.
+
+// Løn-delen af svaret, frosset eller live. Resultat-felterne lægges på
+// UDENFOR (se nedenfor) — de skal altid være aktuelle.
+async function resolveEventLabor(event, userId) {
+    const db = getDb();
+    const { computeEventLabor } = require('../services/eventLabor');
+    const snapRow = db.prepare(
+        'SELECT data_json, frozen_at FROM event_labor_snapshot WHERE event_id = ?'
+    ).get(event.id);
+
+    // Afsluttet event med et snapshot: brug det. Smartplan er et levende
+    // system, og en vagt rettet tre uger efter festivalen må ikke flytte et
+    // afsluttet events resultat.
+    if (event.status === 'done' && snapRow) {
+        try {
+            return { ...JSON.parse(snapRow.data_json), frozen: true, frozen_at: snapRow.frozen_at };
+        } catch {
+            // Ulæseligt snapshot er ikke værd at vælte visningen for — beregn live.
+        }
+    }
+
+    const labor = await computeEventLabor(event);
+
+    // Frys ved FØRSTE visning efter at eventet er lukket — men ALDRIG et tal
+    // vi ved er forkert. Kunne vagtplanen ikke hentes, ville vi fryse "0 timer
+    // fordi Smartplan var nede" for evigt, og ingen ville nogensinde opdage
+    // hvorfor. Så hellere blive ved med at vise live tal med sin advarsel.
+    if (event.status === 'done' && !labor.smartplan_error) {
+        db.prepare(`
+            INSERT INTO event_labor_snapshot (event_id, data_json, frozen_by_user_id)
+            VALUES (?,?,?)
+            ON CONFLICT(event_id) DO UPDATE SET
+                data_json = excluded.data_json,
+                frozen_at = datetime('now'),
+                frozen_by_user_id = excluded.frozen_by_user_id
+        `).run(event.id, JSON.stringify(labor), userId ?? null);
+        const at = db.prepare('SELECT frozen_at FROM event_labor_snapshot WHERE event_id = ?').get(event.id);
+        return { ...labor, frozen: true, frozen_at: at?.frozen_at || null };
+    }
+
+    return { ...labor, frozen: false, frozen_at: null };
+}
+
+// Resultat-felterne. Regnes ALTID live, også når lønnen er frosset: bogføres
+// et retur bagefter (§18.9), ændrer vareforbruget sig, og et frosset resultat
+// ville modsige /overview. Rækkefølgen af leddene findes kun her.
+function eventResultFields(event, laborCost) {
+    const bons = getEventBons(event.id);
+    const pnl = computeEventPnL(bons);
+    const cost = computeEventCost(event.id);
+    const expenses = computeEventExpenses(event.id).excl;
+    const before = Math.round((pnl.revenue_excl - cost - expenses) * 100) / 100;
+    return {
+        result_before_labor: before,
+        result_on_site: Math.round((before - (laborCost || 0)) * 100) / 100,
+    };
+}
+
+// ─── LØN PÅ PLADSEN (§18) ──────────────────────────────────────────────────
+// EGET endpoint, ikke en del af /overview: løn er følsomt, og /overview er
+// åbent for alle roller. Gates som driftsregnskabet (admin + office). Skjules
+// den kun i frontenden, kan tallet stadig hentes.
+//
+// Resultatet er "på pladsen" — HQ-prep-lønnen bliver i driftsregnskabet (§18.7).
+
+router.get('/:id/labor', requireAuth('admin', 'office'), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const labor = await resolveEventLabor(event, req.session?.userId);
+    res.json({ ...labor, ...eventResultFields(event, labor.cost_total) });
+}));
+
+// Genberegn et frosset lønstal. Nødvendigt fordi et genåbnet event kan være
+// blevet rettet: snapshottet bliver liggende og tages i brug igen når eventet
+// lukkes, og så ville det gamle tal stå. Admin-only, som driftens /refreeze.
+router.post('/:id/labor/refreeze', requireAuth('admin'), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const { computeEventLabor } = require('../services/eventLabor');
+    const labor = await computeEventLabor(event);
+    if (labor.smartplan_error) {
+        return res.status(503).json({
+            error: 'smartplan_unavailable',
+            message: 'Vagtplanen svarer ikke — genberegning ville fryse et tal uden timerne på pladsen.',
+            detail: labor.smartplan_error,
+        });
+    }
+    const db = getDb();
+    db.prepare(`
+        INSERT INTO event_labor_snapshot (event_id, data_json, frozen_by_user_id)
+        VALUES (?,?,?)
+        ON CONFLICT(event_id) DO UPDATE SET
+            data_json = excluded.data_json,
+            frozen_at = datetime('now'),
+            frozen_by_user_id = excluded.frozen_by_user_id
+    `).run(event.id, JSON.stringify(labor), req.session?.userId ?? null);
+
+    logChange({
+        entityType: 'event', entityId: event.id, action: 'update', fieldName: 'labor_refreeze',
+        newValue: `${labor.hours_total} timer · ${labor.cost_total} kr`,
+        userId: req.session?.userId,
+    });
+    const at = db.prepare('SELECT frozen_at FROM event_labor_snapshot WHERE event_id = ?').get(event.id);
+    res.json({ ...labor, frozen: true, frozen_at: at?.frozen_at || null,
+               ...eventResultFields(event, labor.cost_total) });
+}));
+
 // ─── RETUR / HJEMKOMST (§6) ────────────────────────────────────────────────
 // Beregner event-beholdning pr. råvare (prep+topup − solgt) som forslag.
 // Køkkenet tæller fysisk og justerer, og bogfører returen som lager-add til HQ.
@@ -1417,6 +1562,82 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
     if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
     const items = Array.isArray(req.body?.items) ? req.body.items : null;
     if (!items) return res.status(400).json({ error: 'items (array) er påkrævet' });
+
+    const clean = [];
+    for (const it of items) {
+        const pid = parseInt(it.product_id);
+        const amt = Number(it.amount);
+        if (!pid || Number.isNaN(amt) || amt <= 0) continue;
+        clean.push({ ...it, product_id: pid, amount: amt });
+    }
+    // ── Værn: talt mod beregnet rest (§18.9) ──────────────────────────────
+    // Beregnet rest = pakket − solgt − allerede returneret. Er det TALTE
+    // væsentligt større, har varer forladt HQ uden en top-up-bon: lageret blev
+    // aldrig reduceret, og en bogført retur ville LÆGGE varer på lager der
+    // aldrig blev taget af.
+    //
+    // Fordi forslaget siden #537 trækker det allerede returnerede fra, fanger
+    // værnet også en GENTAGET bogføring: anden gang er den beregnede rest 0, og
+    // de samme mængder overskrider den. Derfor er der ikke brug for en separat
+    // idempotens-nøgle — de to mekanismer ville dække det samme.
+    //
+    // (Den modsatte retning — talt mindre end beregnet — er normal og forventet:
+    // salget er ikke altid tastet, og resten er spist, byttet eller kasseret.)
+    let suggestMap = new Map();
+    let guardSkipped = null;
+    try {
+        const suggestion = await computeReturnSuggestion(event);
+        suggestMap = new Map(suggestion.items.map(it => [Number(it.product_id), it]));
+    } catch (err) {
+        // "Vi gætter ikke" går begge veje: vi lader være med at spærre for en
+        // retur på et grundlag vi ikke har, og vi lader være med at påstå at
+        // værnet gik igennem.
+        guardSkipped = err.message;
+        console.warn('[events] retur: kunne ikke beregne rest — værnet sprunget over:', err.message);
+    }
+    const tolPct = Math.max(0, parseFloat(
+        db.prepare("SELECT value FROM settings WHERE key='event_return_tolerance_pct'").get()?.value ?? '10'
+    ) || 0);
+    const force = req.body?.force === true;
+    const overshoot = [];
+    for (const it of (guardSkipped ? [] : clean)) {
+        const sug = suggestMap.get(it.product_id);
+        const computed = Number(sug?.suggested_rest ?? 0);
+        // Absolut epsilon oveni procenten: uden den ville en beregnet rest på 0
+        // gøre ENHVER talt mængde til en overskridelse, også 0,001 kg måle-støj.
+        if (it.amount > computed * (1 + tolPct / 100) + 0.001) {
+            overshoot.push({
+                product_id: it.product_id,
+                product_name: sug?.product_name || it.product_name || `#${it.product_id}`,
+                unit: sug?.unit || it.unit || '',
+                counted: Math.round(it.amount * 1000) / 1000,
+                computed_rest: Math.round(computed * 1000) / 1000,
+                prepped: sug?.prepped ?? 0,
+                sold: sug?.sold ?? 0,
+                returned: sug?.returned ?? 0,
+            });
+        }
+    }
+    if (overshoot.length && !force) {
+        return res.status(409).json({
+            error: 'return_exceeds_computed',
+            message: `${overshoot.length} ${overshoot.length === 1 ? 'råvare' : 'råvarer'} er talt til mere end der er tilbage`,
+            hint: 'Varer der er hentet fra HQ undervejs skal registreres som en top-up-bon først — ellers blev lageret aldrig trukket, og returen ville lægge varer på lager der aldrig blev taget af. Er returen allerede bogført, står der 0 tilbage.',
+            tolerance_pct: tolPct,
+            items: overshoot,
+        });
+    }
+
+    // ── Priser til modposten (snapshot) ───────────────────────────────────
+    // Slås op ÉN gang her og gemmes på rækken. Mangler prisen, bogføres returen
+    // stadig (lageret skal være rigtigt) men med 0 kr — den konservative retning:
+    // vareforbruget forbliver højt frem for at falde på et gæt. Det rapporteres,
+    // så tavsheden ikke bliver til et forkert regnskab ingen opdager.
+    let priceMap = new Map();
+    let priceError = null;
+    try { priceMap = await grocy.getProductUnitCosts(); }
+    catch (err) { priceError = err.message; console.warn('[events] retur: kunne ikke hente råvarepriser:', err.message); }
+    const missingPrice = [];
 
     // Parent-produkter med no_own_stock=1 (fx "kål" → Hvidkål/Spidskål) kan ikke
     // modtage lager direkte i Grocy. Vi omdirigerer returen til det barn der
@@ -1465,19 +1686,20 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
     const insReturn = db.prepare(`
         INSERT INTO event_returns
             (event_id, product_id, product_name, amount, unit, added_to_product_id,
-             booked_by_user_id, booked_at, booking_ref)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             booked_by_user_id, booked_at, booking_ref, unit_cost, cost_total, forced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const results = [];
-    for (const it of items) {
-        const pid = parseInt(it.product_id);
-        const amt = Number(it.amount);
-        if (!pid || Number.isNaN(amt) || amt <= 0) continue;
+    for (const it of clean) {
+        const pid = it.product_id, amt = it.amount;
         const target = resolveAddTarget(pid);
         try {
             await grocy.addToStock(target, amt);
-            const r = { product_id: pid, amount: amt, success: true };
+            const unitCost = priceMap.get(String(pid)) ?? priceMap.get(String(target)) ?? null;
+            const costTotal = unitCost != null ? Math.round(amt * unitCost * 100) / 100 : 0;
+            if (unitCost == null) missingPrice.push(it.product_name || `#${pid}`);
+            const r = { product_id: pid, amount: amt, success: true, cost_total: costTotal };
             if (target !== pid) r.added_to_child = target;
             results.push(r);
             // Sporet skrives KUN når Grocy faktisk tog imod. Skrev vi det
@@ -1488,7 +1710,8 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
             try {
                 insReturn.run(event.id, pid, it.product_name ?? null, amt, it.unit ?? null,
                               target !== pid ? target : null, req.session?.userId ?? null,
-                              bookedAt, bookingRef);
+                              bookedAt, bookingRef, unitCost, costTotal,
+                              overshoot.length && force ? 1 : 0);
             } catch (logErr) {
                 // Lageret ER flyttet. At vi ikke kunne skrive sporet må ikke
                 // vælte svaret — men det skal kunne ses i driftsloggen.
@@ -1501,13 +1724,26 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
         }
     }
     const ok = results.filter(r => r.success).length;
+    const ret = computeEventReturns(event.id);
     logChange({
         entityType: 'event', entityId: event.id, action: 'update', fieldName: 'return',
-        newValue: `retur bogført: ${ok}/${results.length} produkter lagt på HQ-lager`,
+        newValue: `retur bogført: ${ok}/${results.length} produkter lagt på HQ-lager · modpost ${ret.cost.toFixed(2)} kr`,
+        notes: guardSkipped
+            ? `⚠ resten kunne ikke beregnes (${guardSkipped}) — bogført uden kontrol af mængderne`
+            : overshoot.length && force
+                ? `⚠ værnet tilsidesat: ${overshoot.length} råvarer talt til mere end tilbage`
+                : (missingPrice.length ? `uden pris (0 kr i modposten): ${missingPrice.join(', ')}` : null),
         userId: req.session?.userId,
     });
     broadcast('event_updated', { id: event.id });
-    res.json({ results, returned_count: ok, booked_at: ok > 0 ? bookedAt : null });
+    res.json({
+        results, returned_count: ok, booked_at: ok > 0 ? bookedAt : null,
+        cost_returned: ret.cost,
+        guard_skipped: guardSkipped,
+        missing_price: missingPrice,
+        price_error: priceError,
+        forced: overshoot.length && force ? overshoot : null,
+    });
 }));
 
 module.exports = router;
@@ -1519,6 +1755,8 @@ module.exports.allocateInteger = allocateInteger;
 module.exports.getEventBons = getEventBons;
 module.exports.computeEventPnL = computeEventPnL;
 module.exports.computeEventCost = computeEventCost;
+module.exports.computeEventCostPacked = computeEventCostPacked;
+module.exports.computeEventReturns = computeEventReturns;
 module.exports.computeEventCO2 = computeEventCO2;
 module.exports.computeEventExpenses = computeEventExpenses;
 module.exports.computeReturnSuggestion = computeReturnSuggestion;

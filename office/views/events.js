@@ -55,9 +55,13 @@ const _EV_SUBMIT_LABEL = { prep: 'Opret prep-bon', topup: 'Opret top-up-bon', sa
 async function _evFetch(path, opts) {
     const res = await fetch('/api' + path, Object.assign({ headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' }, opts || {}));
     if (!res.ok) {
-        let msg = res.statusText;
-        try { const j = await res.json(); msg = j.error || msg; } catch {}
-        throw new Error(msg);
+        let msg = res.statusText, body = null;
+        try { body = await res.json(); msg = body.message || body.error || msg; } catch {}
+        const err = new Error(msg);
+        err.status = res.status;          // så en 409 kan skelnes fra en 500
+        err.code   = body?.error || null; // maskin-koden, fx 'return_exceeds_computed'
+        err.data   = body || null;        // hele kroppen — værnet har brug for items[]
+        throw err;
     }
     return res.json();
 }
@@ -234,9 +238,10 @@ async function _evRenderDetail(id) {
                 <div class="ev-pnl-strip">
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_incl)}</div><div class="ev-pnl-lbl">Omsætning (inkl moms)</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_excl)}</div><div class="ev-pnl-lbl">Omsætning (ex moms)</div></div>
-                    <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.cost_estimated)}</div><div class="ev-pnl-lbl">Vareforbrug (ex moms)</div></div>
+                    <div class="ev-pnl-cell"${pnl.cost_returned ? ` title="Pakket ${_evFmtKr(pnl.cost_packed)} − retur ${_evFmtKr(pnl.cost_returned)}"` : ''}><div class="ev-pnl-val">${_evFmtKr(pnl.cost_estimated)}</div><div class="ev-pnl-lbl">Vareforbrug (ex moms)${pnl.cost_returned ? `<span class="ev-pnl-sub">÷ ${_evFmtKr(pnl.cost_returned)} retur</span>` : ''}</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.expenses_excl ?? pnl.expenses)}</div><div class="ev-pnl-lbl">Udgifter (ex moms)</div></div>
-                    <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat</div></div>
+                    <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat før løn</div></div>
+                    <span id="evLaborCells" hidden></span>
                     <div class="ev-pnl-cell ev-pnl-bank"><div class="ev-pnl-val">${_evFmtKr(pnl.bank_reconciled || 0)}</div><div class="ev-pnl-lbl">🏦 Bank-afstemt (inkl moms)${pnl.bank_reconciled_tx ? ' · ' + pnl.bank_reconciled_tx + ' indb.' : ' · intet afstemt'}</div></div>
                     <div class="ev-pnl-cell ev-pnl-co2"><div class="ev-pnl-val">${_evFmtNum(pnl.co2e_total || 0)}</div><div class="ev-pnl-lbl">🌱 CO₂e (kg)</div></div>
                 </div>
@@ -342,9 +347,79 @@ async function _evRenderDetail(id) {
         _evBindAttachments(ev);
         // Kurven hentes bagefter og må aldrig kunne vælte siden — derfor uden await.
         _evRenderCurve(ev.id);
+        // Lønnen ligger bag sit eget rolle-gatede endpoint; samme regel gælder.
+        _evLoadLabor(ev);
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
         _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
+    }
+}
+
+// ── LØN PÅ PLADSEN (§18) ─────────────────────────────────────────────────
+// Hentes SEPARAT fra /overview, fordi endpointet er rolle-gated (admin+office).
+// Må aldrig kunne vælte resten af siden: kan den ikke hentes — 403 for en rolle
+// der ikke må se løn, eller vagtplanen der er nede — står strippen som før.
+async function _evLoadLabor(ev) {
+    const host = document.getElementById('evLaborCells');
+    if (!host) return;
+    let d;
+    try { d = await _evFetch(`/events/${ev.id}/labor`); }
+    catch { return; }          // 403 = rollen må ikke se løn. Ingen fejlbesked.
+
+    // Nedbrydningen i tooltip: et lønbeløb uden forklaring kan ikke efterprøves,
+    // og en stor del af det er standard-timer, ikke målte vagter.
+    const brud = (d.sources || [])
+        .filter(s => s.hours > 0)
+        .map(s => `${s.label}: ${_evFmtNum(s.hours)} t${s.note ? ` (${s.note})` : ''} = ${_evFmtKr(s.cost)}`)
+        .join('\n');
+
+    // Strippen går fra 7 til 10 celler — CSS'en skal kende forskellen, ellers
+    // står den tiende celle alene på anden række.
+    document.querySelector('.ev-pnl-strip')?.classList.add('has-labor');
+    host.outerHTML = `
+        <div class="ev-pnl-cell" title="${_evEsc(brud)}">
+            <div class="ev-pnl-val">${_evFmtNum(d.hours_total)}</div>
+            <div class="ev-pnl-lbl">Mandetimer</div>
+        </div>
+        <div class="ev-pnl-cell" title="${_evEsc(brud)}">
+            <div class="ev-pnl-val">${_evFmtKr(d.cost_total)}</div>
+            <div class="ev-pnl-lbl">Løn på pladsen (ex moms)<span class="ev-pnl-sub">${d.frozen
+                ? `🔒 frosset ${_evEsc(_evFmtStamp(d.frozen_at))}`
+                : 'estimat · ekskl. HQ-prep'}</span></div>
+        </div>
+        <div class="ev-pnl-cell ev-pnl-result">
+            <div class="ev-pnl-val">${_evFmtKr(d.result_on_site)}</div>
+            <div class="ev-pnl-lbl">Resultat på pladsen<span class="ev-pnl-sub">efter løn</span></div>
+        </div>`;
+
+    if (d.frozen) {
+        // Et frosset tal skal kunne forklares og kunne rettes. Ellers står man
+        // med et beløb ingen kan gøre noget ved, hvis eventet er blevet
+        // genåbnet og rettet i mellemtiden.
+        const f = document.createElement('div');
+        f.className = 'ev-labor-frozen';
+        f.innerHTML = `🔒 Lønnen er frosset ${_evEsc(_evFmtStamp(d.frozen_at))}, så senere rettelser i vagtplanen ikke flytter et afsluttet events resultat.
+            <button class="ev-link" data-act="labor-refreeze">Genberegn</button>`;
+        document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', f);
+        f.querySelector('[data-act="labor-refreeze"]')?.addEventListener('click', async () => {
+            if (!confirm('Genberegn lønnen ud fra vagtplanen som den ser ud nu? Det gamle frosne tal overskrives.')) return;
+            try {
+                await _evFetch(`/events/${ev.id}/labor/refreeze`, { method: 'POST' });
+                _evRenderDetail(ev.id);
+            } catch (err) {
+                // 403 = ikke admin. Sig det frem for at lade knappen fejle tavst.
+                alert(err.status === 403
+                    ? 'Kun en administrator kan genberegne et frosset lønstal.'
+                    : 'Kunne ikke genberegne: ' + err.message);
+            }
+        });
+    }
+
+    if (d.warnings?.length) {
+        const w = document.createElement('div');
+        w.className = 'ev-labor-warn';
+        w.innerHTML = d.warnings.map(x => `<div>⚠ ${_evEsc(x)}</div>`).join('');
+        document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', w);
     }
 }
 
@@ -434,7 +509,7 @@ async function _evLoadReturnSuggestion(ev) {
     }
 }
 
-async function _evBookReturn(ev, body, previousBookings) {
+async function _evBookReturn(ev, body, previousBookings, force = false) {
     const items = [];
     body.querySelectorAll('.ev-ret-input').forEach(inp => {
         const pid = parseInt(inp.dataset.retPid);
@@ -455,7 +530,7 @@ async function _evBookReturn(ev, body, previousBookings) {
     // Det kan være helt rigtigt (der dukkede mere op i traileren), så vi
     // spærrer ikke — men det skal være et bevidst valg, ikke et gentaget klik.
     const prev = previousBookings || [];
-    if (prev.length > 0) {
+    if (prev.length > 0 && !force) {
         const sidst = _evFmtDateTime(prev[0].booked_at);
         const ok = confirm(
             `Der er allerede bogført retur på dette event — senest ${sidst}.\n\n` +
@@ -469,8 +544,9 @@ async function _evBookReturn(ev, body, previousBookings) {
     const status = document.getElementById('evReturnStatus');
     if (btn) btn.disabled = true;
     if (status) status.textContent = 'Bogfører…';
+    body.querySelector('#evReturnGuard')?.remove();
     try {
-        const res = await _evFetch(`/events/${ev.id}/return`, { method: 'POST', body: JSON.stringify({ items }) });
+        const res = await _evFetch(`/events/${ev.id}/return`, { method: 'POST', body: JSON.stringify({ items, force }) });
         const failed = (res.results || []).filter(r => !r.success);
         // Lageret er flyttet, men sporet kunne ikke skrives. Det skal siges højt:
         // næste forslag vil foreslå de mængder igen, som om de aldrig kom hjem.
@@ -478,7 +554,13 @@ async function _evBookReturn(ev, body, previousBookings) {
         if (status) {
             status.textContent = `✓ ${res.returned_count} råvarer lagt på HQ-lager`
                 + (failed.length ? ` · ${failed.length} fejl` : '')
-                + (untracked.length ? ` · ⚠ ${untracked.length} kunne ikke registreres` : '');
+                + (res.cost_returned ? ` · vareforbrug reduceret med ${_evFmtKr(res.cost_returned)}` : '')
+                + (failed.length ? '' : '')
+                + (untracked.length ? ` · ⚠ ${untracked.length} kunne ikke registreres` : '')
+                // Varer uden kendt råvarepris er lagt på lager, men tæller 0 kr i
+                // modposten. Det SKAL siges: ellers ser vareforbruget bare ud til
+                // ikke at være faldet så meget, uden at nogen ved hvorfor.
+                + (res.missing_price?.length ? ` · ${res.missing_price.length} uden kendt pris (0 kr)` : '');
             status.className = 'ev-fc-status ' + (failed.length || untracked.length ? 'err' : 'ok');
         }
         // Genindlæs så badgen og bogførings-historikken slår igennem med det
@@ -486,10 +568,62 @@ async function _evBookReturn(ev, body, previousBookings) {
         // det var netop dét der gjorde returen usynlig (#536).
         if (res.returned_count > 0) setTimeout(() => _evRender(), 1200);
     } catch (err) {
-        if (status) { status.textContent = 'Fejl: ' + err.message; status.className = 'ev-fc-status err'; }
+        if (err.code === 'return_exceeds_computed') {
+            _evRenderReturnGuard(ev, body, err.data || {}, previousBookings);
+            if (status) { status.textContent = ''; status.className = 'ev-fc-status'; }
+        } else if (status) {
+            status.textContent = 'Fejl: ' + err.message; status.className = 'ev-fc-status err';
+        }
     } finally {
         if (btn) btn.disabled = false;
     }
+}
+
+// Værnet fra §18.9: der er talt mere hjem end der er tilbage. Vi blokerer ikke
+// for evigt — men valget skal træffes bevidst og med konsekvensen synlig, for en
+// bogført retur af varer der aldrig blev trukket LÆGGER lager på der ikke findes.
+function _evRenderReturnGuard(ev, body, data, previousBookings) {
+    const rows = (data.items || []).map(it => `
+        <tr>
+            <td>${_evEsc(it.product_name)}</td>
+            <td class="ev-num">${_evFmtNum(it.prepped)} <span class="ev-ret-unit">${_evEsc(it.unit || '')}</span></td>
+            <td class="ev-num">${_evFmtNum(it.sold)}</td>
+            <td class="ev-num">${_evFmtNum(it.returned)}</td>
+            <td class="ev-num">${_evFmtNum(it.computed_rest)}</td>
+            <td class="ev-num ev-ret-over">${_evFmtNum(it.counted)}</td>
+        </tr>`).join('');
+    const el = document.createElement('div');
+    el.id = 'evReturnGuard';
+    el.className = 'ev-return-guard';
+    el.innerHTML = `
+        <div class="ev-return-guard-head">⚠ ${_evEsc(data.message || 'Talt mere end der er tilbage')}</div>
+        <div class="ev-return-guard-body">
+            <p>${_evEsc(data.hint || '')}</p>
+            <table class="ev-return-table">
+                <thead><tr><th>Råvare</th><th>Pakket</th><th>Solgt</th><th>Returneret</th><th>Tilbage</th><th>Talt</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+            <div class="ev-return-guard-actions">
+                <button class="ev-btn" data-act="guard-cancel">Ret tallene</button>
+                <button class="ev-btn ev-btn-warn" data-act="guard-force">Bogfør alligevel</button>
+            </div>
+        </div>`;
+    body.appendChild(el);
+    el.querySelector('[data-act="guard-cancel"]')?.addEventListener('click', () => el.remove());
+    el.querySelector('[data-act="guard-force"]')?.addEventListener('click', () => {
+        if (!confirm('Bogfører du alligevel, lægges der varer på HQ-lageret som aldrig blev trukket derfra. Lagertallet bliver for højt indtil næste optælling.\n\nFortsæt?')) return;
+        el.remove();
+        _evBookReturn(ev, body, previousBookings, true);
+    });
+}
+
+function _evFmtStamp(iso) {
+    if (!iso) return '';
+    // datetime('now') giver 'YYYY-MM-DD HH:MM:SS' i UTC uden zone-mærke.
+    // Uden 'Z' ville browseren læse det som lokal tid og vise to timer forkert.
+    const d = new Date(String(iso).replace(' ', 'T') + (/[Zz+]/.test(iso) ? '' : 'Z'));
+    if (isNaN(d)) return String(iso);
+    return d.toLocaleString('da-DK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function _evFmtNum(n) {
