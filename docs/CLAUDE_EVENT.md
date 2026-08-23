@@ -954,7 +954,7 @@ som er den nærliggende måde at overskyde målet på.
 omsætning i stedet for at være en omkostning. Bundlinjen bliver den samme, men løn-% og
 DB-% skævvrides.)*
 
-### 18.9 Nabofejl 2 — returen ændrer ikke vareforbruget
+### 18.9 Nabofejl 2 — returen ændrede ikke vareforbruget ✅ løst (august 2026)
 
 `POST /:id/return` ([routes/events.js:1313](routes/events.js:1313)) kalder udelukkende
 `grocy.addToStock()` pr. produkt og skriver en changelog-linje. Der oprettes **ingen bon,
@@ -991,6 +991,45 @@ Konkret: returen bogføres som **modpost på eventet** (negativ produktions-linj
 bliver bivirkningen frem for hele handlingen — som resten af huset, hvor bonnen er
 registreringen og lageret er konsekvensen.
 
+**Løst i to omgange, af to spor der løb parallelt.** #537 (migration 157) gav returen et
+**spor**: hvad kom hjem, hvornår, af hvem. Forslaget trækker siden det allerede returnerede fra,
+så en gentagen bogføring foreslår 0. Migration 160 lægger **værdien** oveni — tre kolonner på
+samme tabel — så `computeEventCost` = `computeEventCostPacked − computeEventReturns`.
+Nedbrydningen (`cost_packed`, `cost_returned`) kommer med i `/overview`, så et vareforbrug der
+pludselig falder kan forklares.
+
+> **Den oprindelige plan om en `return`-rolle-bon blev forkastet.** `bons.event_role` har en
+> CHECK-constraint, og SQLite kræver hele `bons`-tabellen genskabt for at ændre den — med
+> 3 triggers og 11 views hængende på sig. **Konsekvensen:** driften får ikke retur-datoens
+> negative vareforbrug automatisk; det hører til 18.8's lokations-kontering.
+
+Tre ting modposten skal kunne, og som hver især er testet:
+
+- **Prisen er et snapshot** (`unit_cost`/`cost_total`, slået op via
+  `grocy.getProductUnitCosts()` ved bogføringen). Råvarepriser ændrer sig, og et afsluttet
+  events regnskab må ikke skride fordi nogen køber rødløg til en anden pris næste måned.
+- **Ukendt pris → 0 kr, ikke et gæt.** Varen lægges stadig på lager (det er den vigtige
+  del), men modposten bliver 0, og det *rapporteres* (`missing_price`). Vareforbruget bliver
+  hellere for højt end forkert lavt — og tavshed ville gøre det til et regnskab ingen opdager.
+- **Kun det der faktisk landede hos Grocy bogføres** (#537's regel, uændret).
+
+**Værnet** afviser med `409 return_exceeds_computed` og viser pakket, solgt, allerede
+returneret, tilbage og talt ved siden af hinanden. `settings.event_return_tolerance_pct`
+(default 10) holder fysisk måle-upræcished ude — men den beregnede rest er 0 i netop det
+tilfælde værnet er til for, så det fyrer uanset. Der KAN bogføres alligevel (`force: true`):
+valget er kontorets, men det træffes bevidst, rækken mærkes `forced`, og changelog forklarer.
+
+> **Ingen separat idempotens-nøgle.** Fordi forslaget siden #537 trækker det allerede
+> returnerede fra, er resten 0 ved anden bogføring — og de samme mængder overskrider den.
+> Værnet ER dermed dobbelt-bogførings-værnet. En nonce oveni ville dække det samme to gange.
+
+**Test:** `npm run test:event-return-cost` — 35 asserts. In-process mod en isoleret temp-DB med
+Grocy stubbet; den ÆGTE route-handler monteres på en bar express-app. Grunden er ikke hastighed:
+den rigtige sti kalder `grocy.addToStock()`, og en test mod en spawnet server ville flytte lager
+i grocytest. Attrappen gør desuden de tilfælde testbare der er svære at fremprovokere — at ét
+produkt fejler hos Grocy, og at et andet ingen kendt pris har. Mutationstestet: seks bevidste
+fejl, alle fældet. Sporet i sig selv er dækket af `npm run test:event-retur` (#537).
+
 ### 18.10 Byggerækkefølge
 
 1. ~~Lad `location` + `location_class` overleve `_transformRow`~~ ✅ **udført** (august 2026,
@@ -1020,10 +1059,13 @@ registreringen og lageret er konsekvensen.
    `POST /:id/labor/refreeze` (admin, som driftens `/refreeze`), med en knap i frys-noten.
 5. ~~*Eget issue:* driftens vareforbrug respekterer `event_prep_owns_stock` (18.8)~~ ✅ **udført**
    (august 2026, `npm run test:drift-cost`). Lokations-toggle'et udestår stadig.
-6. *Eget issue:* retur som modpost + advarsel ved talt > beregnet (18.9).
+6. ~~*Eget issue:* retur som modpost + advarsel ved talt > beregnet (18.9).~~ ✅ **udført**
+   (august 2026, migration 160, `npm run test:event-return-cost`).
 
-Trin 1–4 er på plads. Trin 5 er på plads — driften tæller ikke længere eventets varer
-to gange. Trin 6 udestår, så eventets "Vareforbrug" er stadig *hvad vi pakkede*.
+Trin 1–4 er på plads, og trin 5–6 med dem: driften tæller ikke længere eventets varer to
+gange, og "Vareforbrug" er *hvad der blev brugt* så snart returen bogføres — men et event
+hvor returen ikke er bogført viser stadig hvad vi pakkede. Tilbage af 18.7 er
+lokations-toggle'et, så HQ-dagen kan ses uden eventet.
 
 ### 18.11 Stadig ikke afklaret (blokerer ikke byg)
 

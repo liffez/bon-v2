@@ -612,3 +612,23 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
     color: #666;
 }
 .ev-labor-frozen .ev-link { margin-left: 6px; }
+
+/* ── Retur-værn (§18.9) ────────────────────────────────────────────────
+   Vises når der er talt mere hjem end der er tilbage. Det er en advarsel man
+   skal kunne læse færdig, ikke en toast der forsvinder: bogfører man
+   alligevel, lægges der lager på som aldrig blev trukket. */
+.ev-return-guard {
+    margin-top: 12px;
+    border: 1px solid #e0b44a;
+    border-left: 4px solid #d99b1c;
+    border-radius: 6px;
+    background: #fdf7e8;
+    overflow: hidden;
+}
+.ev-return-guard-head { padding: 8px 12px; font-weight: 600; color: #7a5600; background: #f8edd2; }
+.ev-return-guard-body { padding: 10px 12px; }
+.ev-return-guard-body p { margin: 0 0 10px; color: #5c4a2a; line-height: 1.45; }
+.ev-return-guard-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.ev-btn-warn { background: #d99b1c; border-color: #c88c12; color: #fff; }
+.ev-btn-warn:hover { background: #c88c12; }
+.ev-ret-over { color: #b23c17; font-weight: 600; }
