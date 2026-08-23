@@ -149,7 +149,7 @@ router.get('/week', handle(async (req, res) => {
     // Smartplan shifts (graceful degradation)
     let allShifts = [];
     try {
-        allShifts = await getShifts(from, to);
+        allShifts = getShifts(from, to);   // spejlet — nul udgående kald
     } catch (e) {
         console.warn('[schedule] Smartplan fejl:', e.message);
     }

@@ -1954,6 +1954,16 @@ function deleteEventLaborRow(eventId, rowId) {
 }
 
 /** Smartplan: forbindelse + hvordan lokations-splittet lander (admin). */
+// Den ENESTE menneske-udløste vej til at hente fra Smartplan. Alt andet læser
+// det lokale spejl, så en åben skærm aldrig kan udløse trafik.
+function syncSmartplanNow() {
+    return apiFetch('/smartplan/sync', { method: 'POST' });
+}
+// Seneste udgående kald med afsender — så "hvem ringer?" kan besvares.
+function fetchSmartplanCalls() {
+    return apiFetch('/smartplan/calls');
+}
+
 function fetchSmartplanStatus() {
     return apiFetch('/smartplan/status');
 }

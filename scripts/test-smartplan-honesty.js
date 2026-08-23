@@ -15,6 +15,10 @@
 // Samme fejlklasse som #305/#319: handlingen påstår at være sket, bivirkningen
 // fyrede aldrig, og de to steder mødes aldrig.
 //
+// Efter centraliseringen (24. august) er getRawWindow adapterens ENESTE vej ud
+// på nettet for vagter — alt andet læser det lokale spejl. Derfor måler Del A
+// på den; det er dér "nettet siger nej" opstår.
+//
 // Del A stubber global fetch (adapterens eneste udgang) og kigger på hvad
 // adapteren gør ved en fejl. Del B kører driftens ÆGTE route-handler mod en
 // laborAdapter der kaster, og kigger i DATABASEN efter et snapshot.
@@ -67,7 +71,7 @@ async function partA() {
         text: async () => JSON.stringify({ message: 'request limit exceeded', availableIn: 161.5 }) }));
     let sp = freshAdapter();
     let err = null;
-    try { await sp.getLaborRows('2026-01-01', '2026-01-02'); } catch (e) { err = e; }
+    try { await sp.getRawWindow('2026-01-01', '2026-01-02'); } catch (e) { err = e; }
     assert(err !== null, 'en throttlet forespørgsel kaster (og bliver ikke til en tom liste)');
     assert(/429/.test(err?.message || ''), 'beskeden nævner 429');
     // Præcis formulering, ikke bare tallet: "161" står også i Smartplans rå
@@ -80,17 +84,19 @@ async function partA() {
     // 2) Andre HTTP-fejl skal også frem.
     stubFetch(() => ({ ok: false, status: 500, text: async () => 'boom' }));
     sp = freshAdapter(); err = null;
-    try { await sp.getLaborRows('2026-01-01', '2026-01-02'); } catch (e) { err = e; }
+    try { await sp.getRawWindow('2026-01-01', '2026-01-02'); } catch (e) { err = e; }
     assert(/500/.test(err?.message || ''), 'en 500 kaster også');
 
     // 3) Netværksfejl (ingen HTTP-svar overhovedet).
     stubFetch(() => { throw new Error('ECONNREFUSED'); });
     sp = freshAdapter(); err = null;
-    try { await sp.getLaborRows('2026-01-01', '2026-01-02'); } catch (e) { err = e; }
+    try { await sp.getRawWindow('2026-01-01', '2026-01-02'); } catch (e) { err = e; }
     assert(/ECONNREFUSED/.test(err?.message || ''), 'en netværksfejl kaster');
 
     // 4) De øvrige indgange til Smartplan har samme regel.
-    for (const fn of ['getShifts', 'getLaborRoster', 'getMembers']) {
+    // getShifts står ikke længere på listen: den læser spejlet og har intet net
+    // at sluge en fejl fra. Tilbage er de indgange der FAKTISK kalder ud.
+    for (const fn of ['getRawWindow', 'getLaborRoster', 'getMembers']) {
         stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
         sp = freshAdapter(); err = null;
         try { await sp[fn]('2026-01-01', '2026-01-02'); } catch (e) { err = e; }
@@ -101,14 +107,14 @@ async function partA() {
     //    have byttet én løgn ud med en anden.
     stubFetch(() => OK({ results: [], next: null }));
     sp = freshAdapter();
-    const empty = await sp.getLaborRows('2026-01-01', '2026-01-02');
+    const empty = await sp.getRawWindow('2026-01-01', '2026-01-02');
     assert(Array.isArray(empty) && empty.length === 0, 'en tom uge er stadig et gyldigt svar, ikke en fejl');
 
     // 6) En fejl må ikke lande i cachen. Gjorde den det, ville ét throttlet
     //    øjeblik holde vagtplanen tom i hele cache-vinduet bagefter.
     stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
     sp = freshAdapter();
-    try { await sp.getLaborRows('2026-03-01', '2026-03-02'); } catch { /* forventet */ }
+    try { await sp.getRawWindow('2026-03-01', '2026-03-02'); } catch { /* forventet */ }
     // Karantænen efter 429 er en ANDEN mekanisme end cachen. Nulstil den, så
     // dette scenarie måler dét det påstår at måle.
     sp._resetRateLimit();
@@ -120,7 +126,7 @@ async function partA() {
         calls++;
         return OK({ results: [], next: null });
     };
-    await sp.getLaborRows('2026-03-01', '2026-03-02');
+    await sp.getRawWindow('2026-03-01', '2026-03-02');
     assert(calls > 0, 'den fejlede forespørgsel blev ikke cachet — næste forsøg spørger igen');
 
     globalThis.fetch = realFetch;
@@ -137,13 +143,13 @@ async function partA2() {
     stubFetch(() => ({ ok: false, status: 429,
         text: async () => JSON.stringify({ availableIn: 120 }) }));
     let sp = freshAdapter();
-    try { await sp.getLaborRows('2026-01-01', '2026-01-02'); } catch { /* forventet */ }
+    try { await sp.getRawWindow('2026-01-01', '2026-01-02'); } catch { /* forventet */ }
     const before = sp.getStats().requests;
 
     let hitNetwork = false;
     globalThis.fetch = async () => { hitNetwork = true; return OK({ results: [], next: null }); };
     let err = null;
-    try { await sp.getLaborRows('2026-02-01', '2026-02-02'); } catch (e) { err = e; }
+    try { await sp.getRawWindow('2026-02-01', '2026-02-02'); } catch (e) { err = e; }
     assert(err !== null, 'næste opslag afvises lokalt i stedet for at spørge igen');
     assert(hitNetwork === false, '…og der gik IKKE et kald afsted — det er dét der forlænger straffen');
     assert(/vent/i.test(err?.message || ''), 'beskeden siger at vi venter med vilje');
@@ -170,7 +176,7 @@ async function partA2() {
     const waits = [];
     for (let i = 0; i < 8; i++) {
         const d = String(i + 1).padStart(2, '0');
-        try { await sp.getLaborRows('2026-06-' + d, '2026-06-' + d); } catch { /* forventet */ }
+        try { await sp.getRawWindow('2026-06-' + d, '2026-06-' + d); } catch { /* forventet */ }
         waits.push(sp.getStats().blocked_for_sec);
         sp._expireQuarantine();        // lad som om ventetiden er gået
     }
@@ -204,7 +210,7 @@ async function partA2() {
     };
     const partial = [];
     for (let i = 0; i < 3; i++) {
-        try { await sp.getLaborRows('2026-08-0' + (i + 1), '2026-08-0' + (i + 1)); } catch { /* forventet */ }
+        try { await sp.getRawWindow('2026-08-0' + (i + 1), '2026-08-0' + (i + 1)); } catch { /* forventet */ }
         partial.push(sp.getStats().blocked_for_sec);
         sp._expireQuarantine();
     }
@@ -234,7 +240,7 @@ async function partA2() {
     };
     const mixed = [];
     for (let i = 0; i < 3; i++) {
-        try { await sp.getLaborRows('2026-10-0' + (i + 1), '2026-10-0' + (i + 1)); } catch { /* forventet */ }
+        try { await sp.getRawWindow('2026-10-0' + (i + 1), '2026-10-0' + (i + 1)); } catch { /* forventet */ }
         await new Promise(r => setTimeout(r, 80));      // lad det sene, vellykkede kald lande
         mixed.push(sp.getStats().strikes);
         sp._expireQuarantine();
@@ -246,11 +252,11 @@ async function partA2() {
     // dårlig dag gøre systemet trægt resten af døgnet.
     sp._resetRateLimit();
     stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
-    try { await sp.getLaborRows('2026-07-01', '2026-07-01'); } catch {}
-    try { await sp.getLaborRows('2026-07-02', '2026-07-02'); } catch {}
+    try { await sp.getRawWindow('2026-07-01', '2026-07-01'); } catch {}
+    try { await sp.getRawWindow('2026-07-02', '2026-07-02'); } catch {}
     sp._expireQuarantine();
     stubFetch(() => OK({ results: [], next: null }));
-    await sp.getLaborRows('2026-07-03', '2026-07-03');
+    await sp.getRawWindow('2026-07-03', '2026-07-03');
     assert(sp.getStats().strikes === 0, 'et vellykket kald nulstiller backoff-trappen');
 
     // 2) Minut-grænsen: vi venter selv frem for at blive afvist.
@@ -283,7 +289,7 @@ async function partA2() {
     let guard = 0;
     while (sp.getStats().in_last_minute < st0.per_minute_limit - 2 && guard < 200) {
         const [f, t] = uniqueRange(guard++);
-        await sp.getShifts(f, t);
+        await sp.getRawWindow(f, t);
     }
     const used = sp.getStats().in_last_minute;
     const burstMs = Date.now() - t0;
@@ -302,7 +308,7 @@ async function partA2() {
     globalThis.fetch = async (url) => { sent++; return prevFetch(url); };
     for (let i = 0; i < 6 && !over; i++) {
         const before = sent;
-        try { await sp.getShifts(`2027-0${i + 1}-01`, `2027-0${i + 1}-02`); }
+        try { await sp.getRawWindow(`2027-0${i + 1}-01`, `2027-0${i + 1}-02`); }
         catch (e) { over = e; sentOnFailing = sent - before; }
     }
     assert(over !== null && /minut/i.test(over.message), 'over grænsen siger vi selv fra, med en forklaring');
@@ -315,7 +321,7 @@ async function partA2() {
     //    manglede da driften stod med "8 kald på 5 minutter, stadig afvist".
     sp._resetRateLimit();
     stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
-    try { await sp.getLaborRows('2026-09-01', '2026-09-01'); } catch { /* forventet */ }
+    try { await sp.getRawWindow('2026-09-01', '2026-09-01'); } catch { /* forventet */ }
     const dg = sp.getStats();
     assert(dg.likely_limit === 'daily',
         `få kald + afvist ⇒ dagskvoten, ikke minut-grænsen (fik ${dg.likely_limit})`);
@@ -336,10 +342,10 @@ async function partA2() {
     while (sp.getStats().in_last_minute < sp.getStats().per_minute_limit - 2 && g2 < 200) {
         const mm = String((Math.floor(g2 / 28) % 12) + 1).padStart(2, '0');
         const dd = String((g2++ % 28) + 1).padStart(2, '0');
-        await sp.getShifts(`2028-${mm}-${dd}`, `2028-${mm}-28`);
+        await sp.getRawWindow(`2028-${mm}-${dd}`, `2028-${mm}-28`);
     }
     phase = 'deny';
-    try { await sp.getShifts('2029-01-01', '2029-01-02'); } catch { /* forventet */ }
+    try { await sp.getRawWindow('2029-01-01', '2029-01-02'); } catch { /* forventet */ }
     assert(sp.getStats().likely_limit === 'minute',
         `afvist mens vi kørte på grænsen ⇒ minut-grænsen (fik ${sp.getStats().likely_limit})`);
 
@@ -471,13 +477,13 @@ async function partA3() {
     // brændes uden at noget sagde fra — hvilket er præcis hvad der skete.
     stubFetch(() => OK({ results: [], next: null }));
     let sp = freshAdapter();
-    await sp.getLaborRows('2026-01-01', '2026-01-02');
+    await sp.getRawWindow('2026-01-01', '2026-01-02');
     const before = sp.getStats().requestsToday;
     assert(before > 0, `der er talt kald op (${before})`);
 
     sp = freshAdapter();                       // "genstart" af serveren
     stubFetch(() => OK({ results: [], next: null }));
-    await sp.getLaborRows('2026-02-01', '2026-02-02');
+    await sp.getRawWindow('2026-02-01', '2026-02-02');
     const after = sp.getStats().requestsToday;
     assert(after > before, `tælleren fortsætter efter genstart (${before} → ${after})`);
 

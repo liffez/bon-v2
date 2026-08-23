@@ -602,8 +602,29 @@
         &mdash; Smartplan leverer kun timer, aldrig satser.
       </p>
 
-      <h3 style="font-size:15px;margin:0 0 8px">Forbindelse</h3>
-      <div id="sp-status" style="font-size:13px;color:#888;margin-bottom:20px">Henter&hellip;</div>
+      <h3 style="font-size:15px;margin:0 0 8px">Vagtplanens spejl</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        Vagterne hentes p&aring; en fast rytme og gemmes lokalt. Alt i Bon l&aelig;ser
+        <em>spejlet</em> &mdash; at &aring;bne en skærm kan alts&aring; aldrig udl&oslash;se et kald til Smartplan.
+        Det var netop dét der br&aelig;ndte kvoten: seks steder hentede hver for sig, og fire
+        sk&aelig;rme hentede ved hver eneste bon-&aelig;ndring.
+      </p>
+      <div id="sp-status" style="font-size:13px;color:#888;margin-bottom:12px">Henter&hellip;</div>
+      <div style="margin-bottom:20px">
+        <button type="button" class="st-btn" id="sp-sync-btn">&#8635; Synkroniser nu</button>
+        <label style="margin-left:14px;font-size:13px">
+          <input type="checkbox" id="sp-enabled-cb"> Integrationen er sl&aring;et til
+        </label>
+        <span style="font-size:12px;color:#888;margin-left:6px">
+          &mdash; sl&aring; fra for at standse <em>alle</em> udg&aring;ende kald, fx mens en blokering l&oslash;ber ud
+        </span>
+        <div id="sp-sync-msg" style="font-size:12px;color:#888;margin-top:6px"></div>
+      </div>
+
+      <details style="margin-bottom:20px">
+        <summary style="cursor:pointer;font-size:13px;color:#888">Hvem har ringet? (seneste kald)</summary>
+        <div id="sp-calls" style="font-size:12px;color:#888;margin-top:8px">&hellip;</div>
+      </details>
 
       <h3 style="font-size:15px;margin:0 0 8px">Hvilken lokation er HQ?</h3>
       <p style="font-size:13px;color:#888;margin-bottom:10px">
@@ -5136,6 +5157,52 @@ const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', volunte
 // og rammer man grænsen, ser vagtplanen tom ud. Uden tallet er "vi henter vel
 // ikke så tit" en fornemmelse frem for en oplysning. Vises i BEGGE tilstande —
 // det er netop når vi er afvist, at forbruget er værd at kunne se.
+// Spejlets alder i menneskeord. "Forældet" er ikke en fejl — vagtplanen ændrer
+// sig sjældent — men det skal STÅ der, ellers præsenterer vi et gammelt svar
+// som et friskt.
+function smartplanMirrorHtml(sy) {
+    if (!sy) return '';
+    var alder = sy.age_min == null ? 'aldrig'
+        : sy.age_min < 1 ? 'lige nu'
+        : sy.age_min < 60 ? sy.age_min + ' min siden'
+        : Math.round(sy.age_min / 60) + ' timer siden';
+    var farve = sy.age_min == null ? '#b32020' : (sy.stale ? '#b3771f' : '#2e7d32');
+    return '<div style="margin-bottom:6px">'
+        + '<strong>' + sy.rows_in_mirror + '</strong> vagter i spejlet · '
+        + 'sidst opdateret <span style="color:' + farve + '">' + esc(alder) + '</span>'
+        + (sy.window_from ? ' · vindue ' + esc(sy.window_from) + ' → ' + esc(sy.window_to) : '')
+        + ' · rytme hvert ' + (sy.interval_min || 20) + '. minut'
+        + '</div>'
+        + (sy.last_error
+            ? '<div style="color:#b3771f;margin-bottom:6px">Seneste fors&oslash;g fejlede: ' + esc(sy.last_error)
+              // Kun når der FAKTISK ligger noget i spejlet. Ellers ville vi henvise
+              // til vagter der ikke findes — og et tomt spejl skal netop siges højt.
+              + '<br><span style="opacity:.75">' + (sy.rows_in_mirror > 0
+                    ? 'Vagterne herunder er fra sidste vellykkede synkronisering.'
+                    : 'Spejlet er tomt — der er endnu ikke hentet vagter, s&aring; vagtplanen er tom overalt i Bon.')
+              + '</span></div>'
+            : '');
+}
+
+async function loadSmartplanCalls() {
+    var el = document.getElementById('sp-calls');
+    if (!el) return;
+    try {
+        var d = await fetchSmartplanCalls();
+        if (!d.calls || !d.calls.length) { el.textContent = 'Ingen kald siden serverstart.'; return; }
+        el.innerHTML = '<table style="border-collapse:collapse">' + d.calls.map(function (c) {
+            return '<tr><td style="padding:2px 10px 2px 0;color:#aaa">'
+                 + esc(String(c.at).replace('T', ' ').slice(11, 19)) + '</td>'
+                 + '<td style="padding:2px 10px 2px 0"><strong>' + esc(c.caller) + '</strong></td>'
+                 + '<td style="padding:2px 10px 2px 0">' + esc(c.path) + '</td>'
+                 + '<td style="padding:2px 0;color:' + (c.status === 200 ? '#2e7d32' : '#b3771f') + '">'
+                 + c.status + '</td></tr>';
+        }).join('') + '</table>';
+    } catch (e) {
+        el.textContent = 'Kunne ikke hente: ' + e.message;
+    }
+}
+
 function smartplanUsageHtml(u) {
     u = u || {};
     if (u.requests == null) return '';
@@ -5205,8 +5272,12 @@ async function loadSmartplanStatus() {
     var sel = document.getElementById('sp-hq-select');
     if (!box) return;
     box.textContent = 'Henter…';
+    wireSmartplanControls();
+    loadSmartplanCalls();
     try {
         var d = await fetchSmartplanStatus();
+        var cb = document.getElementById('sp-enabled-cb');
+        if (cb) cb.checked = !!(d.sync && d.sync.enabled);
         if (!d.connected) {
             // To fejl der ligner hinanden og kræver stik modsatte handlinger:
             // throttling går over af sig selv, manglende nøgler gør ikke. Rådet
@@ -5241,7 +5312,7 @@ async function loadSmartplanStatus() {
                   + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
             // Ingen lokationer betyder her "vi fik ikke svar", ikke "der er
             // ingen". Det gemte valg skal blive stående, ikke se ud som tabt.
-            box.innerHTML += smartplanUsageHtml(d.usage);
+            box.innerHTML = smartplanMirrorHtml(d.sync) + box.innerHTML + smartplanUsageHtml(d.usage);
             startSmartplanCountdown(u2.blocked_until);
             sel.innerHTML = '<option value="' + esc(d.hq_location || '') + '" selected>'
                           + esc(d.hq_location || '(ikke sat)') + ' — kunne ikke tjekkes lige nu</option>';
@@ -5261,8 +5332,9 @@ async function loadSmartplanStatus() {
             '<div style="margin-top:10px;padding:8px 10px;border-left:4px solid #d99b1c;background:#fdf7e8;color:#5c4a2a">'
             + '⚠ Indstillingen siger <strong>' + esc(d.hq_location) + '</strong>, men Smartplan har ingen lokation med det navn. '
             + 'Alle vagter regnes derfor som Festival &amp; Events. Vælg den rigtige nedenfor.</div>';
-        box.innerHTML = '<span style="color:#2e7d32">✓ Forbundet</span> — '
-            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper de seneste 180 dage'
+        box.innerHTML = smartplanMirrorHtml(d.sync)
+            + '<span style="color:#2e7d32">✓ Vagtplanen er hentet</span> — '
+            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper i vinduet'
             + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn
             + smartplanUsageHtml(d.usage);
         stopSmartplanCountdown();
@@ -5279,6 +5351,39 @@ async function loadSmartplanStatus() {
         }
     } catch (e) {
         box.innerHTML = '<span style="color:#b32020">Kunne ikke hente status:</span> ' + esc(e.message);
+    }
+}
+
+async function wireSmartplanControls() {
+    var btn = document.getElementById('sp-sync-btn');
+    var cb  = document.getElementById('sp-enabled-cb');
+    var msg = document.getElementById('sp-sync-msg');
+    if (btn && !btn._wired) {
+        btn._wired = true;
+        btn.addEventListener('click', async function () {
+            btn.disabled = true; msg.textContent = 'Henter fra Smartplan…';
+            try {
+                var r = await syncSmartplanNow();
+                msg.innerHTML = r.ok
+                    ? '<span style="color:#2e7d32">✓ ' + r.rows + ' vagter hentet</span>'
+                    : '<span style="color:#b3771f">' + esc(r.error || r.skipped || 'Kunne ikke hente') + '</span>';
+            } catch (e) {
+                // 503 fra ruten når synken ikke lykkedes — beskeden er i err.message.
+                msg.innerHTML = '<span style="color:#b3771f">' + esc(e.message) + '</span>';
+            }
+            btn.disabled = false;
+            loadSmartplanStatus();
+        });
+    }
+    if (cb && !cb._wired) {
+        cb._wired = true;
+        cb.addEventListener('change', async function () {
+            await saveSetting('smartplan_enabled', cb.checked ? '1' : '0');
+            msg.textContent = cb.checked
+                ? 'Integrationen er slået til.'
+                : 'Integrationen er slået fra — der sendes ingen kald. Vagtplanen læses fra spejlet.';
+            loadSmartplanStatus();
+        });
     }
 }
 

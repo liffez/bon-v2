@@ -245,6 +245,12 @@ app.use('/data', express.static(path.join(__dirname, 'data'), { extensions: ['js
 const { startPolling } = require('./services/mailService');
 startPolling().catch(err => console.error('[mail] Polling fejl ved opstart:', err.message));
 
+// ─── VAGTPLAN-SPEJL (Smartplan) ─────────────────────────────────────────────
+// Én ejer af hvornår vi taler med Smartplan. ALT læsning sker fra det lokale
+// spejl, så hverken en SSE-drevet genindlæsning eller ti åbne skærme kan udløse
+// udgående kald. Slår sig selv fra hvis smartplan_enabled = 0.
+require('./services/smartplanSync').startScheduler();
+
 // ─── POS-SYNK (Zettle) ──────────────────────────────────────────────────────
 // Slår sig selv fra hvis zettle_enabled = 0 eller credentials mangler.
 require('./services/posSync').startPolling();
