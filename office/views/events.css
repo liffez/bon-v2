@@ -599,3 +599,16 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
    Egen linje under labelen, så cellen kan bære et forbehold uden at labelen
    bliver en sætning. */
 .ev-pnl-sub { display: block; font-size: 0.85em; opacity: 0.75; }
+
+/* Frosset lønstal (§18.10 trin 4). Neutral, ikke en advarsel: det er en
+   oplysning om hvor tallet kommer fra, og en vej til at rette det. */
+.ev-labor-frozen {
+    margin: -12px 0 20px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    background: #faf9f7;
+    font-size: 13px;
+    color: #666;
+}
+.ev-labor-frozen .ev-link { margin-left: 6px; }

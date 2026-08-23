@@ -1409,27 +1409,112 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
 // Derfor regnes den ikke ind i /overview's `result`; kalderen får i stedet
 // `result_on_site` og kan vise begge tal side om side.
 
+// Løn-delen af svaret, frosset eller live. Resultat-felterne lægges på
+// UDENFOR (se nedenfor) — de skal altid være aktuelle.
+async function resolveEventLabor(event, userId) {
+    const db = getDb();
+    const { computeEventLabor } = require('../services/eventLabor');
+    const snapRow = db.prepare(
+        'SELECT data_json, frozen_at FROM event_labor_snapshot WHERE event_id = ?'
+    ).get(event.id);
+
+    // Afsluttet event med et snapshot: brug det. Smartplan er et levende
+    // system, og en vagt rettet tre uger efter festivalen må ikke flytte et
+    // afsluttet events resultat.
+    if (event.status === 'done' && snapRow) {
+        try {
+            return { ...JSON.parse(snapRow.data_json), frozen: true, frozen_at: snapRow.frozen_at };
+        } catch {
+            // Ulæseligt snapshot er ikke værd at vælte visningen for — beregn live.
+        }
+    }
+
+    const labor = await computeEventLabor(event);
+
+    // Frys ved FØRSTE visning efter at eventet er lukket — men ALDRIG et tal
+    // vi ved er forkert. Kunne vagtplanen ikke hentes, ville vi fryse "0 timer
+    // fordi Smartplan var nede" for evigt, og ingen ville nogensinde opdage
+    // hvorfor. Så hellere blive ved med at vise live tal med sin advarsel.
+    if (event.status === 'done' && !labor.smartplan_error) {
+        db.prepare(`
+            INSERT INTO event_labor_snapshot (event_id, data_json, frozen_by_user_id)
+            VALUES (?,?,?)
+            ON CONFLICT(event_id) DO UPDATE SET
+                data_json = excluded.data_json,
+                frozen_at = datetime('now'),
+                frozen_by_user_id = excluded.frozen_by_user_id
+        `).run(event.id, JSON.stringify(labor), userId ?? null);
+        const at = db.prepare('SELECT frozen_at FROM event_labor_snapshot WHERE event_id = ?').get(event.id);
+        return { ...labor, frozen: true, frozen_at: at?.frozen_at || null };
+    }
+
+    return { ...labor, frozen: false, frozen_at: null };
+}
+
+// Resultat-felterne. Regnes ALTID live, også når lønnen er frosset: bogføres
+// et retur bagefter (§18.9), ændrer vareforbruget sig, og et frosset resultat
+// ville modsige /overview. Rækkefølgen af leddene findes kun her.
+function eventResultFields(event, laborCost) {
+    const bons = getEventBons(event.id);
+    const pnl = computeEventPnL(bons);
+    const cost = computeEventCost(event.id);
+    const expenses = computeEventExpenses(event.id).excl;
+    const before = Math.round((pnl.revenue_excl - cost - expenses) * 100) / 100;
+    return {
+        result_before_labor: before,
+        result_on_site: Math.round((before - (laborCost || 0)) * 100) / 100,
+    };
+}
+
+// ─── LØN PÅ PLADSEN (§18) ──────────────────────────────────────────────────
+// EGET endpoint, ikke en del af /overview: løn er følsomt, og /overview er
+// åbent for alle roller. Gates som driftsregnskabet (admin + office). Skjules
+// den kun i frontenden, kan tallet stadig hentes.
+//
+// Resultatet er "på pladsen" — HQ-prep-lønnen bliver i driftsregnskabet (§18.7).
+
 router.get('/:id/labor', requireAuth('admin', 'office'), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const labor = await resolveEventLabor(event, req.session?.userId);
+    res.json({ ...labor, ...eventResultFields(event, labor.cost_total) });
+}));
+
+// Genberegn et frosset lønstal. Nødvendigt fordi et genåbnet event kan være
+// blevet rettet: snapshottet bliver liggende og tages i brug igen når eventet
+// lukkes, og så ville det gamle tal stå. Admin-only, som driftens /refreeze.
+router.post('/:id/labor/refreeze', requireAuth('admin'), handle(async (req, res) => {
     const event = getEvent(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
 
     const { computeEventLabor } = require('../services/eventLabor');
     const labor = await computeEventLabor(event);
+    if (labor.smartplan_error) {
+        return res.status(503).json({
+            error: 'smartplan_unavailable',
+            message: 'Vagtplanen svarer ikke — genberegning ville fryse et tal uden timerne på pladsen.',
+            detail: labor.smartplan_error,
+        });
+    }
+    const db = getDb();
+    db.prepare(`
+        INSERT INTO event_labor_snapshot (event_id, data_json, frozen_by_user_id)
+        VALUES (?,?,?)
+        ON CONFLICT(event_id) DO UPDATE SET
+            data_json = excluded.data_json,
+            frozen_at = datetime('now'),
+            frozen_by_user_id = excluded.frozen_by_user_id
+    `).run(event.id, JSON.stringify(labor), req.session?.userId ?? null);
 
-    // Resultatet gentages her (frem for at kalderen selv trækker fra), så
-    // rækkefølgen af leddene kun findes ét sted. computeEventCost er nu
-    // pakket − retur, så tallet hænger sammen med §18.9.
-    const bons = getEventBons(event.id);
-    const pnl = computeEventPnL(bons);
-    const cost = computeEventCost(event.id);
-    const expenses = computeEventExpenses(event.id).excl;
-    const resultBefore = Math.round((pnl.revenue_excl - cost - expenses) * 100) / 100;
-
-    res.json({
-        ...labor,
-        result_before_labor: resultBefore,
-        result_on_site: Math.round((resultBefore - labor.cost_total) * 100) / 100,
+    logChange({
+        entityType: 'event', entityId: event.id, action: 'update', fieldName: 'labor_refreeze',
+        newValue: `${labor.hours_total} timer · ${labor.cost_total} kr`,
+        userId: req.session?.userId,
     });
+    const at = db.prepare('SELECT frozen_at FROM event_labor_snapshot WHERE event_id = ?').get(event.id);
+    res.json({ ...labor, frozen: true, frozen_at: at?.frozen_at || null,
+               ...eventResultFields(event, labor.cost_total) });
 }));
 
 // ─── RETUR / HJEMKOMST (§6) ────────────────────────────────────────────────

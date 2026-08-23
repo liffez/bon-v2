@@ -815,11 +815,11 @@ endpoint frem for et felt på P&L'en. Skjules tallet kun i frontenden, kan det s
 `Resultat på pladsen · efter løn` (kun for dem der må se lønnen). To utvetydige etiketter frem
 for ét ord der betyder to ting alt efter hvem der kigger.
 
-**Test:** `npm run test:event-labor` — 31 asserts mod det ægte endpoint (in-process, isoleret
+**Test:** `npm run test:event-labor` — 51 asserts mod det ægte endpoint (in-process, isoleret
 temp-DB; Smartplan og ORS stubbet, `getStandardHourlyRate` ægte). Dækker de fire afgrænsninger,
 overhead på begge kilder, sats-fallback til gennemsnittet, køretid der ikke kan udledes,
-vagtplan der er nede, og rolle-gaten. Mutationstestet: syv bevidste fejl, alle fældet af
-navngivne asserts.
+vagtplan der er nede, rolle-gaten, og hele frys-adfærden. Mutationstestet: 13 bevidste fejl,
+alle fældet af navngivne asserts.
 
 ### 18.4 Timer og kroner er to forskellige tal
 
@@ -1003,15 +1003,27 @@ registreringen og lageret er konsekvensen.
 3. ~~settings + Smartplan-kilden + strip med `Mandetimer` / `Løn`, rolle-gated endpoint~~
    ✅ **udført** (august 2026, migration 157, `npm run test:event-labor`). `event_labor`-tabellen
    (frivillige + manuelle rækker) udestår — indtil da er tallet et estimat, og det siges.
-4. Frys ved `status='done'` — **ikke bygget.** Indtil da kan et afsluttet events lønstal
-   ændre sig hvis nogen retter en vagt i Smartplan bagefter.
+4. ~~Frys ved `status='done'`~~ ✅ **udført** (august 2026, migration 158). Frys ved **første
+   visning** efter at eventet er lukket — så bliver events der allerede står som `done` også
+   frosset, og en fejlet PATCH kan ikke efterlade et event uden snapshot.
+
+   **Kun løn-delen fryses**, aldrig resultatet: `result_on_site` regnes altid af den frosne løn
+   og den AKTUELLE P&L. Frøs vi også resultatet, ville et retur bogført bagefter (18.9) få
+   lønvisningen og `/overview` til at modsige hinanden — og så er begge tal værdiløse.
+
+   > **Vi fryser aldrig et tal vi ved er forkert.** Kunne vagtplanen ikke hentes, skrives der
+   > intet snapshot; ellers ville "0 timer fordi Smartplan var nede" blive permanent, og ingen
+   > ville nogensinde opdage hvorfor. `/labor/refreeze` afvises af samme grund (503).
+
+   Et genåbnet event viser live tal igen; snapshottet bliver liggende og tages i brug når
+   eventet lukkes. Er der rettet i mellemtiden, skal det genberegnes bevidst —
+   `POST /:id/labor/refreeze` (admin, som driftens `/refreeze`), med en knap i frys-noten.
 5. ~~*Eget issue:* driftens vareforbrug respekterer `event_prep_owns_stock` (18.8)~~ ✅ **udført**
    (august 2026, `npm run test:drift-cost`). Lokations-toggle'et udestår stadig.
 6. *Eget issue:* retur som modpost + advarsel ved talt > beregnet (18.9).
 
-Trin 1–3 er på plads; trin 4 (frys) udestår. Trin 5 er på plads — driften tæller ikke
-længere eventets varer to gange. Trin 6 udestår, så eventets "Vareforbrug" er stadig
-*hvad vi pakkede*.
+Trin 1–4 er på plads. Trin 5 er på plads — driften tæller ikke længere eventets varer
+to gange. Trin 6 udestår, så eventets "Vareforbrug" er stadig *hvad vi pakkede*.
 
 ### 18.11 Stadig ikke afklaret (blokerer ikke byg)
 

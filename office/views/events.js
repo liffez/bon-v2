@@ -379,12 +379,37 @@ async function _evLoadLabor(ev) {
         </div>
         <div class="ev-pnl-cell" title="${_evEsc(brud)}">
             <div class="ev-pnl-val">${_evFmtKr(d.cost_total)}</div>
-            <div class="ev-pnl-lbl">Løn på pladsen (ex moms)<span class="ev-pnl-sub">estimat · ekskl. HQ-prep</span></div>
+            <div class="ev-pnl-lbl">Løn på pladsen (ex moms)<span class="ev-pnl-sub">${d.frozen
+                ? `🔒 frosset ${_evEsc(_evFmtStamp(d.frozen_at))}`
+                : 'estimat · ekskl. HQ-prep'}</span></div>
         </div>
         <div class="ev-pnl-cell ev-pnl-result">
             <div class="ev-pnl-val">${_evFmtKr(d.result_on_site)}</div>
             <div class="ev-pnl-lbl">Resultat på pladsen<span class="ev-pnl-sub">efter løn</span></div>
         </div>`;
+
+    if (d.frozen) {
+        // Et frosset tal skal kunne forklares og kunne rettes. Ellers står man
+        // med et beløb ingen kan gøre noget ved, hvis eventet er blevet
+        // genåbnet og rettet i mellemtiden.
+        const f = document.createElement('div');
+        f.className = 'ev-labor-frozen';
+        f.innerHTML = `🔒 Lønnen er frosset ${_evEsc(_evFmtStamp(d.frozen_at))}, så senere rettelser i vagtplanen ikke flytter et afsluttet events resultat.
+            <button class="ev-link" data-act="labor-refreeze">Genberegn</button>`;
+        document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', f);
+        f.querySelector('[data-act="labor-refreeze"]')?.addEventListener('click', async () => {
+            if (!confirm('Genberegn lønnen ud fra vagtplanen som den ser ud nu? Det gamle frosne tal overskrives.')) return;
+            try {
+                await _evFetch(`/events/${ev.id}/labor/refreeze`, { method: 'POST' });
+                _evRenderDetail(ev.id);
+            } catch (err) {
+                // 403 = ikke admin. Sig det frem for at lade knappen fejle tavst.
+                alert(err.status === 403
+                    ? 'Kun en administrator kan genberegne et frosset lønstal.'
+                    : 'Kunne ikke genberegne: ' + err.message);
+            }
+        });
+    }
 
     if (d.warnings?.length) {
         const w = document.createElement('div');
@@ -536,6 +561,15 @@ async function _evBookReturn(ev, body, previousBookings) {
     } finally {
         if (btn) btn.disabled = false;
     }
+}
+
+function _evFmtStamp(iso) {
+    if (!iso) return '';
+    // datetime('now') giver 'YYYY-MM-DD HH:MM:SS' i UTC uden zone-mærke.
+    // Uden 'Z' ville browseren læse det som lokal tid og vise to timer forkert.
+    const d = new Date(String(iso).replace(' ', 'T') + (/[Zz+]/.test(iso) ? '' : 'Z'));
+    if (isNaN(d)) return String(iso);
+    return d.toLocaleString('da-DK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function _evFmtNum(n) {

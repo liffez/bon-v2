@@ -73,8 +73,8 @@ app.use((req, _res, next) => { req.session = { userId: 1, userRole: ROLE }; next
 app.use('/api/events', require('../routes/events'));
 
 let server, BASE;
-const get = async (u) => {
-    const r = await fetch(BASE + u, { headers: { 'Content-Type': 'application/json' } });
+const get = async (u, method = 'GET') => {
+    const r = await fetch(BASE + u, { method, headers: { 'Content-Type': 'application/json' } });
     return { status: r.status, data: await r.json().catch(() => null) };
 };
 
@@ -208,7 +208,84 @@ async function main() {
     assert((await get(`/api/events/${evId}/labor`)).status === 200, 'det må admin også');
     assert((await get(`/api/events/${evId}/overview`)).status === 200,
         '/overview er urørt — den er åben for alle roller og bærer ikke løn');
+
+    // ── 10) Frys ved 'done' ──────────────────────────────────────────────
+    console.log('\n— Frys —');
+    ROLE = 'admin';
+    SP_ROWS = { [DATO]: [vagt()] };
+    let live = (await get(`/api/events/${evId}/labor`)).data;
+    assert(live.frozen === false, 'et aktivt event er ikke frosset');
+    near(live.hours_total, 8 + 4 + 4 + 2 + 2, 'og viser de aktuelle timer');
+
+    db.prepare("UPDATE events SET status='done' WHERE id=?").run(evId);
+    const frozen1 = (await get(`/api/events/${evId}/labor`)).data;
+    assert(frozen1.frozen === true, 'et afsluttet event fryses ved første visning');
+    assert(!!frozen1.frozen_at, 'og tidspunktet oplyses');
+    assert(db.prepare('SELECT COUNT(*) n FROM event_labor_snapshot WHERE event_id=?').get(evId).n === 1,
+        'snapshottet er skrevet');
+
+    // Vagtplanen ændrer sig BAGEFTER — det er hele grunden til at fryse.
+    SP_ROWS = { [DATO]: [vagt(), vagt({ employee_id: 'ny', timer: 12, kostpris: 1800 })] };
+    const frozen2 = (await get(`/api/events/${evId}/labor`)).data;
+    near(frozen2.hours_total, frozen1.hours_total, 'en vagt rettet bagefter flytter IKKE det frosne tal');
+    near(frozen2.cost_total, frozen1.cost_total, 'heller ikke kronerne');
+
+    // ── 11) Resultatet er live, også når lønnen er frosset ───────────────
+    console.log('\n— Resultatet følger med —');
+    // Bogføres et retur bagefter (§18.9), ændrer vareforbruget sig. Var
+    // resultatet også frosset, ville lønvisningen modsige /overview.
+    const before = frozen2.result_before_labor;
+    // Flyt P&L'en gennem det ægte endpoint — en udgiftsbon på 500 kr ex moms.
+    await fetch(BASE + `/api/events/${evId}/bons`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'expense', delivery_date: DATO, lines: [
+            { product_name: 'Stadeleje', quantity: 1, unit: 'stk', unit_price: 500, moms_included: 0 },
+        ] }),
+    });
+    const efter = (await get(`/api/events/${evId}/labor`)).data;
+    near(efter.result_before_labor, before - 500, 'resultatet følger en udgift bogført bagefter');
+    near(efter.hours_total, frozen1.hours_total, 'mens lønnen står frosset');
+    near(efter.result_on_site, efter.result_before_labor - efter.cost_total, 'og de to regnes sammen live');
+
+    // ── 12) Genberegning ─────────────────────────────────────────────────
+    console.log('\n— Genberegn —');
+    ROLE = 'office';
+    assert((await get(`/api/events/${evId}/labor/refreeze`, 'POST')).status === 403,
+        'office må ikke genberegne — kun admin');
+    ROLE = 'admin';
+    const re = (await get(`/api/events/${evId}/labor/refreeze`, 'POST')).data;
+    near(re.hours_total, 12 + 8 + 12, 'genberegning tager den NYE vagtplan (8+12 t på pladsen + 12 t standard)');
+    assert(re.frozen === true, 'og resultatet er frosset igen');
+    near((await get(`/api/events/${evId}/labor`)).data.hours_total, re.hours_total,
+        'næste visning giver det genberegnede tal');
+
+    // ── 13) Vi fryser aldrig et tal vi ved er forkert ────────────────────
+    console.log('\n— Vagtplanen nede —');
+    db.prepare('DELETE FROM event_labor_snapshot WHERE event_id=?').run(evId);
+    SP_THROWS = 'Smartplan timeout';
+    const nede = (await get(`/api/events/${evId}/labor`)).data;
+    assert(nede.frozen === false, 'et afsluttet event fryses IKKE når vagtplanen er nede');
+    assert(db.prepare('SELECT COUNT(*) n FROM event_labor_snapshot WHERE event_id=?').get(evId).n === 0,
+        'intet snapshot skrevet — "0 timer fordi Smartplan var nede" må aldrig blive permanent');
+    assert((await get(`/api/events/${evId}/labor/refreeze`, 'POST')).status === 503,
+        'og genberegning afvises af samme grund');
+    SP_THROWS = null;
+
+    // ── 14) Genåbnet event viser live tal igen ───────────────────────────
+    console.log('\n— Genåbnet —');
+    await get(`/api/events/${evId}/labor`);            // fryser igen
+    db.prepare("UPDATE events SET status='active' WHERE id=?").run(evId);
+    SP_ROWS = { [DATO]: [vagt({ timer: 3, kostpris: 450 })] };
+    // NB: `kind()` læser closure-variablen `d`. Her skal vi bruge det friske
+    // svar, ellers måler assertionen et tal fra en tidligere sektion.
+    d = (await get(`/api/events/${evId}/labor`)).data;
+    const genaabnet = d;
+    assert(genaabnet.frozen === false, 'et genåbnet event viser live tal igen');
+    near(kind('onsite').hours, 3, 'og følger vagtplanen');
+    assert(db.prepare('SELECT COUNT(*) n FROM event_labor_snapshot WHERE event_id=?').get(evId).n === 1,
+        'snapshottet bliver liggende — det tages i brug igen når eventet lukkes');
 }
+
 
 main()
     .catch(err => { console.error(err); fail++; })
