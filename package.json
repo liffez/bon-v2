@@ -18,6 +18,7 @@
     "test:modal": "node --test tests/modal_outside_click.test.js",
     "test:labor": "node --test tests/labor_location.test.js",
     "test:drift-cost": "node --experimental-sqlite scripts/test-drift-event-cost.js",
+    "test:event-labor": "node --experimental-sqlite scripts/test-event-labor.js",
     "test:flyver": "node --experimental-sqlite scripts/test-flyver-visibility.js",
     "test:event-retur": "node --experimental-sqlite scripts/test-event-return-trace.js",
     "test:event-covers": "node --experimental-sqlite scripts/test-event-prep-covers.js",

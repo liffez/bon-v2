@@ -570,3 +570,32 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
    knapstil — samme som "Redigér" og "Slet" i højre side. */
 .ev-back { font-weight: 500; }
 .ev-back:hover { background: var(--brand-primary-light, #f1e6b2); border-color: var(--brand-primary, #8e631f); }
+
+/* Forbehold under løn-tallene (§18). Lønnen er et ESTIMAT: frivillige og folk
+   uden for vagtplanen er ikke med, og HQ-prep hører til i driftsregnskabet.
+   Står forbeholdene ikke fremme, læses tallet som en lønopgørelse. */
+.ev-labor-warn {
+    margin: -12px 0 20px;
+    padding: 8px 12px;
+    border: 1px solid #e0b44a;
+    border-left: 4px solid #d99b1c;
+    border-radius: 6px;
+    background: #fdf7e8;
+    font-size: 13px;
+    color: #5c4a2a;
+    line-height: 1.5;
+}
+
+/* Med løn har strippen 10 celler i stedet for 7. auto-fit duer ikke: ved 1280 px
+   gav minmax(130px) NI kolonner, så den tiende celle stod alene på række to —
+   præcis den fejl der ramte CO₂-cellen i juli. 5 × 2 går derimod lige op, og
+   på brede skærme er der plads til alle ti på én række. */
+.ev-pnl-strip.has-labor { grid-template-columns: repeat(5, 1fr); }
+@media (min-width: 1500px) {
+    .ev-pnl-strip.has-labor { grid-template-columns: repeat(10, 1fr); }
+}
+
+/* Undertekst i en P&L-celle ("estimat · ekskl. HQ-prep", "🔒 frosset …").
+   Egen linje under labelen, så cellen kan bære et forbehold uden at labelen
+   bliver en sætning. */
+.ev-pnl-sub { display: block; font-size: 0.85em; opacity: 0.75; }

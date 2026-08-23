@@ -1635,6 +1635,65 @@
         <span id="drift-target-saved" style="font-size:13px;color:#2e7d32;padding-bottom:8px"></span>
       </div>
 
+      <h3 style="font-size:15px;margin:0 0 8px">Event: timer uden for vagtplanen</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        Eventets løn hentes fra <strong>Smartplan</strong> for alle vagter på lokationen
+        &quot;Festivaler og Events&quot;. Men transport, op- og nedtagning står ikke i vagtplanen
+        &mdash; det er som regel Leif og Anne. Tallene her lægges oveni, så eventets resultat er
+        der uden at nogen taster noget.
+        <strong>Køretiden udledes automatisk</strong> fra eventets adresse; nødplanen nedenfor
+        bruges kun hvis adressen ikke kan geokodes.
+        Bemærk: <em>frivillige og folk uden for vagtplanen er ikke med endnu</em>, så tallet er
+        et estimat &mdash; det siges også på eventet.
+      </p>
+      <div style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Opsætning
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="ev-labor-setup" type="number" min="0" step="0.5" style="width:90px"
+                   onchange="saveEventLabor('event_labor_setup_hours', this.value)"><span>timer</span>
+          </span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Nedtagning
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="ev-labor-teardown" type="number" min="0" step="0.5" style="width:90px"
+                   onchange="saveEventLabor('event_labor_teardown_hours', this.value)"><span>timer</span>
+          </span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Trailer (hver vej)
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="ev-labor-trailer" type="number" min="0" step="0.25" style="width:90px"
+                   onchange="saveEventLabor('event_labor_trailer_hours', this.value)"><span>timer</span>
+          </span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Personer
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="ev-labor-persons" type="number" min="0" step="1" style="width:90px"
+                   onchange="saveEventLabor('event_labor_default_persons', this.value)"><span>til transport + op/ned</span>
+          </span>
+        </label>
+      </div>
+      <div style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-bottom:24px">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Timeløn for de timer
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="ev-labor-rate" type="number" min="0" step="1" style="width:110px"
+                   placeholder="snit" onchange="saveEventLabor('event_labor_owner_rate', this.value)"><span>kr/t ex moms &mdash; tom = gennemsnit af satserne</span>
+          </span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:#888">
+          Køretid, nødplan
+          <span style="display:flex;gap:6px;align-items:center">
+            <input class="st-input" id="ev-labor-transport" type="number" min="0" step="0.25" style="width:110px"
+                   placeholder="udledes" onchange="saveEventLabor('event_labor_transport_hours', this.value)"><span>timer &eacute;n vej &mdash; tom = udled fra adressen</span>
+          </span>
+        </label>
+        <span id="ev-labor-saved" style="font-size:13px;color:#2e7d32;padding-bottom:8px"></span>
+      </div>
+
       <h3 style="font-size:15px;margin:0 0 8px">Nuværende satser</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px">
         <thead>
@@ -5075,6 +5134,18 @@ async function saveRoleClass(sel, uuid) {
 /* ── Løn (wage_rates — admin-only) ─────────────────────────── */
 let _wageRoster = [];
 
+async function saveEventLabor(key, val) {
+    var v = String(val ?? '').trim();
+    if (v !== '') {
+        var n = parseFloat(v.replace(',', '.'));
+        if (!isFinite(n) || n < 0) { toast('Ugyldigt tal', true); return; }
+        v = String(n);
+    }
+    await saveSetting(key, v);
+    var s = document.getElementById('ev-labor-saved');
+    if (s) { s.textContent = '✓ gemt'; setTimeout(function () { s.textContent = ''; }, 2000); }
+}
+
 async function saveLaborOverhead(val) {
     const n = Math.max(0, parseFloat(String(val).replace(',', '.')) || 0);
     const inp = document.getElementById('labor-overhead');
@@ -5105,6 +5176,20 @@ async function saveDriftTarget(key, val) {
 async function loadWageRates() {
     const ov = document.getElementById('labor-overhead');
     if (ov) ov.value = allSettings['labor_overhead_pct'] || '0';
+    var evLaborFields = {
+        'ev-labor-setup':     'event_labor_setup_hours',
+        'ev-labor-teardown':  'event_labor_teardown_hours',
+        'ev-labor-trailer':   'event_labor_trailer_hours',
+        'ev-labor-persons':   'event_labor_default_persons',
+        'ev-labor-rate':      'event_labor_owner_rate',
+        'ev-labor-transport': 'event_labor_transport_hours',
+    };
+    for (var elId in evLaborFields) {
+        var elx = document.getElementById(elId);
+        // Tom værdi må IKKE blive til "0" — tom betyder "udled selv" for både
+        // sats og køretid, og 0 ville slå udledningen fra i stilhed.
+        if (elx) elx.value = allSettings[evLaborFields[elId]] ?? '';
+    }
     const tl = document.getElementById('target-labor-pct');
     if (tl) tl.value = allSettings['target_labor_pct'] || '';
     const tf = document.getElementById('target-food-pct');

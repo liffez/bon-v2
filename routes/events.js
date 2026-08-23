@@ -1400,6 +1400,38 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     res.status(201).json(getBon(result));
 }));
 
+// ─── LØN PÅ PLADSEN (§18) ──────────────────────────────────────────────────
+// EGET endpoint, ikke en del af /overview: løn er følsomt, og /overview er
+// åbent for alle roller. Gates som driftsregnskabet (admin + office). Skjules
+// den kun i frontenden, kan tallet stadig hentes.
+//
+// Resultatet er "på pladsen" — HQ-prep-lønnen bliver i driftsregnskabet (§18.7).
+// Derfor regnes den ikke ind i /overview's `result`; kalderen får i stedet
+// `result_on_site` og kan vise begge tal side om side.
+
+router.get('/:id/labor', requireAuth('admin', 'office'), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const { computeEventLabor } = require('../services/eventLabor');
+    const labor = await computeEventLabor(event);
+
+    // Resultatet gentages her (frem for at kalderen selv trækker fra), så
+    // rækkefølgen af leddene kun findes ét sted. computeEventCost er nu
+    // pakket − retur, så tallet hænger sammen med §18.9.
+    const bons = getEventBons(event.id);
+    const pnl = computeEventPnL(bons);
+    const cost = computeEventCost(event.id);
+    const expenses = computeEventExpenses(event.id).excl;
+    const resultBefore = Math.round((pnl.revenue_excl - cost - expenses) * 100) / 100;
+
+    res.json({
+        ...labor,
+        result_before_labor: resultBefore,
+        result_on_site: Math.round((resultBefore - labor.cost_total) * 100) / 100,
+    });
+}));
+
 // ─── RETUR / HJEMKOMST (§6) ────────────────────────────────────────────────
 // Beregner event-beholdning pr. råvare (prep+topup − solgt) som forslag.
 // Køkkenet tæller fysisk og justerer, og bogfører returen som lager-add til HQ.

@@ -725,7 +725,7 @@ på et 2-dages event.*
 
 ---
 
-## 18. Event-løn + faktisk vareforbrug — låst design (august 2026, IKKE bygget)
+## 18. Event-løn + faktisk vareforbrug (august 2026)
 
 > Design-session Leif, 22. august 2026. Udspringer af ét spørgsmål — "hvordan får vi
 > timeforbruget med i eventets økonomi?" — men undervejs viste to nabofejl sig, som
@@ -769,7 +769,7 @@ og §15.4's advarsel gælder: **manuel indtastning der starter tomt bliver ikke 
 > **Snapshots frosset før dette er stadig uden feltet** og kan ikke konteres bagud. Det er
 > tabt, ikke udskudt.
 
-### 18.3 Tre kilder, hver med sin sandhedsværdi
+### 18.3 Tre kilder, hver med sin sandhedsværdi ✅ to af tre bygget (august 2026)
 
 Smartplan har kun **to** lokationer ("Ristet Rug" + "Festivaler og Events") — ikke én pr.
 event. Lokationen siger *"det er event-arbejde"*, ikke *hvilket* event; datoerne klarer
@@ -787,6 +787,39 @@ rækker ikke en nødudgang — de er hoveddelen.
 i tid. I driftsdata i dag overlapper ingen af de otte events — men det er held, ikke en
 garanti (august har fire events på 18 dage). Korrektionslaget (ekskludér/flyt enkeltvagt)
 bygges når det første overlap opstår, ikke før.
+
+**Implementeret som `services/eventLabor.js` + `GET /api/events/:id/labor`** (migration 157
+for standard-tiderne). Alt beregnes **live ved visning** — ingen tabel, som top-up-forslaget og
+event-menuen — så et event ingen har rørt alligevel har et tal. De manuelle rækker (frivillige,
+folk uden for vagtplanen) og frys ved `done` er næste skridt; datamodellen i 18.6 er uændret.
+
+**Køretiden udledes.** `routing.getDistance` (samme ORS-kald og samme adresse-cache som
+leveringsmodulet) mod eventets geokodede `event_address_id`, ganget med 2. Kan den ikke udledes,
+bruges nødplans-settingen — og findes den heller ikke, kommer transporten **slet ikke med**, og
+det siges. 0 timer ville se ud som en sandhed.
+
+**Fire afgrænsninger, hver testet:**
+
+| Ude | Hvorfor |
+|---|---|
+| HQ-vagter (`location_class = 'hq'`) | De bliver i driftsregnskabet (18.7) |
+| Bud (`role_class = 'delivery'`) | Afregnes separat — samme regel som driften (§6a) |
+| Frivillige, folk uden for vagtplanen | Ikke bygget endnu → tallet er et **estimat**, og det står på skærmen |
+| HQ-prep-timer | 18.7 |
+
+**Løn er rolle-gated på serveren** (`requireAuth('admin','office')`, som driftsregnskabet).
+`/overview` er åbent for alle roller og bærer derfor **ikke** løn — derfor et selvstændigt
+endpoint frem for et felt på P&L'en. Skjules tallet kun i frontenden, kan det stadig hentes.
+
+**Strippen har nu to resultat-tal.** `Resultat før løn` (åbent for alle) og
+`Resultat på pladsen · efter løn` (kun for dem der må se lønnen). To utvetydige etiketter frem
+for ét ord der betyder to ting alt efter hvem der kigger.
+
+**Test:** `npm run test:event-labor` — 31 asserts mod det ægte endpoint (in-process, isoleret
+temp-DB; Smartplan og ORS stubbet, `getStandardHourlyRate` ægte). Dækker de fire afgrænsninger,
+overhead på begge kilder, sats-fallback til gennemsnittet, køretid der ikke kan udledes,
+vagtplan der er nede, og rolle-gaten. Mutationstestet: syv bevidste fejl, alle fældet af
+navngivne asserts.
 
 ### 18.4 Timer og kroner er to forskellige tal
 
@@ -967,15 +1000,18 @@ registreringen og lageret er konsekvensen.
    ingen bud-jobtyper, så bud-timer tæller i dag med i driftsresultatet som `other`.
    `syncRoleMap()` findes; den skal køres og listen udfyldes. Uden det bliver ethvert nyt
    lønstal forkert på samme måde.
-3. `event_labor` + settings + de tre kilder + strip med `Mandetimer` / `Løn (ex moms)`,
-   rolle-gated endpoint.
-4. Frys ved `status='done'`.
+3. ~~settings + Smartplan-kilden + strip med `Mandetimer` / `Løn`, rolle-gated endpoint~~
+   ✅ **udført** (august 2026, migration 157, `npm run test:event-labor`). `event_labor`-tabellen
+   (frivillige + manuelle rækker) udestår — indtil da er tallet et estimat, og det siges.
+4. Frys ved `status='done'` — **ikke bygget.** Indtil da kan et afsluttet events lønstal
+   ændre sig hvis nogen retter en vagt i Smartplan bagefter.
 5. ~~*Eget issue:* driftens vareforbrug respekterer `event_prep_owns_stock` (18.8)~~ ✅ **udført**
    (august 2026, `npm run test:drift-cost`). Lokations-toggle'et udestår stadig.
 6. *Eget issue:* retur som modpost + advarsel ved talt > beregnet (18.9).
 
-Trin 1–4 giver et ærligt lønstal. Trin 5 er på plads — driften tæller ikke længere eventets
-varer to gange. Trin 6 udestår, så eventets "Vareforbrug" er stadig *hvad vi pakkede*.
+Trin 1–3 er på plads; trin 4 (frys) udestår. Trin 5 er på plads — driften tæller ikke
+længere eventets varer to gange. Trin 6 udestår, så eventets "Vareforbrug" er stadig
+*hvad vi pakkede*.
 
 ### 18.11 Stadig ikke afklaret (blokerer ikke byg)
 

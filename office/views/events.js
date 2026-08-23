@@ -236,7 +236,8 @@ async function _evRenderDetail(id) {
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_excl)}</div><div class="ev-pnl-lbl">Omsætning (ex moms)</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.cost_estimated)}</div><div class="ev-pnl-lbl">Vareforbrug (ex moms)</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.expenses_excl ?? pnl.expenses)}</div><div class="ev-pnl-lbl">Udgifter (ex moms)</div></div>
-                    <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat</div></div>
+                    <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat før løn</div></div>
+                    <span id="evLaborCells" hidden></span>
                     <div class="ev-pnl-cell ev-pnl-bank"><div class="ev-pnl-val">${_evFmtKr(pnl.bank_reconciled || 0)}</div><div class="ev-pnl-lbl">🏦 Bank-afstemt (inkl moms)${pnl.bank_reconciled_tx ? ' · ' + pnl.bank_reconciled_tx + ' indb.' : ' · intet afstemt'}</div></div>
                     <div class="ev-pnl-cell ev-pnl-co2"><div class="ev-pnl-val">${_evFmtNum(pnl.co2e_total || 0)}</div><div class="ev-pnl-lbl">🌱 CO₂e (kg)</div></div>
                 </div>
@@ -342,9 +343,54 @@ async function _evRenderDetail(id) {
         _evBindAttachments(ev);
         // Kurven hentes bagefter og må aldrig kunne vælte siden — derfor uden await.
         _evRenderCurve(ev.id);
+        // Lønnen ligger bag sit eget rolle-gatede endpoint; samme regel gælder.
+        _evLoadLabor(ev);
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
         _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
+    }
+}
+
+// ── LØN PÅ PLADSEN (§18) ─────────────────────────────────────────────────
+// Hentes SEPARAT fra /overview, fordi endpointet er rolle-gated (admin+office).
+// Må aldrig kunne vælte resten af siden: kan den ikke hentes — 403 for en rolle
+// der ikke må se løn, eller vagtplanen der er nede — står strippen som før.
+async function _evLoadLabor(ev) {
+    const host = document.getElementById('evLaborCells');
+    if (!host) return;
+    let d;
+    try { d = await _evFetch(`/events/${ev.id}/labor`); }
+    catch { return; }          // 403 = rollen må ikke se løn. Ingen fejlbesked.
+
+    // Nedbrydningen i tooltip: et lønbeløb uden forklaring kan ikke efterprøves,
+    // og en stor del af det er standard-timer, ikke målte vagter.
+    const brud = (d.sources || [])
+        .filter(s => s.hours > 0)
+        .map(s => `${s.label}: ${_evFmtNum(s.hours)} t${s.note ? ` (${s.note})` : ''} = ${_evFmtKr(s.cost)}`)
+        .join('\n');
+
+    // Strippen går fra 7 til 10 celler — CSS'en skal kende forskellen, ellers
+    // står den tiende celle alene på anden række.
+    document.querySelector('.ev-pnl-strip')?.classList.add('has-labor');
+    host.outerHTML = `
+        <div class="ev-pnl-cell" title="${_evEsc(brud)}">
+            <div class="ev-pnl-val">${_evFmtNum(d.hours_total)}</div>
+            <div class="ev-pnl-lbl">Mandetimer</div>
+        </div>
+        <div class="ev-pnl-cell" title="${_evEsc(brud)}">
+            <div class="ev-pnl-val">${_evFmtKr(d.cost_total)}</div>
+            <div class="ev-pnl-lbl">Løn på pladsen (ex moms)<span class="ev-pnl-sub">estimat · ekskl. HQ-prep</span></div>
+        </div>
+        <div class="ev-pnl-cell ev-pnl-result">
+            <div class="ev-pnl-val">${_evFmtKr(d.result_on_site)}</div>
+            <div class="ev-pnl-lbl">Resultat på pladsen<span class="ev-pnl-sub">efter løn</span></div>
+        </div>`;
+
+    if (d.warnings?.length) {
+        const w = document.createElement('div');
+        w.className = 'ev-labor-warn';
+        w.innerHTML = d.warnings.map(x => `<div>⚠ ${_evEsc(x)}</div>`).join('');
+        document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', w);
     }
 }
 
