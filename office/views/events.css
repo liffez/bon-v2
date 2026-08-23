@@ -687,3 +687,13 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-lp-tag-edit { background: #efe4cd; color: #7a5600; }
 .ev-lp-saved { margin-left: 6px; font-size: 12px; color: #2e7d32; }
 .ev-lp-saved.err { color: #b32020; }
+
+/* Delsum pr. afsnit. De to tal er interessante ved siden af hinanden: hvor
+   meget af lønnen er målt fremmøde, og hvor meget er et skøn? */
+.ev-lp-sum td {
+    border-top: 1px solid var(--color-border, #d7d1ca);
+    border-bottom: none;
+    padding-top: 7px;
+    font-weight: 600;
+}
+.ev-lp-sum .ev-lp-name { color: #6b5c42; }

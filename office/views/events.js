@@ -633,6 +633,14 @@ function _evRenderLaborPanel(ev, d) {
 
     // Standard-linjerne kan rettes for netop dette event. Feltet starter ALDRIG
     // tomt — det står på standarden, så man kun retter det der afviger.
+    const sumRow = (label, hours, cost) => `
+        <tr class="ev-lp-sum">
+            <td class="ev-lp-name">${_evEsc(label)}</td>
+            <td colspan="2"></td>
+            <td class="ev-num">${_evFmtNum(hours)} t</td>
+            <td class="ev-num">${_evFmtKr(cost)}</td>
+        </tr>`;
+
     const stdRows = standard.map(s => {
         const editable = ['setup', 'teardown', 'trailer', 'transport'].includes(s.kind);
         if (!editable) {
@@ -670,12 +678,17 @@ function _evRenderLaborPanel(ev, d) {
             <span class="ev-plan-caret">▾</span>
         </button>
         <div class="ev-plan-body" id="ev-labor-panel-body" hidden>
-            ${shifts.length ? `<div class="ev-lp-section-head">På pladsen — fra vagtplanen</div>${dayBlocks}` : `
+            ${shifts.length ? `<div class="ev-lp-section-head">På pladsen — fra vagtplanen</div>${dayBlocks}
+            <table class="ev-lp-table"><tbody>${
+                sumRow('I alt på pladsen', onsite?.hours || 0, onsite?.cost || 0)}</tbody></table>` : `
             <div class="ev-lp-empty">Ingen vagter registreret på event-lokationen i perioden ${_evEsc(_evFmtDate(d.from))} – ${_evEsc(_evFmtDate(d.to))}.</div>`}
             ${stdRows ? `
             <div class="ev-lp-section-head">Transport og opsætning — standardtider${d.persons ? ` · ${d.persons % 1 === 0 ? d.persons : _evFmtNum(d.persons)} ${d.persons === 1 ? 'person' : 'personer'}` : ''}</div>
-            <table class="ev-lp-table"><tbody>${stdRows}</tbody></table>
-            <div class="ev-lp-foot">Står ikke i vagtplanen. Tiderne sættes i Settings → Løn &amp; jobtyper.</div>` : ''}
+            <table class="ev-lp-table"><tbody>${stdRows}${sumRow(
+                'I alt transport og opsætning',
+                standard.reduce((a, x) => a + (x.hours || 0), 0),
+                standard.reduce((a, x) => a + (x.cost || 0), 0))}</tbody></table>
+            <div class="ev-lp-foot">Står ikke i vagtplanen. Tiderne sættes i Settings → Løn &amp; jobtyper, og kan rettes for dette event ovenfor.</div>` : ''}
         </div>`;
     document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', el);
     _evBindLaborEdit(ev, el);
