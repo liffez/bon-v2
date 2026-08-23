@@ -109,6 +109,9 @@ async function partA() {
     stubFetch(() => ({ ok: false, status: 429, text: async () => '{}' }));
     sp = freshAdapter();
     try { await sp.getLaborRows('2026-03-01', '2026-03-02'); } catch { /* forventet */ }
+    // Karantænen efter 429 er en ANDEN mekanisme end cachen. Nulstil den, så
+    // dette scenarie måler dét det påstår at måle.
+    sp._resetRateLimit();
     let calls = 0;
     globalThis.fetch = async (url) => {
         const u = String(url);
@@ -119,6 +122,94 @@ async function partA() {
     };
     await sp.getLaborRows('2026-03-01', '2026-03-02');
     assert(calls > 0, 'den fejlede forespørgsel blev ikke cachet — næste forsøg spørger igen');
+
+    globalThis.fetch = realFetch;
+}
+
+/* ══ Del A2 — vi holder os selv under Smartplans grænse ═════ */
+
+async function partA2() {
+    console.log('\n— Vi rammer ikke loftet: 60 kald/min, 2000/dag —');
+
+    // 1) Efter en 429 holder vi HELT op med at spørge til det tidspunkt
+    //    Smartplan selv oplyser. Uden det forlænger vores egne forsøg
+    //    blokeringen — målt i drift gik availableIn fra 161 til 243 sekunder.
+    stubFetch(() => ({ ok: false, status: 429,
+        text: async () => JSON.stringify({ availableIn: 120 }) }));
+    let sp = freshAdapter();
+    try { await sp.getLaborRows('2026-01-01', '2026-01-02'); } catch { /* forventet */ }
+    const before = sp.getStats().requests;
+
+    let hitNetwork = false;
+    globalThis.fetch = async () => { hitNetwork = true; return OK({ results: [], next: null }); };
+    let err = null;
+    try { await sp.getLaborRows('2026-02-01', '2026-02-02'); } catch (e) { err = e; }
+    assert(err !== null, 'næste opslag afvises lokalt i stedet for at spørge igen');
+    assert(hitNetwork === false, '…og der gik IKKE et kald afsted — det er dét der forlænger straffen');
+    assert(/vent/i.test(err?.message || ''), 'beskeden siger at vi venter med vilje');
+    assert(/12\d|1\d\d/.test(err?.message || ''), '…og hvor længe, fra Smartplans eget svar');
+    assert(sp.getStats().requests === before, 'karantæne-kald tæller ikke som forbrug');
+    assert(sp.getStats().blocked_for_sec > 0, 'status kan se at vi er i karantæne');
+
+    // 2) Minut-grænsen: vi venter selv frem for at blive afvist.
+    sp._resetRateLimit();
+    let n = 0;
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes('/o/token/'))  return OK({ access_token: 'tok', expires_in: 600 });
+        if (u.endsWith('/accounts/')) return OK({ results: [{ uuid: 'a' }] });
+        n++;
+        return OK({ results: [], next: null });
+    };
+    const st0 = sp.getStats();
+    assert(st0.per_minute_limit <= 60, `vores egen grænse (${st0.per_minute_limit}) ligger under Smartplans 60`);
+    assert(st0.per_day_limit <= 2000, `og dagsgrænsen (${st0.per_day_limit}) under 2000`);
+
+    // Kør helt op til loftet uden at vente — et burst under grænsen skal være
+    // gratis, ellers ville hver eneste sideindlæsning føles langsom. Ét
+    // getShifts-opslag koster to kald (shifts + worklogs), så vi tæller på
+    // forbruget i stedet for på antallet af opslag.
+    const t0 = Date.now();
+    // Hvert opslag skal have SIT eget datointerval — ellers svarer cachen, og
+    // så måler vi cachen i stedet for grænsen. (Første forsøg gjorde præcis
+    // det og nåede kun 18 af 48 kald.)
+    const uniqueRange = (i) => {
+        const mm = String((Math.floor(i / 28) % 12) + 1).padStart(2, '0');
+        const dd = String((i % 28) + 1).padStart(2, '0');
+        return [`2026-${mm}-${dd}`, `2026-${mm}-28`];
+    };
+    let guard = 0;
+    while (sp.getStats().in_last_minute < st0.per_minute_limit - 2 && guard < 200) {
+        const [f, t] = uniqueRange(guard++);
+        await sp.getShifts(f, t);
+    }
+    const used = sp.getStats().in_last_minute;
+    const burstMs = Date.now() - t0;
+    assert(used >= st0.per_minute_limit - 3, `vi nåede helt op til grænsen (${used} kald) uden at blive afvist`);
+    assert(burstMs < 3000, `og uden at vente undervejs (tog ${burstMs} ms)`);
+
+    // Det NÆSTE opslag ville krydse grænsen. Så venter vi — eller siger klart
+    // fra hvis ventetiden er urimelig. Det afgørende er at vi ikke bare
+    // sender kaldet og lader Smartplan afvise os (og forlænge blokeringen).
+    // Prøv videre til grænsen krydses. Antallet af opslag der skal til afhænger
+    // af hvor præcist vi landede ovenfor, så vi looper i stedet for at regne
+    // det ud — ellers ville testen knække af en harmløs justering af grænsen.
+    let over = null, sentOnFailing = -1;
+    const prevFetch = globalThis.fetch;
+    let sent = 0;
+    globalThis.fetch = async (url) => { sent++; return prevFetch(url); };
+    for (let i = 0; i < 6 && !over; i++) {
+        const before = sent;
+        try { await sp.getShifts(`2027-0${i + 1}-01`, `2027-0${i + 1}-02`); }
+        catch (e) { over = e; sentOnFailing = sent - before; }
+    }
+    assert(over !== null && /minut/i.test(over.message), 'over grænsen siger vi selv fra, med en forklaring');
+    assert(sentOnFailing === 0, '…og det afviste opslag sendte intet til Smartplan');
+
+    // 3) Dagsgrænsen kan ikke overskrides.
+    sp._resetRateLimit();
+    const stats = sp.getStats();
+    assert(stats.requestsToday === 0, 'dagstælleren nulstilles med resten');
 
     globalThis.fetch = realFetch;
 }
@@ -234,7 +325,7 @@ async function partB() {
     near(stored.labor_raw_ex_moms, 1200, 'det frosne bærer den rigtige løn, ikke et nul');
 }
 
-(async () => { await partA(); await partB(); })()
+(async () => { await partA(); await partA2(); await partB(); })()
     .catch(err => { console.error(err); fail++; })
     .finally(() => {
         globalThis.fetch = realFetch;

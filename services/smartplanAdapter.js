@@ -43,10 +43,94 @@ function clearCache() {
 // vagtplanen tom ud. Uden et tal er "vi henter vel ikke så tit" en fornemmelse
 // og ikke en oplysning. Token- og konto-kald tælles med, ellers ville tallet
 // være pænere end virkeligheden. In-memory; nulstilles ved genstart.
-const _stats = { requests: 0, pages: 0, throttled: 0, lastThrottleAt: null, startedAt: Date.now() };
+const _stats = { requests: 0, pages: 0, throttled: 0, lastThrottleAt: null, startedAt: Date.now(),
+                 today: null, requestsToday: 0 };
+
+/* ══════════════════════════════════════════════════════════════
+   RATE LIMIT — Smartplan tillader 60 kald/minut og 2000/dag
+   ══════════════════════════════════════════════════════════════
+   Minut-grænsen er den bindende. Smartplan paginerer, så ét logisk opslag
+   ("hent et år") kan være 20-80 kald afsendt i træk — altså et burst der alene
+   kan ramme loftet.
+
+   Og vigtigere: en afvisning forlænger sig selv. Målt 23. august gik
+   `availableIn` fra 161 til 243 sekunder, fordi vi blev ved med at spørge.
+   En throttling kan derfor holde sig selv i live så længe nogen klikker rundt,
+   og så ser vagtplanen tom ud i meget længere tid end nødvendigt.
+
+   Derfor to ting, som gør 429 strukturelt usandsynlig i stedet for blot ærlig:
+     1. Vi holder selv en glidende grænse under Smartplans, og venter når vi
+        nærmer os — i stedet for at blive afvist.
+     2. Bliver vi alligevel afvist, holder vi HELT op med at spørge indtil det
+        tidspunkt Smartplan selv oplyser. Ellers forlænger vi vores egen straf.
+*/
+const RATE_PER_MIN  = 50;      // margin ned til Smartplans 60
+const RATE_PER_DAY  = 1900;    // margin ned til 2000
+const MAX_WAIT_MS   = 15000;   // et request må vente så længe — ikke længere
+
+const _recent = [];            // tidsstempler for kald i det seneste minut
+let _blockedUntil = 0;         // sat af 429 (epoch ms)
+
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/** Dansk kalenderdato — dags-kvoten følger døgnet, ikke UTC. */
+function _dayKey() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(new Date());
+}
+
+/**
+ * Reservér plads til ét HTTP-kald. Venter hvis vi er tæt på minut-grænsen,
+ * kaster hvis ventetiden er urimelig eller vi er i karantæne efter en 429.
+ */
+async function _reserveSlot() {
+    const now = Date.now();
+
+    if (now < _blockedUntil) {
+        const secs = Math.ceil((_blockedUntil - now) / 1000);
+        throw new Error(`Smartplan afviste os for lidt siden (429) — vi venter ${secs} sekunder `
+            + 'med at spørge igen, så blokeringen ikke forlænges. Timerne er der stadig.');
+    }
+
+    const day = _dayKey();
+    if (_stats.today !== day) { _stats.today = day; _stats.requestsToday = 0; }
+    if (_stats.requestsToday >= RATE_PER_DAY) {
+        throw new Error(`Smartplans dagsgrænse er ved at være brugt (${_stats.requestsToday} kald i dag, `
+            + 'grænsen er 2000). Vi holder igen resten af døgnet.');
+    }
+
+    while (_recent.length && now - _recent[0] > 60_000) _recent.shift();
+    if (_recent.length >= RATE_PER_MIN) {
+        const waitMs = 60_000 - (now - _recent[0]) + 50;
+        if (waitMs > MAX_WAIT_MS) {
+            throw new Error(`For mange opslag på kort tid — Smartplan tillader 60 kald i minuttet. `
+                + `Prøv igen om ${Math.ceil(waitMs / 1000)} sekunder.`);
+        }
+        await _sleep(waitMs);
+        return _reserveSlot();
+    }
+
+    _recent.push(Date.now());
+    _stats.requests++;
+    _stats.requestsToday++;
+}
 
 function getStats() {
-    return { ...(_stats), uptime_min: Math.round((Date.now() - _stats.startedAt) / 60000) };
+    return {
+        ...(_stats),
+        uptime_min: Math.round((Date.now() - _stats.startedAt) / 60000),
+        per_minute_limit: RATE_PER_MIN,
+        per_day_limit: RATE_PER_DAY,
+        in_last_minute: _recent.filter(t => Date.now() - t <= 60_000).length,
+        blocked_for_sec: _blockedUntil > Date.now() ? Math.ceil((_blockedUntil - Date.now()) / 1000) : 0,
+    };
+}
+
+/** Kun til test — nulstiller grænse-tilstanden mellem scenarier. */
+function _resetRateLimit() {
+    _recent.length = 0;
+    _blockedUntil = 0;
+    _stats.requests = 0; _stats.pages = 0; _stats.throttled = 0;
+    _stats.lastThrottleAt = null; _stats.today = null; _stats.requestsToday = 0;
 }
 
 const TOKEN_URL = process.env.SMARTPLAN_TOKEN_URL || 'https://api.smartplanapp.io/o/token/';
@@ -72,7 +156,7 @@ async function getAccessToken() {
         client_secret: clientSecret,
     });
 
-    _stats.requests++;   // tælles med: et tal der undertæller er ubrugeligt
+    await _reserveSlot();   // token-kald tæller også med i Smartplans kvote
     const res = await fetch(TOKEN_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -106,7 +190,7 @@ async function getAccountUUID() {
     if (cached) return cached;
 
     const token = await getAccessToken();
-    _stats.requests++;
+    await _reserveSlot();
     const res = await fetch(`${API_BASE}/accounts/`, {
         headers: {
             accept: 'application/json',
@@ -152,7 +236,7 @@ async function smartplanFetch(path) {
 
     let firstPage = true;
     while (url) {
-        _stats.requests++;
+        await _reserveSlot();
         if (!firstPage) _stats.pages++;   // ekstra sider ud over det første kald
         firstPage = false;
         const res = await fetch(url, {
@@ -173,6 +257,9 @@ async function smartplanFetch(path) {
                 _stats.lastThrottleAt = new Date().toISOString();   // utc-ok: teknisk tidsstempel
                 let wait = null;
                 try { wait = Math.ceil(Number(JSON.parse(text).availableIn)); } catch { /* ikke JSON */ }
+                // Karantæne: bliv væk til det tidspunkt Smartplan selv oplyser.
+                // Uden det forlænger vores egne forsøg blokeringen (målt: 161 → 243 s).
+                _blockedUntil = Date.now() + (Number.isFinite(wait) && wait > 0 ? wait : 60) * 1000;
                 throw new Error('Smartplan begrænser antallet af kald (429)'
                     + (Number.isFinite(wait) && wait > 0 ? ` — prøv igen om ca. ${wait} sekunder.` : '.')
                     + ' Timerne er der stadig; vi må bare ikke spørge lige nu.');
@@ -594,6 +681,7 @@ module.exports = {
     getEmployees,
     getLaborRows,
     getStats,
+    _resetRateLimit,
     getMembers,
     getLaborRoster,
     clearCache,

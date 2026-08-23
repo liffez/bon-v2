@@ -36,12 +36,16 @@ router.get('/status', requireAuth('admin'), handle(async (req, res) => {
     try {
         // Samme vindue som rolle-synken: et år tilbage fanger arkiverede
         // worklogs, 60 dage frem fanger kommende vagter på nye lokationer.
-        // 30 min: det her er en diagnose-visning, ikke live data. Med
+        // Vinduet er 180 dage bagud, ikke et helt år. Spørgsmålet siden skal
+        // besvare er "passer HQ-indstillingen med de lokationer der er i brug"
+        // — og dét kan et halvt år svare på. Et helt år var 2/3 af Smartplans
+        // minut-budget (60 kald) i ét burst, fordi svaret paginerer.
+        //
+        // 30 minutters cache: det er en diagnose-visning, ikke live data. Med
         // standard-cachen på 5 min kostede hvert Settings-besøg en ny
-        // gennemløbning af et helt år — og et års vagter er mange sider, altså
-        // mange kald. Det var nok til at ramme Smartplans grænse, hvorefter
-        // siden viste "0 vagter" og det lignede at timerne var væk.
-        rows = await smartplan.getLaborRows(offsetISO(-365), offsetISO(60), 30 * 60 * 1000);
+        // gennemløbning, og det var nok til at ramme grænsen — hvorefter siden
+        // viste "0 vagter" og det lignede at timerne var væk.
+        rows = await smartplan.getLaborRows(offsetISO(-180), offsetISO(60), 30 * 60 * 1000);
     } catch (err) {
         error = err.message;
     }

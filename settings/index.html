@@ -5190,7 +5190,7 @@ async function loadSmartplanStatus() {
             + '⚠ Indstillingen siger <strong>' + esc(d.hq_location) + '</strong>, men Smartplan har ingen lokation med det navn. '
             + 'Alle vagter regnes derfor som Festival &amp; Events. Vælg den rigtige nedenfor.</div>';
         box.innerHTML = '<span style="color:#2e7d32">✓ Forbundet</span> — '
-            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper det seneste år'
+            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper de seneste 180 dage'
             + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn
             + smartplanUsageHtml(d.usage);
 

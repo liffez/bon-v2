@@ -385,3 +385,45 @@ valid_to      TEXT      -- NULL = gældende; ellers så historiske regnskaber br
    definition af "enheder" — ellers divergerer systemets rate fra Leifs hoved-sanity-tjek.
 6. **`labor_day_snapshot`** + frys-trigger (§7) — vælg cron vs. lazy-frys ved første visning.
 7. Færdiggør view (`office/views/drift.js`) → Claude Code.
+
+## Smartplan: grænser og fejl
+
+Smartplan tillader **60 kald i minuttet og 2000 i døgnet**. Det er minut-grænsen
+der binder: API'et paginerer, så ét logisk opslag ("hent et halvt år") er 10-45
+HTTP-kald afsendt i træk.
+
+**En afvisning forlænger sig selv.** Målt 23. august 2026 voksede `availableIn`
+fra 161 til 243 sekunder, fordi vi blev ved med at spørge mens vi var blokeret.
+En throttling kan derfor holde sig selv i live så længe nogen klikker rundt i
+driften — og hele tiden se ud som om vagtplanen er tom.
+
+Derfor tre ting i `services/smartplanAdapter.js`:
+
+1. **Glidende egen grænse** (50/min, 1900/døgn — margin ned til Smartplans).
+   Vi venter selv når vi nærmer os, i stedet for at blive afvist. Et burst under
+   grænsen forsinkes ikke, så normal brug mærker intet.
+2. **Karantæne efter 429**: vi holder helt op med at spørge til det tidspunkt
+   Smartplan selv oplyser. Uden det forlænger vi vores egen straf.
+3. **Ingen tavse fejl.** Adapteren returnerer aldrig en tom liste for en fejl —
+   se `npm run test:smartplan-honesty`. Det er dét der gør at driftens og
+   eventets frys-værn kan fyre; ellers kan "0 kr løn" blive frosset permanent.
+
+Målt forbrug pr. handling (sidestørrelse 100):
+
+| Handling | Kald |
+|---|---|
+| Driftens dagsvisning | 6 |
+| Klik gennem 7 dage | 18 |
+| Ugevisning | 6 |
+| Kalender, én måned | 8 |
+| Importér løn-CSV | 20 |
+| Settings → Smartplan (180 dage) | 24 |
+
+> **Ukendt:** Smartplans sidestørrelse. Ved 100 er tallene ovenfor rigtige; ved
+> 50 fordobles de. Derfor er diagnose-vinduet 180 dage og ikke et helt år — et
+> år ved sidestørrelse 50 ville alene sprænge minut-grænsen, altså en garanteret
+> 429 ved hvert eneste Settings-besøg. Mål sidestørrelsen med ét kald når
+> Smartplan svarer igen (`results.length` på side 1) og justér hvis nødvendigt.
+
+Forbruget vises i **Settings → Integrationer → Smartplan**, sammen med antal
+afvisninger og hvornår senest. Tælleren er in-memory og nulstilles ved genstart.
