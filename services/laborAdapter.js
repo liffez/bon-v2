@@ -107,6 +107,10 @@ function _transformRow(r, dato, m, db, roleMap) {
     const kostpris = (sats == null || timer == null) ? null : timer * sats;
 
     return {
+        // Vagtens identitet bæres igennem — uden den kan en vagt ikke tildeles
+        // et bestemt event, og to samtidige events tæller de samme kroner.
+        uuid:               r.uuid ?? null,
+        source:             r.source ?? (r.is_shift ? 'shift' : 'worklog'),
         employee_id:        r.employee_id,
         employee_name:      r.employee_name,
         jobtype_uuid:       r.jobtype_uuid,

@@ -129,6 +129,12 @@ async function syncNow(reason = 'manuel') {
                 const del = db.prepare('DELETE FROM smartplan_shifts WHERE uuid = ? AND source = ?');
                 let pruned = 0;
                 for (const r of inWindow) {
+                    // Seed-vagter (scripts/seed-overlapping-events.js) kommer
+                    // aldrig tilbage fra Smartplan og ville derfor blive ryddet
+                    // ved første synkronisering — midt i at nogen sad og testede
+                    // fordelingen. De fredes; de findes kun lokalt og fjernes
+                    // med scriptets eget --remove.
+                    if (String(r.uuid).startsWith('seed-')) continue;
                     if (!seen.has(r.source + '|' + r.uuid)) { del.run(r.uuid, r.source); pruned++; }
                 }
                 db.prepare(`

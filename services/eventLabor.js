@@ -103,6 +103,38 @@ async function _transportHoursOneWay(db, event) {
  * @param {object} event  række fra events (id, start_date, end_date, event_address_id)
  * @returns {Promise<object>} { hours_total, cost_total, sources[], warnings[], ... }
  */
+/* ── Hvilket event hører vagten til? ─────────────────────────
+   Lønnen hentes på dato + lokation (§18.3). Kører to events samme weekend, ser
+   de derfor BEGGE alle vagter på event-lokationen, og begge P&L'er tæller de
+   samme kroner. Smartplan kan ikke svare på det — der er én event-lokation, og
+   noten er fritekst til medarbejderen (målt: 366 af 417 vagter uden note).
+   Derfor afgøres det her, hvor vi allerede har alle vagterne.
+
+   Tre tilstande:
+     ingen række      → alle overlappende events tæller vagten (uændret)
+     event_id = N     → kun event N
+     event_id = NULL  → intet event (fx en HQ-vagt der ligger forkert) */
+function _assignmentMap(db) {
+    const map = new Map();
+    for (const r of db.prepare('SELECT shift_uuid, source, event_id FROM event_shift_assignments').all()) {
+        map.set(r.shift_uuid + '|' + r.source, r.event_id);   // kan være null
+    }
+    return map;
+}
+
+/** Andre events der overlapper i datoer — dem der kan slås om de samme vagter. */
+function _overlappingEvents(db, event, fra, til) {
+    return db.prepare(`
+        SELECT id, name, start_date, end_date
+          FROM events
+         WHERE id <> ?
+           AND status <> 'cancelled'
+           AND start_date <= ?
+           AND COALESCE(end_date, start_date) >= ?
+         ORDER BY start_date
+    `).all(event.id, til, fra);
+}
+
 async function computeEventLabor(event) {
     const db = getDb();
     const warnings = [];
@@ -118,6 +150,9 @@ async function computeEventLabor(event) {
     const overhead = 1 + overheadPct / 100;
 
     /* ── 1) Smartplan: betalte vagter på event-lokationen ────── */
+    const assignments = _assignmentMap(db);
+    const overlapping  = _overlappingEvents(db, event, fra, til);
+
     let smartplanRows = [];
     let smartplanError = null;
     try {
@@ -129,7 +164,16 @@ async function computeEventLabor(event) {
                 // samme afgrænsning som driftsregnskabet (§6a).
                 if (row.location_class !== 'events') continue;
                 if (row.role_class === 'delivery') continue;
-                smartplanRows.push({ ...row, date: dato });
+
+                // Tildeling: en vagt der er sat på ET event, hører kun til dér.
+                // `null` betyder bevidst "intet event" og er ikke det samme som
+                // "ikke taget stilling" — derfor has() og ikke sandhedsværdien.
+                const key = (row.uuid || '') + '|' + (row.source || 'shift');
+                const assigned = assignments.has(key) ? assignments.get(key) : undefined;
+                const mine = assigned === undefined || assigned === event.id;
+                smartplanRows.push({ ...row, date: dato, assigned_event_id: assigned ?? null,
+                                     is_assigned: assigned !== undefined, counted: mine });
+                if (!mine) continue;
                 // (ledige vagter sorteres fra i tællingen nedenfor, men bliver i
                 // listen — et hul i bemandingen er værd at se på et event)
             }
@@ -142,8 +186,9 @@ async function computeEventLabor(event) {
     // En ledig vagt er udlagt, men ikke taget af nogen. Ingen har arbejdet den,
     // så den er hverken mandetimer eller løn — og der er ingen person at sætte
     // en timeløn på, så den hører heller ikke i advarslen om manglende satser.
-    const manned = smartplanRows.filter(r => !r.is_open);
-    const openShifts = smartplanRows.filter(r => r.is_open);
+    const counted    = smartplanRows.filter(r => r.counted);
+    const manned     = counted.filter(r => !r.is_open);
+    const openShifts = counted.filter(r => r.is_open);
 
     const spHours = r2(manned.reduce((s, r) => s + (r.timer || 0), 0));
     const spCost  = r2(manned.reduce((s, r) => s + (r.kostpris || 0), 0) * overhead);
@@ -159,6 +204,22 @@ async function computeEventLabor(event) {
     if (fallbackHours.length) {
         warnings.push(`${fallbackHours.length} vagt(er) har endnu ikke registreret fremmøde — planlagte timer bruges indtil videre.`);
     }
+    // Kører et andet event samtidig, kan de samme vagter tælle to steder. Den
+    // fejl er usynlig i tallet — begge P&L'er ser rigtige ud — så den skal siges.
+    if (overlapping.length) {
+        const uafklaret = smartplanRows.filter(r => !r.is_assigned);
+        const navne = overlapping.map(e => e.name).join(', ');
+        if (uafklaret.length) {
+            const t = r2(uafklaret.filter(r => !r.is_open).reduce((s, r) => s + (r.timer || 0), 0));
+            warnings.push(
+                `${navne} kører samtidig. ${uafklaret.length} vagt(er) på ${t} timer er ikke fordelt `
+                + 'og tæller derfor med på BEGGE events. Fordel dem nedenfor, så lønnen kun tælles ét sted.'
+            );
+        } else {
+            warnings.push(`${navne} kører samtidig — alle vagter er fordelt.`);
+        }
+    }
+
     if (openShifts.length) {
         const t = r2(openShifts.reduce((s, r) => s + (r.timer || 0), 0));
         warnings.push(
@@ -180,6 +241,12 @@ async function computeEventLabor(event) {
         // Sorteret som en vagtplan læses: dag, så mødetid, så navn.
         shifts: smartplanRows
             .map(r => ({
+                // Identitet + fordelingsstatus, så vagten kan sættes på det
+                // rigtige event når to kører samme weekend.
+                uuid: r.uuid, source: r.source,
+                counted: r.counted,
+                is_assigned: r.is_assigned,
+                assigned_event_id: r.assigned_event_id,
                 date: r.date,
                 employee_name: r.employee_name,
                 jobtype_title: r.jobtype_title,
@@ -312,6 +379,9 @@ async function computeEventLabor(event) {
         persons,
         overhead_pct: overheadPct,
         smartplan_error: smartplanError,
+        // Vagtlisten ligger på sources[kind='onsite'].shifts — ÉN liste, ikke to.
+        // Andre events der kan slås om de samme vagter:
+        overlapping_events: overlapping,
         transport_source: tp.source,
         from: fra, to: til,
     };

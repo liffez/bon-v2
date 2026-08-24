@@ -911,6 +911,55 @@ bestemmes, `tests/labor_location.test.js` (11) at flaget bæres igennem og ikke 
 manglende sats. Mutationstestet: reglen fjernet, navnet som signal, og tom `uuid` som ejer
 fælder hver sine asserts.
 
+### 18.3d To events samme weekend ✅ bygget (august 2026)
+
+Lønnen hentes på **dato + lokation** (Model A ovenfor). Kører to events samtidig,
+ser de derfor BEGGE alle vagter på event-lokationen, og begge P&L'er tæller de
+samme kroner. Fejlen er usynlig i tallet — begge ser rigtige ud.
+
+**Smartplan kan ikke svare på det.** Der er én event-lokation, og noten er
+fritekst til medarbejderen. Målt 24. august 2026 på 417 vagter:
+
+| | |
+|---|---|
+| uden note | **366** (88 %) |
+| med note | 51 — blandet sted, sygemelding og arbejdsbesked |
+
+Og noterne er ikke ensartede: *"Pokemon Go Festsival i Fælledparken"* ved siden
+af *"pokemon Go festival I Fælledparken"*. To vagter dækkede oven i købet to
+steder på én gang (*"I HQ 8–11 og Tivoli bagefter"*) og kan principielt ikke
+tilskrives ét event.
+
+> Feltet bruges rigtigt — til beskeder som *"der skal laves 49 slidere i alt :-)"*.
+> Det skal ikke kapres til at bære et lønregnskab.
+
+**Derfor fordeles vagterne i Bon** (`event_shift_assignments`, migration 165),
+hvor vi allerede har dem i spejlet. Tre tilstande, alle med betydning:
+
+| | |
+|---|---|
+| ingen række | alle overlappende events tæller vagten — **uændret adfærd** |
+| `event_id = N` | kun event N |
+| `event_id = NULL` | intet event (fx en HQ-vagt der ligger forkert) |
+
+**Vælgeren vises kun når et andet event overlapper.** De fleste weekender har ét
+event, og dér er der intet at vælge — en dropdown pr. vagt ville være støj.
+
+Er der overlap og uafklarede vagter, står det som en advarsel med timetal: en
+vagt der stille tælles to steder er værre end en synlig uafklaret. En vagt der
+hører til det andet event bliver **stående i listen**, dæmpet og overstreget —
+man skal kunne se at den er fordelt væk, ikke at den er forsvundet. Dagssummen
+og panel-headeren tæller kun det der faktisk hører til eventet; ellers ville
+listen modsige sin egen total.
+
+**Test:** `npm run test:event-shift-assign` — 24 asserts, herunder invarianten
+*en fordelt vagt tælles præcis ét sted* (1.200 + 1.160 = 2.360, ikke 4.720).
+
+> **Rettet undervejs:** `_evLoadLabor` erstattede sit eget anker med `outerHTML`
+> og kunne derfor kun køre én gang pr. sidevisning. Enhver løn-ændring var
+> usynlig indtil man genindlæste — og et tal der ikke flytter sig, ligner en
+> handling der ikke virkede.
+
 ### 18.4 Timer og kroner er to forskellige tal
 
 Den vigtigste skelnen i modellen, og den er tvunget frem af de frivillige: **en frivillig

@@ -1552,6 +1552,68 @@ router.post('/:id/labor/refreeze', requireAuth('admin'), handle(async (req, res)
                ...eventResultFields(event, labor.cost_total) });
 }));
 
+// Fordel en vagt mellem overlappende events (§18.3b).
+//
+// Lønnen hentes på dato + lokation, så to events samme weekend ser BEGGE alle
+// vagter på event-lokationen. Smartplan kan ikke skille dem: der er én
+// event-lokation, og noten er fritekst til medarbejderen (målt 24. august 2026:
+// 366 af 417 vagter uden note; de 51 med blandede sted, sygemelding og
+// arbejdsbesked). Feltet bruges rigtigt til beskeder og skal ikke kapres.
+//
+// Derfor afgøres det her. `event_id: null` betyder bevidst "intet event" —
+// ikke det samme som "ikke taget stilling", som er fraværet af en række.
+router.put('/:id/labor/shift/:uuid', requireAuth('admin', 'office'), handle((req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const db = getDb();
+    const source = req.body?.source === 'worklog' ? 'worklog' : 'shift';
+    const uuid = String(req.params.uuid || '').trim();
+    if (!uuid) return res.status(400).json({ error: 'Vagtens id mangler' });
+
+    // Tre gyldige valg: dette event, et andet event, eller ingen.
+    // `reset` fjerner rækken helt og går tilbage til standarden.
+    if (req.body?.reset) {
+        db.prepare('DELETE FROM event_shift_assignments WHERE shift_uuid = ? AND source = ?')
+          .run(uuid, source);
+    } else {
+        const raw = req.body?.event_id;
+        let target = null;
+        if (raw !== null && raw !== undefined && raw !== '') {
+            target = parseInt(raw, 10);
+            if (!Number.isFinite(target)) return res.status(400).json({ error: 'Ugyldigt event_id' });
+            // Man må kun fordele til events der FAKTISK overlapper — ellers kan
+            // en vagt havne på et event der slet ikke var i gang den dag.
+            const ok = db.prepare(`
+                SELECT 1 FROM events
+                 WHERE id = ? AND status <> 'cancelled'
+                   AND start_date <= ? AND COALESCE(end_date, start_date) >= ?
+            `).get(target, event.end_date || event.start_date, event.start_date);
+            if (!ok) return res.status(400).json({ error: 'Det event overlapper ikke denne periode' });
+        }
+        db.prepare(`
+            INSERT INTO event_shift_assignments (shift_uuid, source, event_id, assigned_by_user_id, note)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(shift_uuid, source) DO UPDATE SET
+                event_id = excluded.event_id,
+                assigned_by_user_id = excluded.assigned_by_user_id,
+                assigned_at = datetime('now'),
+                note = excluded.note
+        `).run(uuid, source, target, req.session.userId || null,
+               (req.body?.note || '').trim() || null);
+    }
+
+    // Et frosset lønsnapshot bygger på den gamle fordeling og ville være tavst
+    // forkert. Samme regel som når en standard-linje rettes.
+    clearLaborSnapshot(db, event.id);
+    logChange({
+        entityType: 'event', entityId: event.id, action: 'update',
+        fieldName: 'vagt_fordeling', newValue: `${uuid} → ${req.body?.reset ? 'standard' : (req.body?.event_id || 'intet event')}`,
+        userId: req.session.userId,
+    });
+    res.json({ ok: true });
+}));
+
 // Ret en standard-linje for DETTE event (§18.6). Standarden i Settings er et
 // udgangspunkt; det ene event ligner sjældent det næste.
 //

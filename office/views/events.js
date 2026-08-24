@@ -360,8 +360,20 @@ async function _evRenderDetail(id) {
 // Må aldrig kunne vælte resten af siden: kan den ikke hentes — 403 for en rolle
 // der ikke må se løn, eller vagtplanen der er nede — står strippen som før.
 async function _evLoadLabor(ev) {
-    const host = document.getElementById('evLaborCells');
-    if (!host) return;
+    // Funktionen erstattede sit eget anker med outerHTML og kunne derfor KUN
+    // køre én gang pr. sidevisning: anden gang fandt den ingenting og returnerede
+    // tavst. Enhver løn-ændring (rettet standardtid, tilføjet person, fordelt
+    // vagt) var dermed usynlig indtil man genindlæste hele siden — og et tal der
+    // ikke flytter sig, ligner en handling der ikke virkede.
+    let host = document.getElementById('evLaborCells');
+    if (!host) {
+        const strip = document.querySelector('.ev-pnl-strip');
+        if (!strip) return;
+        strip.querySelectorAll('.ev-pnl-labor-cell').forEach(x => x.remove());
+        host = document.createElement('div');
+        host.id = 'evLaborCells';
+        strip.appendChild(host);
+    }
     let d;
     try { d = await _evFetch(`/events/${ev.id}/labor`); }
     catch { return; }          // 403 = rollen må ikke se løn. Ingen fejlbesked.
@@ -376,18 +388,19 @@ async function _evLoadLabor(ev) {
     // Strippen går fra 7 til 10 celler — CSS'en skal kende forskellen, ellers
     // står den tiende celle alene på anden række.
     document.querySelector('.ev-pnl-strip')?.classList.add('has-labor');
+    // Cellerne mærkes, så de kan findes og fjernes ved næste kald.
     host.outerHTML = `
-        <div class="ev-pnl-cell" title="${_evEsc(brud)}">
+        <div class="ev-pnl-cell ev-pnl-labor-cell" title="${_evEsc(brud)}">
             <div class="ev-pnl-val">${_evFmtNum(d.hours_total)}</div>
             <div class="ev-pnl-lbl">Mandetimer</div>
         </div>
-        <div class="ev-pnl-cell" title="${_evEsc(brud)}">
+        <div class="ev-pnl-cell ev-pnl-labor-cell" title="${_evEsc(brud)}">
             <div class="ev-pnl-val">${_evFmtKr(d.cost_total)}</div>
             <div class="ev-pnl-lbl">Løn på pladsen (ex moms)<span class="ev-pnl-sub">${d.frozen
                 ? `🔒 frosset ${_evEsc(_evFmtStamp(d.frozen_at))}`
                 : 'estimat · ekskl. HQ-prep'}</span></div>
         </div>
-        <div class="ev-pnl-cell ev-pnl-result">
+        <div class="ev-pnl-cell ev-pnl-labor-cell ev-pnl-result">
             <div class="ev-pnl-val">${_evFmtKr(d.result_on_site)}</div>
             <div class="ev-pnl-lbl">Resultat på pladsen<span class="ev-pnl-sub">efter løn</span></div>
         </div>`;
@@ -593,6 +606,23 @@ function _evRenderLaborPanel(ev, d) {
     const shifts = onsite?.shifts || [];
     if (!shifts.length && !standard.length && !manual.length) return;
 
+    // Fordelings-vælger vises KUN når et andet event overlapper i datoer.
+    // Langt de fleste weekender har ét event, og dér er der intet at vælge —
+    // en dropdown pr. vagt ville bare være støj man skal se forbi.
+    const overlap = d.overlapping_events || [];
+    const kanFordeles = overlap.length > 0;
+    const fordelOpts = (sh) => {
+        const valgt = sh.is_assigned ? (sh.assigned_event_id == null ? 'none' : String(sh.assigned_event_id)) : '';
+        const o = [
+            `<option value=""${valgt === '' ? ' selected' : ''}>Ikke fordelt</option>`,
+            `<option value="${ev.id}"${valgt === String(ev.id) ? ' selected' : ''}>${_evEsc(ev.name)}</option>`,
+            ...overlap.map(e => `<option value="${e.id}"${valgt === String(e.id) ? ' selected' : ''}>${_evEsc(e.name)}</option>`),
+            `<option value="none"${valgt === 'none' ? ' selected' : ''}>Ingen af dem</option>`,
+        ];
+        return `<select class="ev-lp-assign" data-uuid="${_evEsc(sh.uuid || '')}" data-source="${_evEsc(sh.source || 'shift')}"
+                        title="Hvilket event hører vagten til? Ikke fordelt = tæller med på begge.">${o.join('')}</select>`;
+    };
+
     // Vagterne grupperes pr. dag — sådan læses en vagtplan.
     const byDay = new Map();
     for (const sh of shifts) {
@@ -600,18 +630,25 @@ function _evRenderLaborPanel(ev, d) {
         byDay.get(sh.date).push(sh);
     }
     const dayBlocks = [...byDay.entries()].map(([dato, rows]) => {
-        const dagTimer = rows.filter(r => !r.is_open).reduce((a, r) => a + (r.hours || 0), 0);
+        // Kun de vagter der FAKTISK tæller på dette event. Ellers ville
+        // dagssummen modsige eventets egen total, og man ville lede efter en
+        // fejl der ikke findes.
+        const mine = rows.filter(r => !r.is_open && r.counted !== false);
+        const dagTimer = mine.reduce((a, r) => a + (r.hours || 0), 0);
+        const andre = rows.filter(r => r.counted === false).length;
         return `
         <div class="ev-lp-day">
             <div class="ev-lp-day-head">
                 <span>${_evEsc(_evFmtDate(dato))}</span>
-                <span class="ev-lp-day-sum">${_evFmtNum(dagTimer)} t · ${rows.filter(r => !r.is_open).length} ${rows.filter(r => !r.is_open).length === 1 ? 'vagt' : 'vagter'}${
-                    rows.some(r => r.is_open) ? ` · ${rows.filter(r => r.is_open).length} ledig` : ''}</span>
+                <span class="ev-lp-day-sum">${_evFmtNum(dagTimer)} t · ${mine.length} ${mine.length === 1 ? 'vagt' : 'vagter'}${
+                    rows.some(r => r.is_open) ? ` · ${rows.filter(r => r.is_open).length} ledig` : ''}${
+                    andre ? ` · ${andre} på andet event` : ''}</span>
             </div>
             <table class="ev-lp-table">
                 <tbody>
                 ${rows.map(r => `
-                    <tr class="${r.is_open ? 'ev-lp-open' : (r.rate_missing ? 'ev-lp-warn' : '')}">
+                    <tr class="${r.is_open ? 'ev-lp-open' : (r.rate_missing ? 'ev-lp-warn' : '')}${
+                        r.counted === false ? ' ev-lp-elsewhere' : ''}">
                         <td class="ev-lp-name">${r.is_open
                             ? '<em>Ledig vagt</em>'
                             : _evEsc(r.employee_name || '—')}</td>
@@ -619,6 +656,7 @@ function _evRenderLaborPanel(ev, d) {
                         <td class="ev-lp-time">${_evEsc(r.start || '')}–${_evEsc(r.slut || '')}${
                             r.planned_only ? ' <span class="ev-lp-tag" title="Fremmøde er ikke registreret endnu — det er den planlagte vagt.">planlagt</span>' : ''}</td>
                         <td class="ev-num">${r.is_open ? `<span class="ev-lp-strike">${_evFmtNum(r.hours)} t</span>` : `${_evFmtNum(r.hours)} t`}</td>
+                        ${kanFordeles ? `<td class="ev-lp-assign-cell">${r.is_open ? '' : fordelOpts(r)}</td>` : ''}
                         <td class="ev-num">${r.is_open
                             ? '<span class="ev-lp-tag" title="Ingen har taget vagten — hverken timer eller løn tælles med.">ikke taget</span>'
                             : r.role_class === 'volunteer'
@@ -634,12 +672,17 @@ function _evRenderLaborPanel(ev, d) {
 
     // Standard-linjerne kan rettes for netop dette event. Feltet starter ALDRIG
     // tomt — det står på standarden, så man kun retter det der afviger.
-    const sumRow = (label, hours, cost) => `
+    // `note` står ved siden af beløbet. Uden den læses "27 t / 2.330 kr" som
+    // 86 kr/t — men 12 af timerne er uden sats, og de kroner findes ikke. Der
+    // ER en advarsel om det øverst, men den står langt fra tallet, og det er
+    // tallet folk regner videre på.
+    const sumRow = (label, hours, cost, note) => `
         <tr class="ev-lp-sum">
             <td class="ev-lp-name">${_evEsc(label)}</td>
             <td colspan="2"></td>
             <td class="ev-num">${_evFmtNum(hours)} t</td>
-            <td class="ev-num">${_evFmtKr(cost)}</td>
+            <td class="ev-num">${_evFmtKr(cost)}${note
+                ? `<div class="ev-lp-sum-note">${_evEsc(note)}</div>` : ''}</td>
         </tr>`;
 
     const stdRows = standard.map(s => {
@@ -675,13 +718,37 @@ function _evRenderLaborPanel(ev, d) {
         <button type="button" class="ev-plan-toggle" data-act="labor-panel-toggle" aria-expanded="false">
             <span class="ev-plan-ico">👤</span>
             <span class="ev-plan-title">Vagtplan &amp; opsætning</span>
-            <span class="ev-plan-preview">${shifts.filter(x => !x.is_open).length} ${shifts.filter(x => !x.is_open).length === 1 ? 'vagt' : 'vagter'} på pladsen · ${_evFmtNum(d.hours_total)} mandetimer i alt</span>
+            <span class="ev-plan-preview">${(() => {
+                // Kun vagter der tæller på DETTE event. Ellers ville headeren
+                // sige "2 vagter" mens timerne kun dækker den ene — og så leder
+                // man efter en fejl der ikke findes.
+                const n = shifts.filter(x => !x.is_open && x.counted !== false).length;
+                const væk = shifts.filter(x => x.counted === false).length;
+                // Timerne SKAL skilles ad. "5 vagter på pladsen · 37 mandetimer"
+                // læses som om de fem vagter er 37 timer — men vagterne er 27,
+                // og de sidste 10 er opsætning og trailer. Tallet var rigtigt;
+                // sætningen sagde noget andet.
+                const påPladsen = onsite?.hours || 0;
+                const øvrige = Math.round(((d.hours_total || 0) - påPladsen) * 100) / 100;
+                return `${n} ${n === 1 ? 'vagt' : 'vagter'} på pladsen`
+                     + (væk ? ` · ${væk} på andet event` : '')
+                     + ` · ${_evFmtNum(påPladsen)} t`
+                     + (øvrige > 0 ? ` + ${_evFmtNum(øvrige)} t opsætning` : '')
+                     + ` = ${_evFmtNum(d.hours_total)} mandetimer`;
+            })()}</span>
             <span class="ev-plan-caret">▾</span>
         </button>
         <div class="ev-plan-body" id="ev-labor-panel-body" hidden>
             ${shifts.length ? `<div class="ev-lp-section-head">På pladsen — fra vagtplanen</div>${dayBlocks}
             <table class="ev-lp-table"><tbody>${
-                sumRow('I alt på pladsen', onsite?.hours || 0, onsite?.cost || 0)}</tbody></table>` : `
+                sumRow('I alt på pladsen', onsite?.hours || 0, onsite?.cost || 0, (() => {
+                    // Timer uden sats: de tæller i timetallet, men ikke i kronerne.
+                    const utimer = shifts
+                        .filter(x => !x.is_open && x.counted !== false && x.cost == null
+                                     && x.role_class !== 'volunteer')
+                        .reduce((a, x) => a + (x.hours || 0), 0);
+                    return utimer > 0 ? `heraf ${_evFmtNum(utimer)} t uden sats` : '';
+                })())}</tbody></table>` : `
             <div class="ev-lp-empty">Ingen vagter registreret på event-lokationen i perioden ${_evEsc(_evFmtDate(d.from))} – ${_evEsc(_evFmtDate(d.to))}.</div>`}
             <div class="ev-lp-section-head">Uden for vagtplanen</div>
             ${manual.length ? `<table class="ev-lp-table"><tbody>${manual.map(m => `
@@ -775,6 +842,29 @@ function _evRenderReturnGuard(ev, body, data, previousBookings) {
 function _evBindLaborEdit(ev, root) {
     // Frie rækker: tilføj og fjern.
     const msg = root.querySelector('[data-lp-msg]');
+
+    // Fordeling af vagter mellem overlappende events. Delegeret, så den også
+    // rammer rækker der tegnes om undervejs.
+    root.addEventListener('change', async (e) => {
+        const sel = e.target.closest?.('.ev-lp-assign');
+        if (!sel) return;
+        const body = { source: sel.dataset.source || 'shift' };
+        if (sel.value === '')          body.reset = true;          // tilbage til standard
+        else if (sel.value === 'none') body.event_id = null;       // bevidst intet event
+        else                           body.event_id = Number(sel.value);
+        sel.disabled = true;
+        try {
+            await _evFetch(`/events/${ev.id}/labor/shift/${encodeURIComponent(sel.dataset.uuid)}`,
+                           { method: 'PUT', body: JSON.stringify(body) });
+            // Genindlæs lønnen: summerne flytter sig, og listen skal vise det
+            // med det samme — ellers står et forældet tal ved siden af valget.
+            _evLoadLabor(ev);
+        } catch (err) {
+            sel.disabled = false;
+            if (msg) { msg.textContent = 'Kunne ikke fordele: ' + err.message; msg.className = 'ev-lp-err'; }
+        }
+    });
+
     const val = (f) => root.querySelector(`[data-lp-new="${f}"]`)?.value ?? '';
     const rateSel = root.querySelector('[data-lp-new="rate_mode"]');
     const rateIn  = root.querySelector('[data-lp-new="rate"]');
