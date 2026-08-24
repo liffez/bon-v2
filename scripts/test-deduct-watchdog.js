@@ -24,6 +24,7 @@
 const path = require('path');
 const fs   = require('fs');
 const os   = require('os');
+const { spawnSync } = require('child_process');
 
 const TEST_DB = path.join(os.tmpdir(), `bon-test-watchdog-${Date.now()}.db`);
 process.env.DB_PATH = TEST_DB;
@@ -145,6 +146,41 @@ check(nums(findPartial(db, 3)).includes(delvis.num),
     'delvist træk fanges af findPartial');
 check(!nums(findUndeducted(db, 3)).includes(delvis.num),
     '… og dukker ikke også op som manglende træk (flaget er sat)');
+
+// ── Exit-koden er selve alarmen ─────────────────────────────────────────────
+//
+// Cron reagerer på exit-koden, ikke på loggen. Dækningen lå tidligere i
+// `scripts/test-deduct-check.js`, som var rådnet på sine fixtures (den
+// seedede bons uden opskriftslinjer og med datoer uden for vinduet, så
+// forespørgslen med rette fandt ingenting). Den er slettet, og det den
+// faktisk prøvede — barn-processen og koderne — er flyttet herned.
+console.log('\n\x1b[1mExit-koden, via barn-proces\x1b[0m');
+
+const setSetting = (k, v) => db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(k, v);
+
+function koer() {
+    const r = spawnSync('node', ['--experimental-sqlite', path.join(__dirname, 'check-inventory-deduct.js')], {
+        env: { ...process.env, DB_PATH: TEST_DB, INVENTORY_CHECK_DAYS: '3', INVENTORY_ALERT_EMAIL: '' },
+        encoding: 'utf8',
+    });
+    return { code: r.status, ud: (r.stdout || '') + (r.stderr || '') };
+}
+
+// Slukket lagertræk er en KENDT tilstand, ikke en alarm — ellers ville
+// kontrollen råbe hver nat i et hus der bevidst har slået det fra.
+setSetting('inventory_auto_deduct', '0');
+let r = koer();
+check(r.code === 0, `flag slukket → exit 0 (fik ${r.code})`);
+check(/slukket/.test(r.ud), 'og loggen siger hvorfor der ikke alarmeres');
+
+// Tændt, og der ER drift (de bons ovenfor står stadig i basen).
+setSetting('inventory_auto_deduct', '1');
+r = koer();
+check(r.code === 1, `drift fundet → exit 1, så cron fanger det (fik ${r.code})`);
+check(/ALDRIG passeret LEVERET/.test(r.ud), 'og årsagen står i outputtet, ikke kun antallet');
+check(/ingen alarm-modtager/.test(r.ud), 'uden modtager noteres det — mailen springes over, alarmen består');
 
 // Oprydning: temp-DB slettes uanset udfald.
 try { fs.unlinkSync(TEST_DB); } catch {}
