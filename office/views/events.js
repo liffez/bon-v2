@@ -672,12 +672,17 @@ function _evRenderLaborPanel(ev, d) {
 
     // Standard-linjerne kan rettes for netop dette event. Feltet starter ALDRIG
     // tomt — det står på standarden, så man kun retter det der afviger.
-    const sumRow = (label, hours, cost) => `
+    // `note` står ved siden af beløbet. Uden den læses "27 t / 2.330 kr" som
+    // 86 kr/t — men 12 af timerne er uden sats, og de kroner findes ikke. Der
+    // ER en advarsel om det øverst, men den står langt fra tallet, og det er
+    // tallet folk regner videre på.
+    const sumRow = (label, hours, cost, note) => `
         <tr class="ev-lp-sum">
             <td class="ev-lp-name">${_evEsc(label)}</td>
             <td colspan="2"></td>
             <td class="ev-num">${_evFmtNum(hours)} t</td>
-            <td class="ev-num">${_evFmtKr(cost)}</td>
+            <td class="ev-num">${_evFmtKr(cost)}${note
+                ? `<div class="ev-lp-sum-note">${_evEsc(note)}</div>` : ''}</td>
         </tr>`;
 
     const stdRows = standard.map(s => {
@@ -719,16 +724,31 @@ function _evRenderLaborPanel(ev, d) {
                 // man efter en fejl der ikke findes.
                 const n = shifts.filter(x => !x.is_open && x.counted !== false).length;
                 const væk = shifts.filter(x => x.counted === false).length;
+                // Timerne SKAL skilles ad. "5 vagter på pladsen · 37 mandetimer"
+                // læses som om de fem vagter er 37 timer — men vagterne er 27,
+                // og de sidste 10 er opsætning og trailer. Tallet var rigtigt;
+                // sætningen sagde noget andet.
+                const påPladsen = onsite?.hours || 0;
+                const øvrige = Math.round(((d.hours_total || 0) - påPladsen) * 100) / 100;
                 return `${n} ${n === 1 ? 'vagt' : 'vagter'} på pladsen`
                      + (væk ? ` · ${væk} på andet event` : '')
-                     + ` · ${_evFmtNum(d.hours_total)} mandetimer i alt`;
+                     + ` · ${_evFmtNum(påPladsen)} t`
+                     + (øvrige > 0 ? ` + ${_evFmtNum(øvrige)} t opsætning` : '')
+                     + ` = ${_evFmtNum(d.hours_total)} mandetimer`;
             })()}</span>
             <span class="ev-plan-caret">▾</span>
         </button>
         <div class="ev-plan-body" id="ev-labor-panel-body" hidden>
             ${shifts.length ? `<div class="ev-lp-section-head">På pladsen — fra vagtplanen</div>${dayBlocks}
             <table class="ev-lp-table"><tbody>${
-                sumRow('I alt på pladsen', onsite?.hours || 0, onsite?.cost || 0)}</tbody></table>` : `
+                sumRow('I alt på pladsen', onsite?.hours || 0, onsite?.cost || 0, (() => {
+                    // Timer uden sats: de tæller i timetallet, men ikke i kronerne.
+                    const utimer = shifts
+                        .filter(x => !x.is_open && x.counted !== false && x.cost == null
+                                     && x.role_class !== 'volunteer')
+                        .reduce((a, x) => a + (x.hours || 0), 0);
+                    return utimer > 0 ? `heraf ${_evFmtNum(utimer)} t uden sats` : '';
+                })())}</tbody></table>` : `
             <div class="ev-lp-empty">Ingen vagter registreret på event-lokationen i perioden ${_evEsc(_evFmtDate(d.from))} – ${_evEsc(_evFmtDate(d.to))}.</div>`}
             <div class="ev-lp-section-head">Uden for vagtplanen</div>
             ${manual.length ? `<table class="ev-lp-table"><tbody>${manual.map(m => `

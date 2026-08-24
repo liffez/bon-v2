@@ -676,6 +676,9 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-lp-assign      { font-size: 12px; padding: 2px 4px; max-width: 150px; }
 /* En vagt der hører til et ANDET event: stadig synlig — man skal kunne se at
    den er fordelt væk, ikke at den er forsvundet — men tydeligt uden for summen. */
+/* Forbehold ved en sum — står ved TALLET, ikke kun i advarslen øverst. */
+.ev-lp-sum-note { font-size: 11px; font-weight: 400; opacity: .7; margin-top: 2px; }
+
 .ev-lp-elsewhere            { opacity: .45; }
 .ev-lp-elsewhere .ev-num    { text-decoration: line-through; }
 
