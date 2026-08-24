@@ -933,7 +933,7 @@ tilskrives ét event.
 > Feltet bruges rigtigt — til beskeder som *"der skal laves 49 slidere i alt :-)"*.
 > Det skal ikke kapres til at bære et lønregnskab.
 
-**Derfor fordeles vagterne i Bon** (`event_shift_assignments`, migration 164),
+**Derfor fordeles vagterne i Bon** (`event_shift_assignments`, migration 165),
 hvor vi allerede har dem i spejlet. Tre tilstande, alle med betydning:
 
 | | |
