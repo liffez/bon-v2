@@ -136,6 +136,11 @@ try {
             planned_start_dt: iso(v.dag, v.fra),
             planned_end_dt: iso(v.dag, v.til),
             planned_shift_duration: timer(v.fra, v.til),
+            // Vagtplan-visningen læser start_dt/end_dt (de FAKTISKE tider), ikke
+            // planned_*. Uden dem stod seed-vagterne uden tidspunkter og så
+            // ufærdige ud ved siden af de rigtige.
+            start_dt: iso(v.dag, v.fra),
+            end_dt: iso(v.dag, v.til),
             note: '',
         }));
     });

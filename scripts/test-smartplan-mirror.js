@@ -120,6 +120,50 @@ async function main() {
     db.prepare("UPDATE settings SET value = 'Ristet Rug' WHERE key = 'smartplan_hq_location'").run();
     smartplan.clearCache();
 
+    /* ── 3b) De to endpoints navngiver tiden forskelligt ──── */
+    // Målt på 423 rigtige vagter (24. august 2026):
+    //
+    //            start_dt   planned_start_dt
+    //   shift      76/76          0/76
+    //   worklog     0/347       347/347
+    //
+    // Timerne var upåvirkede (varigheden ligger i planned_shift_duration begge
+    // steder), men klokkeslættene forsvandt på PLANLAGTE vagter — eventets
+    // lønpanel viste "8 t" uden at sige hvornår. Et timetal man ikke kan
+    // efterprøve er svært at stole på.
+    console.log('\n— Planlagt vagt beholder sine klokkeslæt —');
+    SHIFTS = [{
+        uuid: 'ft1', display_date: D1,
+        owner: { uuid: 'u-ft', first_name: 'Planlagt', last_name: 'Vagt' },
+        jobtype: { uuid: 'jt-1', title: 'Salgsassistent' },
+        location: { title: 'Ristet Rug' },
+        start_dt: `${D1}T08:00:00`, end_dt: `${D1}T16:00:00`,   // ingen planned_start_dt
+        planned_shift_duration: 8 * 3600,
+    }];
+    WORKLOGS = [{
+        uuid: 'wl1', display_date: D2,
+        owner: { uuid: 'u-wl', first_name: 'Arkiveret', last_name: 'Vagt' },
+        jobtype: { uuid: 'jt-1', title: 'Salgsassistent' },
+        location: { title: 'Ristet Rug' },
+        planned_start_dt: `${D2}T09:00:00`, planned_end_dt: `${D2}T17:00:00`,   // ingen start_dt
+        planned_shift_duration: 8 * 3600,
+    }];
+    await sync.syncNow('test-tider');
+    const alle = smartplan.getLaborRows(D1, D2);
+    const pl = alle.find(r => r.employee_name?.startsWith('Planlagt'));
+    const ar = alle.find(r => r.employee_name?.startsWith('Arkiveret'));
+    assert(pl?.planned_start === '08:00' && pl?.planned_end === '16:00',
+        `planlagt vagt har klokkeslæt fra start_dt (fik ${pl?.planned_start}–${pl?.planned_end})`);
+    near(pl?.planned_hours, 8, 'og timerne er uændrede');
+    assert(ar?.planned_start === '09:00' && ar?.planned_end === '17:00',
+        `arkiveret vagt bruger stadig planned_start_dt (fik ${ar?.planned_start}–${ar?.planned_end})`);
+
+    // Gendan udgangspunktet for de følgende scenarier.
+    SHIFTS   = [shiftRec('s1', D1, 'Anne', 'Ristet Rug'),
+                shiftRec('s2', D1, 'Leif', 'Festivaler og Events')];
+    WORKLOGS = [shiftRec('w1', D2, 'Marie', 'Ristet Rug')];
+    await sync.syncNow('test-gendan');
+
     /* ── 4) En fejlet synkronisering tømmer ikke spejlet ──── */
     // Gamle tal er uendeligt meget bedre end ingen tal. Det var netop dét der
     // gik galt før: en fejl gav "0 vagter" i stedet for "vagtplanen er fra i går".

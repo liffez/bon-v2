@@ -689,11 +689,25 @@ function _hoursBetween(startDt, endDt) {
 function _normalizeLabor(rec, isShift, hqName) {
     const owner = rec.owner || {};
     const jt    = rec.jobtype || {};
-    const startDt = rec.planned_start_dt || '';
+    // De to endpoints bruger FORSKELLIGE feltnavne for det samme. Målt på 423
+    // rigtige vagter (24. august 2026):
+    //
+    //            start_dt   planned_start_dt
+    //   shift      76/76          0/76
+    //   worklog     0/347       347/347
+    //
+    // Timerne var upåvirkede (varigheden ligger i planned_shift_duration begge
+    // steder), men klokkeslættene forsvandt på PLANLAGTE vagter — så eventets
+    // lønpanel viste "8 t" uden at sige hvornår, og et timetal man ikke kan
+    // efterprøve er svært at stole på. _normalizeShift håndterede det allerede;
+    // her manglede det.
+    const plannedStart = rec.planned_start_dt || rec.start_dt || '';
+    const plannedEnd   = rec.planned_end_dt   || rec.end_dt   || '';
+    const startDt = plannedStart;
     const location = rec.location?.title || '';
 
     const plannedHours    = _secToHours(rec.planned_shift_duration)
-                          ?? _hoursBetween(rec.planned_start_dt, rec.planned_end_dt);
+                          ?? _hoursBetween(plannedStart, plannedEnd);
     const attendanceHours = _secToHours(rec.attendance_shift_duration)
                           ?? _hoursBetween(rec.attendance_start_dt, rec.attendance_end_dt);
 
@@ -709,8 +723,8 @@ function _normalizeLabor(rec, isShift, hqName) {
         jobtype_uuid:      jt.uuid || null,
         jobtype_title:     jt.title || '',
         date:              rec.display_date || (startDt ? startDt.slice(0, 10) : null),
-        planned_start:     _extractTime(rec.planned_start_dt),
-        planned_end:       _extractTime(rec.planned_end_dt),
+        planned_start:     _extractTime(plannedStart),
+        planned_end:       _extractTime(plannedEnd),
         planned_hours:     plannedHours,
         attendance_start:  _extractTime(rec.attendance_start_dt),
         attendance_end:    _extractTime(rec.attendance_end_dt),
