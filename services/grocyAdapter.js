@@ -901,6 +901,37 @@ function applyPackingAdjustments(items, overrides, extras, productMap) {
     return items;
 }
 
+const SHORTFALL_TOL = 0.001;
+
+/**
+ * Hvad skal der ske med en mangel? REN funktion, så reglen kan efterprøves
+ * uden at kalde Grocy — plumbingen nedenfor er triviel, beslutningen er det ikke.
+ *
+ * Et mellemprodukt kan ikke købes. "Remoulade" står ikke i noget katalog; den
+ * laves af mayo og relish. Lagde vi den på indkøbslisten, ville køkkenet få en
+ * besked om at bestille noget ingen leverandør sælger — og den ægte mangel
+ * (råvarerne) ville stå og blinke et andet sted. Spec §4.4 siger det direkte:
+ * det er RÅVARERNE der skal på listen.
+ *
+ * Auto-batchen (#267) lægger dem allerede på for de batches den planlagde. Vi
+ * tilføjer dem derfor ikke en gang til her — Grocys shopping-list-endpoint
+ * lægger sammen frem for at erstatte, så det ville blive dobbelt. Manglen
+ * rapporteres i stedet tilbage til kalderen, så den er synlig frem for tavs.
+ *
+ * @param {{product_id:number, purchase_factor?:number}} item
+ * @param {number} shortfallStock  mangel i lager-enhed
+ * @param {Set<number>} producedProductIds  produkter en opskrift kan lave
+ * @returns {null | {action:'buy', amountPurchase:number} | {action:'produce', reason:string}}
+ */
+function planShortfall(item, shortfallStock, producedProductIds) {
+    if (!(shortfallStock > SHORTFALL_TOL)) return null;
+    if (producedProductIds && producedProductIds.has(Number(item.product_id))) {
+        return { action: 'produce', reason: 'produceret_mellemprodukt' };
+    }
+    const factor = item.purchase_factor || 1;
+    return { action: 'buy', amountPurchase: Math.ceil(shortfallStock * factor) };
+}
+
 /**
  * Byg en effektiv-lager-funktion: en parent-vare (fx "Kål") har selv stock=0,
  * men dens børn (Spidskål, Hvidkål) har lager — summér familien.
@@ -973,6 +1004,20 @@ async function consumeRecipes(lines, overrides = null, extras = null, recipeFact
 
     const effectiveStock = makeEffectiveStock(stock, products);
 
+    // Hvilke produkter LAVES af en opskrift? De kan ikke købes.
+    // Gælder begge kategorier: Bon laver aldrig et `RR Produktion`-produkt
+    // (gris, sylt), men det gør personalet — og det er stadig ikke noget man
+    // bestiller hos en leverandør.
+    let producedProductIds = new Set();
+    try {
+        const { buildProducerIndex } = require('./ingredientResolver');
+        producedProductIds = new Set([...buildProducerIndex(await getRecipesRawMap()).keys()]);
+    } catch (err) {
+        // Kan vi ikke afgøre det, opfører vi os som før: hellere en linje for
+        // meget på indkøbslisten end et tabt signal om en mangel.
+        console.warn('[consume] Kunne ikke afgøre hvilke varer der produceres:', err.message);
+    }
+
     // ── Consume hvert produkt med partial-fallback + shopping-list-add ──
     //
     // Replikerer Bon v1's adfærd: når der ikke er nok lager til at dække behovet,
@@ -985,10 +1030,9 @@ async function consumeRecipes(lines, overrides = null, extras = null, recipeFact
         const available = effectiveStock(item.product_id);
         const toConsume = Math.min(needed, available);
         const shortfallStock = Math.max(0, needed - available);
-        const FLOAT_TOL = 0.001;
 
         // Trin 1: consume det vi kan (kan være 0 hvis lager er tomt)
-        if (toConsume > FLOAT_TOL) {
+        if (toConsume > SHORTFALL_TOL) {
             try {
                 await grocyPost(`/stock/products/${item.product_id}/consume`, {
                     amount:           toConsume,
@@ -1015,10 +1059,13 @@ async function consumeRecipes(lines, overrides = null, extras = null, recipeFact
         // Trin 2: hvis der mangler, læg purchase-enhed(er) på shopping list.
         // Bruger Grocys smart endpoint der DEDUPPER — samme product_id øger qty
         // på eksisterende entry i stedet for at oprette duplikat.
+        //
+        // Men KUN hvis varen overhovedet kan købes: se planShortfall.
         let shortfallPurchase = 0;
-        if (shortfallStock > FLOAT_TOL) {
-            const factor = item.purchase_factor || 1;
-            shortfallPurchase = Math.ceil(shortfallStock * factor);
+        let notPurchasable = false;
+        const plan = planShortfall(item, shortfallStock, producedProductIds);
+        if (plan && plan.action === 'buy') {
+            shortfallPurchase = plan.amountPurchase;
             const noteText = `Auto-tilføjet ved LEVERET (manglede ${shortfallStock.toFixed(3)} fra consume)`;
             try {
                 await addShoppingListProduct(item.product_id, shortfallPurchase, 1, noteText);
@@ -1026,6 +1073,11 @@ async function consumeRecipes(lines, overrides = null, extras = null, recipeFact
                 console.warn(`[consume] Kunne ikke tilføje pid=${item.product_id} til shopping list:`, err.message);
                 // Ikke en hård fejl — consume lykkedes (delvist), shopping-list-add er ekstra
             }
+        } else if (plan && plan.action === 'produce') {
+            notPurchasable = true;
+            console.warn(`[consume] ${item.product_name} mangler ${shortfallStock.toFixed(3)} — `
+                       + 'mellemprodukt, så det kommer IKKE på indkøbslisten. '
+                       + 'Auto-batchen laver det, eller råvarerne mangler.');
         }
 
         results.push({
@@ -1034,7 +1086,11 @@ async function consumeRecipes(lines, overrides = null, extras = null, recipeFact
             amount:             toConsume,
             shortfall_stock:    shortfallStock,
             shortfall_purchase: shortfallPurchase,
-            partial:            shortfallStock > FLOAT_TOL && toConsume > FLOAT_TOL,
+            // Manglen findes, men kan ikke købes. Siges højt frem for at
+            // forsvinde — ellers er "ingen indkøbslinje" ikke til at skelne
+            // fra "ingen mangel".
+            shortfall_not_purchasable: notPurchasable,
+            partial:            shortfallStock > SHORTFALL_TOL && toConsume > SHORTFALL_TOL,
             success:            true,
         });
     }
@@ -1234,6 +1290,13 @@ async function createQuConversion(body) {
     return result;
 }
 
+/** Slet en enheds-omregning. Findes så en konvertering kan fortrydes helt. */
+async function deleteQuConversion(id) {
+    const result = await grocyDelete(`/objects/quantity_unit_conversions/${id}`);
+    _cache.delete('qu_conversions');
+    return result;
+}
+
 /**
  * Hent userfield-meta (alle entiteters userfields).
  * Frontend filtrerer selv på `entity === 'products'` osv.
@@ -1330,6 +1393,10 @@ module.exports = {
     consumeRecipes,
     planConsume,
     makeEffectiveStock,
+    // Delt af det rigtige træk, previewet OG auto-batchen — de tre skal regne
+    // på det samme behov, ellers producerer den ene til noget den anden ikke trækker.
+    applyPackingAdjustments,
+    planShortfall,
     consumeProduct,
     addToStock,
     addToStockFull,
@@ -1340,6 +1407,7 @@ module.exports = {
     // Write — products + meta
     createProduct,
     createQuConversion,
+    deleteQuConversion,
     getUserfields,
     // Indkøbsliste — udvidede endpoints
     getShoppingList,
