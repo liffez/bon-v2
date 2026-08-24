@@ -52,6 +52,12 @@ if (fs.existsSync(envPath)) {
 process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 
 const { getDb } = require('../db/database');
+// SQLites date('now') er UTC. Mellem midnat og kl. 02 dansk sommertid peger den
+// på I GÅR — og så falder dagens bons uden for vinduets øvre grænse, så
+// vagthunden holder op med at se dem. Den fejl er ramt fem gange før (#133), og
+// her rammer den netop dét stykke der skal fange manglende lagertræk.
+// todayISO()/offsetISO() er forankret i Europe/Copenhagen.
+const { todayISO, offsetISO } = require('../db/helpers');
 
 const DAYS = Math.max(1, parseInt(process.env.INVENTORY_CHECK_DAYS, 10) || 3);
 
@@ -93,14 +99,14 @@ function findUndeducted(db, days) {
         WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
           AND COALESCE(b.is_offer, 0) = 0
           AND COALESCE(b.inventory_deducted, 0) = 0
-          AND b.delivery_date >= date('now', '-' || ? || ' days')
-          AND (b.delivery_date <= date('now') OR b.inventory_deduct_status = 'failed')
+          AND b.delivery_date >= ?
+          AND (b.delivery_date <= ? OR b.inventory_deduct_status = 'failed')
           AND EXISTS (
               SELECT 1 FROM bon_lines l
               WHERE l.bon_id = b.id AND l.grocy_recipe_id IS NOT NULL
           )
         ORDER BY b.delivery_date, b.id
-    `).all(days);
+    `).all(offsetISO(-days), todayISO());
 }
 
 // Bons der ser ud som en manglende trækning, men ikke er det: intet på bonen kan
@@ -115,14 +121,14 @@ function findNothingToDeduct(db, days) {
         WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
           AND COALESCE(b.is_offer, 0) = 0
           AND COALESCE(b.inventory_deducted, 0) = 0
-          AND b.delivery_date >= date('now', '-' || ? || ' days')
-          AND b.delivery_date <= date('now')
+          AND b.delivery_date >= ?
+          AND b.delivery_date <= ?
           AND NOT EXISTS (
               SELECT 1 FROM bon_lines l
               WHERE l.bon_id = b.id AND l.grocy_recipe_id IS NOT NULL
           )
         ORDER BY b.delivery_date, b.id
-    `).all(days);
+    `).all(offsetISO(-days), todayISO());
 }
 
 // #359: bons hvor NOGET blev trukket og noget fejlede. De har flaget SAT (ellers
@@ -140,9 +146,9 @@ function findPartial(db, days) {
         WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
           AND COALESCE(b.is_offer, 0) = 0
           AND b.inventory_deduct_status = 'partial'
-          AND b.delivery_date >= date('now', '-' || ? || ' days')
+          AND b.delivery_date >= ?
         ORDER BY b.delivery_date, b.id
-    `).all(days);
+    `).all(offsetISO(-days));
 }
 
 async function main() {

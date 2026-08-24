@@ -211,5 +211,26 @@ check(find(varLeveret.num)?.saw_leveret === 1,
 check(find(fejlede.num)?.inventory_deduct_status === 'failed',
     'og et forsøgt-men-fejlet træk bærer stadig sin status');
 
+// ── Dato-grænsen må ikke komme fra SQLite ────────────────────────────────
+//
+// Assertene ovenfor rammer kun fejlen mellem midnat og kl. 02 dansk sommertid,
+// hvor UTC stadig står på i går. Det er præcis dét vindue der gjorde at
+// `date('now')` kunne stå her i første omgang — og en test der består 22 timer
+// i døgnet uanset om koden er rigtig, er ingen test.
+//
+// Derfor måles reglen selv: datoerne bindes fra todayISO()/offsetISO(), som er
+// forankret i Europe/Copenhagen. Pre-commit-hooken (check-utc-date.sh) fanger
+// mønstret i JS, men ikke SQLites date('now').
+{
+    // Kommentarer må gerne NÆVNE date('now') — det er koden der ikke må bruge den.
+    const kilde = require('fs').readFileSync(
+        require('path').join(__dirname, 'check-inventory-deduct.js'), 'utf8')
+        .split('\n')
+        .filter(l => !/^\s*(\/\/|--|\*)/.test(l))
+        .join('\n');
+    check(!/date\('now'/.test(kilde),
+        "vagthundens forespørgsler bruger ikke SQLites date('now') — den er UTC (#133)");
+}
+
 console.log(`\n${'─'.repeat(50)}\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);
