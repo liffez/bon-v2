@@ -79,7 +79,15 @@ const getSetting = (db, k) => db.prepare('SELECT value FROM settings WHERE key =
 function findUndeducted(db, days) {
     return db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code,
-               b.inventory_deduct_status
+               b.inventory_deduct_status,
+               -- Passerede bonen nogensinde LEVERET? Trækket udløses KUN dér
+               -- (routes/bons.js + routes/delivery.js), så en bon der er sat
+               -- direkte til FAKTURERET eller BETALT har aldrig haft en chance.
+               -- Uden det felt ligner "sprang forbi" og "forsøgte og fejlede"
+               -- hinanden, og de kræver hver sin handling.
+               EXISTS (SELECT 1 FROM changelog c
+                        WHERE c.entity_type = 'bon' AND c.entity_id = b.id
+                          AND c.action = 'status_change' AND c.new_value = 'LEVERET') AS saw_leveret
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
@@ -164,8 +172,15 @@ async function main() {
     }
 
     // ── Drift fundet ────────────────────────────────────────────────────────
+    // Hvorfor trak den ikke? De tre svar kræver hver sin handling, så de skal
+    // stå i selve alarmen — ikke findes bagefter i en database.
+    const aarsag = (r) => {
+        if (r.inventory_deduct_status === 'failed') return 'trækket blev FORSØGT og fejlede — kan gentages';
+        if (!r.saw_leveret) return 'har ALDRIG passeret LEVERET — trækket udløses kun dér';
+        return 'passerede LEVERET, men trækket satte intet spor — se serverloggen omkring det tidspunkt';
+    };
     const fmt = r => `#${r.bon_number} (${r.delivery_date}, ${r.status_code}`
-                   + `${r.inventory_deduct_status ? ', ' + r.inventory_deduct_status : ''})`;
+                   + `${r.inventory_deduct_status ? ', ' + r.inventory_deduct_status : ''}) — ${aarsag(r)}`;
 
     if (rows.length) {
         logLine(`[deduct-check] ⚠ ${rows.length} leveret bon(s) de seneste ${DAYS} dage har IKKE trukket lager: `
@@ -187,15 +202,18 @@ async function main() {
     if (to) {
         try {
             const { sendMail } = require('../services/mailService');
-            const line = r => `  • #${r.bon_number} — leveret ${r.delivery_date} (${r.status_code})`;
+            const line = r => `  • ${fmt(r)}`;
             let body = '';
             if (rows.length) {
                 body += `${rows.length} leveret bon(s) de seneste ${DAYS} dage har ikke trukket lager fra Grocy:\n\n`
                       + rows.map(line).join('\n')
-                      + `\n\nLagertræk er tændt, så det burde ikke ske. Undersøg:\n`
-                      + `  - Var Grocy nede da bonen blev leveret?\n`
-                      + `  - Mangler en linje på bonen en opskriftskobling? (kør scripts/dry-run-consume.js)\n`
-                      + `  - Fejl i serverloggen omkring LEVERET-tidspunktet?\n\n`;
+                      + `\n\nLagertræk er tændt, så det burde ikke ske.\n\n`
+                      + `  "har ALDRIG passeret LEVERET" — bonen er sat direkte til FAKTURERET/BETALT,\n`
+                      + `     formentlig med force. Trækket udløses kun ved LEVERET, så det er aldrig\n`
+                      + `     kørt. Lageret er FOR HØJT. Sæt bonen til LEVERET, eller træk manuelt i Grocy.\n\n`
+                      + `  "trækket blev FORSØGT og fejlede" — Grocy var sandsynligvis nede. Flaget står\n`
+                      + `     på 0, så trækket kan gentages: sæt bonen til LEVERET igen.\n\n`
+                      + `  "satte intet spor" — undersøg serverloggen omkring LEVERET-tidspunktet.\n\n`;
             }
             if (partial.length) {
                 body += `${partial.length} leveret bon(s) har trukket lager DELVIST — mindst ét produkt fejlede:\n\n`

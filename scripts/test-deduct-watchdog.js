@@ -50,7 +50,7 @@ const LOCATION_ID = db.prepare('SELECT id FROM locations ORDER BY id LIMIT 1').g
 
 let seq = 0;
 function mkBon({ status = 'LEVERET', date, deducted = 0, deductStatus = null,
-                 isOffer = 0, withRecipeLine = true }) {
+                 isOffer = 0, withRecipeLine = true, sawLeveret = false, otherStatusChange = null }) {
     const num = `T_WD_${++seq}`;
     const r = db.prepare(`
         INSERT INTO bons (bon_number, order_date, delivery_date, status_id,
@@ -63,6 +63,13 @@ function mkBon({ status = 'LEVERET', date, deducted = 0, deductStatus = null,
             INSERT INTO bon_lines (bon_id, product_name, quantity, grocy_recipe_id)
             VALUES (?, 'Testvare', 1, 42)
         `).run(id);
+    }
+    for (const v of [sawLeveret ? 'LEVERET' : null, otherStatusChange]) {
+        if (!v) continue;
+        db.prepare(`
+            INSERT INTO changelog (entity_type, entity_id, action, field_name, new_value)
+            VALUES ('bon', ?, 'status_change', 'status_id', ?)
+        `).run(id, v);
     }
     return { id, num };
 }
@@ -141,6 +148,32 @@ check(!nums(findUndeducted(db, 3)).includes(delvis.num),
 
 // Oprydning: temp-DB slettes uanset udfald.
 try { fs.unlinkSync(TEST_DB); } catch {}
+
+// ── Alarmen skal sige HVORFOR ───────────────────────────────────────────────
+//
+// Drifts-tilfældet 24.08: #B4202 og #B4207 stod som BETALT uden træk og uden
+// `inventory_deduct_status`. Alarmen kunne kun sige AT de ikke havde trukket.
+// De tre årsager kræver hver sin handling, og forskellen er om bonen
+// nogensinde passerede LEVERET — trækket udløses kun dér.
+console.log('\n\x1b[1mAlarmen skal kunne sige hvorfor\x1b[0m');
+
+// Bonen HAR statusskift i changelog — bare ikke til LEVERET. Uden dette
+// tilfælde består testen selvom man kun tjekker "findes der et statusskift",
+// og så beviser den ingenting. (Mutationen slap først igennem her.)
+const sprangForbi = mkBon({ status: 'BETALT', date: offsetISO(-1),
+                            sawLeveret: false, otherStatusChange: 'FAKTURERET' });
+const varLeveret  = mkBon({ status: 'BETALT', date: offsetISO(-1), sawLeveret: true });
+const fejlede     = mkBon({ status: 'LEVERET', date: offsetISO(-1), deductStatus: 'failed', sawLeveret: true });
+
+const fund = findUndeducted(db, 3);
+const find = (n) => fund.find(r => r.bon_number === n);
+
+check(find(sprangForbi.num)?.saw_leveret === 0,
+    'en bon der aldrig passerede LEVERET mærkes som sådan — trækket kunne ikke være kørt');
+check(find(varLeveret.num)?.saw_leveret === 1,
+    'en bon der HAR passeret LEVERET kendes fra den — dér skal serverloggen undersøges');
+check(find(fejlede.num)?.inventory_deduct_status === 'failed',
+    'og et forsøgt-men-fejlet træk bærer stadig sin status');
 
 console.log(`\n${'─'.repeat(50)}\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);
