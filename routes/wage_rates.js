@@ -37,11 +37,37 @@ const norm = (s) => (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' 
  *   "182,50"   (kun komma)     → decimalkomma: 182.50
  *   "182.50"   (kun punktum)   → engelsk decimal: 182.50
  *   "180"      (ingen)         → 180
+ *
+ * Og Smartplans egen løntype-tekst, så deres "Eksportér til Excel" kan
+ * indsættes direkte i stedet for at satserne tastes af i hånden:
+ *   "køkkenbordet assistent (145,-)"  → 145
+ *   "Senior køkkenansvarlig (200,-)"  → 200
+ *   "Vælg timeløn"                    → null (ingen sats valgt)
+ * Uden det stopper importen på Smartplans eget format, og så bliver den
+ * håndholdte liste ved med at drive fra hinanden — hvilket den ER: seks
+ * satser afveg og tre manglede, målt august 2026.
  * @returns {number|null} positiv sats, eller null hvis tom/ugyldig.
  */
 function parseRate(raw) {
     let s = (raw || '').trim();
     if (!s) return null;
+
+    // Løntype-tekst med etiket: tag tallet i PARENTESEN. Kun dér — et tal andre
+    // steder i strengen kan være hvad som helst ("assistent 2"), og et gæt på en
+    // timeløn er værre end at afvise rækken. (Sådan ser den ud hvis man kopierer
+    // fra Smartplans skærm frem for at eksportere.)
+    if (/[a-zA-ZæøåÆØÅ]/.test(s)) {
+        const m = s.match(/\(\s*([\d.,]+)\s*,?-?\s*\)/);
+        if (!m) return null;
+        s = m[1];
+    }
+
+    // Dansk regnskabsnotation for "hele kroner": 145,- betyder 145,00.
+    // Smartplans eksport skriver netop sådan. Uden dette blev "145,-" til
+    // "145.-" og dermed NaN, og HELE eksporten blev sprunget over uden en fejl:
+    // parseRate returnerer null, og null-rækker filtreres bare fra.
+    s = s.replace(/,\s*-\s*$/, '').replace(/\s*(kr\.?|dkk)\s*$/i, '').trim();
+
     if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); // dansk tusind+decimal
     else if (s.includes(',')) s = s.replace(',', '.');                                  // decimalkomma
     const n = Number(s);
@@ -54,28 +80,37 @@ function parseWageCsv(text) {
     const lines = String(text || '').replace(/^﻿/, '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (!lines.length) return { rows: [], error: 'Tom CSV.' };
 
-    const NAME = ['navn', 'name'];
-    const INIT = ['initialer', 'init', 'initials'];
-    const RATE = ['timeloen', 'timeløn', 'sats', 'hourly_rate', 'rate', 'loen', 'løn'];
-    const FROM = ['gyldig_fra', 'gyldigfra', 'valid_from', 'fra', 'dato'];
+    const NAME  = ['navn', 'name', 'medarbejder', 'fulde navn'];
+    // Smartplans eksport deler navnet i to kolonner. Uden dem finder parseren
+    // ingen navne-kolonne og afviser hele filen.
+    const FIRST = ['fornavn', 'first_name', 'firstname'];
+    const LAST  = ['efternavn', 'last_name', 'lastname'];
+    const INIT  = ['initialer', 'init', 'initials'];
+    // 'løntype' er Smartplans eget navn på sats-kolonnen.
+    const RATE  = ['timeloen', 'timeløn', 'sats', 'hourly_rate', 'rate', 'loen', 'løn', 'løntype', 'lontype', 'loentype'];
+    const FROM  = ['gyldig_fra', 'gyldigfra', 'valid_from', 'fra', 'dato'];
 
     // Find header-linjen + delimiter robust: Numbers/Excel-eksport lægger ofte en
     // titel-linje øverst, og dansk locale bruger ';'. Detektér delimiter FRA
     // header-linjen (ikke linje 0), og spring titel-/tomme linjer over.
-    let headerIdx = -1, delim = ',', iName = -1, iInit = -1, iRate = -1, iFrom = -1;
+    let headerIdx = -1, delim = ',';
+    let iName = -1, iFirst = -1, iLast = -1, iInit = -1, iRate = -1, iFrom = -1;
     for (let i = 0; i < lines.length; i++) {
         const d = lines[i].includes(';') ? ';' : ',';
         const h = splitCsvLine(lines[i], d).map(x => norm(x));
         const col = (names) => h.findIndex(x => names.includes(x));
-        const ri = col(RATE), ni = col(NAME), ii = col(INIT);
-        if (ri !== -1 && (ni !== -1 || ii !== -1)) {
-            headerIdx = i; delim = d; iRate = ri; iName = ni; iInit = ii; iFrom = col(FROM);
+        const ri = col(RATE), ni = col(NAME), fi = col(FIRST), li = col(LAST), ii = col(INIT);
+        // Navnet kan komme som ÉN kolonne, som fornavn+efternavn, eller som
+        // initialer. Ét af dem er nok — sammen med en sats.
+        if (ri !== -1 && (ni !== -1 || fi !== -1 || ii !== -1)) {
+            headerIdx = i; delim = d;
+            iRate = ri; iName = ni; iFirst = fi; iLast = li; iInit = ii; iFrom = col(FROM);
             break;
         }
     }
 
     if (headerIdx === -1) {
-        return { rows: [], error: 'CSV mangler kolonner. Kræver mindst (navn eller initialer) + timeloen.' };
+        return { rows: [], error: 'CSV mangler kolonner. Kræver en sats (timeloen/løntype) + enten navn, fornavn eller initialer.' };
     }
 
     const rows = [];
@@ -85,8 +120,16 @@ function parseWageCsv(text) {
         if (rate == null) continue;                 // ingen/ugyldig sats → spring over
         if (!Number.isFinite(rate) || rate <= 0) continue;
         const from = iFrom !== -1 && (c[iFrom] || '').trim() ? (c[iFrom] || '').trim() : null;
+        // Fornavn + efternavn sættes sammen i samme rækkefølge som rosteren
+        // bygger sit navn ([first_name, last_name].join(' ')), så navne-matchet
+        // rammer. En hel navne-kolonne vinder hvis begge dele findes.
+        const navn = iName !== -1 && (c[iName] || '').trim()
+            ? (c[iName] || '').trim()
+            : [iFirst !== -1 ? (c[iFirst] || '').trim() : '',
+               iLast  !== -1 ? (c[iLast]  || '').trim() : ''].filter(Boolean).join(' ');
+
         rows.push({
-            navn:      iName !== -1 ? (c[iName] || '').trim() : '',
+            navn,
             initialer: iInit !== -1 ? (c[iInit] || '').trim() : '',
             timeloen:  rate,
             gyldig_fra: from,
@@ -134,7 +177,7 @@ router.get('/', ALL, handle(async (req, res) => {
     const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since) ? req.query.since : ROSTER_SINCE;
     let roster = [];
     try {
-        roster = await smartplan.getLaborRoster(since);
+        roster = await smartplan.withCaller('wage_rates:liste', () => smartplan.getLaborRoster(since));
     } catch {
         roster = db.prepare(
             'SELECT DISTINCT smartplan_ref AS uuid, employee_name AS name FROM wage_rates'
@@ -215,9 +258,18 @@ router.post('/import', ALL, handle(async (req, res) => {
     if (error) return res.status(400).json({ error });
     if (!rows.length) return res.status(400).json({ error: 'Ingen rækker med en sats fundet i CSV.' });
 
-    const roster = await smartplan.getLaborRoster(ROSTER_SINCE);
-    const today = todayISO();  // dansk kalenderdato (UTC-slice ramte forkert dag nær midnat)
-    res.json(importWageRows(getDb(), rows, roster, today));
+    // Smartplans eksport har ingen dato-kolonne. Uden et valg ville hver import
+    // lave en NY sats gældende fra i dag — i stedet for at rette den forkerte
+    // der allerede står. Begge dele er legitime (en lønstigning kontra en
+    // rettelse), så det skal være kalderens valg, ikke en tavs default.
+    const fallbackFrom = (req.body?.gyldig_fra || '').trim();
+    if (fallbackFrom && !isDate(fallbackFrom)) {
+        return res.status(400).json({ error: `Ugyldig "gælder fra"-dato: ${fallbackFrom}` });
+    }
+
+    const roster = await smartplan.withCaller('wage_rates:import', () => smartplan.getLaborRoster(ROSTER_SINCE));
+    // dansk kalenderdato (UTC-slice ramte forkert dag nær midnat)
+    res.json(importWageRows(getDb(), rows, roster, fallbackFrom || todayISO()));
 }));
 
 module.exports = router;

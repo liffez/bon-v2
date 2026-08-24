@@ -130,6 +130,8 @@ async function computeEventLabor(event) {
                 if (row.location_class !== 'events') continue;
                 if (row.role_class === 'delivery') continue;
                 smartplanRows.push({ ...row, date: dato });
+                // (ledige vagter sorteres fra i tællingen nedenfor, men bliver i
+                // listen — et hul i bemandingen er værd at se på et event)
             }
         }
     } catch (err) {
@@ -137,10 +139,16 @@ async function computeEventLabor(event) {
         warnings.push(`Vagtplanen kunne ikke hentes (${err.message}) — timerne på pladsen er ikke talt med.`);
     }
 
-    const spHours = r2(smartplanRows.reduce((s, r) => s + (r.timer || 0), 0));
-    const spCost  = r2(smartplanRows.reduce((s, r) => s + (r.kostpris || 0), 0) * overhead);
-    const rateMissing = smartplanRows.filter(r => r.rate_missing);
-    const fallbackHours = smartplanRows.filter(r => r.used_fallback_hours);
+    // En ledig vagt er udlagt, men ikke taget af nogen. Ingen har arbejdet den,
+    // så den er hverken mandetimer eller løn — og der er ingen person at sætte
+    // en timeløn på, så den hører heller ikke i advarslen om manglende satser.
+    const manned = smartplanRows.filter(r => !r.is_open);
+    const openShifts = smartplanRows.filter(r => r.is_open);
+
+    const spHours = r2(manned.reduce((s, r) => s + (r.timer || 0), 0));
+    const spCost  = r2(manned.reduce((s, r) => s + (r.kostpris || 0), 0) * overhead);
+    const rateMissing = manned.filter(r => r.rate_missing);
+    const fallbackHours = manned.filter(r => r.used_fallback_hours);
 
     if (rateMissing.length) {
         const navne = [...new Set(rateMissing.map(r => r.employee_name || '?'))];
@@ -151,14 +159,43 @@ async function computeEventLabor(event) {
     if (fallbackHours.length) {
         warnings.push(`${fallbackHours.length} vagt(er) har endnu ikke registreret fremmøde — planlagte timer bruges indtil videre.`);
     }
+    if (openShifts.length) {
+        const t = r2(openShifts.reduce((s, r) => s + (r.timer || 0), 0));
+        warnings.push(
+            `${openShifts.length} ledig${openShifts.length === 1 ? ' vagt' : 'e vagter'} på ${t} timer er ikke taget af nogen — de tæller hverken som mandetimer eller løn.`
+        );
+    }
 
     sources.push({
         kind: 'onsite',
         label: 'På pladsen (vagtplan)',
         hours: spHours,
         cost: spCost,
-        rows: smartplanRows.length,
+        rows: manned.length,
+        open_shifts: openShifts.length,
         estimated: false,
+        // De enkelte vagter med, så tallet kan efterprøves: HVEM stod der, og
+        // hvornår. Et samlet timetal kan man ikke se en fejl i — er der en vagt
+        // for meget eller for lidt, opdages det kun ved at kigge på listen.
+        // Sorteret som en vagtplan læses: dag, så mødetid, så navn.
+        shifts: smartplanRows
+            .map(r => ({
+                date: r.date,
+                employee_name: r.employee_name,
+                jobtype_title: r.jobtype_title,
+                role_class: r.role_class,
+                is_open: !!r.is_open,
+                start: r.start, slut: r.slut,
+                hours: r2(r.timer || 0),
+                cost: r.kostpris != null ? r2(r.kostpris * overhead) : null,
+                rate_missing: !!r.rate_missing,
+                role_unmapped: !!r.role_unmapped,
+                // Fremmøde er endnu ikke registreret — timerne er de PLANLAGTE.
+                planned_only: !!r.used_fallback_hours,
+            }))
+            .sort((a, b) => (a.date || '').localeCompare(b.date || '')
+                || (a.start || '').localeCompare(b.start || '')
+                || (a.employee_name || '').localeCompare(b.employee_name || '', 'da')),
     });
 
     /* ── 2) Standard-timer: det vagtplanen ikke dækker ───────── */
@@ -168,15 +205,40 @@ async function computeEventLabor(event) {
         warnings.push('Ingen timeløn kendt — transport og op-/nedtagning står med timer men 0 kr. Sæt en sats i Settings.');
     }
 
+    // Rettelser for DETTE event. En række her erstatter sin egen standard-linje
+    // — den lægges ikke ved siden af. Standarden er et udgangspunkt, ikke et
+    // facit: kranen kan være i stykker, eller pladsen ligge fem minutter væk.
+    const overrides = new Map();
+    for (const o of db.prepare(
+        `SELECT kind, label, persons, hours, rate, note FROM event_labor WHERE event_id = ?`
+    ).all(event.id)) {
+        overrides.set(o.kind, o);
+    }
+
     const std = (kind, label, hoursPerPerson, note) => {
-        const hours = r2((hoursPerPerson || 0) * persons);
-        if (hours <= 0) return;
+        const ov = overrides.get(kind);
+        const pers  = ov ? Number(ov.persons) : persons;
+        const perOne = ov ? Number(ov.hours) : (hoursPerPerson || 0);
+        const hours = r2(perOne * pers);
+        // En rettelse til 0 timer er et gyldigt svar ("vi hentede ikke traileren
+        // denne gang"), så en RETTET linje vises også når den er nul — ellers
+        // ser det ud som om rettelsen ikke blev gemt.
+        if (hours <= 0 && !ov) return;
+
+        const rate = ov && ov.rate != null ? Number(ov.rate) : rateInfo.rate;
         sources.push({
-            kind, label, hours,
-            cost: rateInfo.rate == null ? 0 : r2(hours * rateInfo.rate * overhead),
-            persons,
+            kind,
+            label: (ov && ov.label) || label,
+            hours,
+            cost: rate == null ? 0 : r2(hours * rate * overhead),
+            persons: pers,
             estimated: true,
-            note,
+            overridden: !!ov,
+            note: ov ? (ov.note || `${perOne} t × ${pers} pers. (rettet)`) : note,
+            // Standarden med, så UI'et kan vise hvad der blev fraveget og
+            // tilbyde at gå tilbage til den.
+            default_hours: hoursPerPerson ?? null,
+            default_persons: persons,
         });
     };
 
@@ -190,13 +252,45 @@ async function computeEventLabor(event) {
     std('trailer',  'Trailer frem/tilbage', trailerH * 2, `2 × ${trailerH} t × ${persons} pers.`);
 
     const tp = await _transportHoursOneWay(db, event);
-    if (tp.hours == null) {
+    if (tp.hours == null && overrides.has('transport')) {
+        // Rettet i hånden — så er den manglende adresse ikke længere et problem.
+        std('transport', 'Transport frem/tilbage', 0, null);
+    } else if (tp.hours == null) {
         warnings.push('Køretiden kunne ikke udledes (eventet mangler en geokodet adresse) — transporten er IKKE talt med. Sæt en adresse på eventet, eller udfyld nødplanen i Settings.');
     } else {
         std('transport', 'Transport frem/tilbage', tp.hours * 2,
             tp.source === 'beregnet'
                 ? `2 × ${tp.hours} t kørsel × ${persons} pers.${tp.distance_m ? ` · ${Math.round(tp.distance_m / 1000)} km hver vej` : ''}`
                 : `2 × ${tp.hours} t (fast tal fra Settings) × ${persons} pers.`);
+    }
+
+    // Frie rækker: folk der slet ikke er i vagtplanen. Ikke en standard-linje,
+    // så de lægges TIL frem for at erstatte noget.
+    const manualRows = db.prepare(
+        `SELECT id, kind, label, persons, hours, rate, note FROM event_labor
+          WHERE event_id = ? AND kind IN ('onsite','other') ORDER BY id`
+    ).all(event.id);
+    for (const o of manualRows) {
+        const hours = r2(Number(o.hours) * Number(o.persons));
+        // rate NULL = brug eventets standardsats. 0 er en GYLDIG værdi og
+        // betyder ulønnet — derfor `!= null` og ikke en sandhedstest.
+        const rate = o.rate != null ? Number(o.rate) : rateInfo.rate;
+        sources.push({
+            id: o.id,
+            kind: o.kind,
+            label: o.label || 'Uden for vagtplanen',
+            hours,
+            cost: rate == null ? 0 : r2(hours * rate * overhead),
+            persons: Number(o.persons),
+            hours_per_person: r2(Number(o.hours)),
+            rate: o.rate != null ? Number(o.rate) : null,
+            // `manual`, ikke `estimated`: det er indtastede timer for rigtige
+            // mennesker, ikke et skøn fra en standardtid. Panelet viser dem i
+            // deres eget afsnit, så de to slags ikke blandes sammen.
+            manual: true,
+            rate_missing: rate == null,
+            note: o.note || null,
+        });
     }
 
     const hoursTotal = r2(sources.reduce((s, x) => s + x.hours, 0));
@@ -207,9 +301,12 @@ async function computeEventLabor(event) {
         cost_total: costTotal,
         sources,
         warnings,
-        // Det her er et ESTIMAT, ikke en lønopgørelse. Frivillige og folk uden
-        // for vagtplanen er ikke med, og HQ-prep hører til i driftsregnskabet.
+        // Et estimat, ikke en lønopgørelse: standardtiderne er skøn, og HQ-prep
+        // hører til i driftsregnskabet (§18.7). Frivillige og folk uden for
+        // vagtplanen KAN nu være med — men kun hvis nogen har tastet dem, så
+        // manual_rows siger om der faktisk er gjort noget ved det.
         is_estimate: true,
+        manual_rows: manualRows.length,
         rate: rateInfo.rate,
         rate_source: rateInfo.source,
         persons,

@@ -420,6 +420,7 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 /* Panelernes egne margener bærer afstanden — nulstil den første så der ikke
    opstår dobbelt luft lige under toggle-knappen. */
 .ev-plan-body > .ev-forecast { margin-top: 12px; }
+#ev-labor-panel .ev-plan-body { padding: 12px 14px 4px; }
 
 /* ── MENU & PRISER ───────────────────────────────────────────────────── */
 .ev-menu { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; margin: 16px 0 0; }
@@ -632,3 +633,80 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-btn-warn { background: #d99b1c; border-color: #c88c12; color: #fff; }
 .ev-btn-warn:hover { background: #c88c12; }
 .ev-ret-over { color: #b23c17; font-weight: 600; }
+
+/* ── Vagtplan bag lønnen (§18.3) ───────────────────────────────────────
+   Genbruger .ev-plan's foldbare ramme, så eventet ikke får to slags
+   sammenklappelige felter. Kun indholdet er nyt. */
+.ev-lp-section-head {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #999; margin: 14px 0 6px;
+}
+.ev-lp-section-head:first-child { margin-top: 0; }
+.ev-lp-day { margin-bottom: 10px; }
+.ev-lp-day-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 4px 0; border-bottom: 1px solid var(--color-border, #d7d1ca);
+    font-weight: 600; font-size: 13px;
+}
+.ev-lp-day-sum { font-weight: 400; color: #888; font-size: 12px; }
+.ev-lp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ev-lp-table td { padding: 5px 6px; border-bottom: 1px solid #f0ede9; vertical-align: baseline; }
+.ev-lp-table tr:last-child td { border-bottom: none; }
+.ev-lp-name { font-weight: 600; }
+.ev-lp-job, .ev-lp-time { color: #888; }
+/* Manglende timeløn dæmpes ikke — den skal kunne ses, for den gør lønnen
+   for lav uden at tallet i sig selv røber det. */
+.ev-lp-warn td { background: #fdf7e8; }
+.ev-lp-tag {
+    display: inline-block; font-size: 11px; padding: 1px 5px; border-radius: 3px;
+    background: #efece8; color: #7a6a55; white-space: nowrap;
+}
+.ev-lp-empty, .ev-lp-foot { font-size: 12px; color: #999; padding: 6px 0; }
+.ev-lp-foot { border-top: 1px solid #f0ede9; margin-top: 6px; }
+
+/* Frivillig: 0 kr er det RIGTIGE tal, ikke et hul. Grøn, ikke ravgul — den
+   ravgule er forbeholdt den ansatte hvis sats mangler, hvor tallet er for lavt. */
+.ev-lp-tag-ok { background: #e6f0e6; color: #3d6b3d; }
+
+/* Ledig vagt: udlagt, men ikke taget af nogen. Dæmpet og med streget timetal,
+   fordi den hverken er mandetimer eller løn — men den bliver i listen, for et
+   hul i bemandingen er værd at se når man planlægger. */
+.ev-lp-open td { opacity: 0.6; }
+.ev-lp-strike { text-decoration: line-through; }
+
+/* Rettede standard-timer. Felterne står på standarden indtil man ændrer noget,
+   så man kun retter det der faktisk afveg. */
+.ev-lp-edit { color: #888; white-space: nowrap; }
+.ev-lp-in {
+    width: 58px; padding: 2px 4px; font: inherit; font-size: 13px;
+    border: 1px solid var(--color-border, #d7d1ca); border-radius: 4px; text-align: right;
+}
+.ev-lp-in-p { width: 44px; }
+.ev-lp-in:focus { outline: 2px solid #d9c79b; outline-offset: -1px; }
+.ev-lp-edited td { background: #fbf7ef; }
+.ev-lp-tag-edit { background: #efe4cd; color: #7a5600; }
+.ev-lp-saved { margin-left: 6px; font-size: 12px; color: #2e7d32; }
+.ev-lp-saved.err { color: #b32020; }
+
+/* Delsum pr. afsnit. De to tal er interessante ved siden af hinanden: hvor
+   meget af lønnen er målt fremmøde, og hvor meget er et skøn? */
+.ev-lp-sum td {
+    border-top: 1px solid var(--color-border, #d7d1ca);
+    border-bottom: none;
+    padding-top: 7px;
+    font-weight: 600;
+}
+.ev-lp-sum .ev-lp-name { color: #6b5c42; }
+
+/* Folk uden for vagtplanen: tilføj-linje + fjern-knap. */
+.ev-lp-add {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 8px; font-size: 13px; color: #888;
+}
+.ev-lp-in-lbl { width: 200px; text-align: left; }
+.ev-lp-in-rate { width: auto; text-align: left; }
+.ev-lp-del {
+    margin-left: 8px; padding: 0 5px; border: none; background: none; cursor: pointer;
+    color: #b0a48e; font-size: 15px; line-height: 1;
+}
+.ev-lp-del:hover { color: #b23c17; }

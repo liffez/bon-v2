@@ -715,6 +715,13 @@ function _plRenderResult() {
 /* ══════════════════════════════════════════════════════════════
    VAGTPLAN
    ══════════════════════════════════════════════════════════════ */
+// Serverens fejlbesked indsættes som HTML — escape den.
+function _plEsc(t) {
+    return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+}
+
 function _plLoadStaff() {
     fetchSmartplanShifts(_plFrom, _plTo).then(function(shifts) {
         _plStaffData = shifts || [];
@@ -722,7 +729,16 @@ function _plLoadStaff() {
     }).catch(function(err) {
         console.warn('Smartplan ikke tilgængelig:', err);
         var el = document.getElementById('plVagtContent');
-        if (el) el.innerHTML = '<div class="pl-vagtplan-empty">Vagtplan ikke tilgængelig</div>';
+        if (!el) return;
+        // apiFetch bærer serverens egen forklaring i err.message — fx at
+        // Smartplan har afvist os, og hvornår vi må spørge igen. "Vagtplan ikke
+        // tilgængelig" er et gæt oven på et svar vi allerede har.
+        var msg = (err && err.message) || '';
+        var throttled = /429|begrænser|dagsgrænse|minut/i.test(msg);
+        el.innerHTML = '<div class="pl-vagtplan-empty">'
+            + (throttled ? '⏳ Vagtplanen kan ikke hentes lige nu' : 'Vagtplan ikke tilgængelig')
+            + (msg ? '<br><span style="opacity:.75;font-size:12px">' + _plEsc(msg) + '</span>' : '')
+            + '</div>';
     });
 }
 

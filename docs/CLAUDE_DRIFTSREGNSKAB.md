@@ -385,3 +385,149 @@ valid_to      TEXT      -- NULL = gældende; ellers så historiske regnskaber br
    definition af "enheder" — ellers divergerer systemets rate fra Leifs hoved-sanity-tjek.
 6. **`labor_day_snapshot`** + frys-trigger (§7) — vælg cron vs. lazy-frys ved første visning.
 7. Færdiggør view (`office/views/drift.js`) → Claude Code.
+
+## Smartplan: ét spejl, én synkronisering
+
+**Vagtplanen læses fra et lokalt spejl (`smartplan_shifts`). Læsning koster nul
+udgående kald.** Kun `services/smartplanSync.js` taler med Smartplan, på en fast
+rytme (`smartplan_sync_interval_min`, default 20 min) plus en manuel knap i
+Settings.
+
+### Hvorfor
+
+Før dette hentede seks kaldesteder hver for sig, med hver sin cache-nøgle, og
+**fire skærme hentede ved HVER SSE-hændelse** (køkken-dashboard, kalender,
+ugeoversigt, office-dashboard — tre uden debounce). Kald-frekvensen var altså en
+funktion af hvor mange skærme der stod tændt, ikke af noget nogen havde besluttet.
+
+Det gik godt så længe alt virkede, fordi cachen opslugte det. Men **cachen fyldes
+kun ved succes**. I det sekund Smartplan fejlede, forsvandt vores eneste bremse,
+og hvert eneste opslag blev til et rigtigt kald igen. Målt: samme opslag tre gange
+efter en fejl → 6 kald ud. Throttlingen holdt derefter sig selv i live.
+
+> **Reglen der skal huskes:** en cache der kun fyldes ved succes, er ikke en
+> rate-limiter. Den forsvinder præcis når man har brug for den.
+
+### Konsekvenser at kende
+
+- **Smartplan nede ⇒ "vagtplanen er fra kl. 14.05"**, ikke "der er ingen vagter".
+  En fejlet synkronisering rører ikke spejlet.
+- **Rå records gemmes**, ikke udpakkede felter. Normaliseringen sker ved læsning
+  med adapterens egne funktioner, så der ikke findes to udpakninger der kan skride
+  fra hinanden — og et skift af HQ-lokation i Settings slår igennem med det samme,
+  uden at synkronisere om.
+- **Aflyste vagter fjernes** ved hver synkronisering (kun inden for vinduet).
+- Spejlets alder vises i Settings. **Forældet er en oplysning, ikke en fejl** —
+  en vagtplan ændrer sig sjældent — men det skal stå der, ellers præsenterer vi
+  et gammelt svar som et friskt.
+
+### Afbryderen
+
+`settings.smartplan_enabled = 0` standser **alle** udgående kald. Håndhæves i
+porten (`_reserveSlot`), ikke kun på synk-vejen, så heller ikke løn-importen kan
+kalde ud. Læsning fra spejlet virker uændret. Uden den kan en blokering aldrig
+få lov at løbe ud i fred — noget vil altid prøve igen.
+
+### Hvem ringer?
+
+Hvert udgående kald bærer en afsender-etiket (`withCaller`, via
+`AsyncLocalStorage` — et modul-flag bliver nulstillet før de asynkrone kald
+lander, og to samtidige kaldere ville overskrive hinandens etiket). De seneste 40
+vises i Settings. Vi havde et forbrugstal uden afsender: 142 kald på 101 minutter,
+og ingen måde at se hvad der udløste dem.
+
+## Smartplan: grænser og fejl
+
+Smartplan tillader **60 kald i minuttet og 2000 i døgnet**. Det er minut-grænsen
+der binder: API'et paginerer, så ét logisk opslag ("hent et halvt år") er 10-45
+HTTP-kald afsendt i træk.
+
+**En afvisning forlænger sig selv.** Målt 23. august 2026 voksede `availableIn`
+fra 161 til 243 sekunder, fordi vi blev ved med at spørge mens vi var blokeret.
+En throttling kan derfor holde sig selv i live så længe nogen klikker rundt i
+driften — og hele tiden se ud som om vagtplanen er tom.
+
+Derfor tre ting i `services/smartplanAdapter.js`:
+
+1. **Glidende egen grænse** (50/min, 1900/døgn — margin ned til Smartplans).
+   Vi venter selv når vi nærmer os, i stedet for at blive afvist. Et burst under
+   grænsen forsinkes ikke, så normal brug mærker intet.
+2. **Karantæne efter 429 med eksponentiel backoff**: vi holder helt op med at
+   spørge til det tidspunkt Smartplan selv oplyser — og aldrig kortere end vores
+   egen trappe: **60 → 120 → 240 → 480 sek**, med loft ved 15 minutter. Et
+   vellykket kald nulstiller trappen.
+
+   > ⚠️ **Nulstillingen har to fælder, og begge kostede en udrulning.**
+   >
+   > **(a) Ikke pr. SIDE.**
+   > Lå den pr. side, nulstiller en delvist vellykket paginering — side 1 ok,
+   > side 2 afvist — trappen hver gang, og backoff'en står på 60 sekunder for
+   > evigt. Det skete i drift 23. august: afvisningerne steg (12 → 14 → …)
+   > mens ventetiden blev ved med at være ét minut. Dækket af en navngiven
+   > regressionstest.
+   >
+   > **(b) Ikke mens vi står i karantæne.** Ét opslag sender to kald parallelt
+   > (shifts + worklogs). Lykkes det ene og afvises det andet, lander succes'en
+   > typisk *sidst* — og visker den straf ud som afvisningen lige har sat.
+   > Trappen stod derfor på trin 1 uanset hvor mange afvisninger der kom.
+   > Reglen er `if (Date.now() >= _blockedUntil) _strikes = 0;` — er der
+   > karantæne, har noget andet lige fået 429, og så er dette ikke en succes vi
+   > kan frikende os på.
+   >
+   > Testen for (b) skal aflæse tallene **efter begge kald er landet** — som
+   > skærmen gør ved næste request. Aflæser den i samme millisekund, ser en
+   > ødelagt version rigtig ud.
+
+   Trappen er nødvendig fordi vi sender ét prøve-kald når karantænen udløber
+   (den eneste måde at opdage at blokeringen er hævet). Med fast ventetid bliver
+   det et evigt drop af prøve-kald der holder blokeringen åben — præcis det der
+   skete under fejlsøgningen 23. august.
+
+   Strikes tælles pr. **karantæne-periode**, ikke pr. kald: ét opslag sender to
+   kald parallelt (shifts + worklogs), så begge rammer 429 samtidig. Uden den
+   skelnen ville to mislykkede visninger give otte minutters karantæne.
+
+   Ventetiden vises som **klokkeslæt**, ikke "om N sekunder" — beskeden bliver
+   stående på skærmen, og et relativt tal er forkert to minutter senere. Settings
+   tæller ned og stopper så med en **"Prøv igen"-knap**.
+
+   > **Ingen automatisk genoptagelse — med vilje.** En side der prøver igen af
+   > sig selv, gør en glemt fane til en robot der banker på Smartplan hvert par
+   > minutter, også når ingen kigger. To åbne faner = to forsøg pr. periode, og
+   > hvert afvist forsøg forlænger blokeringen. Et forsøg skal være noget et
+   > menneske beder om. Intet andet i systemet henter fra Smartplan uden at
+   > nogen har klikket — ingen cron, ingen SSE-drevet genindlæsning.
+3. **Ingen tavse fejl.** Adapteren returnerer aldrig en tom liste for en fejl —
+   se `npm run test:smartplan-honesty`. Det er dét der gør at driftens og
+   eventets frys-værn kan fyre; ellers kan "0 kr løn" blive frosset permanent.
+
+Målt forbrug pr. handling (sidestørrelse 100):
+
+| Handling | Kald |
+|---|---|
+| Driftens dagsvisning | 6 |
+| Klik gennem 7 dage | 18 |
+| Ugevisning | 6 |
+| Kalender, én måned | 8 |
+| Importér løn-CSV | 20 |
+| Settings → Smartplan (180 dage) | 24 |
+
+> **Ukendt:** Smartplans sidestørrelse. Ved 100 er tallene ovenfor rigtige; ved
+> 50 fordobles de. Derfor er diagnose-vinduet 180 dage og ikke et helt år — et
+> år ved sidestørrelse 50 ville alene sprænge minut-grænsen, altså en garanteret
+> 429 ved hvert eneste Settings-besøg. Mål sidestørrelsen med ét kald når
+> Smartplan svarer igen (`results.length` på side 1) og justér hvis nødvendigt.
+
+Forbruget vises i **Settings → Integrationer → Smartplan**: kald i denne process,
+kald **i dag i alt** (mod 2000), afvisninger, og hvilket trin vi er på ventetrappen.
+
+**Dags-forbruget overlever en genstart** (gemmes i `settings.smartplan_daily_usage`).
+Uden det var dagsgrænsen dekoration: serveren genstartes ved hver udrulning, så
+tælleren stod reelt altid på nul, og kvoten kunne brændes uden at noget sagde fra.
+
+**Hvilken grænse ramte?** De to ser ens ud i Smartplans svar, men kræver modsatte
+handlinger — minut-grænsen går over af sig selv, dagskvoten først i morgen. Blev
+vi afvist efter kun en håndfuld kald i minuttet, kan det ikke være minut-grænsen.
+`likely_limit` (`minute` | `daily`) på status-svaret siger hvilken, og Settings
+skriver det ud. Det var netop den oplysning der manglede da driften stod med
+"8 kald på 5 minutter, stadig afvist".

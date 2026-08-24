@@ -392,6 +392,8 @@ async function _evLoadLabor(ev) {
             <div class="ev-pnl-lbl">Resultat på pladsen<span class="ev-pnl-sub">efter løn</span></div>
         </div>`;
 
+    _evRenderLaborPanel(ev, d);
+
     if (d.frozen) {
         // Et frosset tal skal kunne forklares og kunne rettes. Ellers står man
         // med et beløb ingen kan gøre noget ved, hvis eventet er blevet
@@ -579,6 +581,157 @@ async function _evBookReturn(ev, body, previousBookings, force = false) {
     }
 }
 
+// Vagtplanen bag lønnen. Et samlet timetal kan man ikke se en fejl i — er der
+// en vagt for meget eller for lidt, opdages det kun ved at kigge på listen.
+// Derfor: hvem stod på pladsen hvornår, og hvad transport/opsætning er regnet
+// som. Foldet sammen, fordi det er efterprøvning, ikke dagligt overblik.
+function _evRenderLaborPanel(ev, d) {
+    document.getElementById('ev-labor-panel')?.remove();
+    const onsite = (d.sources || []).find(s => s.kind === 'onsite');
+    const standard = (d.sources || []).filter(s => s.estimated && !s.manual && s.hours > 0);
+    const manual   = (d.sources || []).filter(s => s.manual);
+    const shifts = onsite?.shifts || [];
+    if (!shifts.length && !standard.length && !manual.length) return;
+
+    // Vagterne grupperes pr. dag — sådan læses en vagtplan.
+    const byDay = new Map();
+    for (const sh of shifts) {
+        if (!byDay.has(sh.date)) byDay.set(sh.date, []);
+        byDay.get(sh.date).push(sh);
+    }
+    const dayBlocks = [...byDay.entries()].map(([dato, rows]) => {
+        const dagTimer = rows.filter(r => !r.is_open).reduce((a, r) => a + (r.hours || 0), 0);
+        return `
+        <div class="ev-lp-day">
+            <div class="ev-lp-day-head">
+                <span>${_evEsc(_evFmtDate(dato))}</span>
+                <span class="ev-lp-day-sum">${_evFmtNum(dagTimer)} t · ${rows.filter(r => !r.is_open).length} ${rows.filter(r => !r.is_open).length === 1 ? 'vagt' : 'vagter'}${
+                    rows.some(r => r.is_open) ? ` · ${rows.filter(r => r.is_open).length} ledig` : ''}</span>
+            </div>
+            <table class="ev-lp-table">
+                <tbody>
+                ${rows.map(r => `
+                    <tr class="${r.is_open ? 'ev-lp-open' : (r.rate_missing ? 'ev-lp-warn' : '')}">
+                        <td class="ev-lp-name">${r.is_open
+                            ? '<em>Ledig vagt</em>'
+                            : _evEsc(r.employee_name || '—')}</td>
+                        <td class="ev-lp-job">${_evEsc(r.jobtype_title || '')}</td>
+                        <td class="ev-lp-time">${_evEsc(r.start || '')}–${_evEsc(r.slut || '')}${
+                            r.planned_only ? ' <span class="ev-lp-tag" title="Fremmøde er ikke registreret endnu — det er den planlagte vagt.">planlagt</span>' : ''}</td>
+                        <td class="ev-num">${r.is_open ? `<span class="ev-lp-strike">${_evFmtNum(r.hours)} t</span>` : `${_evFmtNum(r.hours)} t`}</td>
+                        <td class="ev-num">${r.is_open
+                            ? '<span class="ev-lp-tag" title="Ingen har taget vagten — hverken timer eller løn tælles med.">ikke taget</span>'
+                            : r.role_class === 'volunteer'
+                            ? '<span class="ev-lp-tag ev-lp-tag-ok" title="Frivillig — 0 kr er det rigtige tal. Timerne tæller med.">frivillig</span>'
+                            : r.cost == null
+                                ? '<span class="ev-lp-tag" title="Ingen timeløn registreret — timerne tæller, kronerne gør ikke.">ingen sats</span>'
+                                    : _evFmtKr(r.cost)}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+    }).join('');
+
+    // Standard-linjerne kan rettes for netop dette event. Feltet starter ALDRIG
+    // tomt — det står på standarden, så man kun retter det der afviger.
+    const sumRow = (label, hours, cost) => `
+        <tr class="ev-lp-sum">
+            <td class="ev-lp-name">${_evEsc(label)}</td>
+            <td colspan="2"></td>
+            <td class="ev-num">${_evFmtNum(hours)} t</td>
+            <td class="ev-num">${_evFmtKr(cost)}</td>
+        </tr>`;
+
+    const stdRows = standard.map(s => {
+        const editable = ['setup', 'teardown', 'trailer', 'transport'].includes(s.kind);
+        if (!editable) {
+            return `<tr>
+                <td class="ev-lp-name">${_evEsc(s.label)}</td>
+                <td class="ev-lp-job" colspan="2">${_evEsc(s.note || '')}</td>
+                <td class="ev-num">${_evFmtNum(s.hours)} t</td>
+                <td class="ev-num">${_evFmtKr(s.cost)}</td>
+            </tr>`;
+        }
+        const perOne = s.persons ? Math.round((s.hours / s.persons) * 100) / 100 : s.hours;
+        return `<tr data-lp-kind="${s.kind}"${s.overridden ? ' class="ev-lp-edited"' : ''}>
+            <td class="ev-lp-name">${_evEsc(s.label)}${
+                s.overridden ? ' <span class="ev-lp-tag ev-lp-tag-edit" title="Rettet for dette event — Settings-standarden er uændret.">rettet</span>' : ''}</td>
+            <td class="ev-lp-edit" colspan="2">
+                <input type="number" min="0" step="0.25" class="ev-lp-in" data-lp-f="hours" value="${perOne}"> t
+                ×
+                <input type="number" min="0" step="1" class="ev-lp-in ev-lp-in-p" data-lp-f="persons" value="${s.persons ?? 1}"> pers.
+                ${s.overridden ? '<button type="button" class="ev-link" data-lp-reset>standard</button>' : ''}
+                <span class="ev-lp-saved"></span>
+            </td>
+            <td class="ev-num">${_evFmtNum(s.hours)} t</td>
+            <td class="ev-num">${_evFmtKr(s.cost)}</td>
+        </tr>`;
+    }).join('');
+
+    const el = document.createElement('div');
+    el.id = 'ev-labor-panel';
+    el.className = 'ev-plan collapsed';
+    el.innerHTML = `
+        <button type="button" class="ev-plan-toggle" data-act="labor-panel-toggle" aria-expanded="false">
+            <span class="ev-plan-ico">👤</span>
+            <span class="ev-plan-title">Vagtplan &amp; opsætning</span>
+            <span class="ev-plan-preview">${shifts.filter(x => !x.is_open).length} ${shifts.filter(x => !x.is_open).length === 1 ? 'vagt' : 'vagter'} på pladsen · ${_evFmtNum(d.hours_total)} mandetimer i alt</span>
+            <span class="ev-plan-caret">▾</span>
+        </button>
+        <div class="ev-plan-body" id="ev-labor-panel-body" hidden>
+            ${shifts.length ? `<div class="ev-lp-section-head">På pladsen — fra vagtplanen</div>${dayBlocks}
+            <table class="ev-lp-table"><tbody>${
+                sumRow('I alt på pladsen', onsite?.hours || 0, onsite?.cost || 0)}</tbody></table>` : `
+            <div class="ev-lp-empty">Ingen vagter registreret på event-lokationen i perioden ${_evEsc(_evFmtDate(d.from))} – ${_evEsc(_evFmtDate(d.to))}.</div>`}
+            <div class="ev-lp-section-head">Uden for vagtplanen</div>
+            ${manual.length ? `<table class="ev-lp-table"><tbody>${manual.map(m => `
+                <tr data-lp-row="${m.id}">
+                    <td class="ev-lp-name">${_evEsc(m.label)}${
+                        m.rate === 0 ? ' <span class="ev-lp-tag ev-lp-tag-ok" title="Ulønnet — 0 kr er det rigtige tal.">frivillig</span>' : ''}</td>
+                    <td class="ev-lp-job" colspan="2">${_evEsc(m.note || '')}${
+                        m.rate_missing ? ' <span class="ev-lp-tag" title="Ingen sats kendt — timerne tæller, kronerne gør ikke.">ingen sats</span>' : ''}</td>
+                    <td class="ev-num">${_evFmtNum(m.hours_per_person)} t × ${m.persons % 1 === 0 ? m.persons : _evFmtNum(m.persons)} = ${_evFmtNum(m.hours)} t</td>
+                    <td class="ev-num">${_evFmtKr(m.cost)}
+                        <button type="button" class="ev-lp-del" data-lp-del="${m.id}" title="Fjern">×</button></td>
+                </tr>`).join('')}${sumRow('I alt uden for vagtplanen',
+                    manual.reduce((a, x) => a + (x.hours || 0), 0),
+                    manual.reduce((a, x) => a + (x.cost || 0), 0))}</tbody></table>`
+            : '<div class="ev-lp-empty">Ingen tilføjet. Frivillige og folk der ikke er oprettet i Smartplan skrives ind her — ellers står deres timer ingen steder.</div>'}
+            <div class="ev-lp-add">
+                <input class="ev-lp-in ev-lp-in-lbl" data-lp-new="label" placeholder="Hvem? (fx Frivillige lørdag)">
+                <input class="ev-lp-in" data-lp-new="hours" type="number" min="0" step="0.5" placeholder="timer"> t ×
+                <input class="ev-lp-in ev-lp-in-p" data-lp-new="persons" type="number" min="1" step="1" value="1"> pers.
+                <select class="ev-lp-in ev-lp-in-rate" data-lp-new="rate_mode">
+                    <option value="volunteer">frivillig (0 kr)</option>
+                    <option value="standard">standardsats</option>
+                    <option value="custom">egen sats…</option>
+                </select>
+                <input class="ev-lp-in" data-lp-new="rate" type="number" min="0" step="5" placeholder="kr/t" hidden>
+                <button type="button" class="ev-btn" data-lp-add>Tilføj</button>
+                <span class="ev-lp-saved" data-lp-msg></span>
+            </div>
+
+            ${stdRows ? `
+            <div class="ev-lp-section-head">Transport og opsætning — standardtider${d.persons ? ` · ${d.persons % 1 === 0 ? d.persons : _evFmtNum(d.persons)} ${d.persons === 1 ? 'person' : 'personer'}` : ''}</div>
+            <table class="ev-lp-table"><tbody>${stdRows}${sumRow(
+                'I alt transport og opsætning',
+                standard.reduce((a, x) => a + (x.hours || 0), 0),
+                standard.reduce((a, x) => a + (x.cost || 0), 0))}</tbody></table>
+            <div class="ev-lp-foot">Står ikke i vagtplanen. Tiderne sættes i Settings → Løn &amp; jobtyper, og kan rettes for dette event ovenfor.</div>` : ''}
+        </div>`;
+    document.querySelector('.ev-pnl-strip')?.insertAdjacentElement('afterend', el);
+    _evBindLaborEdit(ev, el);
+
+    const btn  = el.querySelector('[data-act="labor-panel-toggle"]');
+    const body = el.querySelector('#ev-labor-panel-body');
+    btn?.addEventListener('click', () => {
+        const nowCollapsed = !el.classList.contains('collapsed');
+        el.classList.toggle('collapsed', nowCollapsed);
+        body.hidden = nowCollapsed;
+        btn.setAttribute('aria-expanded', String(!nowCollapsed));
+    });
+}
+
 // Værnet fra §18.9: der er talt mere hjem end der er tilbage. Vi blokerer ikke
 // for evigt — men valget skal træffes bevidst og med konsekvensen synlig, for en
 // bogført retur af varer der aldrig blev trukket LÆGGER lager på der ikke findes.
@@ -614,6 +767,76 @@ function _evRenderReturnGuard(ev, body, data, previousBookings) {
         if (!confirm('Bogfører du alligevel, lægges der varer på HQ-lageret som aldrig blev trukket derfra. Lagertallet bliver for højt indtil næste optælling.\n\nFortsæt?')) return;
         el.remove();
         _evBookReturn(ev, body, previousBookings, true);
+    });
+}
+
+// Auto-gem på blur: samme mønster som forecast og event-noten. Ingen gem-knap
+// at glemme, og feltet står på standarden indtil man faktisk retter noget.
+function _evBindLaborEdit(ev, root) {
+    // Frie rækker: tilføj og fjern.
+    const msg = root.querySelector('[data-lp-msg]');
+    const val = (f) => root.querySelector(`[data-lp-new="${f}"]`)?.value ?? '';
+    const rateSel = root.querySelector('[data-lp-new="rate_mode"]');
+    const rateIn  = root.querySelector('[data-lp-new="rate"]');
+    // Sats-feltet vises kun ved "egen sats". Ellers ville et udfyldt felt og et
+    // valg om standardsats kunne modsige hinanden på skærmen.
+    rateSel?.addEventListener('change', () => { rateIn.hidden = rateSel.value !== 'custom'; });
+
+    root.querySelector('[data-lp-add]')?.addEventListener('click', async () => {
+        if (msg) { msg.textContent = 'Gemmer…'; msg.className = 'ev-lp-saved'; }
+        try {
+            await createEventLaborRow(ev.id, {
+                label: val('label'), hours: val('hours'), persons: val('persons'),
+                rate_mode: val('rate_mode'), rate: val('rate'),
+            });
+            _evRenderDetail(ev.id);
+        } catch (err) {
+            if (msg) { msg.textContent = err.message; msg.className = 'ev-lp-saved err'; }
+        }
+    });
+
+    root.querySelectorAll('[data-lp-del]').forEach(b => {
+        b.addEventListener('click', async () => {
+            const navn = b.closest('tr')?.querySelector('.ev-lp-name')?.textContent?.trim() || 'rækken';
+            if (!confirm(`Fjern "${navn}" fra eventets løn?`)) return;
+            try {
+                await deleteEventLaborRow(ev.id, b.dataset.lpDel);
+                _evRenderDetail(ev.id);
+            } catch (err) {
+                if (msg) { msg.textContent = err.message; msg.className = 'ev-lp-saved err'; }
+            }
+        });
+    });
+
+    root.querySelectorAll('tr[data-lp-kind]').forEach(tr => {
+        const kind = tr.dataset.lpKind;
+        const inputs = [...tr.querySelectorAll('.ev-lp-in')];
+        const saved = tr.querySelector('.ev-lp-saved');
+
+        const send = async (body) => {
+            if (saved) { saved.textContent = 'Gemmer…'; saved.className = 'ev-lp-saved'; }
+            try {
+                await saveEventLaborRow(ev.id, kind, body);
+                // Genindlæs: rettelsen ændrer både linjen, totalen og resultatet,
+                // og et halvt opdateret panel er værre end et der blinker.
+                _evRenderDetail(ev.id);
+            } catch (err) {
+                if (saved) { saved.textContent = 'Fejl: ' + err.message; saved.className = 'ev-lp-saved err'; }
+            }
+        };
+
+        inputs.forEach(inp => {
+            inp.addEventListener('blur', () => {
+                const hours   = tr.querySelector('[data-lp-f="hours"]').value;
+                const persons = tr.querySelector('[data-lp-f="persons"]').value;
+                if (hours === '' || persons === '') return;   // tomt felt = intet valg
+                send({ hours, persons });
+            });
+            // Enter gemmer uden at man skal klikke væk.
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+        });
+
+        tr.querySelector('[data-lp-reset]')?.addEventListener('click', () => send({ reset: true }));
     });
 }
 

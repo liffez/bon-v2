@@ -51,6 +51,9 @@
     display:grid; grid-template-columns:repeat(7, minmax(160px, 1fr));
     gap:10px; padding:0 16px;
   }
+  /* Fejlbeskeden er ikke en ugedag — den skal spænde over hele gridet, ellers
+     klemmes den ned i første kolonne og bliver ulæselig. */
+  .vp-error { grid-column:1 / -1; padding:12px 16px; line-height:1.5; max-width:70ch; }
   @media (max-width:1024px) { .week { grid-template-columns:repeat(3,1fr); } }
   @media (max-width:640px)  { .week { grid-template-columns:repeat(2,1fr); } }
 
@@ -231,7 +234,17 @@
 
         try {
             const r = await fetch(`/api/smartplan/shifts?from=${from}&to=${to}`);
-            if (!r.ok) throw new Error(`${r.status}`);
+            if (!r.ok) {
+                // Serveren sender den rigtige forklaring med i {error} — fx at
+                // Smartplan har afvist os, og hvornår vi må spørge igen. Kastede
+                // vi bare statuskoden videre, ville siden gætte ("Tjek
+                // server/Smartplan…") oven på et svar den allerede havde.
+                let msg = '';
+                try { msg = (await r.json()).error || ''; } catch { /* ikke JSON */ }
+                const e = new Error(msg || `Serveren svarede ${r.status}`);
+                e.status = r.status;
+                throw e;
+            }
             const shifts = await r.json();
 
             // Group by (location_class, date)
@@ -246,12 +259,39 @@
             renderSection(sections.events, monday, grouped.events);
         } catch (err) {
             console.error('[vagtplan]', err);
-            periodEl.textContent = 'Fejl: kunne ikke hente data';
+            // Uge-etiketten bliver stående: man skal stadig kunne se hvilken uge
+            // man kigger på, og kunne bladre videre.
+            const msg = err.message || 'Ukendt fejl';
+            // Throttling går over af sig selv; alt andet skal nogen kigge på.
+            // De to kræver modsatte handlinger, så de må ikke se ens ud.
+            const throttled = /429|begrænser|dagsgrænse|minut/i.test(msg);
+            const html = throttled
+                ? '<div class="no-shifts vp-error" style="color:#8a5a16">'
+                  + '⏳ Vagtplanen kan ikke hentes lige nu.<br>' + esc(msg)
+                  + '<br><span style="opacity:.75">Vagterne er der stadig — de vises igen når '
+                  + 'Smartplan svarer.</span> '
+                  + '<button type="button" class="vp-retry" style="margin-top:6px;padding:3px 10px;cursor:pointer">Prøv igen</button>'
+                  + '</div>'
+                : '<div class="no-shifts vp-error" style="color:#b32020">'
+                  + 'Kunne ikke hente vagtplanen.<br>' + esc(msg)
+                  + '<br><span style="opacity:.75">Tjek Smartplan-opsætningen under Settings → Integrationer.</span>'
+                  + '</div>';
             for (const key of ['hq', 'events']) {
-                const weekEl = sections[key].querySelector('[data-week]');
-                weekEl.innerHTML = '<div class="no-shifts" style="padding:8px 16px">Tjek server/Smartplan…</div>';
+                sections[key].querySelector('[data-week]').innerHTML = html;
             }
+            // Ét klik = ét forsøg. Siden prøver aldrig selv — et afvist forsøg
+            // forlænger ventetiden, og en glemt fane må ikke banke på af sig selv.
+            document.querySelectorAll('.vp-retry').forEach(b => b.addEventListener('click', () => {
+                document.querySelectorAll('.vp-retry').forEach(x => { x.disabled = true; x.textContent = 'Henter…'; });
+                loadWeek();
+            }));
         }
+    }
+
+    // Beskeden kommer fra serveren og indsættes som HTML — escape den.
+    function esc(t) {
+        return String(t == null ? '' : t).replace(/[&<>"']/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
     document.getElementById('prev').addEventListener('click', () => { weekOffset--; loadWeek(); });

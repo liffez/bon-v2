@@ -1479,6 +1479,13 @@ async function resolveEventLabor(event, userId) {
     return { ...labor, frozen: false, frozen_at: null };
 }
 
+// En rettelse af et input skal slå igennem, også på et lukket event. Uden det
+// ville tallet stå frosset på det gamle grundlag, og brugeren ville se sin egen
+// ændring blive ignoreret. Næste visning fryser igen — på det nye grundlag.
+function clearLaborSnapshot(db, eventId) {
+    db.prepare('DELETE FROM event_labor_snapshot WHERE event_id = ?').run(eventId);
+}
+
 // Resultat-felterne. Regnes ALTID live, også når lønnen er frosset: bogføres
 // et retur bagefter (§18.9), ændrer vareforbruget sig, og et frosset resultat
 // ville modsige /overview. Rækkefølgen af leddene findes kun her.
@@ -1543,6 +1550,162 @@ router.post('/:id/labor/refreeze', requireAuth('admin'), handle(async (req, res)
     const at = db.prepare('SELECT frozen_at FROM event_labor_snapshot WHERE event_id = ?').get(event.id);
     res.json({ ...labor, frozen: true, frozen_at: at?.frozen_at || null,
                ...eventResultFields(event, labor.cost_total) });
+}));
+
+// Ret en standard-linje for DETTE event (§18.6). Standarden i Settings er et
+// udgangspunkt; det ene event ligner sjældent det næste.
+//
+// Rolle-gated som resten af løn-delen. En rettelse RYDDER et evt. frosset
+// snapshot: brugeren har bevidst ændret et input, og et frosset tal der ikke
+// følger med ville være tavst forkert.
+router.put('/:id/labor/:kind', requireAuth('admin', 'office'), handle((req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const KINDS = ['setup', 'teardown', 'trailer', 'transport'];
+    const kind = String(req.params.kind || '');
+    if (!KINDS.includes(kind)) {
+        return res.status(400).json({ error: 'kind skal være en af: ' + KINDS.join(', ') });
+    }
+
+    const db = getDb();
+    const num = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+    const hours = num(req.body?.hours);
+    const persons = num(req.body?.persons);
+
+    // Slet rettelsen → tilbage til Settings-standarden. Egen vej frem for en
+    // magisk værdi, så "tilbage til standard" og "nul timer" ikke er det samme.
+    if (req.body?.reset === true) {
+        db.prepare('DELETE FROM event_labor WHERE event_id = ? AND kind = ?').run(event.id, kind);
+        clearLaborSnapshot(db, event.id);
+        logChange({ entityType: 'event', entityId: event.id, action: 'update',
+            fieldName: 'labor_' + kind, newValue: 'tilbage til standard',
+            userId: req.session?.userId });
+        broadcast('event_updated', { id: event.id });
+        return res.json({ ok: true, reset: true });
+    }
+
+    if (!Number.isFinite(hours) || hours < 0) {
+        return res.status(400).json({ error: 'hours skal være et tal ≥ 0' });
+    }
+    if (persons != null && (!Number.isFinite(persons) || persons < 0)) {
+        return res.status(400).json({ error: 'persons skal være et tal ≥ 0' });
+    }
+
+    db.prepare(`
+        INSERT INTO event_labor (event_id, kind, persons, hours, note, created_by_user_id)
+        VALUES (?,?,?,?,?,?)
+        -- Indekset er PARTIELT (kun standard-linjerne er unikke pr. event, så
+        -- 'onsite'/'other' kan have flere rækker). SQLite matcher kun et
+        -- partielt indeks som conflict-mål hvis WHERE gentages her.
+        ON CONFLICT(event_id, kind) WHERE kind IN ('setup','teardown','trailer','transport')
+        DO UPDATE SET
+            persons = excluded.persons, hours = excluded.hours,
+            note = excluded.note, updated_at = datetime('now')
+    `).run(event.id, kind, persons ?? 1, hours,
+           (req.body?.note || '').trim() || null, req.session?.userId ?? null);
+
+    clearLaborSnapshot(db, event.id);
+    logChange({ entityType: 'event', entityId: event.id, action: 'update',
+        fieldName: 'labor_' + kind, newValue: `${hours} t × ${persons ?? 1} pers.`,
+        notes: (req.body?.note || '').trim() || null,
+        userId: req.session?.userId });
+    broadcast('event_updated', { id: event.id });
+    res.json({ ok: true });
+}));
+
+// Folk uden for vagtplanen (§18.6): frivillige der ikke er oprettet i
+// Smartplan, en nabo der gav en hånd, jer selv når I ikke står på planen.
+// Samme tabel som rettelserne — det er samme slags række, ikke en ny model.
+//
+// SATSEN er tre-delt og skal være EKSPLICIT:
+//   rate = null → eventets standardsats
+//   rate = 0    → ulønnet (frivillig)
+//   rate > 0    → egen sats
+// 0 og "ikke sat" betyder modsatte ting — det ene er et svar, det andet er et
+// manglende svar — så de må ikke kunne forveksles. Samme skelnen som §18.3b.
+function parseLaborRow(body) {
+    const num = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+    const hours = num(body?.hours);
+    const persons = num(body?.persons) ?? 1;
+    const label = (body?.label || '').trim();
+
+    if (!label) return { error: 'Skriv hvem det er — ellers kan rækken ikke forsvares bagefter.' };
+    if (!Number.isFinite(hours) || hours <= 0) return { error: 'timer skal være et tal større end 0' };
+    if (!Number.isFinite(persons) || persons <= 0) return { error: 'personer skal være et tal større end 0' };
+
+    let rate = null;
+    if (body?.rate_mode === 'volunteer') rate = 0;
+    else if (body?.rate_mode === 'custom') {
+        rate = num(body?.rate);
+        if (!Number.isFinite(rate) || rate < 0) return { error: 'sats skal være et tal ≥ 0' };
+    }
+    return { row: { label, hours, persons, rate, note: (body?.note || '').trim() || null } };
+}
+
+router.post('/:id/labor/rows', requireAuth('admin', 'office'), handle((req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    const { row, error } = parseLaborRow(req.body);
+    if (error) return res.status(400).json({ error });
+
+    const db = getDb();
+    const id = db.prepare(`
+        INSERT INTO event_labor (event_id, kind, label, persons, hours, rate, note, created_by_user_id)
+        VALUES (?, 'onsite', ?, ?, ?, ?, ?, ?)
+    `).run(event.id, row.label, row.persons, row.hours, row.rate, row.note,
+           req.session?.userId ?? null).lastInsertRowid;
+
+    clearLaborSnapshot(db, event.id);
+    logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'labor_row',
+        newValue: `${row.label}: ${row.hours} t × ${row.persons} pers.`,
+        notes: row.rate === 0 ? 'frivillig (0 kr)' : row.note,
+        userId: req.session?.userId });
+    broadcast('event_updated', { id: event.id });
+    res.status(201).json({ ok: true, id });
+}));
+
+router.put('/:id/labor/rows/:rowId', requireAuth('admin', 'office'), handle((req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    const { row, error } = parseLaborRow(req.body);
+    if (error) return res.status(400).json({ error });
+
+    const db = getDb();
+    // event_id i WHERE, ikke kun id: en række hører til sit event, og et id fra
+    // et andet event må ikke kunne rettes herfra.
+    const r = db.prepare(`
+        UPDATE event_labor SET label = ?, persons = ?, hours = ?, rate = ?, note = ?,
+                               updated_at = datetime('now')
+         WHERE id = ? AND event_id = ? AND kind IN ('onsite','other')
+    `).run(row.label, row.persons, row.hours, row.rate, row.note,
+           req.params.rowId, event.id);
+    if (!r.changes) return res.status(404).json({ error: 'Række ikke fundet på dette event' });
+
+    clearLaborSnapshot(db, event.id);
+    logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'labor_row',
+        newValue: `${row.label}: ${row.hours} t × ${row.persons} pers.`,
+        userId: req.session?.userId });
+    broadcast('event_updated', { id: event.id });
+    res.json({ ok: true });
+}));
+
+router.delete('/:id/labor/rows/:rowId', requireAuth('admin', 'office'), handle((req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const db = getDb();
+    const before = db.prepare(
+        `SELECT label FROM event_labor WHERE id = ? AND event_id = ? AND kind IN ('onsite','other')`
+    ).get(req.params.rowId, event.id);
+    if (!before) return res.status(404).json({ error: 'Række ikke fundet på dette event' });
+
+    db.prepare('DELETE FROM event_labor WHERE id = ? AND event_id = ?').run(req.params.rowId, event.id);
+    clearLaborSnapshot(db, event.id);
+    logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'labor_row',
+        oldValue: before.label, newValue: 'slettet', userId: req.session?.userId });
+    broadcast('event_updated', { id: event.id });
+    res.json({ ok: true });
 }));
 
 // ─── RETUR / HJEMKOMST (§6) ────────────────────────────────────────────────

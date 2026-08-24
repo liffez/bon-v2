@@ -698,22 +698,27 @@ function fetchScheduleWeek(from, to, status) {
 
 /* ── DRIFTSREGNSKAB ──────────────────────────────────────── */
 
-function fetchDriftDay(date, mode) {
-    return apiFetch('/drift/day?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
+// location: 'all' (default) | 'hq' | 'events' — lokations-snittet (§18.7).
+// Udelades parameteren, svarer serveren som hidtil (hele driften), så enhver
+// eksisterende kalder er upåvirket.
+const _drLoc = (l) => (l && l !== 'all' ? '&location=' + encodeURIComponent(l) : '');
+
+function fetchDriftDay(date, mode, location) {
+    return apiFetch('/drift/day?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret') + _drLoc(location));
 }
-function fetchDriftDayBons(date, mode) {
-    return apiFetch('/drift/day/bons?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
+function fetchDriftDayBons(date, mode, location) {
+    return apiFetch('/drift/day/bons?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret') + _drLoc(location));
 }
 function refreezeDriftDay(date) {
     return apiFetch('/drift/refreeze', { method: 'POST', body: JSON.stringify({ date }) });
 }
-function fetchDriftPeriod(from, to, mode) {
-    return apiFetch('/drift/period?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
+function fetchDriftPeriod(from, to, mode, location) {
+    return apiFetch('/drift/period?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&mode=' + encodeURIComponent(mode || 'realiseret') + _drLoc(location));
 }
 // Produktions-sammentælling. Dagsvisningen kalder med from = to = dagen.
-function fetchDriftItems(from, to, mode) {
+function fetchDriftItems(from, to, mode, location) {
     return apiFetch('/drift/items?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to || from) +
-                    '&mode=' + encodeURIComponent(mode || 'realiseret'));
+                    '&mode=' + encodeURIComponent(mode || 'realiseret') + _drLoc(location));
 }
 
 /* ── CRM ──────────────────────────────────────────────────── */
@@ -1923,6 +1928,46 @@ function fetchRoleMap() {
     return apiFetch('/role-map');
 }
 
+/**
+ * Ret en standard-linje (transport/opsætning/nedtagning/trailer) for ét event.
+ * `{ reset: true }` fjerner rettelsen og går tilbage til Settings-standarden.
+ */
+function saveEventLaborRow(eventId, kind, body) {
+    return apiFetch(`/events/${eventId}/labor/${encodeURIComponent(kind)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+    });
+}
+
+/**
+ * Folk uden for vagtplanen på ét event.
+ * `rate_mode`: 'standard' | 'volunteer' (0 kr) | 'custom' (+ `rate`).
+ */
+function createEventLaborRow(eventId, body) {
+    return apiFetch(`/events/${eventId}/labor/rows`, { method: 'POST', body: JSON.stringify(body) });
+}
+function updateEventLaborRow(eventId, rowId, body) {
+    return apiFetch(`/events/${eventId}/labor/rows/${rowId}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+function deleteEventLaborRow(eventId, rowId) {
+    return apiFetch(`/events/${eventId}/labor/rows/${rowId}`, { method: 'DELETE' });
+}
+
+/** Smartplan: forbindelse + hvordan lokations-splittet lander (admin). */
+// Den ENESTE menneske-udløste vej til at hente fra Smartplan. Alt andet læser
+// det lokale spejl, så en åben skærm aldrig kan udløse trafik.
+function syncSmartplanNow() {
+    return apiFetch('/smartplan/sync', { method: 'POST' });
+}
+// Seneste udgående kald med afsender — så "hvem ringer?" kan besvares.
+function fetchSmartplanCalls() {
+    return apiFetch('/smartplan/calls');
+}
+
+function fetchSmartplanStatus() {
+    return apiFetch('/smartplan/status');
+}
+
 function updateRoleClass(jobtypeUuid, roleClass) {
     return apiFetch('/role-map/' + encodeURIComponent(jobtypeUuid), {
         method: 'PATCH',
@@ -1934,10 +1979,15 @@ function fetchWageRates() {
     return apiFetch('/wage-rates');
 }
 
-function importWageRates(csv) {
+/**
+ * @param {string} csv
+ * @param {string} [gyldigFra] 'YYYY-MM-DD' — bruges for rækker uden dato i
+ *        filen (Smartplans eksport har ingen dato-kolonne). Tom = i dag.
+ */
+function importWageRates(csv, gyldigFra) {
     return apiFetch('/wage-rates/import', {
         method: 'POST',
-        body: JSON.stringify({ csv }),
+        body: JSON.stringify({ csv, gyldig_fra: gyldigFra || '' }),
     });
 }
 

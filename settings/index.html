@@ -349,6 +349,7 @@
     <div class="st-nav-label st-group">Integrationer</div>
     <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
+    <button class="st-nav-item st-admin-only" data-section="smartplan">Smartplan</button>
     <button class="st-nav-item st-admin-only" data-section="whiteboard">Whiteboard</button>
     <button class="st-nav-item st-admin-only" data-section="zettle">Zettle (POS)</button>
     <button class="st-nav-item st-admin-only" data-section="event-order">Event-ordre</button>
@@ -591,6 +592,59 @@
     <div class="st-section st-admin-only" id="sec-mail">
       <h2>Mail</h2>
       <div id="mail-content"></div>
+    </div>
+
+    <!-- ════ SMARTPLAN ════ -->
+    <div class="st-section st-admin-only" id="sec-smartplan">
+      <h2>Smartplan</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Vagtplanen. Bon henter timer herfra til driftsregnskabet og til eventernes l&oslash;n
+        &mdash; Smartplan leverer kun timer, aldrig satser.
+      </p>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Vagtplanens spejl</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        Vagterne hentes p&aring; en fast rytme og gemmes lokalt. Alt i Bon l&aelig;ser
+        <em>spejlet</em> &mdash; at &aring;bne en skærm kan alts&aring; aldrig udl&oslash;se et kald til Smartplan.
+        Det var netop dét der br&aelig;ndte kvoten: seks steder hentede hver for sig, og fire
+        sk&aelig;rme hentede ved hver eneste bon-&aelig;ndring.
+      </p>
+      <div id="sp-status" style="font-size:13px;color:#888;margin-bottom:12px">Henter&hellip;</div>
+      <div style="margin-bottom:20px">
+        <button type="button" class="st-btn" id="sp-sync-btn">&#8635; Synkroniser nu</button>
+        <label style="margin-left:14px;font-size:13px">
+          <input type="checkbox" id="sp-enabled-cb"> Integrationen er sl&aring;et til
+        </label>
+        <span style="font-size:12px;color:#888;margin-left:6px">
+          &mdash; sl&aring; fra for at standse <em>alle</em> udg&aring;ende kald, fx mens en blokering l&oslash;ber ud
+        </span>
+        <div id="sp-sync-msg" style="font-size:12px;color:#888;margin-top:6px"></div>
+      </div>
+
+      <details style="margin-bottom:20px">
+        <summary style="cursor:pointer;font-size:13px;color:#888">Hvem har ringet? (seneste kald)</summary>
+        <div id="sp-calls" style="font-size:12px;color:#888;margin-top:8px">&hellip;</div>
+      </details>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Hvilken lokation er HQ?</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        Vagter p&aring; denne lokation regnes som <strong>HQ-drift</strong>. Alt andet regnes som
+        <strong>Festival &amp; Events</strong> og holdes ude af driftsregnskabets daglige tal.
+        Vagter helt uden lokation regnes som HQ, s&aring; de ikke forsvinder.
+        <br>
+        V&aelig;lg fra listen &mdash; skrives navnet forkert, ryger <em>alle</em> vagter over i
+        Festival &amp; Events, og det sker uden en fejlmeddelelse.
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <select class="st-input" id="sp-hq-select" style="min-width:260px" onchange="saveSmartplanHq(this.value)">
+          <option value="">Henter lokationer&hellip;</option>
+        </select>
+        <span id="sp-hq-saved" style="font-size:13px;color:#2e7d32"></span>
+      </div>
+      <p style="font-size:12px;color:#888;margin-bottom:24px">
+        Jobtyperne (Produktion / Levering / Frivillig / Andet) s&aelig;ttes under
+        <strong>Team &amp; l&oslash;n &rarr; L&oslash;n &amp; jobtyper</strong>, hvor de bruges.
+      </p>
     </div>
 
     <!-- ════ WHITEBOARD ════ -->
@@ -1549,10 +1603,16 @@
       <ul style="font-size:13px;color:#888;margin:0 0 14px;padding-left:20px;line-height:1.6">
         <li><strong>Produktion</strong> — tæller i kapacitetsrate + lønandel (kok, salg, assistent)</li>
         <li><strong>Levering</strong> — bud/chauffør, ekskluderet fra driften (hører til leveringsmodulet)</li>
+        <li><strong>Frivillig (ulønnet)</strong> — timerne tæller med, men koster 0 kr. Bruges når nulen er det RIGTIGE tal, så en frivillig ikke ligner en medarbejder hvis timeløn mangler</li>
         <li><strong>Andet</strong> — vises, men tæller hverken i rate eller lønandel</li>
       </ul>
       <p style="font-size:12px;color:#888;margin-bottom:8px">
         Nye jobtyper starter som <em>Andet</em> og markeres som ukategoriseret i driftsregnskabet, indtil du sætter dem her.
+      </p>
+      <p style="font-size:12px;color:#888;margin-bottom:8px">
+        <strong>Bemærk:</strong> Smartplan har intet API til at liste jobtyper — vi finder dem via vagterne.
+        En nyoprettet jobtype dukker derfor først op her når mindst &eacute;n vagt er planlagt p&aring; den.
+        Synkroniseringen kigger et &aring;r tilbage og 60 dage frem.
       </p>
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:28px">
         <thead>
@@ -1643,7 +1703,7 @@
         der uden at nogen taster noget.
         <strong>Køretiden udledes automatisk</strong> fra eventets adresse; nødplanen nedenfor
         bruges kun hvis adressen ikke kan geokodes.
-        Bemærk: <em>frivillige og folk uden for vagtplanen er ikke med endnu</em>, så tallet er
+        Bemærk: <em>frivillige og folk uden for vagtplanen skrives ind på selve eventet</em> — de tælles kun med hvis nogen har gjort det, så tallet er
         et estimat &mdash; det siges også på eventet.
       </p>
       <div style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px">
@@ -1714,7 +1774,19 @@
         <button type="button" class="st-btn-secondary" onclick="document.getElementById('wage-file').click()">📄 Vælg CSV-fil</button>
         <span id="wage-file-name" style="font-size:13px;color:#888"></span>
       </div>
-      <div style="font-size:12px;color:#888;margin-bottom:6px">Vælg din udfyldte fil — indholdet vises nedenfor til gennemsyn, så klik "Importér satser". (Eller indsæt teksten direkte.)</div>
+      <div style="font-size:12px;color:#888;margin-bottom:6px">Vælg din udfyldte fil — indholdet vises nedenfor til gennemsyn, så klik "Importér satser". (Eller indsæt teksten direkte.)
+        <br><strong>Genvej:</strong> Smartplan → Medarbejdere → <em>Eksportér til Excel</em> kan indsættes direkte.
+        Fornavn + Efternavn, kolonnen <em>Løntype</em> og formatet "145,-" læses som de er.
+        Smartplans API udleverer ikke satsen, så den vej er alternativet til at taste den af i hånden.
+        <br>Rækker uden løntype springes over — de får ikke en sats af sig selv.
+      </p>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        <label><strong>Gælder fra</strong>
+          <input class="st-input" id="wage-from" type="date" style="width:170px;margin-left:6px">
+        </label>
+        — bruges for rækker uden dato i filen. Smartplans eksport har ingen dato-kolonne.
+        Sæt den samme som de eksisterende satser for at <em>rette</em> dem; sæt en senere dato for en
+        <em>lønstigning</em>, så gamle regnskaber står urørt. Tom = i dag.</div>
       <textarea id="wage-csv" class="st-input" rows="8" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12px"
                 placeholder="navn,initialer,timeloen,gyldig_fra&#10;Anne Lindhardt,AL,182.50,2026-01-01"></textarea>
       <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
@@ -1826,6 +1898,8 @@ async function init() {
       if (sec === 'hastebestilling') coLoad();
       // Lazy load jobtype-kategorisering + løn
       if (sec === 'jobtype') { loadRoleMap(); loadWageRates(); }
+      // Lazy load Smartplan-status
+      if (sec === 'smartplan') loadSmartplanStatus();
       // Whiteboard-kobling (varemodtagelse → FVST-log)
       if (sec === 'whiteboard') loadWhiteboardSection();
       if (sec === 'zettle') loadZettleSection();
@@ -5077,7 +5151,251 @@ let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'
 
 /* ── Jobtype-kategorisering (smartplan_role_map — admin-only) ─ */
 // NB: må IKKE hedde ROLE_LABELS — kolliderer med bruger-rolle-labels (~1822) og brækker hele scriptet
-const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', other: 'Andet' };
+const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', volunteer: 'Frivillig (ulønnet)', other: 'Andet' };
+
+// Forbrug: ét logisk opslag kan være mange HTTP-kald (Smartplan paginerer),
+// og rammer man grænsen, ser vagtplanen tom ud. Uden tallet er "vi henter vel
+// ikke så tit" en fornemmelse frem for en oplysning. Vises i BEGGE tilstande —
+// det er netop når vi er afvist, at forbruget er værd at kunne se.
+// Spejlets alder i menneskeord. "Forældet" er ikke en fejl — vagtplanen ændrer
+// sig sjældent — men det skal STÅ der, ellers præsenterer vi et gammelt svar
+// som et friskt.
+function smartplanMirrorHtml(sy) {
+    if (!sy) return '';
+    var alder = sy.age_min == null ? 'aldrig'
+        : sy.age_min < 1 ? 'lige nu'
+        : sy.age_min < 60 ? sy.age_min + ' min siden'
+        : Math.round(sy.age_min / 60) + ' timer siden';
+    var farve = sy.age_min == null ? '#b32020' : (sy.stale ? '#b3771f' : '#2e7d32');
+    return '<div style="margin-bottom:6px">'
+        + '<strong>' + sy.rows_in_mirror + '</strong> vagter i spejlet · '
+        + 'sidst opdateret <span style="color:' + farve + '">' + esc(alder) + '</span>'
+        + (sy.window_from ? ' · vindue ' + esc(sy.window_from) + ' → ' + esc(sy.window_to) : '')
+        + ' · rytme hvert ' + (sy.interval_min || 20) + '. minut'
+        + '</div>'
+        + (sy.last_error
+            ? '<div style="color:#b3771f;margin-bottom:6px">Seneste fors&oslash;g fejlede: ' + esc(sy.last_error)
+              // Kun når der FAKTISK ligger noget i spejlet. Ellers ville vi henvise
+              // til vagter der ikke findes — og et tomt spejl skal netop siges højt.
+              + '<br><span style="opacity:.75">' + (sy.rows_in_mirror > 0
+                    ? 'Vagterne herunder er fra sidste vellykkede synkronisering.'
+                    : 'Spejlet er tomt — der er endnu ikke hentet vagter, s&aring; vagtplanen er tom overalt i Bon.')
+              + '</span></div>'
+            : '');
+}
+
+async function loadSmartplanCalls() {
+    var el = document.getElementById('sp-calls');
+    if (!el) return;
+    try {
+        var d = await fetchSmartplanCalls();
+        if (!d.calls || !d.calls.length) { el.textContent = 'Ingen kald siden serverstart.'; return; }
+        el.innerHTML = '<table style="border-collapse:collapse">' + d.calls.map(function (c) {
+            return '<tr><td style="padding:2px 10px 2px 0;color:#aaa">'
+                 + esc(String(c.at).replace('T', ' ').slice(11, 19)) + '</td>'
+                 + '<td style="padding:2px 10px 2px 0"><strong>' + esc(c.caller) + '</strong></td>'
+                 + '<td style="padding:2px 10px 2px 0">' + esc(c.path) + '</td>'
+                 + '<td style="padding:2px 0;color:' + (c.status === 200 ? '#2e7d32' : '#b3771f') + '">'
+                 + c.status + '</td></tr>';
+        }).join('') + '</table>';
+    } catch (e) {
+        el.textContent = 'Kunne ikke hente: ' + e.message;
+    }
+}
+
+function smartplanUsageHtml(u) {
+    u = u || {};
+    if (u.requests == null) return '';
+    return '<div style="margin-top:8px;color:#888;font-size:12px">'
+        + 'Forbrug siden serverstart (' + (u.uptime_min || 0) + ' min): '
+        + '<strong>' + u.requests + '</strong> kald til Smartplan'
+        + (u.pages ? ' (heraf ' + u.pages + ' ekstra sider fra paginering)' : '')
+        + (u.throttled
+            ? ' · <span style="color:#b3771f">' + u.throttled + ' afvist (429), senest '
+              + esc(String(u.lastThrottleAt || '').replace('T', ' ').slice(0, 16)) + ' UTC'
+              // Trin på backoff-trappen. Uden det kan man ikke se om ventetiden
+              // vokser som den skal — og det var netop dét der gik galt: den
+              // stod på 60 sekunder mens afvisningerne blev ved med at stige.
+              + (u.strikes ? ' · trin ' + u.strikes + ' på ventetrappen' : '') + '</span>'
+            : ' · ingen afvisninger')
+        // Dags-forbruget overlever genstart, så tallet er husets forbrug i dag
+        // og ikke bare denne process'. Det er dét der skal holdes op mod 2000.
+        + (u.requestsToday != null
+            ? '<br>I dag i alt: <strong>' + u.requestsToday + '</strong> af 2000 kald'
+              + ' (vores egen grænse: ' + (u.per_day_limit || 1900) + ')'
+            : '')
+        + '</div>';
+}
+
+// Nedtælling til karantænen er ovre. Uden den står der et sekundtal der var
+// rigtigt da siden blev hentet og aldrig ændrer sig — og så ser det ud som om
+// vi hænger fast for evigt.
+//
+// Den prøver med VILJE ikke selv igen. En side der genoptager af sig selv, gør
+// en glemt fane til en robot der banker på Smartplan hvert par minutter — også
+// når ingen kigger. Og hvert forsøg der bliver afvist, forlænger blokeringen.
+// To åbne faner ville være to forsøg pr. periode. Derfor: nedtællingen løber
+// ud, og så står der en knap. Et forsøg er noget et menneske beder om.
+var _spCountdown = null;
+function stopSmartplanCountdown() {
+    if (_spCountdown) { clearInterval(_spCountdown); _spCountdown = null; }
+}
+function startSmartplanCountdown(untilIso) {
+    stopSmartplanCountdown();
+    var wrap = document.getElementById('sp-countdown-wrap');
+    var el = document.getElementById('sp-countdown');
+    if (!wrap || !el || !untilIso) return;
+    var until = Date.parse(untilIso);
+    if (!until) return;
+    var done = function () {
+        stopSmartplanCountdown();
+        wrap.innerHTML = 'Ventetiden er gået. <button type="button" id="sp-retry" '
+            + 'style="padding:3px 10px;cursor:pointer">Prøv igen</button>';
+        var b = document.getElementById('sp-retry');
+        if (b) b.addEventListener('click', function () {
+            b.disabled = true; b.textContent = 'Spørger…';
+            loadSmartplanStatus();
+        });
+    };
+    var tick = function () {
+        var left = Math.ceil((until - Date.now()) / 1000);
+        if (left <= 0) { done(); return; }
+        var m = Math.floor(left / 60), sec = left % 60;
+        el.textContent = m > 0 ? (m + ' min ' + sec + ' sek') : (sec + ' sek');
+    };
+    tick();
+    _spCountdown = setInterval(tick, 1000);
+}
+
+async function loadSmartplanStatus() {
+    var box = document.getElementById('sp-status');
+    var sel = document.getElementById('sp-hq-select');
+    if (!box) return;
+    box.textContent = 'Henter…';
+    wireSmartplanControls();
+    loadSmartplanCalls();
+    try {
+        var d = await fetchSmartplanStatus();
+        var cb = document.getElementById('sp-enabled-cb');
+        if (cb) cb.checked = !!(d.sync && d.sync.enabled);
+        if (!d.connected) {
+            // To fejl der ligner hinanden og kræver stik modsatte handlinger:
+            // throttling går over af sig selv, manglende nøgler gør ikke. Rådet
+            // "tjek .env" på en 429 sender folk ud at rette noget der er i orden.
+            var throttled = /429|limit|minut/i.test(d.error || '');
+            var u2 = d.usage || {};
+            // Hvilken grænse ramte? De to ligner hinanden i beskeden fra
+            // Smartplan, men kræver modsatte handlinger: minut-grænsen går over
+            // af sig selv om lidt, dagskvoten først i morgen. Bliver vi afvist
+            // efter en håndfuld kald, er det ikke minut-grænsen.
+            var diag = '';
+            if (u2.likely_limit === 'daily') {
+                diag = '<br><span style="color:#8a5a16">Vi blev afvist efter kun <strong>'
+                    + (u2.rate_at_throttle || 0) + '</strong> kald i minuttet — så det er ikke '
+                    + 'minut-grænsen (60). Det ser ud til at <strong>dagskvoten på 2000 er brugt op</strong>, '
+                    + 'og så hjælper det ikke at vente et par minutter. Prøv igen i morgen.</span>';
+            } else if (u2.likely_limit === 'minute') {
+                diag = '<br><span style="color:#8a5a16">Vi blev afvist ved <strong>'
+                    + (u2.rate_at_throttle || 0) + '</strong> kald i minuttet — altså minut-grænsen. '
+                    + 'Den går over af sig selv.</span>';
+            }
+            var countdown = u2.blocked_until
+                ? '<br><span id="sp-countdown-wrap" style="color:#b3771f">Vi kan spørge igen om '
+                  + '<strong id="sp-countdown">…</strong> (kl. ' + esc(u2.blocked_until_clock || '') + '). '
+                  + 'Siden prøver ikke selv — hvert forsøg der afvises, forlænger ventetiden.</span>'
+                : '';
+            box.innerHTML = throttled
+                ? '<span style="color:#b3771f">⏳ Kan ikke spørge lige nu</span> — ' + esc(d.error)
+                  + diag + countdown
+                  + '<br><span style="color:#888">Vagterne er der stadig — indstillingen er ikke i stykker.</span>'
+                : '<span style="color:#b32020">✗ Ingen forbindelse</span> — ' + esc(d.error || 'ukendt fejl')
+                  + '<br><span style="color:#888">Tjek SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env på serveren.</span>';
+            // Ingen lokationer betyder her "vi fik ikke svar", ikke "der er
+            // ingen". Det gemte valg skal blive stående, ikke se ud som tabt.
+            box.innerHTML = smartplanMirrorHtml(d.sync) + box.innerHTML + smartplanUsageHtml(d.usage);
+            startSmartplanCountdown(u2.blocked_until);
+            sel.innerHTML = '<option value="' + esc(d.hq_location || '') + '" selected>'
+                          + esc(d.hq_location || '(ikke sat)') + ' — kunne ikke tjekkes lige nu</option>';
+            return;
+        }
+        // Rækkerne fortæller om indstillingen passer — uden dem er "HQ" bare et
+        // navn man skal huske stavemåden på.
+        var rows = d.locations.map(function (l) {
+            var tag = l.class === 'hq'
+                ? '<span style="background:#e6f0e6;color:#3d6b3d;padding:1px 6px;border-radius:3px">HQ-drift</span>'
+                : '<span style="background:#efece8;color:#7a6a55;padding:1px 6px;border-radius:3px">Festival &amp; Events</span>';
+            return '<tr><td style="padding:4px 8px 4px 0"><strong>' + esc(l.title) + '</strong></td>'
+                 + '<td style="padding:4px 8px">' + tag + '</td>'
+                 + '<td style="padding:4px 8px;color:#888">' + l.shifts + ' vagter · ' + l.people + ' personer</td></tr>';
+        }).join('');
+        var warn = d.hq_location_found ? '' :
+            '<div style="margin-top:10px;padding:8px 10px;border-left:4px solid #d99b1c;background:#fdf7e8;color:#5c4a2a">'
+            + '⚠ Indstillingen siger <strong>' + esc(d.hq_location) + '</strong>, men Smartplan har ingen lokation med det navn. '
+            + 'Alle vagter regnes derfor som Festival &amp; Events. Vælg den rigtige nedenfor.</div>';
+        box.innerHTML = smartplanMirrorHtml(d.sync)
+            + '<span style="color:#2e7d32">✓ Vagtplanen er hentet</span> — '
+            + d.shifts_total + ' vagter og ' + d.jobtypes + ' jobtyper i vinduet'
+            + '<table style="margin-top:10px;border-collapse:collapse">' + rows + '</table>' + warn
+            + smartplanUsageHtml(d.usage);
+        stopSmartplanCountdown();
+
+        sel.innerHTML = d.locations.map(function (l) {
+            return '<option value="' + esc(l.title) + '"' + (l.title === d.hq_location ? ' selected' : '') + '>'
+                 + esc(l.title) + '</option>';
+        }).join('');
+        // Står der et navn Smartplan ikke kender, skal det kunne SES i feltet —
+        // ikke skjules bag et vilkårligt valgt alternativ.
+        if (!d.hq_location_found) {
+            sel.insertAdjacentHTML('afterbegin',
+                '<option value="' + esc(d.hq_location) + '" selected>' + esc(d.hq_location) + ' (findes ikke i Smartplan)</option>');
+        }
+    } catch (e) {
+        box.innerHTML = '<span style="color:#b32020">Kunne ikke hente status:</span> ' + esc(e.message);
+    }
+}
+
+async function wireSmartplanControls() {
+    var btn = document.getElementById('sp-sync-btn');
+    var cb  = document.getElementById('sp-enabled-cb');
+    var msg = document.getElementById('sp-sync-msg');
+    if (btn && !btn._wired) {
+        btn._wired = true;
+        btn.addEventListener('click', async function () {
+            btn.disabled = true; msg.textContent = 'Henter fra Smartplan…';
+            try {
+                var r = await syncSmartplanNow();
+                msg.innerHTML = r.ok
+                    ? '<span style="color:#2e7d32">✓ ' + r.rows + ' vagter hentet</span>'
+                    : '<span style="color:#b3771f">' + esc(r.error || r.skipped || 'Kunne ikke hente') + '</span>';
+            } catch (e) {
+                // 503 fra ruten når synken ikke lykkedes — beskeden er i err.message.
+                msg.innerHTML = '<span style="color:#b3771f">' + esc(e.message) + '</span>';
+            }
+            btn.disabled = false;
+            loadSmartplanStatus();
+        });
+    }
+    if (cb && !cb._wired) {
+        cb._wired = true;
+        cb.addEventListener('change', async function () {
+            await saveSetting('smartplan_enabled', cb.checked ? '1' : '0');
+            msg.textContent = cb.checked
+                ? 'Integrationen er slået til.'
+                : 'Integrationen er slået fra — der sendes ingen kald. Vagtplanen læses fra spejlet.';
+            loadSmartplanStatus();
+        });
+    }
+}
+
+async function saveSmartplanHq(val) {
+    if (!val) return;
+    await saveSetting('smartplan_hq_location', val);
+    var s = document.getElementById('sp-hq-saved');
+    if (s) { s.textContent = '✓ gemt'; setTimeout(function () { s.textContent = ''; }, 2000); }
+    // Serveren rydder adapterens cache ved denne nøgle, så statussen herunder
+    // afspejler det nye valg med det samme.
+    loadSmartplanStatus();
+}
 
 async function loadRoleMap() {
     const tb = document.getElementById('rolemap-table');
@@ -5264,7 +5582,7 @@ async function doWageImport() {
     if (!csv) { out.style.color = '#c0392b'; out.textContent = 'Indsæt CSV først.'; return; }
     out.style.color = '#888'; out.textContent = 'Importerer…';
     try {
-        const r = await importWageRates(csv);
+        const r = await importWageRates(csv, document.getElementById('wage-from')?.value || '');
         let msg = '✓ ' + r.imported + ' sats(er) importeret.';
         if (r.unmatched && r.unmatched.length) msg += ' Ikke matchet: ' + r.unmatched.join(', ') + '.';
         if (r.invalid && r.invalid.length)     msg += ' Ugyldige: ' + r.invalid.join('; ') + '.';

@@ -12,6 +12,7 @@
  */
 
 const { getDb } = require('../db/database');
+const { offsetISO } = require('../db/helpers');
 
 /* ══════════════════════════════════════════════════════════════
    CACHE
@@ -38,6 +39,252 @@ function clearCache() {
    OAUTH2 TOKEN
    ══════════════════════════════════════════════════════════════ */
 
+// Hvor mange HTTP-kald bruger vi egentlig? Smartplan paginerer, så ÉT logisk
+// opslag ("hent et år") kan være mange kald — og rammer man grænsen, ser
+// vagtplanen tom ud. Uden et tal er "vi henter vel ikke så tit" en fornemmelse
+// og ikke en oplysning. Token- og konto-kald tælles med, ellers ville tallet
+// være pænere end virkeligheden. In-memory; nulstilles ved genstart.
+const _stats = { requests: 0, pages: 0, throttled: 0, lastThrottleAt: null, startedAt: Date.now(),
+                 today: null, requestsToday: 0, rateAtThrottle: 0 };
+
+/* ══════════════════════════════════════════════════════════════
+   RATE LIMIT — Smartplan tillader 60 kald/minut og 2000/dag
+   ══════════════════════════════════════════════════════════════
+   Minut-grænsen er den bindende. Smartplan paginerer, så ét logisk opslag
+   ("hent et år") kan være 20-80 kald afsendt i træk — altså et burst der alene
+   kan ramme loftet.
+
+   Og vigtigere: en afvisning forlænger sig selv. Målt 23. august gik
+   `availableIn` fra 161 til 243 sekunder, fordi vi blev ved med at spørge.
+   En throttling kan derfor holde sig selv i live så længe nogen klikker rundt,
+   og så ser vagtplanen tom ud i meget længere tid end nødvendigt.
+
+   Derfor to ting, som gør 429 strukturelt usandsynlig i stedet for blot ærlig:
+     1. Vi holder selv en glidende grænse under Smartplans, og venter når vi
+        nærmer os — i stedet for at blive afvist.
+     2. Bliver vi alligevel afvist, holder vi HELT op med at spørge indtil det
+        tidspunkt Smartplan selv oplyser. Ellers forlænger vi vores egen straf.
+*/
+const RATE_PER_MIN  = 50;      // margin ned til Smartplans 60
+const RATE_PER_DAY  = 1900;    // margin ned til 2000
+const MAX_WAIT_MS   = 15000;   // et request må vente så længe — ikke længere
+
+const _recent = [];            // tidsstempler for kald i det seneste minut
+let _blockedUntil = 0;         // sat af 429 (epoch ms)
+let _strikes = 0;              // 429'er i træk uden et vellykket kald imellem
+
+// Eksponentiel backoff. Når karantænen udløber, sender vi ét prøve-kald for at
+// se om vi må igen — det er den eneste måde at opdage at blokeringen er hævet.
+// Men får DET også 429, må vi vente længere næste gang: ellers holder en
+// stribe prøve-kald blokeringen åben i det uendelige. Ét minut, så to, fire …
+// op til et kvarter.
+const BACKOFF_BASE_MS = 60_000;
+const BACKOFF_MAX_MS  = 15 * 60_000;
+// Smartplans eget `availableIn` er åbenlyst ikke nok: prøver vi præcis når det
+// udløber, bliver vi afvist igen med det samme. Læg et minut oveni, så
+// prøve-kaldet har en chance for at lykkes i stedet for at forlænge straffen.
+const QUARANTINE_GRACE_MS = 60_000;
+function _backoffMs() {
+    return Math.min(BACKOFF_BASE_MS * Math.pow(2, Math.max(0, _strikes - 1)), BACKOFF_MAX_MS);
+}
+
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* ── Dags-forbruget skal overleve en genstart ────────────────
+   Tælleren lå kun i hukommelsen, og serveren genstartes ved hver udrulning.
+   Vores egen dagsgrænse (1900) har derfor aldrig kunnet fyre: den stod
+   reelt altid på nul. Dagskvoten på 2000 kunne brændes uden at noget sagde
+   fra — hvilket er præcis hvad der skete 23. august 2026.
+
+   Ét lille skriv pr. kald i `settings`. Kaldene er få (titals pr. handling),
+   og at kende sit eget forbrug er hele forudsætningen for at holde igen. */
+/* ── Afbryder ────────────────────────────────────────────────
+   Uden en måde at standse ALLE udgående kald kan en blokering aldrig få lov at
+   løbe ud i fred: et eller andet vil altid prøve igen. Læses ved hvert kald
+   (billigt SQLite-opslag, 30 s cache) så den virker med det samme. */
+function _integrationEnabled() {
+    const cached = getCached('_spEnabled');
+    if (cached != null) return cached;
+    let on = true;
+    try {
+        const row = getDb().prepare("SELECT value FROM settings WHERE key = 'smartplan_enabled'").get();
+        if (row && String(row.value).trim() === '0') on = false;
+    } catch { /* ingen DB → antag tændt */ }
+    setCached('_spEnabled', on, 30 * 1000);
+    return on;
+}
+
+/* ── Hvem ringer? ────────────────────────────────────────────
+   Vi havde et forbrugstal uden afsender: 142 kald på 101 minutter, og ingen
+   måde at se hvad der udløste dem. Hvert kald bærer nu en etiket, og de seneste
+   gemmes, så spørgsmålet kan besvares i stedet for gættes. */
+const _callers = [];           // seneste kald: { at, caller, path, status }
+const CALLERS_MAX = 40;
+
+// AsyncLocalStorage, ikke en modul-variabel. To grunde, og begge er ægte:
+//   · Et flag der gendannes i finally, er allerede nulstillet når de
+//     asynkrone kald lander — etiketten blev "ukendt" på hvert eneste kald.
+//   · To samtidige kaldere ville overskrive hinandens etiket, og så peger
+//     forbruget på den forkerte. Et forkert spor er værre end intet spor.
+// Indbygget i Node; ingen ny pakke.
+const { AsyncLocalStorage } = require('node:async_hooks');
+const _callerStore = new AsyncLocalStorage();
+
+function withCaller(name, fn) {
+    return _callerStore.run(name || 'ukendt', fn);
+}
+
+function _noteCall(path, status) {
+    _callers.unshift({
+        at: new Date().toISOString(),   // utc-ok: teknisk tidsstempel
+        caller: _callerStore.getStore() || 'ukendt',
+        path: String(path).split('?')[0],
+        status,
+    });
+    if (_callers.length > CALLERS_MAX) _callers.length = CALLERS_MAX;
+}
+
+const USAGE_KEY = 'smartplan_daily_usage';
+let _usageLoaded = false;
+
+function _loadUsage() {
+    if (_usageLoaded) return;
+    _usageLoaded = true;
+    try {
+        const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(USAGE_KEY);
+        if (row && row.value) {
+            const v = JSON.parse(row.value);
+            if (v && v.date === _dayKey() && Number.isFinite(v.count)) {
+                _stats.today = v.date;
+                _stats.requestsToday = v.count;
+            }
+        }
+    } catch { /* ingen DB endnu → start på nul, ikke et crash */ }
+}
+
+function _saveUsage() {
+    try {
+        getDb().prepare(`
+            INSERT INTO settings (key, value, description)
+            VALUES (?, ?, 'Smartplan-kald brugt i dag (overlever genstart)')
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+        `).run(USAGE_KEY, JSON.stringify({ date: _stats.today, count: _stats.requestsToday }));
+    } catch { /* et fejlet tælle-skriv må aldrig vælte et opslag */ }
+}
+
+/** HH:MM i dansk tid — til beskeder mennesker skal kunne handle på. */
+function _clock(ms) {
+    return new Intl.DateTimeFormat('da-DK', {
+        timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit',
+    }).format(new Date(ms));
+}
+
+/** Dansk kalenderdato — dags-kvoten følger døgnet, ikke UTC. */
+function _dayKey() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(new Date());
+}
+
+/**
+ * Reservér plads til ét HTTP-kald. Venter hvis vi er tæt på minut-grænsen,
+ * kaster hvis ventetiden er urimelig eller vi er i karantæne efter en 429.
+ */
+async function _reserveSlot() {
+    if (!_integrationEnabled()) {
+        throw new Error('Smartplan-integrationen er slået fra (Settings → Integrationer → Smartplan). '
+            + 'Der sendes ingen kald, og vagtplanen vises fra det lokale spejl.');
+    }
+    const now = Date.now();
+
+    if (now < _blockedUntil) {
+        // Klokkeslæt, ikke "om 46 sekunder". Beskeden bliver stående på skærmen
+        // og i loggen, og et relativt tal er forkert to minutter senere — så
+        // ville det se ud som om vi hænger fast for evigt.
+        throw new Error(`Smartplan afviste os for lidt siden (429) — vi venter med at spørge igen `
+            + `til kl. ${_clock(_blockedUntil)}, så blokeringen ikke forlænges. Timerne er der stadig.`);
+    }
+
+    _loadUsage();
+    const day = _dayKey();
+    if (_stats.today !== day) { _stats.today = day; _stats.requestsToday = 0; }
+    if (_stats.requestsToday >= RATE_PER_DAY) {
+        throw new Error(`Smartplans dagsgrænse er ved at være brugt (${_stats.requestsToday} kald i dag, `
+            + 'grænsen er 2000). Vi holder igen resten af døgnet.');
+    }
+
+    while (_recent.length && now - _recent[0] > 60_000) _recent.shift();
+    if (_recent.length >= RATE_PER_MIN) {
+        const waitMs = 60_000 - (now - _recent[0]) + 50;
+        if (waitMs > MAX_WAIT_MS) {
+            throw new Error(`For mange opslag på kort tid — Smartplan tillader 60 kald i minuttet. `
+                + `Prøv igen fra kl. ${_clock(now + waitMs)}.`);
+        }
+        await _sleep(waitMs);
+        return _reserveSlot();
+    }
+
+    _recent.push(Date.now());
+    _stats.requests++;
+    _stats.requestsToday++;
+    _saveUsage();
+}
+
+/** De seneste udgående kald med afsender — til diagnose i Settings. */
+function getRecentCalls(limit = 20) {
+    return _callers.slice(0, limit);
+}
+
+function getStats() {
+    return {
+        ...(_stats),
+        uptime_min: Math.round((Date.now() - _stats.startedAt) / 60000),
+        per_minute_limit: RATE_PER_MIN,
+        per_day_limit: RATE_PER_DAY,
+        in_last_minute: _recent.filter(t => Date.now() - t <= 60_000).length,
+        strikes: _strikes,
+        blocked_for_sec: _blockedUntil > Date.now() ? Math.ceil((_blockedUntil - Date.now()) / 1000) : 0,
+        // Absolut tidspunkt, så en visning kan tælle ned selv i stedet for at
+        // vise et tal der var rigtigt da svaret blev hentet.
+        blocked_until: _blockedUntil > Date.now() ? new Date(_blockedUntil).toISOString() : null,   // utc-ok: maskin-tidsstempel
+        blocked_until_clock: _blockedUntil > Date.now() ? _clock(_blockedUntil) : null,
+        // 'minute' | 'daily' | null — vores bedste bud på HVILKEN grænse der ramte.
+        likely_limit: _stats.throttled === 0 ? null
+            : (_stats.rateAtThrottle >= RATE_PER_MIN - 5 ? 'minute' : 'daily'),
+        rate_at_throttle: _stats.rateAtThrottle,
+    };
+}
+
+/* ── Hvornår er vi "igennem"? ────────────────────────────────
+   Straffen hørte oprindeligt til på HTTP-kaldet, og det var forkert i to
+   rækkefølger — begge set i drift:
+
+     1. Pr. SIDE: en delvis paginering (side 1 ok, side 2 afvist) nulstillede
+        trappen hver gang.
+     2. Pr. KALD: ét opslag sender to kald parallelt (shifts + worklogs).
+        Lykkedes det ene og afvistes det andet, nulstillede succes'en straffen —
+        uanset om den landede før eller efter afvisningen. Trappen stod på trin 1
+        efter 42 afvisninger.
+
+   Enheden for "vi kunne tale med Smartplan" er et OPSLAG, ikke et kald. Derfor
+   kalder de offentlige funktioner _noteSuccess() når de er helt igennem, og
+   kun dér ryddes trappen. En samtidig succes kan ikke længere frikende os. */
+function _noteSuccess() {
+    _strikes = 0;
+}
+
+/** Kun til test — lader som om karantænens ventetid er gået, uden at nulstille
+ *  backoff-trappen (det er netop trappen scenariet handler om). */
+function _expireQuarantine() { _blockedUntil = 0; }
+
+/** Kun til test — nulstiller grænse-tilstanden mellem scenarier. */
+function _resetRateLimit() {
+    _recent.length = 0;
+    _blockedUntil = 0;
+    _strikes = 0;
+    _stats.requests = 0; _stats.pages = 0; _stats.throttled = 0;
+    _stats.lastThrottleAt = null; _stats.today = null; _stats.requestsToday = 0;
+    _stats.rateAtThrottle = 0; _usageLoaded = true;   // test styrer selv tælleren
+}
+
 const TOKEN_URL = process.env.SMARTPLAN_TOKEN_URL || 'https://api.smartplanapp.io/o/token/';
 const API_BASE  = process.env.SMARTPLAN_API_BASE  || 'https://api.smartplanapp.io/v2';
 
@@ -61,6 +308,7 @@ async function getAccessToken() {
         client_secret: clientSecret,
     });
 
+    await _reserveSlot();   // token-kald tæller også med i Smartplans kvote
     const res = await fetch(TOKEN_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -94,6 +342,7 @@ async function getAccountUUID() {
     if (cached) return cached;
 
     const token = await getAccessToken();
+    await _reserveSlot();
     const res = await fetch(`${API_BASE}/accounts/`, {
         headers: {
             accept: 'application/json',
@@ -125,6 +374,11 @@ async function getAccountUUID() {
  * Authenticated fetch mod Smartplan API med pagination.
  * Returnerer alle results samlet.
  */
+// Hvor mange HTTP-kald bruger vi egentlig? Smartplan paginerer, så ÉT logisk
+// opslag ("hent et år") kan være mange kald — og rammer man grænsen, ser
+// vagtplanen tom ud. Uden et tal er "vi henter vel ikke så tit" en fornemmelse
+// og ikke en oplysning. Tælleren er in-memory og nulstilles ved genstart; det
+// er nok til at se et mønster over en arbejdsdag.
 async function smartplanFetch(path) {
     const token = await getAccessToken();
     const accountUUID = await getAccountUUID();
@@ -132,7 +386,11 @@ async function smartplanFetch(path) {
     let url = `${API_BASE}/accounts/${accountUUID}${path}`;
     const all = [];
 
+    let firstPage = true;
     while (url) {
+        await _reserveSlot();
+        if (!firstPage) _stats.pages++;   // ekstra sider ud over det første kald
+        firstPage = false;
         const res = await fetch(url, {
             headers: {
                 accept: 'application/json',
@@ -141,7 +399,41 @@ async function smartplanFetch(path) {
         });
 
         const text = await res.text();
+        _noteCall(path, res.status);
         if (!res.ok) {
+            // 429 er den ENESTE fejl der går over af sig selv, og den er den
+            // hyppigste: et år med vagter er mange sider, og hver side er et
+            // kald. Den skal derfor kunne læses uden at slå statuskoder op —
+            // ellers ser en midlertidig throttling ud som om vagtplanen er væk.
+            if (res.status === 429) {
+                _stats.throttled++;
+                _stats.lastThrottleAt = new Date().toISOString();   // utc-ok: teknisk tidsstempel
+                // Hvor travlt havde vi det, da vi blev afvist? Det er dét der
+                // skiller de to grænser ad: bliver vi afvist efter en håndfuld
+                // kald, er det ikke minut-grænsen på 60 — så er dagskvoten brugt.
+                // Uden tallet ligner de to hinanden, og man leder det forkerte sted.
+                _stats.rateAtThrottle = _recent.filter(t => Date.now() - t <= 60_000).length;
+                let wait = null;
+                try { wait = Math.ceil(Number(JSON.parse(text).availableIn)); } catch { /* ikke JSON */ }
+                // Karantæne: bliv væk til det tidspunkt Smartplan selv oplyser.
+                // Uden det forlænger vores egne forsøg blokeringen (målt: 161 → 243 s).
+                //
+                // Smartplans eget tal er autoritativt, men aldrig kortere end vores
+                // backoff: oplyser den 60 sekunder tre gange i træk, er 60 sekunder
+                // åbenlyst ikke nok, og så skal vi holde os længere væk.
+                // Tæl karantæne-PERIODER, ikke kald. Ét opslag sender to kald
+                // parallelt (shifts + worklogs), så begge rammer 429 samtidig —
+                // uden denne skelnen ville én mislykket visning tælle som to
+                // strikes, og to visninger ville give otte minutters karantæne.
+                const alreadyBlocked = Date.now() < _blockedUntil;
+                if (!alreadyBlocked) _strikes++;
+                const fromApi = (Number.isFinite(wait) && wait > 0) ? wait * 1000 : 0;
+                _blockedUntil = Math.max(_blockedUntil,
+                    Date.now() + Math.max(fromApi, _backoffMs()) + QUARANTINE_GRACE_MS);
+                throw new Error('Smartplan begrænser antallet af kald (429)'
+                    + (Number.isFinite(wait) && wait > 0 ? ` — prøv igen om ca. ${wait} sekunder.` : '.')
+                    + ' Timerne er der stadig; vi må bare ikke spørge lige nu.');
+            }
             throw new Error(`Smartplan API fejl ${res.status}: ${text.slice(0, 200)}`);
         }
 
@@ -153,6 +445,7 @@ async function smartplanFetch(path) {
         url = json.next || null;
     }
 
+    // BEMÆRK: straffen nulstilles IKKE her. Se _noteSuccess() nedenfor.
     return all;
 }
 
@@ -191,6 +484,23 @@ function _classifyLocation(locTitle, hqName) {
    ══════════════════════════════════════════════════════════════ */
 
 /**
+ * Er vagten LEDIG — udlagt, men endnu ikke taget af nogen?
+ *
+ * Ét sted, fordi tre normaliseringer og fire forbrugere skal være enige.
+ * Ugeoversigten udledte den selv på navnet, driften og eventets løn slet ikke,
+ * og så talte de samme vagt forskelligt: 7 timer der hverken var mandetimer
+ * eller løn, men trak kapacitetsraten ned og bad om en timeløn for en person
+ * der ikke findes.
+ *
+ * `owner.uuid` er signalet, ikke navnet: en vagt KAN have en ejer uden at
+ * for- og efternavn er udfyldt, og så er den taget — bare af en vi ikke kan
+ * navngive.
+ */
+function _isOpenShift(owner) {
+    return !(owner && owner.uuid);
+}
+
+/**
  * Normalisér et Smartplan shift-objekt til vores faste format.
  * Smartplan v2 returnerer: owner.first_name/last_name, jobtype.title, location.title
  */
@@ -206,6 +516,7 @@ function _normalizeShift(shift, hqName) {
         employee_id:   owner.uuid || null,
         employee_name: name,
         first_name:    owner.first_name || null,
+        is_open:       _isOpenShift(owner),
         date:          shift.display_date || (startDt ? startDt.slice(0, 10) : null),
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
@@ -231,6 +542,7 @@ function _normalizeWorklog(wl, hqName) {
         employee_id:   owner.uuid || null,
         employee_name: name,
         first_name:    owner.first_name || null,
+        is_open:       _isOpenShift(owner),
         date:          wl.display_date || (startDt ? startDt.slice(0, 10) : null),
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
@@ -261,20 +573,37 @@ function _extractTime(val) {
  * @param {string} toDate    YYYY-MM-DD
  * @returns {Promise<Array>} Normaliserede vagt-objekter
  */
-async function getShifts(fromDate, toDate) {
-    const cacheKey = `shifts_${fromDate}_${toDate}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    // Hent begge parallelt: shifts (fremtidige) + worklogs (arkiverede/fortidige)
+/**
+ * DET ENESTE sted der henter vagter over nettet. Alt andet læser fra spejlet
+ * (services/smartplanSync.js). Returnerer RÅ records, så normaliseringen kun
+ * findes ét sted — nemlig i læse-funktionerne herunder.
+ *
+ * Ingen .catch(() => []) — "vi kunne ikke spørge" og "der er ingen vagter" er
+ * to forskellige svar, og det ene af dem er et beløb på nul kroner der kan blive
+ * frosset ind i regnskabet.
+ *
+ * @returns {Promise<Array<{source:'shift'|'worklog', rec:object}>>}
+ */
+async function getRawWindow(fromDate, toDate) {
     const [shifts, worklogs] = await Promise.all([
-        smartplanFetch(
-            `/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`
-        ).catch(() => []),
-        smartplanFetch(
-            `/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`
-        ).catch(() => []),
+        smartplanFetch(`/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`),
+        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`),
     ]);
+    _noteSuccess();   // hele vinduet er i hus
+    return [
+        ...shifts.map(rec => ({ source: 'shift', rec })),
+        ...worklogs.map(rec => ({ source: 'worklog', rec })),
+    ];
+}
+
+/**
+ * Vagter for et interval — LÆST FRA SPEJLET. Koster nul udgående kald, så en
+ * SSE-drevet genindlæsning ikke længere kan udløse trafik mod Smartplan.
+ */
+function getShifts(fromDate, toDate) {
+    const raw = require('./smartplanSync').readWindow(fromDate, toDate);
+    const shifts   = raw.filter(r => r.source === 'shift').map(r => r.rec);
+    const worklogs = raw.filter(r => r.source === 'worklog').map(r => r.rec);
 
     const hqName = _hqLocationName();
     const normalizedShifts = shifts.map(s => _normalizeShift(s, hqName));
@@ -296,7 +625,6 @@ async function getShifts(fromDate, toDate) {
         if (!seen.has(key)) all.push(w);
     }
 
-    setCached(cacheKey, all);
     return all;
 }
 
@@ -311,15 +639,9 @@ async function getEmployees() {
     const cached = getCached(cacheKey);
     if (cached) return cached;
 
-    const now = new Date();
-    const from = new Date(now);
-    from.setDate(from.getDate() - 14);
-    const to = new Date(now);
-    to.setDate(to.getDate() + 14);
-    const fromStr = from.toISOString().slice(0, 10);
-    const toStr = to.toISOString().slice(0, 10);
-
-    const shifts = await getShifts(fromStr, toStr);
+    // offsetISO, ikke toISOString: den sidste giver UTC-datoen, som mellem
+    // midnat og kl. 02 dansk sommertid peger på i går (#133).
+    const shifts = getShifts(offsetISO(-14), offsetISO(14));   // spejlet — nul kald
 
     const seen = new Map();
     for (const s of shifts) {
@@ -378,6 +700,7 @@ function _normalizeLabor(rec, isShift, hqName) {
     return {
         employee_id:       owner.uuid || null,
         employee_name:     [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null,
+        is_open:           _isOpenShift(owner),
         jobtype_uuid:      jt.uuid || null,
         jobtype_title:     jt.title || '',
         date:              rec.display_date || (startDt ? startDt.slice(0, 10) : null),
@@ -395,25 +718,20 @@ function _normalizeLabor(rec, isShift, hqName) {
 }
 
 /**
- * Hent berigede labor-rækker for et datointerval.
+ * Berigede labor-rækker for et datointerval — LÆST FRA SPEJLET, nul udgående kald.
+ *
  * Worklogs (fortid) bærer både planned_* og attendance_*; shifts (fremtid)
  * kun planned_*. Worklogs har forrang ved overlap (de er rigere — har faktisk
  * fremmøde), modsat getShifts() der prioriterer shifts.
- * @returns {Promise<Array>} labor-rækker (se _normalizeLabor)
+ *
+ * Synkron: der er intet netværk at vente på. Kalderne må gerne blive ved med
+ * at `await`e den — en almindelig værdi er en gyldig await.
+ * @returns {Array} labor-rækker (se _normalizeLabor)
  */
-async function getLaborRows(fromDate, toDate) {
-    const cacheKey = `labor_${fromDate}_${toDate}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    const [shifts, worklogs] = await Promise.all([
-        smartplanFetch(
-            `/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`
-        ).catch(() => []),
-        smartplanFetch(
-            `/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`
-        ).catch(() => []),
-    ]);
+function getLaborRows(fromDate, toDate) {
+    const raw = require('./smartplanSync').readWindow(fromDate, toDate);
+    const shifts   = raw.filter(r => r.source === 'shift').map(r => r.rec);
+    const worklogs = raw.filter(r => r.source === 'worklog').map(r => r.rec);
 
     const hqName = _hqLocationName();
     const rows = [];
@@ -432,7 +750,6 @@ async function getLaborRows(fromDate, toDate) {
         if (!seen.has(keyOf(s))) rows.push(s);
     }
 
-    setCached(cacheKey, rows);
     return rows;
 }
 
@@ -447,7 +764,7 @@ async function getMembers() {
     const cached = getCached('members_full');
     if (cached) return cached;
 
-    const rows = await smartplanFetch('/members/').catch(() => []);
+    const rows = await smartplanFetch('/members/');
     const members = rows.map(m => ({
         uuid:       m.uuid || null,
         first_name: m.first_name || null,
@@ -458,6 +775,7 @@ async function getMembers() {
         user_type:  m.user_type || null,
     }));
 
+    _noteSuccess();   // hele opslaget er i hus
     setCached('members_full', members, 60 * 60 * 1000); // 1 time
     return members;
 }
@@ -471,14 +789,19 @@ async function getMembers() {
  * @returns {Promise<Array>} [{ uuid, name, first_name, last_name, initials, email, active, last_shift }]
  */
 async function getLaborRoster(sinceDate) {
-    const today = new Date().toISOString().slice(0, 10);
+    // Dansk kalenderdato, ikke UTC. `today` er ikke kun en cache-nøgle — den er
+    // også `end_date` på worklog-forespørgslen, så mellem midnat og kl. 02 dansk
+    // sommertid ville UTC-datoen udelade dagens vagter fra rosteren. (Fanget af
+    // pre-commit-hooken; linjen er fra #117 og ældre end dette arbejde.)
+    const { todayISO } = require('../db/helpers');
+    const today = todayISO();
     const cacheKey = `roster_${sinceDate}_${today}`;
     const cached = getCached(cacheKey);
     if (cached) return cached;
 
     const [members, worklogs] = await Promise.all([
-        smartplanFetch('/members/').catch(() => []),
-        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(sinceDate)}&end_date=${encodeURIComponent(today)}`).catch(() => []),
+        smartplanFetch('/members/'),
+        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(sinceDate)}&end_date=${encodeURIComponent(today)}`),
     ]);
 
     const map = new Map();
@@ -519,16 +842,27 @@ async function getLaborRoster(sinceDate) {
     const roster = [...map.values()].sort((a, b) =>
         (Number(b.active) - Number(a.active)) || (a.name || '').localeCompare(b.name || '', 'da'));
 
+    _noteSuccess();   // hele opslaget er i hus
     setCached(cacheKey, roster, 60 * 60 * 1000); // 1 time
     return roster;
 }
 
 /* ══════════════════════════════════════════════════════════════ */
 
+// Eksponeret til test: reglen er ét udtryk, men fire forbrugere afhænger af
+// den, og en ændring her flytter både kapacitetsrater og lønsummer.
 module.exports = {
+    _isOpenShift,
     getShifts,
     getEmployees,
     getLaborRows,
+    getRawWindow,     // KUN smartplanSync må kalde den — det er nettet
+    getStats,
+    getRecentCalls,
+    withCaller,
+    isEnabled: _integrationEnabled,
+    _resetRateLimit,
+    _expireQuarantine,
     getMembers,
     getLaborRoster,
     clearCache,
