@@ -193,7 +193,18 @@ test('bonnen bærer event_id, så lager-gaten holder prep-bonnens træk i fred',
     await sync(db, RAW_REAL);
     const bon = bonOf(db, '2026-08-14');
     assert.equal(bon.event_id, 1, 'uden event_id ville et salg trække fra HQ');
-    assert.equal(bon.inventory_deducted, 0, 'POS-synken trækker aldrig selv lager');
+
+    // Flaget er en idempotens-vagt, ikke en kvittering (#359). På en POS-bon
+    // betyder 1 "må ALDRIG forsøges" — prep-bonnen ejer trækket
+    // (CLAUDE_EVENT.md §5), præcis som event-gaten ville have sat det.
+    //
+    // Stod flaget på 0, ville bonen ikke kunne skelnes fra en hvor trækket
+    // var gået galt, og vagthunden meldte den hver nat (#B4202, #B4207 24.08).
+    // Gaten i autoConsumeBonInventory kunne ikke nå den: den kaldes kun ved
+    // LEVERET, og en POS-bon oprettes direkte som BETALT.
+    assert.equal(bon.inventory_deducted, 1, 'markeret som "trækkes ikke" — ikke som "endnu ikke trukket"');
+    assert.equal(bon.inventory_deduct_status, 'event_prep_owns_stock',
+        'og bonen bærer selv begrundelsen, så en kontrol ikke skal udlede den');
     assert.equal(db.prepare("SELECT price_category FROM bons WHERE id = ?").get(bon.id).price_category, 'festival');
 });
 
