@@ -212,7 +212,7 @@ async function main() {
                     ? `⚠ Lagertræk fejlede på ${rows.length} bon(s)`
                     : `⚠ Lagertræk kun delvist gennemført på ${partial.length} bon(s)`;
 
-            await sendMail({ to, subject, bodyText: body, smtpPrefix: 'smtp_kontakt' });
+            await sendMail({ to, subject, text: body, smtpPrefix: 'smtp_kontakt' });
             logLine(`[deduct-check] alarm-mail sendt til ${to}.`);
         } catch (err) {
             logLine(`[deduct-check] kunne IKKE sende alarm-mail: ${err.message} (log + exit-kode gælder stadig).`);
