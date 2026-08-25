@@ -432,7 +432,8 @@ function _rdShowDesigner() {
                 '<span class="rd-portions-label">M&#230;ngde:</span>' +
                 '<div class="rd-portions-ctrl">' +
                     '<button class="rd-portions-btn" id="rdPortMinus">&minus;</button>' +
-                    '<span class="rd-portions-num" id="rdPortNum">' + _rdDs.currentPortions + '</span>' +
+                    '<input type="text" class="rd-portions-num" id="rdPortNum" ' +
+                        'inputmode="decimal" aria-label="M&#230;ngde" value="' + _rdFmtPortions(_rdDs.currentPortions) + '">' +
                     '<button class="rd-portions-btn" id="rdPortPlus">+</button>' +
                 '</div>' +
                 '<span class="rd-portions-unit" id="rdPortUnit">' + esc(_rdDs.recipeUnit) + '</span>' +
@@ -550,6 +551,17 @@ function _rdBindDesignerEvents() {
     document.getElementById('rdPortMinus').addEventListener('click', function() { _rdAdjustPortions(-1); });
     document.getElementById('rdPortPlus').addEventListener('click', function() { _rdAdjustPortions(1); });
 
+    var rdPortInput = document.getElementById('rdPortNum');
+    if (rdPortInput) {
+        rdPortInput.addEventListener('change', function() { _rdSetPortions(_rdNum(this.value)); });
+        // Markér ved fokus: man vil erstatte tallet, ikke sætte markøren midt i det.
+        rdPortInput.addEventListener('focus', function() { this.select(); });
+        // Enter lukker taltastaturet på tablet i stedet for at lade det stå åbent.
+        rdPortInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+        });
+    }
+
     // Summary toggle chips
     var toggleRow = document.querySelector('.rd-summary-toggle-row');
     if (toggleRow) {
@@ -652,18 +664,41 @@ function _rdBindDesignerEvents() {
 // PORTIONS
 // ════════════════════════════════════��═══════════════════════
 
-function _rdAdjustPortions(delta) {
-    _rdDs.currentPortions = Math.max(1, _rdDs.currentPortions + delta);
+// Dansk komma skal virke — taltastaturet på en iPad giver ',' og ikke '.'.
+// Samme parsing som opskrift-vieweren og produktionsbatchen.
+function _rdNum(v) {
+    var s = String(v == null ? '' : v).trim().replace(',', '.');
+    var n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+}
+
+function _rdFmtPortions(n) {
+    return String(Math.round((n + Number.EPSILON) * 100) / 100).replace('.', ',');
+}
+
+// Ét sted der sætter mængden — både knapperne og feltet går igennem her.
+// Bemærk: kun VISNINGEN skaleres. `baseServings` (det der gemmes på opskriften)
+// er stadig et heltal og røres ikke herfra.
+function _rdSetPortions(p) {
+    p = Math.round((Math.max(0, p || 0) + Number.EPSILON) * 100) / 100;
+    // Tomt eller nulstillet felt falder tilbage til opskriftens eget tal.
+    if (p <= 0) p = _rdDs.baseServings;
+    _rdDs.currentPortions = p;
     _rdUpdatePortionsDisplay();
     _rdRenderIngredients();
     _rdRenderNestings();
     _rdRecalcSummary();
 }
 
+// ± går bevidst i hele trin. Decimaler tastes i feltet.
+function _rdAdjustPortions(delta) {
+    _rdSetPortions(_rdDs.currentPortions + delta);
+}
+
 function _rdUpdatePortionsDisplay() {
     var unit = _rdDs.recipeUnit;
     var el = document.getElementById('rdPortNum');
-    if (el) el.textContent = _rdDs.currentPortions;
+    if (el) el.value = _rdFmtPortions(_rdDs.currentPortions);
     var unitEl = document.getElementById('rdPortUnit');
     if (unitEl) unitEl.textContent = unit;
     var baseEl = document.getElementById('rdBaseInfo');

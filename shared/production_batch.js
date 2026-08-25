@@ -82,11 +82,18 @@
 
     /**
      * Åbn editoren i en container.
-     * @param {object} opts { recipe, ingredients, productsMap, quUnitsMap, container, onClose }
+     * @param {object} opts { recipe, ingredients, productsMap, quUnitsMap, container, onClose,
+     *                        portions }  portions = startmængde; udeladt => opskriftens base_servings.
      */
     function open(opts) {
         var recipe = opts.recipe;
         var base = parseFloat(recipe.base_servings) || 1;
+        // Kalderen kan sende en startmængde med (fx opskrift-vieweren, hvor man
+        // netop har skaleret ned efter det lager der er). `base` beholder sin
+        // egen rolle: den regner opskriftens tal om til per-portion.
+        var startPortions = _num(opts.portions);
+        if (!(startPortions > 0)) startPortions = base;
+        startPortions = Math.round((startPortions + Number.EPSILON) * 100) / 100;
         var productsMap = opts.productsMap || {};
         var quUnitsMap = opts.quUnitsMap || {};
 
@@ -103,8 +110,8 @@
                 stockQuId: stockQuId,
                 unit: unit,
                 perPortion: perPortion,
-                planned: perPortion * base,
-                actual: perPortion * base,
+                planned: perPortion * startPortions,
+                actual: perPortion * startPortions,
                 swappedOut: false,
             };
         });
@@ -126,7 +133,7 @@
         var unitsArr = Object.keys(quUnitsMap).map(function (id) {
             return { id: parseInt(id), name: quUnitsMap[id] };
         });
-        var startYield = hasOutput ? _plannedStock(recipe, outProduct, unitsArr, opts.conversions, base) : 0;
+        var startYield = hasOutput ? _plannedStock(recipe, outProduct, unitsArr, opts.conversions, startPortions) : 0;
 
         _st = {
             recipe: recipe,
@@ -139,7 +146,7 @@
             container: opts.container,
             onClose: opts.onClose || function () {},
             base: base,
-            portions: base,
+            portions: startPortions,
             lines: lines,
             allProducts: allProducts,
             picker: null,                 // { mode:'add'|'swap', forIndex, query }

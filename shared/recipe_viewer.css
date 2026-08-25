@@ -229,12 +229,32 @@
 .rv-portions-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
 .rv-portions-btn:active { transform: scale(0.95); }
 
+/* Tallet er et felt: tryk og tast fx 1,4 for at skalere efter det lager der er.
+   inputmode="decimal" i markup'en åbner taltastaturet direkte på tablet. */
 .rv-portions-display {
     font-size: 24px;
     font-weight: 700;
-    min-width: 50px;
+    min-width: 72px;
+    width: 72px;
+    height: 48px;
+    min-height: var(--touch-target-min);
     text-align: center;
     color: var(--brand-primary);
+    font-family: inherit;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 0 4px;
+    cursor: pointer;
+}
+
+.rv-portions-display:hover { border-color: var(--brand-primary); }
+
+.rv-portions-display:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px var(--brand-primary-light);
+    cursor: text;
 }
 
 .rv-portions-unit {

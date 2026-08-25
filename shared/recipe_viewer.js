@@ -192,7 +192,8 @@ function _rvRenderShell() {
                 '<span class="rv-portions-label">Portioner:</span>' +
                 '<div class="rv-portions-control">' +
                     '<button class="rv-portions-btn" id="rvPortionsMinus">&minus;</button>' +
-                    '<span class="rv-portions-display" id="rvPortionsDisplay">1</span>' +
+                    '<input type="text" class="rv-portions-display" id="rvPortionsDisplay" ' +
+                        'inputmode="decimal" value="1" aria-label="Antal portioner">' +
                     '<button class="rv-portions-btn" id="rvPortionsPlus">+</button>' +
                 '</div>' +
                 '<span class="rv-portions-unit" id="rvPortionsUnit"></span>' +
@@ -228,6 +229,15 @@ function _rvRenderShell() {
     document.getElementById('rvBackBtn').addEventListener('click', _rvGoBack);
     document.getElementById('rvPortionsMinus').addEventListener('click', function() { _rvAdjustPortions(-1); });
     document.getElementById('rvPortionsPlus').addEventListener('click', function() { _rvAdjustPortions(1); });
+
+    var rvPortionsInput = document.getElementById('rvPortionsDisplay');
+    rvPortionsInput.addEventListener('change', function() { _rvSetPortions(_rvNum(this.value)); });
+    // Markér ved fokus: man vil erstatte tallet, ikke sætte markøren midt i det.
+    rvPortionsInput.addEventListener('focus', function() { this.select(); });
+    // Enter lukker taltastaturet på tablet i stedet for at lade det stå åbent.
+    rvPortionsInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+    });
     document.getElementById('rvConsumeBtn').addEventListener('click', _rvConsumeRecipe);
     document.getElementById('rvShoppingAllBtn').addEventListener('click', _rvAddAllMissingToShoppingList);
     var produceBtn = document.getElementById('rvProduceBtn');
@@ -381,7 +391,7 @@ function _rvOpenRecipe(recipeId, addToStack) {
     // Fill header
     document.getElementById('rvDetailName').textContent = recipe.name;
     document.getElementById('rvDetailGroup').textContent = recipe.group;
-    document.getElementById('rvPortionsDisplay').textContent = _rvCurrentPortions;
+    document.getElementById('rvPortionsDisplay').value = _rvFmtPortions(_rvCurrentPortions);
     document.getElementById('rvPortionsUnit').textContent = '(\u00e1 1 ' + (recipe.recipeUnit || 'stk') + ')';
 
     // Render ingredients
@@ -426,6 +436,10 @@ function _rvOpenProduce() {
     if (!mount) return;
     window.ProductionBatch.open({
         recipe: _rvCurrentRecipe,
+        // Har man skaleret opskriften ned efter det lager man har, skal batchen
+        // starte dér — ikke forfra på base_servings, så tallet skal tastes to
+        // gange på samme skærm.
+        portions: _rvCurrentPortions,
         ingredients: _rvIngredients,
         productsMap: _rvProducts,
         quUnitsMap: _rvQuantityUnits,
@@ -664,10 +678,35 @@ function _rvRenderIngredientItem(ing, multiplier) {
 // PORTIONS
 // ════════════════════════════════════════════════════════════
 
-function _rvAdjustPortions(delta) {
-    _rvCurrentPortions = Math.max(1, _rvCurrentPortions + delta);
-    document.getElementById('rvPortionsDisplay').textContent = _rvCurrentPortions;
+// Dansk komma skal virke — taltastaturet på en iPad giver ',' og ikke '.'.
+// Samme parsing som produktionsbatchen (shared/production_batch.js), så de to
+// felter på samme skærm ikke kan nå at tolke det samme input forskelligt.
+function _rvNum(v) {
+    var s = String(v == null ? '' : v).trim().replace(',', '.');
+    var n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+}
+
+function _rvFmtPortions(n) {
+    return String(_rvRound(n)).replace('.', ',');
+}
+
+// Ét sted der sætter portionstallet. Knapperne, feltet og navigations-stakken går
+// alle igennem her, så de ikke kan blive uenige om klampning eller format.
+function _rvSetPortions(p) {
+    p = _rvRound(Math.max(0, p || 0));
+    // Et tomt eller nulstillet felt falder tilbage til opskriftens eget tal —
+    // "0 portioner" er ikke en tilstand man kan bruge til noget.
+    if (p <= 0) p = _rvBaseServings;
+    _rvCurrentPortions = p;
+    var el = document.getElementById('rvPortionsDisplay');
+    if (el) el.value = _rvFmtPortions(p);
     _rvRenderIngredients();
+}
+
+// ± går bevidst i hele trin. Decimaler tastes i feltet.
+function _rvAdjustPortions(delta) {
+    _rvSetPortions(_rvCurrentPortions + delta);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -808,6 +847,12 @@ function _rvToPurchaseUnit(productId, stockAmount) {
 // CONSUME RECIPE
 // ════════════════════════════════════════════════════════════
 
+// Afrunding for LAGERTRÆK. Bevidst finere end visningens to decimaler: en halv
+// eller kvart portion gør små ingrediensmængder meget små, og et tal der runder
+// til 0 bliver sprunget helt over af `amount <= 0` nedenfor — uden at nogen får
+// det at vide. Visningen må gerne afrunde; det der skrives til lageret må ikke.
+var RV_CONSUME_DECIMALS = 4;
+
 async function _rvConsumeRecipe() {
     if (!_rvCurrentRecipe) return;
 
@@ -820,7 +865,7 @@ async function _rvConsumeRecipe() {
     // Direct ingredients (inkl. emballage — vi tracker emballage-lager)
     _rvIngredients.forEach(function(ing) {
         var baseAmount = parseFloat(ing.amount) || 0;
-        var amount = _rvRound(baseAmount * multiplier);
+        var amount = _rvRound(baseAmount * multiplier, RV_CONSUME_DECIMALS);
         if (amount <= 0) return;
         var product = _rvProducts[ing.product_id] || {};
         itemsToConsume.push({
@@ -834,7 +879,7 @@ async function _rvConsumeRecipe() {
     // Sub-recipe ingredients recursively
     if (_rvNestings && _rvNestings.length > 0) {
         _rvWalkNested(_rvCurrentRecipe.id, multiplier, function(ing, subMultiplier, subRecipe) {
-            var amount = _rvRound((parseFloat(ing.amount) || 0) * subMultiplier);
+            var amount = _rvRound((parseFloat(ing.amount) || 0) * subMultiplier, RV_CONSUME_DECIMALS);
             if (amount <= 0) return;
             var product = _rvProducts[ing.product_id] || {};
             itemsToConsume.push({
@@ -858,7 +903,7 @@ async function _rvConsumeRecipe() {
     }).join('\n');
 
     var ok = confirm(
-        'Traek fra lager for "' + recipeName + '" (' + _rvCurrentPortions + ' portioner)\n\n' +
+        'Traek fra lager for "' + recipeName + '" (' + _rvFmtPortions(_rvCurrentPortions) + ' portioner)\n\n' +
         itemsToConsume.length + ' varer:\n' + summary + '\n\n' +
         'Vil du fortsaette?'
     );
@@ -1082,7 +1127,7 @@ function _rvGoBack() {
         var prev = _rvNavigationStack.pop();
         _rvOpenRecipe(prev.recipeId, false);
         _rvCurrentPortions = prev.portions;
-        document.getElementById('rvPortionsDisplay').textContent = _rvCurrentPortions;
+        document.getElementById('rvPortionsDisplay').value = _rvFmtPortions(_rvCurrentPortions);
         _rvRenderIngredients();
     } else {
         _rvShowList();
