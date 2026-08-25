@@ -125,14 +125,16 @@ function getBonLines(bonId) {
  * databasen og changelog sammen — selve BESLUTNINGEN (hvor mange hele batches,
  * hvad rækker råvarerne til, hvad mangler) er ren og testbar derovre.
  */
-async function autoBatchForBon(bonId, lines, recipeFactors) {
+async function autoBatchForBon(bonId, lines, recipeFactors, packingOverrides = null, packingExtras = null) {
     const grocy = require('../services/grocyAdapter');
     const { resolveConsumeItems } = require('../services/ingredientResolver');
     const { planAutoBatches, runAutoBatches } = require('../services/autoBatch');
     const { unitCostFromStockRow } = require('../services/production');
 
     const needs = await resolveConsumeItems(lines, recipeFactors);
-    if (!needs.length) return;
+    // Extras kan tilføje varer der slet ikke står i opskrifterne, så en tom
+    // liste først er tom når de også er tomme.
+    if (!needs.length && !(packingExtras && packingExtras.length)) return;
 
     const [rawRecipeMap, allPos, nestings, products, units, quConversions, stock] = await Promise.all([
         grocy.getRecipesRawMap(), grocy.getAllRecipesPos(), grocy.getRecipeNestings(),
@@ -144,9 +146,24 @@ async function autoBatchForBon(bonId, lines, recipeFactors) {
     for (const p of allPos) (posByRecipe[p.recipe_id] ||= []).push(p);
     for (const n of nestings) (nestingsByRecipe[n.recipe_id] ||= []).push(n);
 
+    // Samme pakke-justeringer som selve trækket bruger.
+    //
+    // Uden dem regnede auto-batchen på det BOM-beregnede behov mens
+    // `consumeRecipes` trak det PAKKEDE. Tog køkkenet 2,5 kg med i stedet for
+    // de beregnede 0,9, producerede Bon til 0,9 og trak 2,5 — og forskellen
+    // forsvandt ned i mellemproduktet, som gik i minus. Latent indtil nu, fordi
+    // Remoulade er den eneste konverterede blanding og ingen har lagt en buffer
+    // på den; #270 gør det live på Frisk Grønt, der både sidder i 28 retter
+    // og HAR buffer-mekanikken i event-prep.
+    //
+    // De to sider skal regne på det samme tal.
+    const productMap = new Map(products.map(p => [p.id, p]));
+    grocy.applyPackingAdjustments(needs, packingOverrides, packingExtras, productMap);
+    if (!needs.length) return;
+
     const plan = planAutoBatches({
         needs, rawRecipeMap, posByRecipe, nestingsByRecipe,
-        productMap: new Map(products.map(p => [p.id, p])),
+        productMap,
         unitMap: new Map(units.map(u => [Number(u.id), u])),
         quConversions,
         // Samme lager-opslag som trækket bruger: børnenes lager ruller op på
@@ -251,7 +268,7 @@ function autoConsumeBonInventory(bonId) {
     // mod virkeligheden.
     //
     // Fejler den, fortsætter trækket. Leveringen blokeres aldrig.
-    autoBatchForBon(bonId, lines, recipeFactors)
+    autoBatchForBon(bonId, lines, recipeFactors, packingOverrides, packingExtras)
       .catch(err => { console.error(`[auto_batch] bon ${bonId}: fejl:`, err.message); })
       .then(() => consumeRecipes(lines, packingOverrides, packingExtras, recipeFactors)).then(results => {
         const failed  = results.filter(r => !r.success);

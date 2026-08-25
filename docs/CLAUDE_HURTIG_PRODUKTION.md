@@ -124,6 +124,56 @@ Rødløg-Sylt):
 2. Sæt opskriftens "produceret produkt" + udbytte pr. batch.
 3. Rewire hver menu: nesting → `recipes_pos` der peger på det nye produkt.
 
+### 5.1 Udrulningsplan — de otte (fastlagt 24.08.2026)
+
+Batchstørrelserne er bekræftet af køkkenet på et ark og rettet i Grocy hvor de var
+forkerte (Frisk Grønt trak for lidt kål, fordi stokken ikke var talt med; Tahin,
+Chili og Yoghurt erklærede et udbytte der var mindre end det de vejer). Nul-linjen
+til gaten ligger i `data/gate-baseline/`.
+
+**Lokation og varegruppe følger hovedingrediensen** — efterprøvet mod Grocy, ikke
+skønnet: mayonnaisen står i Køleskab/05 Dressinger, kålen i Køleskab/03 Grønt,
+Brød Rug i Fryser/01 Brød. Lokationen bestemmer hvilken liste varen dukker op på
+ved den fysiske optælling, så en vare det forkerte sted bliver aldrig talt.
+
+| # | Blanding | Menuer | `--location` | `--group` | Særligt |
+|---|---|---|---|---|---|
+| 1 | Tahin dressing | 2 | Køleskab | 05 Dressinger | |
+| 2 | Chili Mayo | 2 | Køleskab | 05 Dressinger | |
+| 3 | Trøffel Mayo | 2 | Køleskab | 05 Dressinger | |
+| 4 | Yoghurt dressing | 2 | Køleskab | 05 Dressinger | |
+| 5 | Senneps Mayo | 7 | Køleskab | 05 Dressinger | |
+| 6 | Løvstikke Mayo | 10 | Køleskab | 05 Dressinger | |
+| 7 | Skære Slider Brød | 14 | Fryser | 01 Brød | `--stock-unit Kilo --unit-size 0.06` |
+| 8 | **Frisk Grønt** | **28** | Køleskab | 03 Grønt | |
+
+Rækkefølgen er stigende blast-radius. Én ad gangen, med drift imellem.
+
+**Menu-tallene er den fulde rækkevidde**, ikke antallet af direkte nestere — en
+produktionsopskrift kan selv være nestet videre (#543's Æggesalat-fund). Issuets
+oprindelige tal var derfor for lave hele vejen ned.
+
+Per konvertering:
+
+```bash
+# 1. mål før
+node --env-file=.env scripts/recipe-fingerprint.js --uses "<navn>" --out foer.json
+# 2. se hvad der ville ske
+node --env-file=.env scripts/convert-blend-to-product.js --recipe "<navn>" \
+     --state <navn>.json --confirm-hq --location <lok> --group "<gruppe>"
+# 3. gør det   (samme linje + --apply)
+# 4. mål efter og sammenlign — gaten SKAL være grøn
+node --env-file=.env scripts/recipe-fingerprint.js --uses "<navn>" --out efter.json
+node scripts/recipe-fingerprint.js --diff foer.json efter.json
+```
+
+Rulles noget tilbage: `--rollback --apply` med samme tilstandsfil.
+
+> Kun **Skære Slider Brød** har lager-enhed ≠ udbytte-enhed: lageret føres i kilo,
+> forbruget tælles i sliders (1 slider = ½ brød = 0,06 kg). Batchen er 32 brød =
+> ½ kasse = 64 sliders, sat via `base_servings` så de 12 menuers `servings=1`
+> bliver stående. Se §6/§7.1.
+
 > ⚠️ **Rækkefølge:** Lag 1-koden skal være i drift FØR (eller samtidig med) konverteringen
 > — ellers bliver 0-lager-produkter til nye "umulig"-menuer, præcis som sylterne driller nu.
 > Start med **Remoulade** (3 menuer) som pilot; Frisk Grønt (26) til sidst.

@@ -82,6 +82,22 @@ const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
         // det samme sæt menuer måles på begge sider af springet.
         for (const n of nestings) if (targetIds.has(Number(n.includes_recipe_id))) hit.add(Number(n.recipe_id));
         for (const p of pos)      if (targetProducts.has(Number(p.product_id)))    hit.add(Number(p.recipe_id));
+
+        // Rul HELE vejen op. Remoulade nestes af Æggesalat, som selv nestes af
+        // tre salgbare retter — og det er netop et led nede at en dobbelt-
+        // tælling ville vise sig. Måltes kun de direkte nestere, ville gaten
+        // sige god for en konvertering der havde ødelagt noget ovenover.
+        // Målt på grocy-hq: 3 direkte → 6 i alt.
+        let voks = true;
+        while (voks) {
+            voks = false;
+            for (const n of nestings) {
+                if (hit.has(Number(n.includes_recipe_id)) && !hit.has(Number(n.recipe_id))) {
+                    hit.add(Number(n.recipe_id));
+                    voks = true;
+                }
+            }
+        }
         ids = [...hit].filter(id => !targetIds.has(id)).sort((a, b) => a - b);
     }
     if (!ids.length) { console.error('Angiv --uses <navn> eller --recipes 1,2,3'); process.exit(1); }
@@ -89,7 +105,25 @@ const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
     const { resolveIngredients, resolveConsumeItems, expandProducedToRaw } =
         require(path.join(__dirname, '..', 'services', 'ingredientResolver'));
     const co2 = engine.computeAll({ recipes: rawList, pos, nestings, products, conversions, units });
-    const costById = new Map(recipes.map(r => [Number(r.id), r.cost_price]));
+    // Kostprisen REGNES her, den læses ikke.
+    //
+    // To grunde. `getRecipes()` filtrerer til `sellable = 1`, så en produktions-
+    // opskrift som `Æggesalat` — netop en af dem konverteringen rører — faldt
+    // helt ud af opslaget og målte 0. Og `recipe_cost_cache` er kun så frisk
+    // som sidste tryk på "Opdater fra Grocy": målt på produktionsdata stod
+    // `Alm slider Boks` med Grocys gamle 19,29 i stedet for Bons 30,92.
+    //
+    // En gate der afhænger af hvornår nogen sidst trykkede på en knap, er
+    // ingen gate. Værre endnu: bliver cachen genberegnet MELLEM før og efter,
+    // rapporterer den en forskel konverteringen ikke har lavet.
+    const recipeCost = require(path.join(__dirname, '..', 'services', 'recipeCost'));
+    const priser = await grocy.getProductUnitCosts();
+    const beregnet = recipeCost.computeAll({
+        recipes: rawList, pos, nestings, products, units, conversions, priceByProduct: priser,
+    });
+    // null, ikke 0, når tallet ikke findes — et hul må ikke ligne et gyldigt
+    // tal, og en diff mod 0 ser ud som "ingen ændring".
+    const kost = (id) => beregnet.has(Number(id)) ? r4(beregnet.get(Number(id)).cost) : null;
     const nameById = new Map(rawList.map(r => [Number(r.id), r.name]));
 
     const out = { instance: grocy.getGrocyConfig().locationName, qty: QTY, recipes: {} };
@@ -110,7 +144,7 @@ const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
             name: nameById.get(id) || String(id),
             // Kostpris og CO₂ pr. portion — de to tal en konvertering lettest
             // kommer til at flytte uden at nogen opdager det.
-            cost_price:      r4(costById.get(id)),
+            cost_price:      kost(id),
             co2e_per_serving: r4(c.co2e_per_serving),
             co2_complete:     !!c.complete,
             // DEN EGENTLIGE INVARIANT. `consume` ændrer sig med vilje ved en
