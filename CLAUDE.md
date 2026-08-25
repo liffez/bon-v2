@@ -5136,6 +5136,63 @@ Browser-verificeret ende-til-ende mod grocytest: bogfør → badge + historik �
 genindlæsning bevarer dem → forslaget falder fra 0,05 til 0,03 → gentagelse
 advarer med tidspunktet. Grocytest-lageret rettet tilbage, testdata ryddet.
 
+### Portioner på opskrifter kan være decimale (#548, 24. august 2026)
+
+Intern produktion (RR Produktion) skulle kunne skaleres så den passer med de råvarer
+der faktisk står på lager. Portionstallet kunne kun justeres i hele trin — man måtte
+tage en hel portion eller ingenting.
+
+Matematikken var der i forvejen: `multiplier = portioner / base_servings` er flydende.
+Det eneste der spærrede, var heltalsklampningen i UI'et (`Math.max(1, … + delta)`).
+
+- **Tallet er nu et felt** i både opskrift-vieweren og designeren. `inputmode="decimal"`
+  åbner taltastaturet direkte på iPad, så man ikke skal klikke sig væk fra bogstaverne.
+  Fokus markerer indholdet (man vil erstatte tallet), og Enter lukker tastaturet.
+  **Ingen brøkknapper** — optællingens ¼ ½ ¾ passer dårligt her: behovet er "så meget
+  som råvarerne rækker til", ikke "en halv af noget".
+- `± ` går bevidst fortsat i **hele trin**; 1,4 → 2,4. Decimaler tastes.
+- **Dansk komma virker.** `_rvNum`/`_rdNum` spejler `_num` i `production_batch.js`, så
+  de tre felter ikke kan nå at tolke det samme input forskelligt.
+- **Producér arver portionstallet** (`ProductionBatch.open({ portions })`). Før startede
+  batchen altid forfra på `base_servings`, så tallet skulle tastes to gange på samme skærm.
+  Udeladt parameter ⇒ `base_servings` som hidtil.
+- 0, tomt eller vrøvl falder tilbage til opskriftens eget tal — aldrig 0 eller negative
+  portioner. `base_servings` (det der gemmes på opskriften) forbliver et heltal.
+
+> ⚠️ **Decimaler åbnede en fælde i lagertrækket — lukket her.** `_rvConsumeRecipe`
+> rundede mængder til **2** decimaler, hvilket var nok da portioner altid var hele tal.
+> Ved 0,05 portioner bliver 0,06 L balsamico til `0,003` → afrundet `0,00` → og
+> `if (amount <= 0) return;` springer linjen over **helt stille**. Målt i drift på
+> "Balsamico + løg": 3 varer blev til 2. Hullet fandtes i forvejen, men var uden for
+> rækkevidde. Lagertrækket runder nu til `RV_CONSUME_DECIMALS = 4`; visningen må gerne
+> afrunde, det der skrives til Grocy må ikke. Hele portioner er uændrede.
+
+**Grocy er ikke en forhindring** — portionstallet forlader aldrig browseren. Det ganges
+ind i hver ingrediensmængde, og til Grocy sendes kun `{ product_id, amount }`. Efterprøvet
+mod grocytest: 71 af 114 produkter har decimalt lager, 289 af 400 `recipes_pos` har
+decimale mængder, og et live consume på `0,33` blev accepteret (`amount: -0.33`) og rullet
+tilbage med undo. Det ene sted portioner FAKTISK gemmes er `production_batches.portions`,
+som allerede er `REAL NOT NULL` (migration 089/090).
+
+**Uden for scope:** `bon_lines.quantity` er `INTEGER NOT NULL` — halve tal på bon-linjer
+er en datamodel-beslutning med nedstrøms konsekvenser (enheds-tælling, pakkeliste, faktura,
+e-conomic, CO₂), og "0,33 sandwich" giver ikke mening. Indkøbslistens `Math.ceil` til hele
+pakker er bevidst og urørt.
+
+**Tests:** `npm run test:portioner` — 32 asserts. Browser-koden køres i en vm-sandkasse og
+de rene funktioner kaldes direkte (samme mønster som `test-recipe-viewer-nested.js`);
+batch-delen aflæser den markup modalen faktisk renderer, fordi `_st` ligger i en IIFE.
+**Mutations-testet:** fem kernerettelser rulles hver især tilbage og fælder 5/3/3/2/2
+navngivne asserts. Regression grøn: recipe-viewer-nested 12, subrecipe-status 16,
+yield-model 14, gram-chaining 6, resolver-graph 8, recipe-factor 8. Browser-verificeret
+mod grocytest i begge faner; intet blev trukket fra lageret undervejs.
+
+> **Fund undervejs (ikke rettet — ligger uden for opgaven):** dev-DB'ens `locations`-række
+> for `test` peger på `https://grocytest.ristetrug.dk/api`, som svarer **401**. Den levende
+> instans er `.env`'s `GROCY_TEST_URL` = `https://grocy-test.ristetrug.dk/api` (200).
+> Serveren bruger DB'ens URL, så en frisk dev-opsætning kan ikke nå grocytest.
+> CLAUDE.md's egen Grocy-instans-sektion har samme gamle værdi.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
