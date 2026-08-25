@@ -386,6 +386,38 @@ valid_to      TEXT      -- NULL = gældende; ellers så historiske regnskaber br
 6. **`labor_day_snapshot`** + frys-trigger (§7) — vælg cron vs. lazy-frys ved første visning.
 7. Færdiggør view (`office/views/drift.js`) → Claude Code.
 
+## Når vagtplanen er tom, men der blev arbejdet
+
+Værnet mod at fryse en dag uden løn fanger kun når vagtplanen **fejler**. Et
+tomt-men-vellykket svar er ingen fejl — og så fryses 0 kr stille.
+
+Målt i drift 25. august 2026:
+
+| Måned | Dage med vagter | Vagter |
+|---|---|---|
+| marts–juni | 22–28 | 56–82 |
+| **juli** | **10** | **31** |
+| august | 22 | 54 |
+
+20.–31. juli har ingen vagter overhovedet, mens **30. juli producerede 810
+enheder**. Worklogs opstår først når en vagt er godkendt i Smartplan, og
+planlagte vagter hentes kun fremad — en fortidig vagt der aldrig blev godkendt,
+er derfor usynlig for begge endpoints.
+
+Driften markerer nu en dag med **produktion men nul vagter**
+(`labor_none_despite_activity`), både i dagsvisningen og som antal i perioden.
+
+> **Ikke en spærring.** Tomt kan være rigtigt — en dag hvor kun ejeren var der.
+> Men 0 kr løn ved 810 enheder giver en DB% på 68,8 %, og det tal skal man ikke
+> regne videre på uden at vide hvad det dækker.
+
+Fejl og hul holdes adskilt: den ene retter sig selv når kilden svarer igen, den
+anden gør ikke. Derfor hver sin markering og hver sin forklaring.
+
+**Kan det rettes?** Kun i Smartplan: godkend vagtplanen for perioden bagudrettet,
+så dukker timerne op ved næste synkronisering. Først dér giver det mening at
+trykke "Genberegn dagen" — ellers fryser man bare et nyt nul.
+
 ## Smartplan: ét spejl, én synkronisering
 
 **Vagtplanen læses fra et lokalt spejl (`smartplan_shifts`). Læsning koster nul

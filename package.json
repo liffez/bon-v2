@@ -19,6 +19,7 @@
     "test:labor": "node --test tests/labor_location.test.js tests/open_shift.test.js tests/wage_csv.test.js",
     "test:drift-cost": "node --experimental-sqlite scripts/test-drift-event-cost.js",
     "test:drift-location": "node --experimental-sqlite scripts/test-drift-location.js",
+    "test:drift-labor-gap": "node --experimental-sqlite scripts/test-drift-labor-gap.js",
     "test:smartplan-honesty": "node --experimental-sqlite scripts/test-smartplan-honesty.js",
     "test:smartplan-mirror": "node --experimental-sqlite scripts/test-smartplan-mirror.js",
     "smartplan:felter": "node --experimental-sqlite scripts/inspect-smartplan-fields.js",
