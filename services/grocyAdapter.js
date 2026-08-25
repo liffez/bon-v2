@@ -933,6 +933,52 @@ function planShortfall(item, shortfallStock, producedProductIds) {
 }
 
 /**
+ * Hvad betyder en mangel på en vare der LAVES i stedet for at købes?
+ *
+ * REN funktion. Efter konverteringen (#270) står et mellemprodukt normalt på 0
+ * mellem to leveringer — det er meningen. Viste forhåndsvisningen det som en
+ * almindelig mangel, ville køkkenet se "Frisk Grønt mangler 13 kg" på 28 retter
+ * og ikke kunne skelne det fra en ægte mangel. Alarmen ville holde op med at
+ * betyde noget.
+ *
+ * De to kategorier har hver sit svar (§2):
+ *   Hurtig  — Bon laver den ved LEVERET. Rækker råvarerne, er der intet at gøre.
+ *   RR      — personalet laver den efter plan. Bon rører den ALDRIG, så en
+ *             mangel her er en besked til et menneske, ikke en indkøbslinje.
+ *
+ * @param producers  buildProducerIndex-opslag for varen (kan være undefined)
+ * @param batch      planAutoBatches-resultatet for varen (kan være undefined)
+ * @param erHurtig   prædikat fra services/autoBatch — grænsen mellem de to
+ *                   kategorier defineres ÉT sted, ikke to
+ */
+function classifyProducedShortfall(producers, batch, erHurtig) {
+    // `is_real_shortfall` er VURDERINGEN: skal det her råbes op om?
+    // Den hører hjemme ét sted. Regnede frontenden den selv, ville de to kunne
+    // skride fra hinanden — og så ville skærmen sige noget andet end serveren.
+    if (!producers || !producers.length) return { produced_by: null, is_real_shortfall: true };
+    const hurtig = producers.some(r => erHurtig(r));
+    // RR-produktion laver personalet efter plan. Bon rører den aldrig, så en
+    // mangel her er en ægte besked — bare til et menneske, ikke til indkøb.
+    if (!hurtig) return { produced_by: 'personale', is_real_shortfall: true };
+    // Hurtig uden en plan: vi ved det ikke, så vi dæmper ikke alarmen.
+    if (!batch) return { produced_by: 'bon', is_real_shortfall: true };
+    const dækket = batch.batches_made >= batch.batches_needed;
+    return {
+        produced_by: 'bon',
+        batches_needed: batch.batches_needed,
+        batches_made:   batch.batches_made,
+        produce_amount: batch.produce_amount,
+        // Kun det der reelt spærrer. Rækker råvarerne, er listen tom.
+        produce_missing: dækket ? [] : (batch.missing || []).map(m => ({
+            product_name: m.product_name, needed: m.needed, stock: m.stock,
+        })),
+        // Bon laver den om et øjeblik. Det er ikke en mangel.
+        is_real_shortfall: !dækket,
+    };
+}
+
+
+/**
  * Byg en effektiv-lager-funktion: en parent-vare (fx "Kål") har selv stock=0,
  * men dens børn (Spidskål, Hvidkål) har lager — summér familien.
  */
@@ -1131,10 +1177,47 @@ async function planConsume(lines, overrides = null, extras = null, recipeFactors
     applyPackingAdjustments(items, overrides, extras, productMap);
 
     const effectiveStock = makeEffectiveStock(stock, products);
+
+    // ── Hvad ville auto-batchen gøre? ────────────────────────────────────
+    //
+    // Efter konverteringen står et mellemprodukt normalt på 0 mellem to
+    // leveringer. Uden det her ville forhåndsvisningen vise "Frisk Grønt
+    // mangler 13 kg" på 28 retter og se ud som en katastrofe — mens Bon
+    // laver den et øjeblik senere.
+    //
+    // Svaret hentes fra planAutoBatches, altså PRÆCIS den funktion der
+    // træffer beslutningen ved LEVERET. En parallel udregning her ville
+    // kunne vise noget andet end det der så faktisk sker.
+    let producerIndex = new Map(), planByPid = new Map(), erHurtig = () => false;
+    try {
+        const { buildProducerIndex } = require('./ingredientResolver');
+        const { planAutoBatches, groupOf, HURTIG_GROUP } = require('./autoBatch');
+        const [rawRecipeMap, allPos, nestings, quConversions] = await Promise.all([
+            getRecipesRawMap(), getAllRecipesPos(), getRecipeNestings(), getQuantityUnitConversions(),
+        ]);
+        const posByRecipe = {}, nestingsByRecipe = {};
+        for (const x of allPos)   (posByRecipe[x.recipe_id] ||= []).push(x);
+        for (const n of nestings) (nestingsByRecipe[n.recipe_id] ||= []).push(n);
+        producerIndex = buildProducerIndex(rawRecipeMap);
+        erHurtig = (r) => groupOf(r) === HURTIG_GROUP;
+        const plan = planAutoBatches({
+            needs: items.map(it => ({ product_id: it.product_id, amount_stock: it.amount_stock })),
+            rawRecipeMap, posByRecipe, nestingsByRecipe, productMap,
+            unitMap: new Map(units.map(u => [Number(u.id), u])),
+            quConversions, effectiveStock,
+        });
+        planByPid = new Map(plan.batches.map(b => [b.product_id, b]));
+    } catch (err) {
+        // Kan vi ikke afgøre det, viser vi manglen råt som før. Hellere en
+        // alarm for meget end en forhåndsvisning der lover en produktion.
+        console.warn('[planConsume] Kunne ikke afgøre auto-batch:', err.message);
+    }
+
     const result = items.map(it => {
         const inStock = effectiveStock(it.product_id);
         const final = it.amount_stock;
         const p = productMap.get(it.product_id) || {};
+        const shortfall = Math.max(0, final - inStock);
         return {
             product_id:      it.product_id,
             product_name:    it.product_name,
@@ -1144,7 +1227,11 @@ async function planConsume(lines, overrides = null, extras = null, recipeFactors
             extra_amount:    it.extra_amount || 0,
             final_amount:    final,
             in_stock:        inStock,
-            shortfall:       Math.max(0, final - inStock),
+            shortfall,
+            // Kun relevant når der faktisk mangler noget.
+            ...(shortfall > 0.001
+                ? classifyProducedShortfall(producerIndex.get(it.product_id), planByPid.get(it.product_id), erHurtig)
+                : {}),
         };
     }).sort((a, b) => a.product_name.localeCompare(b.product_name, 'da'));
 
@@ -1397,6 +1484,7 @@ module.exports = {
     // på det samme behov, ellers producerer den ene til noget den anden ikke trækker.
     applyPackingAdjustments,
     planShortfall,
+    classifyProducedShortfall,
     consumeProduct,
     addToStock,
     addToStockFull,
