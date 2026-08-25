@@ -208,6 +208,15 @@ function applyDayBon(db, { event, date, agg, priceCategory, userId = null }) {
     const bonNumber = nextBonNumber();
     const contact = eventContactFields(event);
 
+    // Bonnen må ALDRIG trække lager: prep-bonnen ejer trækket (CLAUDE_EVENT.md
+    // §5), og køkkeninfoen siger det til mennesket. Gaten i
+    // autoConsumeBonInventory ville have sat præcis dette — men den kaldes kun
+    // ved LEVERET, og en POS-bon oprettes direkte som BETALT og passerer aldrig
+    // dér. Uden markeringen stod bonen med flag 0 og tom status, og vagthunden
+    // meldte den som et manglende træk hver eneste nat (#B4202, #B4207 24.08).
+    //
+    // Sat HER frem for som en undtagelse i vagthunden, så bonen selv bærer sin
+    // begrundelse. En kontrol der skal udlede den, kan tage fejl.
     const bonId = transaction(db, () => {
         const r = db.prepare(`
             INSERT INTO bons (
@@ -218,6 +227,7 @@ function applyDayBon(db, { event, date, agg, priceCategory, userId = null }) {
                 kitchen_info, internal_notes, created_by_user_id, is_internal,
                 total_price, total_with_delivery,
                 prep_ingredients_ready, prep_supplies_ready, kitchen_selects, customer_collects,
+                inventory_deducted, inventory_deducted_at, inventory_deduct_status,
                 created_at, updated_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -225,6 +235,7 @@ function applyDayBon(db, { event, date, agg, priceCategory, userId = null }) {
                 ?, ?, ?, ?,
                 ?, ?, ?, 0,
                 0, 0, 0, 0, 0, 0,
+                1, CURRENT_TIMESTAMP, 'event_prep_owns_stock',
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
         `).run(

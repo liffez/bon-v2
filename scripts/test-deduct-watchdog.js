@@ -24,6 +24,7 @@
 const path = require('path');
 const fs   = require('fs');
 const os   = require('os');
+const { spawnSync } = require('child_process');
 
 const TEST_DB = path.join(os.tmpdir(), `bon-test-watchdog-${Date.now()}.db`);
 process.env.DB_PATH = TEST_DB;
@@ -50,7 +51,7 @@ const LOCATION_ID = db.prepare('SELECT id FROM locations ORDER BY id LIMIT 1').g
 
 let seq = 0;
 function mkBon({ status = 'LEVERET', date, deducted = 0, deductStatus = null,
-                 isOffer = 0, withRecipeLine = true }) {
+                 isOffer = 0, withRecipeLine = true, sawLeveret = false, otherStatusChange = null }) {
     const num = `T_WD_${++seq}`;
     const r = db.prepare(`
         INSERT INTO bons (bon_number, order_date, delivery_date, status_id,
@@ -63,6 +64,13 @@ function mkBon({ status = 'LEVERET', date, deducted = 0, deductStatus = null,
             INSERT INTO bon_lines (bon_id, product_name, quantity, grocy_recipe_id)
             VALUES (?, 'Testvare', 1, 42)
         `).run(id);
+    }
+    for (const v of [sawLeveret ? 'LEVERET' : null, otherStatusChange]) {
+        if (!v) continue;
+        db.prepare(`
+            INSERT INTO changelog (entity_type, entity_id, action, field_name, new_value)
+            VALUES ('bon', ?, 'status_change', 'status_id', ?)
+        `).run(id, v);
     }
     return { id, num };
 }
@@ -139,8 +147,90 @@ check(nums(findPartial(db, 3)).includes(delvis.num),
 check(!nums(findUndeducted(db, 3)).includes(delvis.num),
     '… og dukker ikke også op som manglende træk (flaget er sat)');
 
+// ── Exit-koden er selve alarmen ─────────────────────────────────────────────
+//
+// Cron reagerer på exit-koden, ikke på loggen. Dækningen lå tidligere i
+// `scripts/test-deduct-check.js`, som var rådnet på sine fixtures (den
+// seedede bons uden opskriftslinjer og med datoer uden for vinduet, så
+// forespørgslen med rette fandt ingenting). Den er slettet, og det den
+// faktisk prøvede — barn-processen og koderne — er flyttet herned.
+console.log('\n\x1b[1mExit-koden, via barn-proces\x1b[0m');
+
+const setSetting = (k, v) => db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(k, v);
+
+function koer() {
+    const r = spawnSync('node', ['--experimental-sqlite', path.join(__dirname, 'check-inventory-deduct.js')], {
+        env: { ...process.env, DB_PATH: TEST_DB, INVENTORY_CHECK_DAYS: '3', INVENTORY_ALERT_EMAIL: '' },
+        encoding: 'utf8',
+    });
+    return { code: r.status, ud: (r.stdout || '') + (r.stderr || '') };
+}
+
+// Slukket lagertræk er en KENDT tilstand, ikke en alarm — ellers ville
+// kontrollen råbe hver nat i et hus der bevidst har slået det fra.
+setSetting('inventory_auto_deduct', '0');
+let r = koer();
+check(r.code === 0, `flag slukket → exit 0 (fik ${r.code})`);
+check(/slukket/.test(r.ud), 'og loggen siger hvorfor der ikke alarmeres');
+
+// Tændt, og der ER drift (de bons ovenfor står stadig i basen).
+setSetting('inventory_auto_deduct', '1');
+r = koer();
+check(r.code === 1, `drift fundet → exit 1, så cron fanger det (fik ${r.code})`);
+check(/ALDRIG passeret LEVERET/.test(r.ud), 'og årsagen står i outputtet, ikke kun antallet');
+check(/ingen alarm-modtager/.test(r.ud), 'uden modtager noteres det — mailen springes over, alarmen består');
+
 // Oprydning: temp-DB slettes uanset udfald.
 try { fs.unlinkSync(TEST_DB); } catch {}
+
+// ── Alarmen skal sige HVORFOR ───────────────────────────────────────────────
+//
+// Drifts-tilfældet 24.08: #B4202 og #B4207 stod som BETALT uden træk og uden
+// `inventory_deduct_status`. Alarmen kunne kun sige AT de ikke havde trukket.
+// De tre årsager kræver hver sin handling, og forskellen er om bonen
+// nogensinde passerede LEVERET — trækket udløses kun dér.
+console.log('\n\x1b[1mAlarmen skal kunne sige hvorfor\x1b[0m');
+
+// Bonen HAR statusskift i changelog — bare ikke til LEVERET. Uden dette
+// tilfælde består testen selvom man kun tjekker "findes der et statusskift",
+// og så beviser den ingenting. (Mutationen slap først igennem her.)
+const sprangForbi = mkBon({ status: 'BETALT', date: offsetISO(-1),
+                            sawLeveret: false, otherStatusChange: 'FAKTURERET' });
+const varLeveret  = mkBon({ status: 'BETALT', date: offsetISO(-1), sawLeveret: true });
+const fejlede     = mkBon({ status: 'LEVERET', date: offsetISO(-1), deductStatus: 'failed', sawLeveret: true });
+
+const fund = findUndeducted(db, 3);
+const find = (n) => fund.find(r => r.bon_number === n);
+
+check(find(sprangForbi.num)?.saw_leveret === 0,
+    'en bon der aldrig passerede LEVERET mærkes som sådan — trækket kunne ikke være kørt');
+check(find(varLeveret.num)?.saw_leveret === 1,
+    'en bon der HAR passeret LEVERET kendes fra den — dér skal serverloggen undersøges');
+check(find(fejlede.num)?.inventory_deduct_status === 'failed',
+    'og et forsøgt-men-fejlet træk bærer stadig sin status');
+
+// ── Dato-grænsen må ikke komme fra SQLite ────────────────────────────────
+//
+// Assertene ovenfor rammer kun fejlen mellem midnat og kl. 02 dansk sommertid,
+// hvor UTC stadig står på i går. Det er præcis dét vindue der gjorde at
+// `date('now')` kunne stå her i første omgang — og en test der består 22 timer
+// i døgnet uanset om koden er rigtig, er ingen test.
+//
+// Derfor måles reglen selv: datoerne bindes fra todayISO()/offsetISO(), som er
+// forankret i Europe/Copenhagen. Pre-commit-hooken (check-utc-date.sh) fanger
+// mønstret i JS, men ikke SQLites date('now').
+{
+    // Kommentarer må gerne NÆVNE date('now') — det er koden der ikke må bruge den.
+    const kilde = require('fs').readFileSync(
+        require('path').join(__dirname, 'check-inventory-deduct.js'), 'utf8')
+        .split('\n')
+        .filter(l => !/^\s*(\/\/|--|\*)/.test(l))
+        .join('\n');
+    check(!/date\('now'/.test(kilde),
+        "vagthundens forespørgsler bruger ikke SQLites date('now') — den er UTC (#133)");
+}
 
 console.log(`\n${'─'.repeat(50)}\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);

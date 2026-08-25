@@ -26,6 +26,26 @@
 //
 // Dry-run er default. `--apply` skriver.
 //
+// LAGER-ENHED ≠ UDBYTTE-ENHED
+// Som standard lagerføres produktet i den enhed opskriften erklærer sit udbytte
+// i. Det holder for blandinger (1 kg mayo → produkt i Kilo), men ikke for en
+// antalsvare: skårne slider-brød tælles i stk og vejes i kilo (§6/§7.1). Dér:
+//
+//   --stock-unit Kilo --unit-size 0.06
+//
+// `--unit-size` er hvad ÉN udbytte-enhed vejer i lager-enheden — 1 slider =
+// 0,06 kg. Tallet gættes ikke: uden det afbryder scriptet. Findes omregningen
+// allerede på produktet (fx ved genbrug), bruges den i stedet.
+//
+// LOKATION OG VAREGRUPPE VÆLGES
+// `--location` og `--group` er påkrævede. Tidligere kopierede scriptet dem fra
+// et vilkårligt eksisterende produceret produkt — og gættet satte Remoulade i
+// FRYSEREN. Lokationen styrer hvilken liste varen dukker op på ved fysisk
+// optælling, så et forkert gæt betyder at varen aldrig bliver talt. Otte
+// konverteringer er otte gæt. Begge tager navn eller id:
+//
+//   --location Køleskab --group "05 Dressinger"
+//
 // Instansen bestemmes af databasen (`settings.default_grocy_location_id`) —
 // samme opslag som appen. Peger den et andet sted end Test, kræves `--confirm-hq`.
 // ============================================================
@@ -39,11 +59,16 @@ const APPLY    = process.argv.includes('--apply');
 const ROLLBACK = process.argv.includes('--rollback');
 const CONFIRM  = process.argv.includes('--confirm-hq');
 const STATE    = argOf('--state');
+const STOCK_UNIT_ARG = argOf('--stock-unit');
+const LOCATION_ARG   = argOf('--location');
+const GROUP_ARG      = argOf('--group');
+const UNIT_SIZE_ARG  = argOf('--unit-size');
 
 function argOf(f) { const i = process.argv.indexOf(f); return i >= 0 ? process.argv[i + 1] : null; }
 function die(msg) { console.error(`\n✗ ${msg}\n`); process.exit(1); }
 
-if (!STATE) die('Angiv --state <fil>. Uden en tilstandsfil kan konverteringen ikke fortrydes.');
+const ER_CLI = require.main === module;
+if (ER_CLI && !STATE) die('Angiv --state <fil>. Uden en tilstandsfil kan konverteringen ikke fortrydes.');
 
 const grocy = require(path.join(__dirname, '..', 'services', 'grocyAdapter'));
 
@@ -54,7 +79,137 @@ const UNIT_ALIASES = { kg: 'kilo', kilo: 'kilo', kilogram: 'kilo', g: 'gram', gr
                        stk: 'antal', 'stk.': 'antal', styk: 'antal', antal: 'antal' };
 const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNIT_ALIASES[n] || n; };
 
-(async () => {
+/**
+ * Hvilken enhed lagerføres produktet i, og hvad skal menu-mængderne ganges med?
+ *
+ * REN funktion — hele beslutningen kan efterprøves uden at røre Grocy, fordi et
+ * fejlgreb her skriver et forkert tal ind i hver eneste menu på én gang.
+ *
+ * `recipes_pos.amount` er i LAGER-enhed (qu_id er kun visning). Er udbyttet
+ * erklæret i en anden enhed end produktet lagerføres i, skal mængden derfor
+ * omregnes — ellers skrives "1" (antal) og læses som "1" (kilo).
+ *
+ * @returns {{ yieldUnit, stockUnit, factor, createConversion }}
+ *   factor            udbytte-enhed → lager-enhed (1 når de er ens)
+ *   createConversion  omregning der mangler i Grocy, eller null
+ */
+function resolveUnits({ recipe, units, conversions, productId, stockUnitArg, unitSizeArg }) {
+    const uf = recipe.userfields || {};
+    const yieldUnit = units.find(u => norm(u.name) === norm(uf.recipeunit));
+    if (!yieldUnit) {
+        throw new Error(`"${recipe.name}" har recipeunit "${uf.recipeunit}", som ikke svarer til nogen Grocy-enhed.`);
+    }
+    if (!stockUnitArg) {
+        // Uændret adfærd: produktet lagerføres i sin udbytte-enhed.
+        return { yieldUnit, stockUnit: yieldUnit, factor: 1, createConversion: null };
+    }
+    const stockUnit = units.find(u => norm(u.name) === norm(stockUnitArg));
+    if (!stockUnit) throw new Error(`--stock-unit "${stockUnitArg}" svarer ikke til nogen Grocy-enhed.`);
+    if (Number(stockUnit.id) === Number(yieldUnit.id)) {
+        return { yieldUnit, stockUnit, factor: 1, createConversion: null };
+    }
+
+    // Findes omregningen allerede på produktet? Så er den sandheden — vi laver
+    // ikke en ny ved siden af, og vi overskriver ikke en der er sat i hånden.
+    const eksisterende = (conversions || []).find(c =>
+        Number(c.product_id) === Number(productId)
+        && Number(c.from_qu_id) === Number(yieldUnit.id)
+        && Number(c.to_qu_id) === Number(stockUnit.id));
+    if (eksisterende) {
+        const f = parseFloat(eksisterende.factor);
+        if (!(f > 0)) throw new Error(`Omregningen på produkt ${productId} har faktor "${eksisterende.factor}".`);
+        return { yieldUnit, stockUnit, factor: f, createConversion: null };
+    }
+
+    const size = parseFloat(unitSizeArg);
+    if (!(size > 0)) {
+        throw new Error(
+            `Udbyttet er i ${yieldUnit.name}, men produktet skal lagerføres i ${stockUnit.name}, `
+          + `og der findes ingen omregning. Angiv --unit-size <tal> = hvad ÉN ${yieldUnit.name} `
+          + `vejer i ${stockUnit.name}. Tallet gættes ikke.`);
+    }
+    return {
+        yieldUnit, stockUnit, factor: size,
+        createConversion: { from_qu_id: yieldUnit.id, to_qu_id: stockUnit.id, factor: size },
+    };
+}
+
+/**
+ * Slå en lokation eller varegruppe op på navn eller id.
+ *
+ * REN funktion. Kaster med HELE listen i beskeden — står man og skal vælge, er
+ * det svaret man mangler, ikke en besked om at man valgte forkert.
+ */
+function resolveNamed(list, arg, label) {
+    const v = String(arg ?? '').trim();
+    const muligheder = (list || []).map(x => `${x.id} ${x.name}`).join(' · ');
+    if (!v) throw new Error(`Angiv --${label}. Den gættes ikke.\n  Vælg mellem: ${muligheder}`);
+
+    const påId = (list || []).find(x => String(x.id) === v);
+    if (påId) return påId;
+
+    // Et rent tal er ment som et id. Falder det igennem til stumpe-matchning,
+    // finder "0" cifrene inde i "02 Pålæg", "05 Dressinger" og "10 Emballage",
+    // og beskeden bliver "passer på flere" — hvilket sender folk det forkerte
+    // sted hen at lede.
+    if (/^\d+$/.test(v)) throw new Error(`--${label} med id ${v} findes ikke.\n  Vælg mellem: ${muligheder}`);
+
+    const n = v.toLowerCase();
+    const eksakt = (list || []).filter(x => String(x.name || '').trim().toLowerCase() === n);
+    if (eksakt.length === 1) return eksakt[0];
+
+    // Delvist navn er en bekvemmelighed — men kun når det peger ét sted hen.
+    const delvis = (list || []).filter(x => String(x.name || '').toLowerCase().includes(n));
+    if (delvis.length === 1) return delvis[0];
+    if (delvis.length > 1) {
+        throw new Error(`--${label} "${v}" passer på flere: ${delvis.map(x => x.name).join(', ')}`);
+    }
+    throw new Error(`--${label} "${v}" findes ikke.\n  Vælg mellem: ${muligheder}`);
+}
+
+/**
+ * Må et eksisterende produkt med samme navn genbruges?
+ *
+ * REN funktion. Vagten skal måle mod produktets LAGER-enhed, ikke mod
+ * opskriftens udbytte-enhed: skårne slider-brød lagerføres i kilo mens udbyttet
+ * er i sliders, og en sammenligning mod udbyttet ville afvise et helt korrekt
+ * produkt. Peger vi derimod et produkt med en anden lager-enhed på opskriften,
+ * lander udbyttet i den forkerte enhed — præcis fejlen #360 handlede om.
+ *
+ * @returns {string|null} fejlbesked, eller null når det er i orden
+ */
+function checkReusableProduct(produkt, stockUnit) {
+    if (Number(produkt.qu_id_stock) === Number(stockUnit.id)) return null;
+    return `Produktet "${produkt.name}" (#${produkt.id}) findes, men lagerføres i enhed `
+         + `${produkt.qu_id_stock}, ikke ${stockUnit.id} (${stockUnit.name}). `
+         + 'Ret enheden i Grocy, omdøb produktet, eller vælg en anden --stock-unit.';
+}
+
+/**
+ * Menu-mængden i LAGER-enhed. `servings` tælles i portioner, udbyttet er pr.
+ * portion, og factor bærer den over i lager-enheden.
+ */
+function menuAmountStock(servings, perServing, factor) {
+    return servings * perServing * factor;
+}
+
+/**
+ * Hvad ANTYDER opskriften at én udbytte-enhed vejer? Kun når den har præcis én
+ * ingrediens i mållageret — så er svaret entydigt (32 brød à 3,84 kg / 64
+ * sliders = 0,06). Et forslag til mennesket, ikke en værdi vi bruger.
+ */
+function suggestUnitSize(pos, products, stockUnitId, yieldPerBatch) {
+    if (!(yieldPerBatch > 0)) return null;
+    const iMål = (pos || []).filter(x => {
+        const p = (products || []).find(pp => Number(pp.id) === Number(x.product_id));
+        return p && Number(p.qu_id_stock) === Number(stockUnitId);
+    });
+    if (iMål.length !== 1) return null;
+    const total = parseFloat(iMål[0].amount) || 0;
+    return total > 0 ? total / yieldPerBatch : null;
+}
+
+async function main() {
     const cfg = grocy.getGrocyConfig();
     console.log(`\nGrocy-instans: \x1b[1m${cfg.locationName}\x1b[0m  ·  ${APPLY ? '\x1b[31mSKRIVER\x1b[0m' : 'dry-run'}`);
     if (String(cfg.locationName).toLowerCase() !== 'test' && !CONFIRM) {
@@ -67,9 +222,10 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
     if (!recipeArg) die('Angiv --recipe <id eller navn>');
     if (fs.existsSync(STATE)) die(`${STATE} findes allerede. Kør --rollback først, eller vælg et andet navn.`);
 
-    const [rawMap, allPos, nestings, products, units, conversions] = await Promise.all([
+    const [rawMap, allPos, nestings, products, units, conversions, locations, groups] = await Promise.all([
         grocy.getRecipesRawMap(), grocy.getAllRecipesPos(), grocy.getRecipeNestings(),
         grocy.getProducts(), grocy.getQuantityUnits(), grocy.getQuantityUnitConversions(),
+        grocy.getLocations(), grocy.getProductGroups(),
     ]);
     const rawList = [...rawMap.entries()].map(([id, r]) => ({ ...r, id: r.id ?? id }));
 
@@ -96,31 +252,60 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
         die(`"${recipe.name}" mangler userfield recipeunitnumber. Udfyld udbyttet i Grocy først (jf. #372) — ellers`
             + ' kan hverken menu-mængderne eller gatens tilbage-foldning regnes.');
     }
-    const yieldUnit = units.find(u => norm(u.name) === norm(uf.recipeunit));
-    if (!yieldUnit) die(`"${recipe.name}" har recipeunit "${uf.recipeunit}", som ikke svarer til nogen Grocy-enhed.`);
+    let enheder;
+    try {
+        enheder = resolveUnits({
+            recipe, units, conversions, productId: null,
+            stockUnitArg: STOCK_UNIT_ARG, unitSizeArg: UNIT_SIZE_ARG,
+        });
+    } catch (err) {
+        // Antyder opskriften selv et tal, så sig det — det sparer et opslag,
+        // og et forkert gæt bliver lettere at få øje på.
+        const stockUnit = units.find(u => norm(u.name) === norm(STOCK_UNIT_ARG || ''));
+        const forslag = stockUnit
+            ? suggestUnitSize(allPos.filter(x => Number(x.recipe_id) === Number(recipe.id)),
+                              products, stockUnit.id, perServing * base)
+            : null;
+        die(err.message + (forslag ? `\n  Opskriften antyder ${round(forslag)} — efterprøv den inden du bruger den.` : ''));
+    }
+    const { yieldUnit, stockUnit, factor } = enheder;
 
     // ── Menuerne der nester den ──
     const hits = nestings.filter(n => Number(n.includes_recipe_id) === Number(recipe.id));
     if (!hits.length) die(`Ingen opskrift nester "${recipe.name}". Intet at flytte.`);
 
-    // ── Skabelon: et eksisterende produceret produkt, så lokation og gruppe
-    //    ikke skal gættes ──
-    const producedIds = new Set(rawList.map(r => Number(r.product_id)).filter(Boolean));
-    const template = products.find(p => producedIds.has(Number(p.id)) && String(p.active) !== '0');
-    if (!template) die('Fandt intet eksisterende produceret produkt at kopiere lokation/gruppe fra.');
+    // ── Lokation og varegruppe VÆLGES ──
+    //
+    // Før kopierede scriptet dem fra det første aktive producerede produkt det
+    // faldt over. Gættet ramte varegruppen på Remoulade og lokationen forkert:
+    // den landede i Fryseren og skulle stå på køl. Lokationen bestemmer hvilken
+    // liste varen dukker op på ved den fysiske optælling, så en vare det forkerte
+    // sted bliver aldrig talt — og lageret driver, uden at nogen ser hvorfor.
+    let lokation, gruppe;
+    try {
+        lokation = resolveNamed(locations, LOCATION_ARG, 'location');
+        gruppe   = resolveNamed(groups,    GROUP_ARG,    'group');
+    } catch (err) {
+        die(err.message);
+    }
 
     const newProduct = {
         name: recipe.name,
-        location_id:      template.location_id,
-        qu_id_purchase:   yieldUnit.id,
-        qu_id_stock:      yieldUnit.id,
-        product_group_id: template.product_group_id,
+        location_id:      lokation.id,
+        qu_id_purchase:   stockUnit.id,
+        qu_id_stock:      stockUnit.id,
+        product_group_id: gruppe.id,
         active: 1,
     };
 
     console.log(`\nBlanding:  ${recipe.id} "${recipe.name}"  (base_servings ${base})`);
     console.log(`Udbytte:   ${perServing} ${yieldUnit.name} pr. portion  →  ${perServing * base} ${yieldUnit.name} pr. batch`);
-    console.log(`Nyt produkt: "${newProduct.name}" · lager-enhed ${yieldUnit.name} · gruppe ${template.product_group_id ?? '—'} (fra "${template.name}")`);
+    console.log(`Nyt produkt: "${newProduct.name}" · lager-enhed ${stockUnit.name}`);
+    console.log(`Placering:  ${lokation.name} · gruppe ${gruppe.name}`);
+    if (factor !== 1) {
+        console.log(`Omregning:  1 ${yieldUnit.name} = ${round(factor)} ${stockUnit.name}`
+                  + (enheder.createConversion ? '  (oprettes)' : '  (findes i forvejen)'));
+    }
     console.log(`\n${hits.length} menu${hits.length === 1 ? '' : 'er'} flyttes fra nesting til produktlinje:\n`);
 
     const plan = hits.map(n => {
@@ -128,14 +313,15 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
                   || rawMap.get(Number(n.recipe_id)) || {};
         const servings = parseFloat(n.servings) || 0;
         // Udbyttet er PR PORTION, og nesting-servings tælles i portioner.
-        // Derfor: mængde = servings × udbytte/portion. Samme fortolkning som
-        // resolveren bruger, ellers ville regnestykket skride ved springet.
-        const amount = servings * perServing;
+        // Samme fortolkning som resolveren bruger, ellers ville regnestykket
+        // skride ved springet. `factor` bærer den over i LAGER-enheden, som er
+        // den `recipes_pos.amount` læses i.
+        const amount = menuAmountStock(servings, perServing, factor);
         return { nesting: n, menu_id: Number(n.recipe_id), menu_name: menu.name || `#${n.recipe_id}`, servings, amount };
     }).sort((a, b) => a.menu_id - b.menu_id);
 
     for (const p of plan) {
-        console.log(`  ${String(p.menu_id).padStart(4)} ${p.menu_name.padEnd(28).slice(0, 28)}  nesting ${p.servings} portioner  →  ${round(p.amount)} ${yieldUnit.name}`);
+        console.log(`  ${String(p.menu_id).padStart(4)} ${p.menu_name.padEnd(28).slice(0, 28)}  nesting ${p.servings} portioner  →  ${round(p.amount)} ${stockUnit.name}`);
     }
 
     if (!APPLY) {
@@ -151,6 +337,12 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
         recipe_name: recipe.name,
         recipe_had_product_id: recipe.product_id || null,
         created_product_id: null,
+        // Oprettet enheds-omregning (fx 1 Antal = 0,06 Kilo). Skal med, ellers
+        // efterlader en fortrydelse en omregning der peger på et slettet produkt.
+        created_conversion_id: null,
+        // Genbrugt frem for oprettet? Så må rollback ALDRIG slette det.
+        reused_product_id: null,
+        reused_product_was_active: null,
         created_pos: [],
         removed_nestings: [],
         at: new Date().toISOString(),   // utc-ok: tidsstempel i en tilstandsfil
@@ -161,10 +353,52 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
     save();
 
     try {
-        const created = await grocy.createProduct(newProduct);
-        state.created_product_id = Number(created.created_object_id);
-        save();
-        console.log(`\n✓ produkt oprettet: ${state.created_product_id}`);
+        // Findes produktet allerede? Grocy har UNIQUE på `products.name`, og en
+        // rollback SLETTER ikke et produkt der har lager — den deaktiverer det.
+        // Uden genbrug kan en konvertering der er rullet tilbage derfor ikke
+        // køres igen: den falder på navnet. Fundet i generalprøven på test.
+        const eksisterende = products.find(x =>
+            String(x.name || '').trim().toLowerCase() === String(newProduct.name).trim().toLowerCase());
+
+        if (eksisterende) {
+            const enhedsfejl = checkReusableProduct(eksisterende, stockUnit);
+            if (enhedsfejl) die(enhedsfejl);
+            state.created_product_id = Number(eksisterende.id);
+            state.reused_product_id = Number(eksisterende.id);
+            state.reused_product_was_active = String(eksisterende.active);
+            save();
+            console.log(`\n✓ produkt genbrugt: ${eksisterende.id} "${eksisterende.name}"`
+                      + (String(eksisterende.active) === '0' ? ' (var deaktiveret — aktiveres)' : ''));
+            if (String(eksisterende.active) === '0') {
+                await grocy.updateProduct(eksisterende.id, { active: 1 });
+            }
+        } else {
+            const created = await grocy.createProduct(newProduct);
+            state.created_product_id = Number(created.created_object_id);
+            save();
+            console.log(`\n✓ produkt oprettet: ${state.created_product_id}`);
+        }
+
+        // Omregningen SKAL stå før menu-linjerne skrives. Uden den kan hverken
+        // udbyttet (yieldPerBatchStockOf) eller optællingen omsætte mellem de to
+        // enheder, og produktet ville være ubrugeligt i den mellemtilstand.
+        // Et genbrugt produkt kan allerede have omregningen — `resolveUnits` kunne
+        // ikke vide det, for produktet fandtes ikke da den blev kaldt. Uden det
+        // her tjek ville en genkørsel lægge en dublet ved siden af den gamle.
+        const harAllerede = enheder.createConversion && conversions.some(c =>
+            Number(c.product_id) === Number(state.created_product_id)
+            && Number(c.from_qu_id) === Number(enheder.createConversion.from_qu_id)
+            && Number(c.to_qu_id) === Number(enheder.createConversion.to_qu_id));
+        if (harAllerede) {
+            console.log(`✓ omregning fandtes i forvejen på produkt ${state.created_product_id}`);
+        } else if (enheder.createConversion) {
+            const c = await grocy.createQuConversion({
+                product_id: state.created_product_id, ...enheder.createConversion,
+            });
+            state.created_conversion_id = Number(c.created_object_id);
+            save();
+            console.log(`✓ omregning oprettet: 1 ${yieldUnit.name} = ${round(factor)} ${stockUnit.name}`);
+        }
 
         await grocy.updateRecipe(recipe.id, { product_id: state.created_product_id });
         console.log(`✓ "${recipe.name}" producerer nu produktet`);
@@ -174,7 +408,7 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
                 recipe_id: p.menu_id,
                 product_id: state.created_product_id,
                 amount: p.amount,
-                qu_id: yieldUnit.id,
+                qu_id: stockUnit.id,
                 ingredient_group: '',
             });
             state.created_pos.push({ id: Number(pos.created_object_id), recipe_id: p.menu_id, amount: p.amount });
@@ -189,7 +423,7 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
                 includes_recipe_id: Number(recipe.id), servings: p.servings,
             });
             save();
-            console.log(`✓ ${p.menu_name}: nesting → produktlinje ${round(p.amount)} ${yieldUnit.name}`);
+            console.log(`✓ ${p.menu_name}: nesting → produktlinje ${round(p.amount)} ${stockUnit.name}`);
         }
     } catch (err) {
         console.error(`\n✗ Afbrudt: ${err.message}`);
@@ -200,7 +434,13 @@ const norm = (s) => { const n = String(s || '').trim().toLowerCase(); return UNI
     console.log(`\nFærdig. Tilstand: ${STATE}`);
     console.log(`Mål efter:  node --env-file=.env scripts/recipe-fingerprint.js --uses "${recipe.name}" --out efter.json`);
     console.log(`Sammenlign: node scripts/recipe-fingerprint.js --diff foer.json efter.json\n`);
-})();
+}
+
+if (ER_CLI) main().catch(err => die(err.stack || err.message));
+
+// Enheds-logikken eksporteres, så beslutningen kan efterprøves uden Grocy.
+// Et fejlgreb dér skriver et forkert tal ind i hver eneste menu på én gang.
+module.exports = { resolveUnits, menuAmountStock, suggestUnitSize, resolveNamed, checkReusableProduct };
 
 async function rollback(cfg) {
     if (!fs.existsSync(STATE)) die(`${STATE} findes ikke.`);
@@ -226,15 +466,35 @@ async function rollback(cfg) {
     await grocy.updateRecipe(state.recipe_id, { product_id: state.recipe_had_product_id || null });
     console.log(`✓ "${state.recipe_name}" producerer ikke længere et produkt`);
 
-    if (state.created_product_id) {
+    // Omregningen hænger på produktet, så den skal væk først.
+    if (state.created_conversion_id) {
+        await grocy.deleteQuConversion(state.created_conversion_id);
+        console.log(`✓ enheds-omregning ${state.created_conversion_id} slettet`);
+    }
+
+    if (state.reused_product_id) {
+        // Produktet fandtes FØR konverteringen. Det er ikke vores at slette —
+        // vi må kun sætte `active` tilbage til det den var.
+        const foer = state.reused_product_was_active;
+        if (foer != null && String(foer) !== '1') {
+            await grocy.updateProduct(state.reused_product_id, { active: Number(foer) });
+        }
+        console.log(`✓ produkt ${state.reused_product_id} var der i forvejen — kun aktiv-flaget sat tilbage`);
+    } else if (state.created_product_id) {
         // Har nogen nået at producere ind i produktet, må det IKKE slettes —
         // så ville lagerhistorikken forsvinde med det. Deaktivér i stedet og
         // sig det højt.
+        //
+        // ⚠ Konsekvens, fundet i generalprøven: navnet er UNIQUE i Grocy, så
+        // et deaktiveret produkt spærrer for at konverteringen kan køres igen.
+        // Derfor genbruger konverteringen et eksisterende produkt med samme
+        // navn i stedet for at oprette et nyt.
         const stock = await grocy.getStock();
         const has = stock.some(s => Number(s.product_id) === Number(state.created_product_id) && parseFloat(s.amount) !== 0);
         if (has) {
             await grocy.updateProduct(state.created_product_id, { active: 0 });
             console.log(`⚠ produkt ${state.created_product_id} har lager — deaktiveret i stedet for slettet`);
+            console.log(`  (en ny konvertering vil GENBRUGE det, ikke oprette et nyt)`);
         } else {
             await grocy.deleteProduct(state.created_product_id);
             console.log(`✓ produkt ${state.created_product_id} slettet`);

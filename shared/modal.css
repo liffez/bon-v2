@@ -864,4 +864,25 @@
 .pakke-preview-table .breakdown { color: #777; font-size: 12px; }
 .pakke-preview-extra { color: var(--brand-primary, #8e631f); font-weight: 600; }
 .pakke-preview-short { color: #b8650c; font-weight: 600; font-size: 11px; margin-left: 4px; }
+
+/* En vare Bon selv blander ved LEVERET er ikke en mangel — den skal ikke
+   se ud som en. Efter konverteringen (#270) står mellemprodukter normalt på
+   0 mellem to leveringer. */
+.pakke-preview-makes {
+    display: inline-block;
+    margin-left: .4em;
+    font-size: .85em;
+    color: var(--color-text-dim, #6b6b6b);
+    white-space: nowrap;
+}
+
+/* RR-produktion: Bon rører den aldrig. En besked til køkkenet, ikke en
+   indkøbslinje — derfor dæmpet advarsel, ikke rød. */
+.pakke-preview-staff {
+    display: inline-block;
+    margin-left: .4em;
+    font-size: .85em;
+    color: var(--brand-primary, #8e631f);
+    white-space: nowrap;
+}
 .pakke-preview-foot { font-size: 11px; color: #888; margin-top: 6px; }

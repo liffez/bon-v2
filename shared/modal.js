@@ -1431,7 +1431,13 @@ async function _pakkePreviewConsume(btn) {
         if (!items.length) {
             panel.innerHTML = '<div class="pakke-preview-loading">Intet at trække — bonen har ingen opskrifts-varer eller ekstra-varer.</div>';
         } else {
-            const anyShort = items.some(it => it.shortfall > 0.001);
+            // En vare Bon selv laver er ikke en mangel. Vurderingen kommer fra
+            // serveren (`is_real_shortfall`), som træffer den med auto-batchens
+            // egne funktioner — regnede vi den her, kunne skærmen komme til at
+            // sige noget andet end det der faktisk sker ved LEVERET.
+            const erÆgteMangel = (it) => it.shortfall > 0.001 && it.is_real_shortfall !== false;
+            const anyShort = items.some(erÆgteMangel);
+            const anyKøbes = items.some(it => erÆgteMangel(it) && !it.produced_by);
             let h = `<table class="pakke-preview-table"><thead><tr>
                 <th>Vare</th><th class="num">Trækkes</th><th>Heraf</th><th class="num">På lager</th></tr></thead><tbody>`;
             for (const it of items) {
@@ -1439,7 +1445,27 @@ async function _pakkePreviewConsume(btn) {
                 if (it.override_amount != null) parts.push(`buffer-sat ${fmt(it.override_amount)}`);
                 else if (it.recipe_amount > 0) parts.push(`opskrift ${fmt(it.recipe_amount)}`);
                 if (it.extra_amount > 0) parts.push(`<span class="pakke-preview-extra">+ekstra ${fmt(it.extra_amount)}</span>`);
-                const short = it.shortfall > 0.001 ? `<span class="pakke-preview-short" title="HQ har ikke nok — resten lægges på indkøbslisten">⚠ mangler ${fmt(it.shortfall)}</span>` : '';
+                let short = '';
+                if (it.shortfall > 0.001) {
+                    const mangler = it.produce_missing || [];
+                    if (it.produced_by === 'bon' && !mangler.length) {
+                        // Bon laver den ved LEVERET. Hele batches, så der laves
+                        // typisk mere end der mangler — overskuddet står til næste bon.
+                        const n = it.batches_made || 1;
+                        short = `<span class="pakke-preview-makes" title="Bon blander den ved LEVERET og trækker råvarerne til den">`
+                              + `↻ Bon laver ${n} batch${n === 1 ? '' : 'es'}${it.produce_amount ? ` (${fmt(it.produce_amount)} ${esc(it.unit || '')})` : ''}</span>`;
+                    } else if (it.produced_by === 'bon') {
+                        short = `<span class="pakke-preview-short" title="Bon kan ikke blande den — råvarerne rækker ikke">`
+                              + `⚠ kan ikke laves: mangler ${esc(mangler.map(m => m.product_name).join(', '))}</span>`;
+                    } else if (it.produced_by === 'personale') {
+                        // RR-produktion. Bon rører den aldrig — det er en besked
+                        // til køkkenet, ikke en indkøbslinje.
+                        short = `<span class="pakke-preview-staff" title="Laves af personalet efter plan — Bon producerer den aldrig selv">`
+                              + `⚠ mangler ${fmt(it.shortfall)} — skal laves</span>`;
+                    } else {
+                        short = `<span class="pakke-preview-short" title="HQ har ikke nok — resten lægges på indkøbslisten">⚠ mangler ${fmt(it.shortfall)}</span>`;
+                    }
+                }
                 h += `<tr>
                     <td>${esc(it.product_name)}</td>
                     <td class="num"><strong>${fmt(it.final_amount)}</strong> <span class="pakke-preview-unit">${esc(it.unit || '')}</span></td>
@@ -1448,7 +1474,10 @@ async function _pakkePreviewConsume(btn) {
                 </tr>`;
             }
             h += `</tbody></table>`;
-            h += `<div class="pakke-preview-foot">${items.length} varer trækkes ved LEVERET${anyShort ? ' · ⚠ noget mangler på HQ (lægges på indkøbslisten)' : ''}. Intet er trukket endnu — dette er kun en forhåndsvisning.</div>`;
+            const fod = anyShort
+                ? ` · ⚠ noget mangler på HQ${anyKøbes ? ' (det der kan købes, lægges på indkøbslisten)' : ''}`
+                : '';
+            h += `<div class="pakke-preview-foot">${items.length} varer trækkes ved LEVERET${fod}. Intet er trukket endnu — dette er kun en forhåndsvisning.</div>`;
             panel.innerHTML = h;
         }
     } catch (err) {

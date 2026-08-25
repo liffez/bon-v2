@@ -293,6 +293,20 @@ function validateAttachments(attachments) {
  * Send en mail via SMTP. Gemmer i mail_threads + mail_messages.
  */
 async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [], isSystem = false, threadId = null, appendSignature = true }) {
+    // Parameteren hedder `text`. Kaldes den noget andet, forsvinder brødteksten
+    // uden en lyd, og modtageren får en mail med kun en signatur i.
+    //
+    // Det skete: vagthundens alarm-mail (#305/#359) kaldte med `bodyText` og
+    // havde ALDRIG haft en besked i sig. Emnet virkede — det er en anden
+    // parameter — så det så ud som om alarmen fungerede, mens den i praksis
+    // kun fortalte at noget var galt, aldrig hvad.
+    //
+    // `undefined` = kalderen glemte parameteren eller stavede den forkert.
+    // En eksplicit tom streng slipper igennem: den er et valg, ikke en fejl.
+    if (text === undefined) {
+        throw new Error('sendMail: `text` mangler. Parameteren hedder `text` — ikke `body` eller `bodyText`.');
+    }
+
     // Signaturen sættes på HER — ikke i kaldstederne. Det er det eneste sted alle
     // veje ud af huset mødes, og teksten skal signeres før den gemmes, så
     // mail-historikken viser det kunden faktisk fik.

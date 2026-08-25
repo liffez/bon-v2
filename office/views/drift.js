@@ -414,6 +414,16 @@ function _drRenderPeriod(p) {
             + '<div>Løn, DB% og Løn% er derfor for gode i denne visning. Tallene retter sig selv '
             + 'når kilden svarer igen — der er ikke frosset noget forkert.</div></div>';
     }
+    // Et andet hul, med en anden årsag: vagtplanen SVAREDE, den havde bare
+    // ingen vagter — på dage hvor der tydeligvis blev arbejdet. Det retter sig
+    // ikke af sig selv, og derfor må de to ikke se ens ud.
+    if (p.labor_gap_days) {
+        laborWarn += '<div class="dr-warn"><div>⚠ ' + p.labor_gap_days + ' dag'
+            + (p.labor_gap_days === 1 ? '' : 'e') + ' har produktion, men ingen vagter i vagtplanen. '
+            + 'Lønnen står som 0 kr, og de dage ser mere rentable ud end de var.</div>'
+            + '<div>Typisk fordi vagtplanen for perioden ikke er godkendt i Smartplan — '
+            + 'så findes der ingen timer at hente. Det retter sig ikke af sig selv.</div></div>';
+    }
 
     var kpi = function (label, val, cls, sub) {
         return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div><div class="dr-kpi-label">' + label + '</div>' +
@@ -433,9 +443,13 @@ function _drRenderPeriod(p) {
     }).join('');
 
     var missingMark = function (d) {
-        return d.labor_error
-            ? ' <span class="dr-sub" title="Vagtplanen kunne ikke hentes for denne dag — 0 kr er ikke et måltal">⚠</span>'
-            : '';
+        if (d.labor_error) {
+            return ' <span class="dr-sub" title="Vagtplanen kunne ikke hentes for denne dag — 0 kr er ikke et måltal">⚠</span>';
+        }
+        if (d.labor_none_despite_activity) {
+            return ' <span class="dr-sub" title="Der blev produceret denne dag, men vagtplanen har ingen vagter. 0 kr er ikke et måltal.">⚠</span>';
+        }
+        return '';
     };
     var rows = days.map(function (d) {
         return '<tr>' +
@@ -602,6 +616,14 @@ function _drRender(d) {
 
     var warnings = [];
     if (d.labor_error) warnings.push('Løn kunne ikke hentes (' + _drEsc(d.labor_error) + ') — løn vises som 0.');
+    // Der blev arbejdet, men der findes ingen vagter. Vagtplanen svarede fint —
+    // den havde bare intet. Uden denne linje ser 0 kr løn ud som et måltal.
+    if (d.labor_none_despite_activity) {
+        warnings.push('Ingen vagter registreret denne dag, men der blev lavet '
+            + _drNum(d.units, 0) + ' enheder. Lønnen står som 0 kr, og dagen ser derfor '
+            + 'mere rentabel ud end den var. Typisk fordi vagtplanen for perioden ikke er '
+            + 'godkendt i Smartplan — så findes der ingen timer at hente.');
+    }
     if (d.rate_missing_count) warnings.push('⚠ ' + d.rate_missing_count + ' medarbejder(e) mangler timeløn → driftsresultatet er for højt. Udfyld satser i Settings → Løn & jobtyper.');
     if (d.role_unmapped_count) warnings.push('⚠ ' + d.role_unmapped_count + ' jobtype(r) er ikke kategoriseret (tæller som "other"). Kategorisér i Settings.');
     var warnHtml = warnings.length

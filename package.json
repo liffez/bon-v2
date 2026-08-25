@@ -19,6 +19,7 @@
     "test:labor": "node --test tests/labor_location.test.js tests/open_shift.test.js tests/wage_csv.test.js",
     "test:drift-cost": "node --experimental-sqlite scripts/test-drift-event-cost.js",
     "test:drift-location": "node --experimental-sqlite scripts/test-drift-location.js",
+    "test:drift-labor-gap": "node --experimental-sqlite scripts/test-drift-labor-gap.js",
     "test:smartplan-honesty": "node --experimental-sqlite scripts/test-smartplan-honesty.js",
     "test:smartplan-mirror": "node --experimental-sqlite scripts/test-smartplan-mirror.js",
     "smartplan:felter": "node --experimental-sqlite scripts/inspect-smartplan-fields.js",
@@ -72,6 +73,7 @@
     "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
     "test:run-optaelling": "node tests/scripts/run_T_OPTAELLING.js",
     "test:consume-hardening": "node --experimental-sqlite scripts/test-consume-hardening.js && node scripts/test-varemodtagelse-client-units.js",
+    "test:pos-bon": "node --experimental-sqlite scripts/test-pos-bon-no-stock.js",
     "test:deduct-watchdog": "node --experimental-sqlite scripts/test-deduct-watchdog.js",
     "check:receipt-units": "node --experimental-sqlite scripts/check-receipt-unit-conversions.js",
     "test:receipt-schema": "node --experimental-sqlite scripts/test-receipt-schema.js && node --experimental-sqlite scripts/test-receipt-schema-e2e.js && node --experimental-sqlite scripts/test-goods-receipt-webhook.js",
@@ -92,10 +94,14 @@
     "test:economic": "node --experimental-sqlite scripts/test-economic-invoice.js && node scripts/test-fakturering-render.js && node --experimental-sqlite tests/scripts/run_T_ECONOMIC.js",
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js",
     "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js",
-    "test:produktion": "node scripts/test-production-unit.js && node scripts/test-production-yield.js && node scripts/test-auto-batch.js",
+    "test:produktion": "node scripts/test-production-unit.js && node scripts/test-production-yield.js && node scripts/test-auto-batch.js && node --experimental-sqlite scripts/test-autobatch-packing.js && node scripts/test-convert-units.js && node scripts/test-preview-produced.js",
     "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js",
     "audit:udbytte": "node --env-file=.env --experimental-sqlite scripts/audit-recipe-yield.js",
-    "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js"
+    "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js",
+    "test:autobatch-packing": "node --experimental-sqlite scripts/test-autobatch-packing.js",
+    "test:convert-units": "node scripts/test-convert-units.js",
+    "tjek:dagen": "node --env-file=.env --experimental-sqlite scripts/tjek-dagen.js",
+    "test:preview-produced": "node scripts/test-preview-produced.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

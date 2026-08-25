@@ -57,6 +57,32 @@ const msgCount = () => db.prepare(`SELECT COUNT(*) AS n FROM mail_messages`).get
     ok(m.message_id === '<abc@ristetrug.dk>', `message_id gemt — fik '${m.message_id}'`);
     ok(m.send_error === null, `ingen send_error — fik ${JSON.stringify(m.send_error)}`);
 
+    // ── S1b: brødteksten må ikke kunne forsvinde ──
+    //
+    // Vagthundens alarm-mail (#305/#359) kaldte `sendMail({ bodyText })`.
+    // Parameteren hedder `text`, så brødteksten blev `undefined` — og
+    // modtageren fik en mail med KUN en signatur i. Emnet virkede, fordi det
+    // er en anden parameter, så alarmen så ud til at fungere mens den i
+    // praksis kun fortalte AT noget var galt, aldrig hvad.
+    console.log('\nS1b · Forkert parameternavn må ikke give en tom mail');
+    setSetting('mail_signature', 'Med venlig hilsen\nRistet Rug');
+    mail._setMockTransport({ sendMail: async () => ({ messageId: '<sig@ristetrug.dk>' }) });
+    const foerTom = msgCount();
+    let tomFejl = null;
+    try {
+        await mail.sendMail({ to: 'x@example.com', subject: 'Alarm', bodyText: 'to bons fejlede' });
+    } catch (e) { tomFejl = e; }
+    ok(!!tomFejl, 'afsendelsen afvises i stedet for at sende en signatur alene');
+    ok(tomFejl && /text/.test(tomFejl.message), `fejlen navngiver parameteren — fik '${tomFejl && tomFejl.message}'`);
+    ok(msgCount() === foerTom, 'og der oprettes ingen række for en mail der aldrig blev sendt');
+
+    // En bevidst tom streng er et VALG og skal stadig kunne sendes — fx en
+    // mail hvor hele indholdet er en vedhæftning.
+    await mail.sendMail({ to: 'x@example.com', subject: 'Kun vedhæftning', text: '' });
+    ok(msgCount() === foerTom + 1, 'en eksplicit tom tekst slipper igennem — det er ikke en fejl');
+
+    setSetting('mail_signature', '');
+
     // ── S2: SMTP fejler ──
     console.log('\nS2 · SMTP fejler → rækken må IKKE ligne en sendt');
     mail._setMockTransport({ sendMail: async () => { throw new Error('SMTP 550 mailbox unavailable'); } });
