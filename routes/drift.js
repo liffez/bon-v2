@@ -321,6 +321,21 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons, location = 
         // og det er værd at se når man kigger på dagen.
         open_shift_count:    laborRows.filter(l => l.is_open).length,
         labor_error: laborError,
+        // Ingen vagter overhovedet på en dag der tydeligvis BLEV arbejdet.
+        //
+        // Værnet mod at fryse en dag uden løn fanger kun når vagtplanen FEJLER.
+        // Et tomt-men-vellykket svar er ingen fejl — og så fryses 0 kr stille.
+        // Målt i drift: 20.-31. juli 2026 har ingen vagter overhovedet, mens
+        // 30. juli producerede 810 enheder. Worklogs opstår først når en vagt er
+        // godkendt i Smartplan, og planlagte vagter hentes kun fremad; en
+        // fortidig vagt der aldrig blev godkendt, er derfor usynlig for begge
+        // endpoints.
+        //
+        // Vi spærrer ikke — tomt KAN være rigtigt (en dag hvor kun ejeren var
+        // der). Men det skal stå på skærmen, for 0 kr løn ved 810 enheder er
+        // ikke et tal man skal regne videre på uden at vide hvad det dækker.
+        labor_none_despite_activity:
+            !laborError && manned.length === 0 && (units > 0 || revenue > 0),
         // Hvilket snit tallene er regnet på (§18.7). Med i svaret så frontenden
         // kan mærke visningen — og så et gemt/delt svar ikke kan forveksles med
         // hele driften. 'hq' + 'events' summerer til 'all'; de tre må aldrig
@@ -530,6 +545,7 @@ router.get('/period', ALL, handle(async (req, res) => {
             // Frosne dage har deres løn fra snapshottet og er upåvirkede af at
             // kilden er nede lige nu — derfor pr. dag, ikke kun på toppen.
             labor_error: d.frozen ? (d.labor_error || null) : (laborError || d.labor_error || null),
+            labor_none_despite_activity: !!d.labor_none_despite_activity,
         });
     }
 
@@ -551,6 +567,10 @@ router.get('/period', ALL, handle(async (req, res) => {
         // Sandt hvis mindst én dag i visningen mangler sin løn.
         labor_error: days.some(d => d.labor_error) ? (laborError || days.find(d => d.labor_error).labor_error) : null,
         labor_missing_days: days.filter(d => d.labor_error).length,
+        // Dage hvor der blev arbejdet, men ingen vagter findes. Ikke en fejl vi
+        // kan rette herfra — men et hul der skal kunne ses over en periode,
+        // ikke kun én dag ad gangen.
+        labor_gap_days: days.filter(d => d.labor_none_despite_activity).length,
     });
 }));
 
