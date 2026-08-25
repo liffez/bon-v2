@@ -320,14 +320,24 @@ Tidligere lå det spredt i denne fils "Åbne afhængigheder", MEMORY.md og docs/
 - **Board:** GitHub Projects "Bon v2" — <https://github.com/users/liffez/projects/3>
   - Kolonner (Status-felt): `Backlog` · `Klar` · `I gang` · `Review` · `Done`
 - **Labels:** `deploy`, `afventer-ekstern`, `bug`, `sikkerhed`, `tech-debt`, `test`, `feature`, `projekt` (epic)
-- **Epics** (`projekt`-label) = store projekter med spec-mapper i `docs/`, hver med fase-checkliste:
+- **Epics** (`projekt`-label) = store projekter, hver med fase-checkliste. De fleste har
+  en spec i `docs/` — enten en mappe eller en enkelt fil:
   - #81 Festival / multi-lokation (`docs/festival/`)
   - #82 Form Builder (`docs/formbuilder/`)
   - #83 Kunde-portal (`docs/kunde-portal/`)
-  - #88 CO₂-aftryk pr. bon + ESG-datagrundlag (`docs/co2/`)
+  - #88 CO₂-aftryk pr. bon + ESG-datagrundlag (`docs/CLAUDE_CO2.md` + `docs/co2/`)
+  - #232 CRM-triks — top-of-mind køer (`docs/CLAUDE_CRM_TRIKS.md`)
   - #259 Leverings- & adressedata-oprydning (`docs/delivery/`)
-  - #471 Indkøb Fase A — salgsenhed, pris, leveringsdato (`docs/indkob/`)
+  - #264 Aggregerede vare-egenskaber på bon — allergener + diæt + øko% (ingen samlet
+    spec; trackes via sub-issues #260–262)
+  - #272 Mellemprodukter — forecast (RR) vs. lav-hvis-mangler (`docs/CLAUDE_HURTIG_PRODUKTION.md`)
+  - #471 Indkøb Fase A — salgsenhed, pris, leveringsdato (`docs/indkob/CLAUDE_INDKOB_FASE_A.md`)
+  - #555 Køkken-kiosk — fastmonteret touchskærm med dagsrytme (`docs/CLAUDE_KIOSK.md`)
   - docs/-specs forbliver source-of-truth; epics linker til dem og tracker fremdrift via checkbokse.
+  - Listen her går let bagud. Den aktuelle er:
+    `gh issue list --state open --limit 200 --json number,title,labels --jq '.[] | select(.labels|map(.name)|index("projekt")) | "#\(.number) \(.title)"'`
+    (`--label projekt` og `--search` returnerer pt. tomt — GitHubs søgeindeks svarer ikke
+    for dette repo, mens direkte listning virker.)
 
 **Arbejdsgang:**
 - Ny bug/opgave dukker op → opret et issue (ikke kun en note i chat eller docs)
