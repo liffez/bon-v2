@@ -97,7 +97,8 @@
     "audit:udbytte": "node --env-file=.env --experimental-sqlite scripts/audit-recipe-yield.js",
     "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js",
     "test:autobatch-packing": "node --experimental-sqlite scripts/test-autobatch-packing.js",
-    "test:convert-units": "node scripts/test-convert-units.js"
+    "test:convert-units": "node scripts/test-convert-units.js",
+    "tjek:dagen": "node --env-file=.env --experimental-sqlite scripts/tjek-dagen.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
