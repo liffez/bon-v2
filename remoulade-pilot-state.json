@@ -1,0 +1,47 @@
+{
+ "instance": "HQ",
+ "recipe_id": 10,
+ "recipe_name": "Remoulade",
+ "recipe_had_product_id": null,
+ "created_product_id": 225,
+ "reused_product_id": null,
+ "reused_product_was_active": null,
+ "created_pos": [
+  {
+   "id": 735,
+   "recipe_id": 24,
+   "amount": 0.035
+  },
+  {
+   "id": 736,
+   "recipe_id": 52,
+   "amount": 0.013
+  },
+  {
+   "id": 737,
+   "recipe_id": 160,
+   "amount": 0.25
+  }
+ ],
+ "removed_nestings": [
+  {
+   "id": 4,
+   "recipe_id": 24,
+   "includes_recipe_id": 10,
+   "servings": 0.035
+  },
+  {
+   "id": 20,
+   "recipe_id": 52,
+   "includes_recipe_id": 10,
+   "servings": 0.013
+  },
+  {
+   "id": 126,
+   "recipe_id": 160,
+   "includes_recipe_id": 10,
+   "servings": 0.25
+  }
+ ],
+ "at": "2026-08-23T14:45:24.987Z"
+}

@@ -1,0 +1,198 @@
+{
+ "instance": "HQ",
+ "qty": 10,
+ "recipes": {
+  "91": {
+   "name": " Falaflen",
+   "cost_price": 18.9854,
+   "co2e_per_serving": 0.3629,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0169,
+    "Eddike": 0.0357,
+    "Gulerødder - Rå": 0.1388,
+    "Hvidløg - i tern": 0.003,
+    "Hvidløgs Pulver": 0.0163,
+    "Ingrid Ærter": 0.1665,
+    "kål": 0.224,
+    "Mayo - Vegansk": 0.3,
+    "Olie": 0.0361,
+    "pebber - stødt": 0.0031,
+    "Pebberkorn - Hele": 0.0013,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Rå": 0.0893,
+    "Røget Paprika": 0.01,
+    "Salt - alm": 0.0054,
+    "Salt - Flager": 0.0037,
+    "Servietter": 10,
+    "Spidskommen": 0.0067,
+    "Spinat": 0.04,
+    "Sukker": 0.0179,
+    "Tahini": 0.0135,
+    "Tempty": 0.1388,
+    "Tranebærsaft": 0.0357,
+    "vand": 0.0714,
+    "vegansk yoghurt": 0.2
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.016,
+    "Falaffel": 0.571,
+    "Hvidløg - i tern": 0.003,
+    "Hvidløgs Pulver": 0.008,
+    "kål": 0.224,
+    "Mayo - Vegansk": 0.3,
+    "pebber - stødt": 0.0014,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.25,
+    "Salt - alm": 0.001,
+    "Salt - Flager": 0.003,
+    "Servietter": 10,
+    "Spinat": 0.04,
+    "Tahini": 0.0135,
+    "vegansk yoghurt": 0.2
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.016,
+    "Falaffel": 0.571,
+    "Hvidløg - i tern": 0.003,
+    "Hvidløgs Pulver": 0.008,
+    "kål": 0.224,
+    "Mayo - Vegansk": 0.3,
+    "pebber - stødt": 0.0014,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.25,
+    "Salt - alm": 0.001,
+    "Salt - Flager": 0.003,
+    "Servietter": 10,
+    "Spinat": 0.04,
+    "Tahini": 0.0135,
+    "vegansk yoghurt": 0.2
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Falaffel": 0.571,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 400,
+     "yield": 0.4
+    },
+    "Tahin dressing": {
+     "vaegt_g": 334.5,
+     "yield": 0.3345
+    },
+    "Yoghurt dressing": {
+     "vaegt_g": 211.4,
+     "yield": 0.2114
+    }
+   }
+  },
+  "93": {
+   "name": "Falaflen - slider",
+   "cost_price": 10.3327,
+   "co2e_per_serving": 0.2249,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Balsamico Glace": 0.05,
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0105,
+    "Gulerødder - Rå": 0.0695,
+    "Hvidløg - i tern": 0.002,
+    "Hvidløgs Pulver": 0.0082,
+    "Ingrid Ærter": 0.0834,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.2,
+    "Olie": 0.0181,
+    "pebber - stødt": 0.0015,
+    "Rødkål - Rå": 0.066,
+    "Røget Paprika": 0.005,
+    "Salt - alm": 0.0027,
+    "Salt - Flager": 0.002,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spidskommen": 0.0033,
+    "Spinat": 0.015,
+    "Tahini": 0.009,
+    "Tempty": 0.0695,
+    "vegansk yoghurt": 0.1
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Balsamico Glace": 0.05,
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0105,
+    "Falaffel": 0.286,
+    "Hvidløg - i tern": 0.002,
+    "Hvidløgs Pulver": 0.004,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.2,
+    "pebber - stødt": 0.0007,
+    "Rødkål - Rå": 0.066,
+    "Salt - alm": 0.0005,
+    "Salt - Flager": 0.002,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.015,
+    "Tahini": 0.009,
+    "vegansk yoghurt": 0.1
+   },
+   "raw": {
+    "Balsamico Glace": 0.05,
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0105,
+    "Falaffel": 0.286,
+    "Hvidløg - i tern": 0.002,
+    "Hvidløgs Pulver": 0.004,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.2,
+    "pebber - stødt": 0.0007,
+    "Rødkål - Rå": 0.066,
+    "Salt - alm": 0.0005,
+    "Salt - Flager": 0.002,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.015,
+    "Tahini": 0.009,
+    "vegansk yoghurt": 0.1
+   },
+   "production": {
+    "Balsamico Glace": 0.05,
+    "Falaffel": 0.286,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 150,
+     "yield": 0.15
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    },
+    "Tahin dressing": {
+     "vaegt_g": 223,
+     "yield": 0.223
+    },
+    "Yoghurt dressing": {
+     "vaegt_g": 105.7,
+     "yield": 0.1057
+    }
+   }
+  }
+ }
+}

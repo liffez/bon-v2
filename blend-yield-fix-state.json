@@ -1,0 +1,78 @@
+{
+ "instance": "HQ",
+ "at": "2026-08-24T17:05:45.799Z",
+ "gjort": [
+  {
+   "type": "pos",
+   "recipe": "Frisk Grønt",
+   "rid": 9,
+   "produkt": "kål",
+   "fra": 0.5,
+   "til": 0.56,
+   "hvorfor": "stok-spild: 1,1 kg hele hoveder → 1 kg snittet",
+   "posId": 2,
+   "gammel": 0.5
+  },
+  {
+   "type": "pos",
+   "recipe": "Frisk Grønt",
+   "rid": 9,
+   "produkt": "Rødkål - Rå",
+   "fra": 0.4,
+   "til": 0.44,
+   "hvorfor": "samme stok-spild (køkkenet: gælder også rødkål)",
+   "posId": 609,
+   "gammel": 0.4
+  },
+  {
+   "type": "base",
+   "recipe": "Skære Slider Brød",
+   "rid": 80,
+   "fra": 1,
+   "til": 64,
+   "hvorfor": "én ombæring = 32 brød = 64 sliders (½ kasse)",
+   "gammel": 1
+  },
+  {
+   "type": "pos",
+   "recipe": "Skære Slider Brød",
+   "rid": 80,
+   "produkt": "Brød Rug",
+   "fra": 0.06,
+   "til": 3.84,
+   "hvorfor": "32 brød à 120 g — følger base_servings, så menuernes servings=1 står",
+   "posId": 294,
+   "gammel": 0.06
+  },
+  {
+   "type": "uf",
+   "recipe": "Tahin dressing",
+   "rid": 98,
+   "felt": "recipeunitnumber",
+   "fra": "1",
+   "til": "1.115",
+   "hvorfor": "1,115 kg ind giver 1,115 kg ud, ikke 1",
+   "gammel": "1"
+  },
+  {
+   "type": "uf",
+   "recipe": "Chili Mayo",
+   "rid": 110,
+   "felt": "recipeunitnumber",
+   "fra": "1",
+   "til": "1.1",
+   "hvorfor": "1,10 kg ind giver 1,10 kg ud",
+   "gammel": "1"
+  },
+  {
+   "type": "uf",
+   "recipe": "Yoghurt dressing",
+   "rid": 144,
+   "felt": "recipeunit",
+   "fra": "liter",
+   "til": "kg",
+   "hvorfor": "skal vejes i kilo som de andre",
+   "gammel": "liter"
+  }
+ ]
+}

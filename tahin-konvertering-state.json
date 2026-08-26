@@ -1,0 +1,37 @@
+{
+ "instance": "HQ",
+ "recipe_id": 98,
+ "recipe_name": "Tahin dressing",
+ "recipe_had_product_id": null,
+ "created_product_id": 226,
+ "created_conversion_id": null,
+ "reused_product_id": null,
+ "reused_product_was_active": null,
+ "created_pos": [
+  {
+   "id": 738,
+   "recipe_id": 91,
+   "amount": 0.03345
+  },
+  {
+   "id": 739,
+   "recipe_id": 93,
+   "amount": 0.0223
+  }
+ ],
+ "removed_nestings": [
+  {
+   "id": 75,
+   "recipe_id": 91,
+   "includes_recipe_id": 98,
+   "servings": 0.03
+  },
+  {
+   "id": 80,
+   "recipe_id": 93,
+   "includes_recipe_id": 98,
+   "servings": 0.02
+  }
+ ],
+ "at": "2026-08-25T19:51:26.612Z"
+}
