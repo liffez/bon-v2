@@ -567,7 +567,12 @@ function mapApiBonToCardData(apiBon) {
     // Menu-linjer — med kategori + special_request, sorteret og sammenlagt.
     // Linjer med menu_group_id samles i deres persisterede gruppe (titel + note);
     // grupper rendres øverst i sort_order, løse linjer kategori-sorteret nedenunder.
-    const allLines = apiBon.lines || [];
+    // 0-mængde-linjer vises ikke: de er ikke arbejde. De opstår kun på en
+    // rest-prep-bon hvor forudbestillingerne har dækket hele dagens mål
+    // (migration 166) — bonnen bliver stående med sin køkkentekst, men "0 ×
+    // Tunen" tre gange er støj. Der findes ingen 0-linjer i historikken, så
+    // filteret kan ikke skjule noget der plejede at være synligt.
+    const allLines = (apiBon.lines || []).filter(l => Number(l.quantity) !== 0);
     const lineToRaw = (line) => ({
         type:            'item',
         qty:             `${line.quantity}`,

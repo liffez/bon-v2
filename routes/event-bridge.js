@@ -21,7 +21,7 @@ const {
 } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { resolveMenuItemLines } = require('../services/menuItemsToLines');
-const { eventContactFields, resolveActiveOrderEvent } = require('./events');
+const { eventContactFields, resolveActiveOrderEvent, reconcileRestBonsForEvent } = require('./events');
 const grocyAdapter = require('../services/grocyAdapter');
 
 // ─── Secret (optionel — som web-orders) ────────────────────────────────────
@@ -472,6 +472,22 @@ router.post('/event-prep', async (req, res) => {
             });
         }
 
+        // 4) REST-PREP — de forudbestilte er steget, så office' rest-bon skal
+        //    ned tilsvarende (migration 166). Uden det tælles begge bons fuldt
+        //    med i ugeoversigt, kapacitet, top-up, retur OG lagertrækket.
+        //
+        //    Må ALDRIG vælte forudbestillingen: kundens ordre er landet, og en
+        //    fejl her er en efterfølgende justering — ikke en grund til at
+        //    svare 500 og få event-order-3 til at prøve igen. Samme princip som
+        //    goodsReceiptWebhook: bivirkningen rapporteres, den blokerer ikke.
+        let restPrep = null;
+        try {
+            restPrep = reconcileRestBonsForEvent(db, event.id, null);
+        } catch (err) {
+            console.error('[event-bridge] rest-prep genberegning fejlede:', err);
+            restPrep = { error: String(err.message || err) };
+        }
+
         const status = prep.action === 'created' ? 201 : 200;
         return res.status(status).json({
             ok: true,
@@ -482,6 +498,7 @@ router.post('/event-prep', async (req, res) => {
             sales: { action: sales.action, bon_id: sales.bonId, bon_number: sales.bonNumber, total: salesTotal },
             ...(fee ? { fee: { action: fee.action, bon_id: fee.bonId, bon_number: fee.bonNumber, pct: feePct } } : {}),
             lines: resolved.length,
+            rest_prep: restPrep,
             unmatched
         });
     } catch (err) {
