@@ -5407,6 +5407,62 @@ Browser-verificeret ende-til-ende mod syntetisk event i dev-DB; testdata ryddet.
 > bestillingsfristen 30. august. Sker det ikke, skal de rettes ned i hånden **efter**
 > den 30., før de sættes til LEVERET; ellers trækkes HQ-lageret for meget.
 
+### Pakkeliste på tavlen — event i Bon ↔ arrangement i Whiteboard (27.–28. august 2026)
+> bon-v2 [#563](https://github.com/liffez/bon-v2/pull/563) · whiteboard #25, #27, #28.
+> Tavlens side er dokumenteret i `whiteboard/CLAUDE_arrangementer.md`.
+
+Et event har to sider, og de ligger i hver sin app: **varerne** her (prep-bon, salg,
+retur, lager, P&L — §5 i `CLAUDE_EVENT.md`) og **driften** på tavlen, hvor det hedder et
+**arrangement** ("event" er optaget dér til CCP-hændelser). Tavlen kunne allerede klone en
+pakke-skabelon til et arrangement; det der manglede, var at de to vidste om hinanden.
+
+Navn, datoer og en reference tilbage står allerede i eventet. At skrive dem af i hånden på
+tavlen var dobbeltarbejde — og en oplagt kilde til datoer der ikke stemte mellem
+systemerne.
+
+- **📋 Pakkeliste på tavlen** i event-hovedet åbner tavlens "Nyt arrangement" udfyldt:
+  `<tavle>/?open=arrangement&name=&start=&end=&ref=`. Samme mønster som det eksisterende
+  `?open=varemodtagelse`. Adressen kommer fra `/api/sidekick/config`
+  (`WHITEBOARD_BASE_URL`); er den ikke sat, skjules knappen.
+- **Skabelonvalget sendes bevidst ikke med.** Hvilket grej der skal med denne gang er det
+  menneskelige valg — og det eneste Bon ikke kan vide.
+- **`?event=N` åbner et event direkte.** Fandtes ikke før; alle events delte
+  `?view=events`, så tavlens link kunne kun lande på listen. `_evGoto()` i
+  [office/views/events.js](office/views/events.js) ejer nu både `_evCurrentId` og URL'en
+  ét sted — holdes de adskilt, driver de fra hinanden, og et kopieret link peger et andet
+  sted hen end skærmen viser.
+- `ref` sendes som **URL**, ikke som navn: tavlen linker en URL direkte til målet, mens et
+  navn kun kan blive til et opslag i Events-listen.
+
+> **Hvorfor ingen API-kobling mellem apperne.** Brugeren ER transporten: hun klikker, ser
+> tavlens dialog, og trykker selv opret. Derfor intet delt secret, ingen nginx-undtagelse,
+> ingen ny migration — og ingen bivirkning der kan lykkes eller fejle bag ryggen på nogen.
+> Det er præcis den fejlklasse der bed os i #305 og #319. Prisen er at Bon ikke får at vide
+> at arrangementet blev oprettet, så knappen ser ens ud hver gang. Ved ~9 events om året er
+> det til at leve med; vil vi have status, kan et rigtigt kald lægges ovenpå senere.
+
+**På tavlens side** (kort, se dens egen CLAUDE-fil for detaljer): `PATCH
+/api/arrangements/:id` tager nu også `name`/`event_start`/`event_end`/`bon_event_ref`, så
+et forkert link kan rettes bagefter (**✎ Redigér**) i stedet for at være støbt fast — og
+`scripts/link-arrangements-to-bon.js` koblede de gamle arrangementer, der kun bar et navn.
+Det script **matcher på startdato, ikke navn**: navnene er menneskeskrevne og stemmer ikke
+("Vig festival 2026" mod "Vig Festival", "Kultursalonerne gisselfeld" mod "Gisselfelt").
+
+> ⚠️ **Tavlens database må aldrig skrives direkte mens dens server kører.** Whiteboard
+> bruger sql.js — databasen ligger i hukommelsen og gemmes til fil ved ændringer, så en
+> fil-skrivning bliver overskrevet ved næste gemning. Skriv gennem
+> `http://localhost:3847/api/...` fra serveren selv (nginx-gaten rammer kun udefra); det
+> validerer også og logger til `item_log`. At LÆSE filen er fint.
+
+**Konvention:** et arrangements `event_start` er eventets **første dag** — ikke pakkedagen.
+Pakning udtrykkes som `day_offset = -1` på opgaven. (De syv seedede skabeloner har alle
+`day_offset = NULL`, altså udaterede tjekliste-opgaver, så en ændret arrangement-dato river
+ikke forfaldsdatoer skæve.)
+
+**Bevidst udeladt:** Bon viser ikke om der findes et arrangement på tavlen. Det kræver at
+Bon spørger tavlen — altså den API-kobling der er valgt fra ovenfor.
+
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
