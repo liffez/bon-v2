@@ -5337,10 +5337,22 @@ Testdata ryddet.
   > afprøvning, hvor scriptet meldte "intet at rydde op" på et kartotek hvor
   > hver tredje række var tom.
 
-  Målt mod driftsdata: **1.361 → 984 aktive firmaer** (377 deaktiveret, 243 af
+  Rapporten viser også hvad der blev **fredet** og hvorfor (`37 med
+  e-conomic-nummer · 3 med en note`). Et værktøj der kun viser hvad der ryger,
+  er svært at stole på — man kan ikke se om reglen greb for bredt.
+
+  Målt mod driftsdata: **1.361 → 987 aktive firmaer** (374 deaktiveret, 240 af
   dem med CVR fra berigelse). 0 bons rørt, 0 bons efterladt på en inaktiv række.
   Kør forhandler-oprydningen FØRST — ellers står dens fire rækker stadig med
   bons og bliver fredet.
+
+  > Tre referencer blev fundet FØR første kørsel i drift, ikke bagefter:
+  > `attachments` og `crm_custom_values` (begge `entity_type='company'`) er tomme
+  > i dag, men referencerne findes — værnet skal være der før nogen begynder at
+  > bruge dem. Og `companies.notes`: tre rækker bar en note. Alle tre viste sig
+  > at være EAN-merge-stubbe (`--- Tidligere navne (EAN-merge) ---`), men reglen
+  > freder dem alligevel og siger det højt, frem for at bygge en heuristik der
+  > skal kende forskel på maskinens tekst og menneskets.
 
 **Bredere fund, ikke løst her:** af 114 web-bestillinger i drift ligger **39** på et
 andet firma end kundens eget — `University of Copenhagen` mod `Københavns

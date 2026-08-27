@@ -21,6 +21,10 @@
 //   • påmindelse (flag)      nogen har skrevet en note der skal hejses
 //   • fremmednøgler          et event, en kampagne eller et booking-token peger
 //                            på rækken (IKKE rfm_scores — se noten ved SQL'en)
+//   • note, vedhæftning,     nogen har skrevet eller lagt noget på rækken.
+//     custom-felt            Vedhæftninger og custom-felter er tomme i dag, men
+//                            referencerne findes — værnet skal være der FØR
+//                            nogen begynder at bruge dem, ikke bagefter.
 //
 // Rækker DEAKTIVERES (`is_active = 0`) — de slettes aldrig. En bon, en faktura
 // eller en changelog-linje kan pege på en række år efter, og historikken skal
@@ -67,6 +71,11 @@ const CANDIDATE_SQL = `
        AND NOT EXISTS (SELECT 1 FROM events e          WHERE e.company_id = c.id)
        AND NOT EXISTS (SELECT 1 FROM campaign_members m WHERE m.company_id = c.id)
        AND NOT EXISTS (SELECT 1 FROM booking_tokens t   WHERE t.company_id = c.id)
+       AND NOT EXISTS (SELECT 1 FROM attachments a
+                        WHERE a.entity_type = 'company' AND a.entity_id = c.id)
+       AND NOT EXISTS (SELECT 1 FROM crm_custom_values v
+                        WHERE v.entity_type = 'company' AND v.entity_id = c.id)
+       AND TRIM(COALESCE(c.notes, '')) = ''
        -- rfm_scores er BEVIDST ikke et værn: tabellen er beregnet og har en
        -- række for stort set hvert firma (1.346 af 1.452 i drift). Bruges den
        -- som bevis på en relation, freder den alt, og reglen bliver tom. Målt:
@@ -86,7 +95,28 @@ function main() {
     console.log(`Uden bon, kontakt eller mail: ${rows.length}` + (KEEP_CVR ? '  (rækker med CVR er fredet)' : ''));
     console.log(APPLY ? '\n*** DEAKTIVERER ***\n' : '\n(tørkørsel — intet skrives. --apply for at gennemføre)\n');
 
-    if (!rows.length) { console.log('Intet at rydde op.'); db.close(); return; }
+    // Hvad blev fredet, og af hvad? Et værktøj der kun viser hvad der ryger, er
+    // svært at stole på — man kan ikke se om reglen greb for bredt.
+    const spared = db.prepare(`
+        SELECT
+          SUM(CASE WHEN COALESCE(c.economic_customer_id,'') <> '' THEN 1 ELSE 0 END) econ,
+          SUM(CASE WHEN TRIM(COALESCE(c.notes,'')) <> '' THEN 1 ELSE 0 END)          note,
+          SUM(CASE WHEN COALESCE(c.is_internal,0) = 1 THEN 1 ELSE 0 END)             intern
+        FROM companies c
+        WHERE c.is_active = 1
+          AND NOT EXISTS (SELECT 1 FROM bons b       WHERE b.company_id  = c.id)
+          AND NOT EXISTS (SELECT 1 FROM customers cu WHERE cu.company_id = c.id AND cu.is_active = 1)
+          AND NOT EXISTS (SELECT 1 FROM mail_threads mt
+                            JOIN customers cu2 ON cu2.id = mt.customer_id
+                           WHERE cu2.company_id = c.id)
+    `).get();
+    const fredet = [];
+    if (spared.econ)   fredet.push(`${spared.econ} med e-conomic-nummer`);
+    if (spared.note)   fredet.push(`${spared.note} med en note`);
+    if (spared.intern) fredet.push(`${spared.intern} interne`);
+    if (fredet.length) console.log(`Fredet trods tom række: ${fredet.join(' · ')}`);
+
+    if (!rows.length) { console.log('\nIntet at rydde op.'); db.close(); return; }
 
     const medCvr = rows.filter(r => r.cvr).length;
     console.log(`  heraf med CVR: ${medCvr}   uden CVR: ${rows.length - medCvr}\n`);
