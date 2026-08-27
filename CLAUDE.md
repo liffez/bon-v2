@@ -5346,6 +5346,14 @@ Testdata ryddet.
   Kør forhandler-oprydningen FØRST — ellers står dens fire rækker stadig med
   bons og bliver fredet.
 
+  Rapporten grupperer i tre — **dubletter af et firma der handler** (kan lægges
+  væk uden videre), **har CVR men ingen tvilling med bons** (ægte organisationer
+  der aldrig blev til en ordre), og **uden CVR og uden spor** (noter og
+  engangstekster tastet i formularens firma-felt: `Barnedåb`, `Zoo kort dag prep`,
+  `ff`). `--csv` skriver hele listen til en fil med en tom `beslutning`-kolonne;
+  374 linjer i en terminal kan ikke gennemgås, og en liste man ikke kan gennemgå
+  bliver enten kørt i blinde eller slet ikke.
+
   Rapporten markerer hver kandidat der er **dublet af et aktivt firma med bons**
   (samme CVR). Det er den mest brugbare oplysning når 374 navne skal skimmes:
   `Akademisk Arkitektforening` ser ud som en rigtig kunde man ikke må røre —

@@ -33,7 +33,9 @@
 //
 //   node --experimental-sqlite scripts/audit-empty-companies.js
 //   node --experimental-sqlite scripts/audit-empty-companies.js --apply
-//   ... --limit 40      (vis flere end de 25 første i rapporten)
+//   ... --csv [sti]     (skriv listen til en fil man kan sortere i — 374 linjer
+//                        i en terminal kan ikke gennemgås)
+//   ... --limit 40      (vis flere end de 12 første pr. gruppe)
 //   ... --keep-cvr      (fred også rækker der har et CVR-nummer)
 // ============================================================
 
@@ -46,7 +48,13 @@ const APPLY    = process.argv.includes('--apply');
 const KEEP_CVR = process.argv.includes('--keep-cvr');
 const LIMIT    = (() => {
     const i = process.argv.indexOf('--limit');
-    return i >= 0 ? Math.max(1, parseInt(process.argv[i + 1], 10) || 25) : 25;
+    return i >= 0 ? Math.max(1, parseInt(process.argv[i + 1], 10) || 12) : 12;
+})();
+const CSV_PATH = (() => {
+    const i = process.argv.indexOf('--csv');
+    if (i < 0) return null;
+    const next = process.argv[i + 1];
+    return (next && !next.startsWith('--')) ? next : path.join(__dirname, '..', 'data', 'tomme-firmaer.csv');
 })();
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 
@@ -136,31 +144,53 @@ function main() {
 
     if (!rows.length) { console.log('\nIntet at rydde op.'); db.close(); return; }
 
-    const medCvr = rows.filter(r => r.cvr).length;
-    const dubletter = rows.filter(r => r.dup_id).length;
-    console.log(`  heraf med CVR: ${medCvr}   uden CVR: ${rows.length - medCvr}`);
-    console.log(`  heraf dubletter af et aktivt firma med bons: ${dubletter}\n`);
+    // Tre grupper, fordi de kræver hver sit blik. At dumpe 374 linjer i én bunke
+    // gør listen ulæselig — og en liste man ikke kan gennemgå, bliver enten kørt
+    // i blinde eller slet ikke.
+    const GRUPPER = [
+        { navn: 'Dubletter af et firma der handler — samme CVR, alle bons ligger på den anden række',
+          note: 'kan lægges væk uden videre',
+          rows: rows.filter(r => r.dup_id) },
+        { navn: 'Har CVR, men ingen anden række med bons',
+          note: 'ægte organisationer der aldrig blev til en ordre — skim dem',
+          rows: rows.filter(r => !r.dup_id && r.cvr) },
+        { navn: 'Uden CVR og uden spor',
+          note: 'typisk noter og engangstekster tastet i formularens firma-felt',
+          rows: rows.filter(r => !r.dup_id && !r.cvr) },
+    ];
 
-    for (const r of rows.slice(0, LIMIT)) {
-        // "firma #2490" — IKKE bare "#2490". Bon-numre ser ud som "cafe-2490",
-        // og et bart #2490 læses derfor som en bon. (Fanget i drift: listens
-        // "#2490 Akademisk Arkitektforening" blev slået op som bonnen cafe-2490,
-        // der ligger på et helt andet firma.)
-        const dup = r.dup_id
-            ? `  ⤷ dublet af firma #${r.dup_id} "${r.dup_name}" (${r.dup_bons} bons)`
-            : '';
-        console.log(`  firma #${String(r.id).padEnd(5)} ${r.name.slice(0, 52).padEnd(54)} ${(r.cvr ? 'CVR ' + r.cvr : '').padEnd(15)}${dup}`);
+    for (const g of GRUPPER) {
+        if (!g.rows.length) continue;
+        console.log(`\n  ${g.rows.length}  ${g.navn}`);
+        console.log(`      ${g.note}`);
+        for (const r of g.rows.slice(0, LIMIT)) {
+            // "firma #2490" — IKKE bare "#2490". Bon-numre ser ud som
+            // "cafe-2490", og et bart #2490 læses derfor som en bon.
+            const dup = r.dup_id ? `  ⤷ firma #${r.dup_id} "${r.dup_name}" (${r.dup_bons} bons)` : '';
+            console.log(`      firma #${String(r.id).padEnd(5)} ${r.name.slice(0, 46).padEnd(48)}${dup}`);
+        }
+        if (g.rows.length > LIMIT) console.log(`      … og ${g.rows.length - LIMIT} mere`);
     }
-    if (rows.length > LIMIT) console.log(`  … og ${rows.length - LIMIT} mere (--limit ${rows.length} for at se alle)`);
+
+    if (CSV_PATH) {
+        const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+        const linjer = ['firma_id;navn;cvr;gruppe;dublet_af_id;dublet_af_navn;dublet_bons;oprettet;beslutning'];
+        for (const g of GRUPPER) for (const r of g.rows) {
+            linjer.push([r.id, q(r.name), q(r.cvr), q(g.navn), r.dup_id ?? '', q(r.dup_name ?? ''),
+                         r.dup_bons ?? '', q((r.created_at || '').slice(0, 10)), ''].join(';'));
+        }
+        // BOM, så æøå ikke bliver til volapyk når filen åbnes i Numbers/Excel.
+        require('fs').writeFileSync(CSV_PATH, '\uFEFF' + linjer.join('\n') + '\n', 'utf8');
+        console.log(`\n  📄 Hele listen: ${CSV_PATH}`);
+        console.log(`      Sidste kolonne "beslutning" er tom — den er din at fylde ud.`);
+    }
 
     if (!APPLY) {
-        console.log(`\nIngen af dem har en bon, en kontaktperson eller en mail.`);
-        if (dubletter) {
-            console.log(`${dubletter} af dem er dubletter af et firma der handler — samme CVR, alle bons`);
-            console.log(`ligger på den anden række. Dem kan du trygt lægge væk.`);
-        }
-        console.log(`Rækker med e-conomic-nummer, påmindelse, event, tilbud, kampagne eller`);
-        console.log(`booking-token er allerede fredet og står ikke på listen.\n`);
+        console.log(`\n  Ingen af dem har en bon, en kontaktperson eller en mail. Rækker med`);
+        console.log(`  e-conomic-nummer, note, påmindelse, vedhæftning, event, kampagne eller`);
+        console.log(`  booking-token er allerede fredet og står ikke på listen.`);
+        if (!CSV_PATH) console.log(`\n  Tilføj --csv for at få hele listen som fil du kan sortere i.`);
+        console.log('');
         db.close();
         return;
     }
