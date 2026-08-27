@@ -27,6 +27,7 @@
     "test:smartplan-mirror": "node --experimental-sqlite scripts/test-smartplan-mirror.js",
     "smartplan:felter": "node --experimental-sqlite scripts/inspect-smartplan-fields.js",
     "check:frozen-zero-labor": "node --experimental-sqlite scripts/check-frozen-zero-labor.js",
+    "check:labor-gaps": "node --experimental-sqlite scripts/check-labor-gaps.js",
     "test:event-return-cost": "node --experimental-sqlite scripts/test-event-return-cost.js",
     "test:event-labor": "node --experimental-sqlite scripts/test-event-labor.js",
     "test:event-shift-assign": "node --experimental-sqlite scripts/test-event-shift-assign.js",
