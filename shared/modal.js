@@ -187,6 +187,19 @@ function _parseConsumePayload(raw) {
     return { kind: 'results', results, raw: txt };
 }
 
+/**
+ * Blev status-skiftet tvunget igennem uden om det normale flow?
+ * Payloaden er JSON fra serveren og kan i teorien være hvad som helst —
+ * en fejl her må ikke vælte hele historikken.
+ */
+function _changelogWasForced(entry) {
+    if (!entry || !entry.payload) return false;
+    try {
+        const p = typeof entry.payload === 'string' ? JSON.parse(entry.payload) : entry.payload;
+        return p && p.was_forced === true;
+    } catch { return false; }
+}
+
 /** Afkort en changelog-værdi så en maskin-payload ikke sluger hele modalen. */
 function _clipChangelogValue(v, max) {
     const s = String(v == null ? '' : v);
@@ -284,10 +297,16 @@ function _buildChangelogEntry(entry) {
     } else if (entry.action === 'status_change') {
         const oldLabel = _statusLabel(entry.old_value);
         const newLabel = _statusLabel(entry.new_value);
+        // Overstyring markeres. Alle indloggede kan overstyre en status-vej der
+        // ikke findes i flowet (aug 2026), så et forceret skift ser ellers ud
+        // præcis som et almindeligt — og netop dét er hvad man leder efter
+        // bagefter, fordi automatikken bag de normale trin blev sprunget over.
+        const forced = _changelogWasForced(entry);
         detailHtml = `<div class="changelog-detail">
             <span class="old-value">${esc(oldLabel)}</span>
             <span class="arrow">→</span>
             <span class="new-value">${esc(newLabel)}</span>
+            ${forced ? '<span class="changelog-forced" title="Ikke en normal status-vej — kontroller og automatik blev sprunget over">overstyret</span>' : ''}
         </div>`;
     } else if (entry.field_name) {
         const fieldLabel = _FIELD_LABELS[entry.field_name] || entry.field_name;

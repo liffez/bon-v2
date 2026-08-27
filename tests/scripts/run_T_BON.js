@@ -47,10 +47,17 @@ function assertEq(id, group, expected, actual, label = '') {
     }
 }
 
+// Session til de almindelige (ikke-force) kald. Siden #316 er hele /api bag
+// en auth-gate, så en runner uden login får 401 på alt — også i preflight.
+// Force-casene laver deres egne logins, fordi de netop skal teste roller.
+let SESSION_COOKIE = null;
+
 async function patchStatus(bonId, body) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (SESSION_COOKIE) headers['Cookie'] = SESSION_COOKIE;
     const res = await fetch(`${SERVER_URL}/api/bons/${bonId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
     });
     return { status: res.status, body: await res.json().catch(() => null) };
@@ -252,12 +259,23 @@ async function patchStatusAuth(bonId, body, cookie) {
     return { status: res.status, body: await res.json().catch(() => null) };
 }
 
+function latestStatusChangelog(bonId) {
+    return db.prepare(`
+        SELECT user_id, payload FROM changelog
+        WHERE entity_type='bon' AND entity_id=? AND action='status_change'
+        ORDER BY id DESC LIMIT 1
+    `).get(bonId);
+}
+
 async function runForceCases() {
     // Sikre seedede brugere: admin (id=2, intet PIN) og kitchen (id=3, PIN 1234).
     // For admin-login: opret midlertidig admin-PIN i DB (kitchen-runneren bruger
     // pin-endpointet, som er enklest). Admin har email-login i prod men PIN
     // virker også hvis sat.
     const adminUser = db.prepare(`SELECT id, pin FROM users WHERE role = 'admin' AND is_active = 1 LIMIT 1`).get();
+    // Kitchen-brugeren slås op så FORCE_02/03 kan efterprøve at auditsporet
+    // peger på den der FAKTISK var logget ind — ikke på body.user_id.
+    const kitchenUser = db.prepare(`SELECT id FROM users WHERE pin = '1234' AND is_active = 1 LIMIT 1`).get();
     if (!adminUser) {
         for (let i = 1; i <= 7; i++) record(`T_BON_API_FORCE_0${i}`, 'FORCE', 'SKIP', 'Ingen aktiv admin-bruger');
         return;
@@ -296,33 +314,51 @@ async function runForceCases() {
             }
         }
 
-        // FORCE_02: kitchen-bruger med force: true → 403
+        // FORCE_02: ikke-admin med force: true → 200, og auditsporet peger på HENDE.
+        // Force var admin-only indtil aug 2026. Virkeligheden følger ikke altid
+        // flow-diagrammet, og auth er rolle-baseret med delte konti — så kravet
+        // ramte roller, ikke ansvar. Login-kravet + auditsporet er værnet.
         setBonStatus(4002, 'GODKENDT');
-        {
+        if (!kitchenUser) {
+            record('T_BON_API_FORCE_02', 'FORCE', 'SKIP', 'Ingen aktiv kitchen-bruger med PIN 1234');
+        } else {
             const r = await patchStatusAuth(4002, { status_code: 'BETALT', force: true }, kitchenCookie);
-            if (r.status === 403 && /admin-rolle/i.test(r.body?.error || '')) {
-                record('T_BON_API_FORCE_02', 'FORCE', 'PASS');
+            const cl = latestStatusChangelog(4002);
+            const auditOk = cl?.user_id === kitchenUser.id
+                && JSON.parse(cl?.payload || '{}').by_user_id === kitchenUser.id;
+            if (r.status === 200 && auditOk) {
+                record('T_BON_API_FORCE_02', 'FORCE', 'PASS',
+                    VERBOSE ? 'Ikke-admin kan force\'e; audit peger på kitchen-brugeren' : '');
             } else {
                 record('T_BON_API_FORCE_02', 'FORCE', 'FAIL',
-                    `Forventede 403 med admin-rolle-besked, fik status=${r.status}, body=${JSON.stringify(r.body)}`);
+                    `Forventede 200 + audit=${kitchenUser.id}, fik status=${r.status}, cl=${JSON.stringify(cl)}`);
             }
         }
 
-        // FORCE_03 (D-3 regression — privilege escalation): kitchen + body.user_id=admin → 403
-        // Body.user_id må IKKE påvirke rolle-tjekket
+        // FORCE_03 (D-3 regression): body.user_id må ALDRIG bestemme hvem
+        // historikken siger det var. Rolle-tjekket er væk, men netop derfor er
+        // auditsporet nu det eneste der peger på et menneske — og det skal komme
+        // fra sessionen. Skriver en afsender en anden brugers id i body, skal
+        // det ignoreres.
         setBonStatus(4002, 'GODKENDT');
-        {
+        if (!kitchenUser) {
+            record('T_BON_API_FORCE_03', 'FORCE', 'SKIP', 'Ingen aktiv kitchen-bruger med PIN 1234');
+        } else {
             const r = await patchStatusAuth(4002, {
                 status_code: 'BETALT',
                 force: true,
-                user_id: adminUser.id,  // forsøg på eskalering
+                user_id: adminUser.id,  // forsøg på at skrive en anden i historikken
             }, kitchenCookie);
-            if (r.status === 403) {
+            const cl = latestStatusChangelog(4002);
+            const auditOk = cl?.user_id === kitchenUser.id
+                && JSON.parse(cl?.payload || '{}').by_user_id === kitchenUser.id;
+            if (r.status === 200 && auditOk) {
                 record('T_BON_API_FORCE_03', 'FORCE', 'PASS',
-                    VERBOSE ? 'D-3: privilege escalation forhindret' : '');
+                    VERBOSE ? 'D-3: body.user_id ignoreret i auditsporet' : '');
             } else {
                 record('T_BON_API_FORCE_03', 'FORCE', 'FAIL',
-                    `D-3 BRUDT: kitchen + body.user_id=${adminUser.id} fik status=${r.status} (forventede 403)`);
+                    `D-3 BRUDT: body.user_id=${adminUser.id} med kitchen-session gav `
+                    + `status=${r.status}, cl=${JSON.stringify(cl)} (forventede audit=${kitchenUser.id})`);
             }
         }
 
@@ -456,9 +492,19 @@ async function main() {
     db = openDb(process.env.DB_PATH);
     db.exec('PRAGMA foreign_keys = ON');
 
+    // Log ind før preflight — auth-gaten (#316) svarer ellers 401 på alt.
+    try {
+        SESSION_COOKIE = await loginCookie(process.env.TEST_PIN || '1234');
+    } catch (err) {
+        console.error(`[run_T_BON] Login fejlede: ${err.message}`);
+        process.exit(1);
+    }
+
     // Verificer at server svarer
     try {
-        const r = await fetch(`${SERVER_URL}/api/statuses`);
+        const r = await fetch(`${SERVER_URL}/api/statuses`, {
+            headers: SESSION_COOKIE ? { Cookie: SESSION_COOKIE } : {},
+        });
         if (r.status !== 200) {
             console.error(`[run_T_BON] Server svarer ${r.status} — er test:server startet?`);
             process.exit(1);

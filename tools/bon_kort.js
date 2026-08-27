@@ -47,7 +47,11 @@ function buildStatusBar(card) {
     const viewName = viewEl ? viewEl.dataset.view : 'all';
     let   window_  = VIEW_WINDOWS[viewName]
         ? [...VIEW_WINDOWS[viewName]]
-        : Object.keys(BON_CONFIG.statuses);
+        // Uden et vindue vises alle statusser der er kort-knapper. Filteret er
+        // undtagelsen (i dag kun AFLYST), ikke en hvidliste — så en ny status
+        // dukker op af sig selv, som hidtil.
+        : Object.keys(BON_CONFIG.statuses)
+              .filter(k => BON_CONFIG.statuses[k].cardButton !== false);
 
     // Kontant m.fl.: spring faktureret over
     if (BON_CONFIG.skipFaktureret.includes(payment)) {

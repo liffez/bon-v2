@@ -153,11 +153,7 @@ function _buildStatusFilters() {
 
     if (typeof BON_CONFIG === 'undefined' || !BON_CONFIG.statuses) return bar;
 
-    // AFLYST findes ikke i BON_CONFIG.statuses (indgår ikke i status-bar/sekvens),
-    // men skal kunne filtreres i kalenderen som enhver anden status.
-    var statuses = Object.assign({}, BON_CONFIG.statuses, {
-        'aflyst': { label: 'AFLYST', color: '#8a8a8a', text: '#ffffff' }
-    });
+    var statuses = BON_CONFIG.statuses;
     for (var key in statuses) {
         if (!statuses.hasOwnProperty(key)) continue;
         var cfg = statuses[key];
