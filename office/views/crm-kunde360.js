@@ -1106,9 +1106,10 @@ function _k3RenderShell() {
             }
             .k3-order-row:hover { background: var(--brand-primary-light, #f1e6b2); margin: 0 -18px; padding: 8px 18px; }
             .k3-order-bon { font-weight: 600; color: var(--brand-primary); }
+            /* Farven sættes af statusBadgeHtml (BON_CONFIG) — her kun formen. */
             .k3-order-status {
                 display: inline-block; padding: 2px 8px; border-radius: 6px;
-                font-size: 10px; font-weight: 700; background: #f0f0f0;
+                font-size: 10px; font-weight: 700; letter-spacing: .02em;
             }
 
             /* Activity form */
@@ -1579,7 +1580,7 @@ function _k3RenderOrders(el) {
             '<span>' + o.delivery_date + '</span>' +
             '<span>' + (o.pax || '—') + ' pax</span>' +
             '<span>' + (o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '—') + '</span>' +
-            '<span class="k3-order-status">' + o.status + '</span>' +
+            statusBadgeHtml(o.status, { label: o.status_label, className: 'k3-order-status' }) +
         '</div>'
     ).join('');
 }

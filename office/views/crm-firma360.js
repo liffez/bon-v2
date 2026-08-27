@@ -718,7 +718,7 @@ async function _f3RenderBons(el) {
                             <td>${_f3FormatDate(b.delivery_date)}</td>
                             <td>${escapeHtml((b.customer_first_name || '') + ' ' + (b.customer_last_name || '')) || '<span class="f3-muted">—</span>'}</td>
                             <td>${b.pax || '—'}</td>
-                            <td><span class="f3-pill f3-pill-status">${escapeHtml(b.status_label || b.status_code || '—')}</span></td>
+                            <td>${statusBadgeHtml(b.status_code, { label: b.status_label })}</td>
                             <td>${formatKr(b.total_price || 0)}</td>
                         </tr>
                     `).join('')}

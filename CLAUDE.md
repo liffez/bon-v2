@@ -5282,6 +5282,39 @@ Testdata ryddet.
 > eksisterende. De otte gamle `able`-rækker er ikke ryddet op her; det er data, ikke
 > kode, og hører til stamdata-værktøjerne (`npm run audit:dubletter`).
 
+**Efterspil fra første drifttest (28. august).** Fire ting kom retur:
+
+- **Blyanten på et tomt stamdata-felt var usynlig** (`opacity: 0` indtil hover).
+  For CVR og EAN går det, fordi der som regel står en værdi man sigter efter —
+  men en ny `Rabat —`-række så ud som om den manglede en knap, så flaget blev
+  sat og rabatten kunne ikke findes. Tomme rækker viser nu blyanten dæmpet, og
+  hele rækken kan klikkes. Gælder alle de redigerbare felter.
+- **Redigerings-rækken skød ud over kortet.** `.f3-edit-wrap` manglede
+  `min-width: 0`; en flex-item har `min-width: auto` og kan derfor ikke krympe
+  under sit indholds min-bredde. Målt: kortet slutter ved 626 px, wrap'en endte
+  ved 668, og "Annullér" blev klippet af. Pre-eksisterende, men først synligt da
+  rabat-feltet gav en grund til at åbne editoren.
+- **Bon-statusser var farveløse i Firma 360° og Kunde 360°** — hardkodet
+  `#e6eef3` og `#f0f0f0` i stedet for BON_CONFIG. Samme fejl som blev rettet i
+  ugeoversigt/web-ordrer/kalender 19. maj; de to 360°-skærme blev overset.
+  Ny `statusBadgeHtml(code, opts)` i `shared/utils.js` er nu ét sted at hente
+  farve + etiket, med grå fallback hvis BonConfig ikke er loadet.
+- **`scripts/merge-reseller-junk-companies.js`** rydder op i de rækker der nåede
+  at blive oprettet før migrationen. **Ikke** en almindelig sammenlægning:
+  rækkens NAVN er den eneste oplysning om hvem slutkunden var, så navnet skrives
+  over i `bons.end_customer_name` FØR bonnen flyttes. Rækkerne udpeges én ad
+  gangen med `expect_name` som spærre — en søgning på "able" fanger også
+  **`A Table Story ApS`** (CVR 44129485), som intet har med Able at gøre.
+  Per Aarsleff (3652/3654) og Brunata (3703) bærer ægte CVR og kontaktpunkter og
+  har 0 bons; de skal **omdøbes**, ikke slettes, og det er et menneskes
+  beslutning. Dry-run default, `VACUUM INTO`-backup, transaktion der ruller
+  tilbage hvis antal bons eller omsætning flytter sig, idempotent.
+
+  Kørt mod en kopi af driftsdata: Able 58 → **62 bons**, `Cisco` og `Systematic`
+  bevaret som slutkunder, ni able-agtige rækker → fem aktive (Able + de fire vi
+  bevidst ikke rører). B4194 (16.435 kr, VENTER) lå på en række uden
+  e-conomic-nummer og kunne ikke faktureres — den kan den nu.
+
 **Bredere fund, ikke løst her:** af 114 web-bestillinger i drift ligger **39** på et
 andet firma end kundens eget — `University of Copenhagen` mod `Københavns
 Universitet`, `ATV` mod `Akademiet for de tekniske videnskaber`, `Stromma` mod
