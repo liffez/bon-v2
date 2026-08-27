@@ -1,6 +1,6 @@
 # T_BON — Test-spec for bon livscyklus
 
-> Status-flow, changelog, transitions, force-mode (admin override).
+> Status-flow, changelog, transitions, force-mode (override af ugyldig status-vej).
 > Tester `PATCH /api/bons/:id/status` mod den faktiske status_transitions-tabel.
 
 ---
@@ -30,7 +30,7 @@ FAKTURERET → AFSLUTTET
 
 **Bemærk:** AFLYST kan nås fra alle "aktive" statusser (TILBUD/NY/VENTER/GODKENDT/IGANG/KLAR/LEVERET) — men IKKE fra terminal-statusser (FAKTURERET/BETALT/AFSLUTTET). Hvis det er bevidst, fint. Hvis ikke, dokumenteres som finding.
 
-**Force-mode:** Implementeret via [PATCH_D_force_mode.md](patches/PATCH_D_force_mode.md) (maj 2026). Admin kan overstyre forbudte transitions med `{force: true}` i body. Rolle-tjek mod session (ikke body) for at undgå privilege escalation. Audit-log via `changelog.payload = {was_forced: true, by_user_id}`. T_BON_API_FORCE_01-07 dækker happy path + D-3 privilege-escalation-regression.
+**Force-mode:** Implementeret via [PATCH_D_force_mode.md](patches/PATCH_D_force_mode.md) (maj 2026). Enhver **indlogget** bruger kan overstyre en forbudt transition med `{force: true}` i body — admin-kravet er fjernet aug 2026 (auth er rolle-baseret med delte konti, så kravet ramte roller og ikke ansvar; virkeligheden følger ikke altid flow-diagrammet). Login-kravet + auditsporet er værnet: `changelog.payload = {was_forced: true, by_user_id}` med id'et fra **sessionen**, aldrig fra `body.user_id`. T_BON_API_FORCE_01-07 dækker happy path + D-3-regressionen.
 
 ---
 
@@ -74,14 +74,14 @@ FAKTURERET → AFSLUTTET
 | **T_BON_API_CL_01** | Status-skift skriver changelog-entry | Efter PATCH findes en row med action='status_change', old_value=før-status, new_value=ny-status |
 | **T_BON_API_CL_02** | Changelog inkluderer user_id når givet | PATCH med `user_id: 1` → changelog.user_id = 1 |
 
-### 3.5 Force-mode (Patch D — implementeret maj 2026)
+### 3.5 Force-mode (Patch D — maj 2026, åbnet for alle indloggede aug 2026)
 
 | ID | Formål | Setup | Forventet |
 |----|--------|-------|-----------|
 | **T_BON_API_FORCE_01** | Admin kan force'e forbudt transition | Login som admin, GODKENDT → BETALT | 200, transition gennemført |
-| **T_BON_API_FORCE_02** | Non-admin afvises ved force | Login som kitchen, force=true | 403 "Force-mode kræver admin-rolle" |
-| **T_BON_API_FORCE_03** | **Privilege escalation forhindret (D-3)** | Login som kitchen, send `user_id: <admin>` i body | 403 — body.user_id må IKKE påvirke rolle-tjek |
-| **T_BON_API_FORCE_04** | Ingen session + force=true | Ingen cookie | 401 |
+| **T_BON_API_FORCE_02** | Non-admin kan force'e | Login som kitchen, force=true | 200 + audit peger på kitchen-brugeren |
+| **T_BON_API_FORCE_03** | **body.user_id styrer ikke auditsporet (D-3)** | Login som kitchen, send `user_id: <admin>` i body | 200, men `changelog.user_id` + `by_user_id` = kitchen-brugeren |
+| **T_BON_API_FORCE_04** | Ingen session + force=true | Ingen cookie | 401 — uden en bruger er der intet auditspor |
 | **T_BON_API_FORCE_05** | Ikke-force fortsat regression | Forbudt transition uden force | 400 "ikke tilladt" som hidtil |
 | **T_BON_API_FORCE_06** | Terminal-tilbageskift | Admin force'r FAKTURERET → IGANG | 200 |
 | **T_BON_API_FORCE_07** | Audit-log korrekt (D-2 regression) | Force-skift som admin | changelog.payload = `{was_forced:true, by_user_id:<admin>}` + kolonne-rækkefølge intakt |
@@ -121,7 +121,7 @@ npm run test:run-bon
 
 Beslutningen (Leif, maj 2026): **B — implementér**. Admin kan rette stuck bons via UI i stedet for direkte DB-UPDATE. Audit-trailen viser hvilke skift gik uden om normalt flow.
 
-Sikkerheds-detalje (D-3): rolle-tjek baseret på `req.session.userId`, ikke `req.body.user_id`. En kitchen-bruger der sender `user_id: <admin>` i body bliver afvist — verificeret af T_BON_API_FORCE_03.
+Sikkerheds-detalje (D-3): audit-user-id kommer fra `req.session.userId`, aldrig fra `req.body.user_id`. Efter at rolle-kravet er fjernet, er auditsporet det eneste der peger på et menneske — så det må ikke kunne skrives af afsenderen. En kitchen-bruger der sender `user_id: <admin>` i body får skiftet igennem, men historikken viser kitchen-brugeren — verificeret af T_BON_API_FORCE_03.
 
 ---
 

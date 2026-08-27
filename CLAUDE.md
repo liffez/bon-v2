@@ -320,14 +320,24 @@ Tidligere lå det spredt i denne fils "Åbne afhængigheder", MEMORY.md og docs/
 - **Board:** GitHub Projects "Bon v2" — <https://github.com/users/liffez/projects/3>
   - Kolonner (Status-felt): `Backlog` · `Klar` · `I gang` · `Review` · `Done`
 - **Labels:** `deploy`, `afventer-ekstern`, `bug`, `sikkerhed`, `tech-debt`, `test`, `feature`, `projekt` (epic)
-- **Epics** (`projekt`-label) = store projekter med spec-mapper i `docs/`, hver med fase-checkliste:
+- **Epics** (`projekt`-label) = store projekter, hver med fase-checkliste. De fleste har
+  en spec i `docs/` — enten en mappe eller en enkelt fil:
   - #81 Festival / multi-lokation (`docs/festival/`)
   - #82 Form Builder (`docs/formbuilder/`)
   - #83 Kunde-portal (`docs/kunde-portal/`)
-  - #88 CO₂-aftryk pr. bon + ESG-datagrundlag (`docs/co2/`)
+  - #88 CO₂-aftryk pr. bon + ESG-datagrundlag (`docs/CLAUDE_CO2.md` + `docs/co2/`)
+  - #232 CRM-triks — top-of-mind køer (`docs/CLAUDE_CRM_TRIKS.md`)
   - #259 Leverings- & adressedata-oprydning (`docs/delivery/`)
-  - #471 Indkøb Fase A — salgsenhed, pris, leveringsdato (`docs/indkob/`)
+  - #264 Aggregerede vare-egenskaber på bon — allergener + diæt + øko% (ingen samlet
+    spec; trackes via sub-issues #260–262)
+  - #272 Mellemprodukter — forecast (RR) vs. lav-hvis-mangler (`docs/CLAUDE_HURTIG_PRODUKTION.md`)
+  - #471 Indkøb Fase A — salgsenhed, pris, leveringsdato (`docs/indkob/CLAUDE_INDKOB_FASE_A.md`)
+  - #555 Køkken-kiosk — fastmonteret touchskærm med dagsrytme (`docs/CLAUDE_KIOSK.md`)
   - docs/-specs forbliver source-of-truth; epics linker til dem og tracker fremdrift via checkbokse.
+  - Listen her går let bagud. Den aktuelle er:
+    `gh issue list --state open --limit 200 --json number,title,labels --jq '.[] | select(.labels|map(.name)|index("projekt")) | "#\(.number) \(.title)"'`
+    (`--label projekt` og `--search` returnerer pt. tomt — GitHubs søgeindeks svarer ikke
+    for dette repo, mens direkte listning virker.)
 
 **Arbejdsgang:**
 - Ny bug/opgave dukker op → opret et issue (ikke kun en note i chat eller docs)
@@ -5193,6 +5203,264 @@ mod grocytest i begge faner; intet blev trukket fra lageret undervejs.
 > Serveren bruger DB'ens URL, så en frisk dev-opsætning kan ikke nå grocytest.
 > CLAUDE.md's egen Grocy-instans-sektion har samme gamle værdi.
 
+### En unormal status-vej kan overstyres af alle indloggede (27. august 2026)
+
+En kunde aflyste, og bonen skulle lukkes: `AFLYST → AFSLUTTET`. Vejen findes ikke i
+`status_transitions` (AFLYST er terminal), så skiftet blev afvist — og tilbuddet om at
+overstyre blev kun givet til **admin**. Enhver anden stod med en blank fejlbesked og
+ingen vej videre.
+
+Kravet stammer fra Patch D (maj 2026), hvor det rigtige problem var *privilege
+escalation*: `body.user_id` kunne bestemme rolle-tjekket. Værnet — at både rolle og
+audit-user-id skal komme fra sessionen — var korrekt. Admin-kravet der fulgte med, var
+det ikke: **auth her er rolle-baseret med delte PIN-konti**, så det ramte roller frem
+for ansvar, mens virkeligheden ikke følger flow-diagrammet.
+
+- **Force kræver nu login, ikke admin.** Login-kravet står ved magt af en grund der er
+  værd at holde fast i: uden en session er der ingen at skrive i auditsporet. `can_force`
+  følger derfor `!!sessionUser`, ikke rollen.
+- **`body.user_id` bestemmer stadig aldrig hvem historikken siger det var.** Efter at
+  rolle-tjekket er væk, er auditsporet det **eneste** der peger på et menneske — så det
+  må ikke kunne skrives af afsenderen. D-3-værnet er dermed vigtigere end før, ikke
+  mindre.
+- **Advarslen bærer beslutningen** i stedet for rollen: den siger nu hvad der springes
+  over (kontroller og automatik i de normale trin — lagertræk, afbestilling af bud) og
+  at skiftet noteres i historikken med brugerens navn.
+- **Historikken markerer det.** `was_forced` lå allerede i `changelog.payload`, men blev
+  ikke vist nogen steder — et forceret skift så ud præcis som et almindeligt. Nu står der
+  et dæmpet `OVERSTYRET` på entryen. Uden det ville advarslens løfte kun være halvt sandt,
+  og netop dét mærke er hvad man leder efter når man bagefter spørger hvorfor lagertrækket
+  ikke skete.
+
+> ⚠️ **T_BON kunne ikke køre — brudt af auth-gaten (#316), ikke af denne ændring**
+> (efterprøvet mod `git stash`: samme 401 på baseline). Runneren lavede rå `fetch` uden
+> session, så den døde i preflight. Den logger nu ind som køkken-rollen; force-casene
+> laver stadig deres egne logins, fordi de netop skal skelne roller. Samme efterslæb som
+> CLAUDE.md's deploy-afsnit beskriver — flere runnere kan have det.
+
+**Tests:** T_BON 25/25 (FORCE_01–07 alle PASS, ingen SKIP). FORCE_02 er vendt fra
+"non-admin afvises" til "non-admin kan, og auditsporet peger på hende"; FORCE_03 tester
+nu det den hele tiden burde: at `body.user_id` ikke kan skrive en anden bruger i
+historikken. **Mutations-testet** — genindføres admin-kravet, falder FORCE_02+03; lader
+man `body.user_id` vinde i auditsporet, falder FORCE_03. Den anden mutation er den
+interessante: med det gamle 403-svar var D-3 aldrig reelt efterprøvet, fordi afvisningen
+skjulte audit-hullet. Regression grøn: T_BON_DRAWER_CORE 61/61, T_BONS_LIST 77/78·1 SKIP,
+moms-audit + bon_lines + dato 36/36. Browser-verificeret som **kitchen-rolle** (ikke
+admin) på bon 4004: advarsel → bekræft → AFSLUTTET, `changelog.user_id = 2` med
+`was_forced: true`, og `OVERSTYRET` synligt i historikken.
+
+
+### AFLYST var en status man ikke kunne se eller vælge (27. august 2026)
+
+Opfølgning på ovenstående. Kontoret spurgte om AFLYST var det samme som AFSLUTTET.
+Det er det ikke — og forvekslingen er dyr: en aflyst ordre holdes ude af omsætning,
+workload og kapacitet (`EXCLUDE_CANCELLED_SQL`), mens en afsluttet **tæller med**.
+Sætter man en aflyst bon til AFSLUTTET, flytter man den ind i regnskabet.
+
+Grunden til at nogen ville gøre det: `aflyst` stod ikke i `BON_CONFIG.statuses`
+(bevidst — den er ikke et trin i sekvensen). Men drawerens status-bar bygges af
+netop den liste, så tre ting fulgte:
+
+1. **Aflysning kunne kun ske gennem knappen der hed "Slet bon"** — to-trins, hvor
+   første tryk aflyser og andet sletter permanent. Navnet lovede kun det ene, og
+   det farligste. Knappen hedder nu **"Aflys bon"** / **"Slet permanent"** efter
+   hvad et tryk faktisk gør, med tooltip der siger konsekvensen.
+2. **En aflyst bon viste INGEN aktiv status** — `curStatus = 'aflyst'` matchede
+   ingen knap, så bonen så statusløs ud i draweren.
+3. **Kalenderen havde måttet holde sin egen kopi** af label og farve for at kunne
+   filtrere på den. Den er fjernet; farven bor ét sted nu.
+
+- `aflyst` er tilføjet med **grå** `#8a8a8a`, ikke DB'ens røde `#bc181b`: rød er
+  allerede AFSLUTTET, og grå siger "ude af spil".
+- Nyt felt **`cardButton: false`**: statussen har label og farve, men vises ikke som
+  knap på bon-kortet i views der ellers viser alle statusser. Køkkenkortene skal
+  ikke have et aflys-klik ved siden af KLAR. Det er skrevet som en **undtagelse**,
+  ikke en hvidliste, så en ny status fortsat dukker op af sig selv.
+  (I dag rammer `'all'`-fallbacken ingen kort — kun `kitchen-today`/`kitchen-later`
+  bruger `createCard`, og begge har eksplicitte lister. Flaget er et værn fremad.)
+- `BON_CONFIG.sequence` er urørt: aflyst er ikke et trin frem. Feltet bruges i
+  øvrigt ikke af noget i dag.
+
+> ⚠️ **`status_transitions.requires_confirmation` er dødt i frontenden.** Feltet er
+> udfyldt i seed for alle → AFLYST, men **ingen** frontend læser det: serveren
+> returnerer det først i svaret, altså efter skiftet er sket. En rå AFLYST-knap ville
+> derfor være ét klik uden varsel, hvor "Slet bon" i dag spørger. `_setStatus` har
+> fået en eksplicit bekræftelse for `aflyst` med samme ord som slet-vejen. At vække
+> feltet til live ville aktivere ~10 sovende bekræftelser på én gang og hører til sin
+> egen opgave.
+
+**Verificeret** som køkken-rolle mod testserveren: AFLYST står sidst i drawerens
+status-bar, bekræftelsen kommer, statussen bliver aktiv (bugfix 2), og slet-knappen
+skifter til "Slet permanent" uden genindlæsning. `buildStatusBar` kaldt direkte med
+`view: 'all'` giver alle statusser **uden** AFLYST — **mutations-testet**: fjernes
+`cardButton`, dukker den op. Kalenderens filterbar er uændret (samme knap, samme
+`#8a8a8a`), nu fra ét sted. Regression: T_BON 25/25, drawer 61/61, bons-list
+77/78·1 SKIP.
+
+> Browser-panelet frøs undervejs (viewport 0×0 — se memory `project_browser_panel_freezes`),
+> så klikkene er sendt gennem de ægte lyttere frem for som fysiske museklik. Layout er
+> derfor ikke efterprøvet visuelt; adfærd og markup er.
+
+**Efterspil samme dag: knappen lærte det ikke.** Fra en terminal status gav "Aflys bon"
+en blank `Transition AFSLUTTET → AFLYST er ikke tilladt` uden tilbud om at overstyre —
+mens AFLYST i status-baren virkede. `_handleDelete` kaldte `patchBonStatus` **direkte**
+og havde hverken bekræftelse eller force-gren; kun `_setStatus` fik dem. To veje til
+samme handling, hvor den ene lærte det nye. Knappen delegerer nu til `_setStatus('aflyst')`,
+så de deler kode og ikke kan skride fra hinanden igen — samme lære som `_tOpenQuote`
+vs. `_tCopyBon` (#428).
+
+`_setStatus` returnerer nu `true`/`false`. Uden det kunne kalderen ikke skelne "aflyst"
+fra "brugeren sagde nej i override-dialogen", og ville have nulstillet `dirty` på en bon
+der aldrig blev aflyst.
+
+Draweren **lukker ikke længere** efter aflysning fra knappen (det gjorde den før):
+aflysning er ikke en fjernelse, AFLYST er nu synlig i status-baren, og "Slet permanent"
+står klar hvis den skal væk helt. At blive er også det samme som status-bar-vejen gør.
+
+Verificeret på en BETALT bon: aflys-bekræftelse → override-dialog → AFLYST, knappen
+skifter til "Slet permanent", draweren bliver. Nej til override og nej til aflysning
+lader begge bonen stå på BETALT uden fejlbesked. "Slet permanent" sletter stadig
+(`GET /api/bons/4008` → 404 bagefter). En udløbet session giver "Ikke logget ind" i
+stedet for override-tilbuddet, hvilket er rigtigt: uden bruger er der intet auditspor.
+
+### Rest-prep: to prep-bons på samme event-dag tælles ikke længere dobbelt (27. august 2026)
+> Spec: `docs/CLAUDE_EVENT.md §19`. Migration 166.
+
+Køkkenet kunne ikke se hvor meget der skulle laves til Ungdommens folkemøde: der lå **to**
+prep-bons på hver dag — broens forudbestillinger (B4166, vokser ved hver ordre) og office'
+egen fra forecasten (B4147). Forecasten ER dagens total og indeholder de forudbestilte,
+men det stod kun som fritekst i broens køkkeninfo: *"indgår disse i den (lav dem ikke oveni)"*.
+
+Det var ikke kun forvirring. Målt i drift 2. sep: forecast 400, forudbestilt 332,
+registreret produktion **732**. Fire konsekvenser, hvoraf den første er den alvorlige:
+
+1. **HQ-lageret ville blive trukket dobbelt.** Let-event prep-bons er undtaget §5-gaten og
+   trækker uanset det globale flag ([db/helpers.js](db/helpers.js) `autoConsumeBonInventory`).
+   Begge bons på LEVERET = råvarer for 732 ud af huset, mens der forlod huset 400. Fejlen
+   dukker først op ved næste optælling som en uforklarlig difference.
+2. `computeTopupSuggestion` + `computeReturnSuggestion` summerer alt prep → retur ville
+   bogføre 332 for meget tilbage på HQ.
+3. Ugeoversigt og kapacitet: 732 enh onsdag → falsk "Understaffed".
+4. Køkkenet så to kort og skulle selv regne.
+
+Samme fejlklasse som #305/#319 (memory `project_silent_sideeffect_failures`): to systemer
+er uenige, og uenigheden er usynlig.
+
+**Reglen** (Leif): `mål = max(forecast, forudbestilt)` pr. kategori pr. dag; office' bon
+holder **resten** op til målet. `max()` er *"forecasten styrer, med mindre den bliver
+overhalet af de faktiske ordrer"* — så behøver forecasten aldrig blive rettet bag ryggen på
+nogen. Pr. dag og ikke på summen: ellers kunne en presset dag blive udlignet af en rolig.
+
+**Den genberegnes frem for at blive rettet i hånden**, fordi forudbestillinger kan komme ind
+helt frem til bestillingsfristen (30. aug for eventet 2.–3. sep). Der findes ikke noget godt
+tidspunkt at rette på: for tidligt bliver forkert igen, for sent efterlader køkkenet uden
+grundlag. Tre triggere: broens prep-push · `PUT /:id/forecast` · oprettelse/toggle.
+
+**Værn:**
+- **Opt-in pr. bon** (`bons.event_prep_auto_rest`) — en bon office har sammensat i hånden må
+  ikke pludselig flytte sig. Fluebenet vises kun når dagen faktisk har forudbestillinger.
+- **Frysen** stopper genberegningen når bonnen forlader `NY`/`GODKENDT` eller har trukket
+  lager. Listen spejler broens `BRIDGE_ROLES.prep.reconcile` med vilje — gik de fra hinanden,
+  kunne broen opdatere SIN bon på en dag hvor resten er frosset. Derefter er nye ordrer en top-up.
+- **Kun kategorier med et mål røres** (`Tilbehør & Bokse` står urørt), og vi opfinder aldrig
+  produkter — mangler der linjer i en kategori med et mål, rapporteres det.
+- **Mixet bevares proportionalt**: det er office' valg af hvad der laves ekstra og må ikke
+  overskrives af hvad kunderne tilfældigvis har bestilt.
+- **Én rest-bon pr. (event, dag)** (partielt unique-indeks) — to ville trække hinanden fra.
+- **En fejlet genberegning må aldrig koste kundens ordre**: broen kalder i try/catch og
+  rapporterer fejlen i svaret. Samme princip som `goodsReceiptWebhook`.
+
+**Rest = 0**: bonnen bliver **stående** med linjer på 0 og teksten *"⟳ 0 — hele dagens mål er
+forudbestilt. Det er B4166 I skal lave efter."* Beslutning (Leif): *"de har set på 2 bonner i
+lang tid, så det vil nok være mærkeligt hvis den pludselig forsvandt."* Automatisk aflysning
+ville også være en destruktiv bivirkning af at en kunde bestilte. 0-mængde-linjer skjules på
+køkkenkortet (`mapApiBonToCardData`) — de er ikke arbejde, og der findes **nul** 0-linjer i
+driftshistorikken, så filteret kan ikke skjule noget der plejede at være synligt.
+
+**Den oprindelige forecast bevares** (`event_forecast.original_qty`). Forecasten korrigeres
+løbende; uden feltet gik "hvad gættede vi egentlig på?" tabt i samme øjeblik tallet blev
+rettet. `PUT /forecast` sletter og genindsætter alt, så værdien bæres eksplicit med over.
+**NULL = aldrig korrigeret** — eksisterende rækker backfilles bevidst ikke; vi ved ikke om de
+er rettet, og et gæt ville se ud som en måling.
+
+**Synligt for office:** forecast-tabellen viser `🔗 332 forudbestilt · 400 preppet · mål 400`
+pr. dag, og `⚠ 732 preppet mod mål 400 — 332 for meget · ⟳ Ret B4147` når det er skredet —
+**handlingen ligger i advarslen**, ikke kun i bon-listen langt nede på siden. Er der flere
+office-prep-bons på dagen, gætter vi ikke hvilken der skal holde resten, men henviser til listen. Advarslen bygger
+kun på SQL, ikke på Grocy — derfor falder tabellen nu tilbage på de kategorier der allerede
+står på eventet når Grocy er nede; før forsvandt hele tabellen, og dermed advarslen, præcis
+når man ikke kunne se hvorfor. Bon-listen mærker rollerne og har en `⟳ Hold resten`-knap på
+en prep-bon der ikke er koblet (vises kun når den kan virke).
+
+**Tests:** `npm run test:event-rest-prep` (59) + `test:event-rest-prep-http` (36) — den første
+kører også den ÆGTE `/webhook/event-prep`-route med Grocy stubbet i require-cachen, så
+bro-triggeren er efterprøvet og ikke bare inspiceret. **Mutations-testet:** 12 mutationer
+(syv kerneregler + fem wiring-punkter) rulles hver især tilbage og fælder hver sin navngivne
+assert; to af dem producerer drifts-tallet 732 igen. Regression grøn: event-bridge-prep 69
+(inkl. "broen må ALDRIG røre en prep-bon office selv har lavet" — den holder, fordi rest-prep
+er opt-in), event-menu 42, event-contact 26, event-labor 101, topup 35, prep-covers 33,
+retur-trace 40, event-cancelled 26, event-polish 27, event-gate 15, prep-packing 12.
+Browser-verificeret ende-til-ende mod syntetisk event i dev-DB; testdata ryddet.
+
+> ⚠️ **Drift 2.–3. september:** B4147 og B4148 står stadig med hele forecasten. Slå
+> `⟳ Hold resten` til på dem efter deploy — så retter de sig selv frem mod
+> bestillingsfristen 30. august. Sker det ikke, skal de rettes ned i hånden **efter**
+> den 30., før de sættes til LEVERET; ellers trækkes HQ-lageret for meget.
+
+### Pakkeliste på tavlen — event i Bon ↔ arrangement i Whiteboard (27.–28. august 2026)
+> bon-v2 [#563](https://github.com/liffez/bon-v2/pull/563) · whiteboard #25, #27, #28.
+> Tavlens side er dokumenteret i `whiteboard/CLAUDE_arrangementer.md`.
+
+Et event har to sider, og de ligger i hver sin app: **varerne** her (prep-bon, salg,
+retur, lager, P&L — §5 i `CLAUDE_EVENT.md`) og **driften** på tavlen, hvor det hedder et
+**arrangement** ("event" er optaget dér til CCP-hændelser). Tavlen kunne allerede klone en
+pakke-skabelon til et arrangement; det der manglede, var at de to vidste om hinanden.
+
+Navn, datoer og en reference tilbage står allerede i eventet. At skrive dem af i hånden på
+tavlen var dobbeltarbejde — og en oplagt kilde til datoer der ikke stemte mellem
+systemerne.
+
+- **📋 Pakkeliste på tavlen** i event-hovedet åbner tavlens "Nyt arrangement" udfyldt:
+  `<tavle>/?open=arrangement&name=&start=&end=&ref=`. Samme mønster som det eksisterende
+  `?open=varemodtagelse`. Adressen kommer fra `/api/sidekick/config`
+  (`WHITEBOARD_BASE_URL`); er den ikke sat, skjules knappen.
+- **Skabelonvalget sendes bevidst ikke med.** Hvilket grej der skal med denne gang er det
+  menneskelige valg — og det eneste Bon ikke kan vide.
+- **`?event=N` åbner et event direkte.** Fandtes ikke før; alle events delte
+  `?view=events`, så tavlens link kunne kun lande på listen. `_evGoto()` i
+  [office/views/events.js](office/views/events.js) ejer nu både `_evCurrentId` og URL'en
+  ét sted — holdes de adskilt, driver de fra hinanden, og et kopieret link peger et andet
+  sted hen end skærmen viser.
+- `ref` sendes som **URL**, ikke som navn: tavlen linker en URL direkte til målet, mens et
+  navn kun kan blive til et opslag i Events-listen.
+
+> **Hvorfor ingen API-kobling mellem apperne.** Brugeren ER transporten: hun klikker, ser
+> tavlens dialog, og trykker selv opret. Derfor intet delt secret, ingen nginx-undtagelse,
+> ingen ny migration — og ingen bivirkning der kan lykkes eller fejle bag ryggen på nogen.
+> Det er præcis den fejlklasse der bed os i #305 og #319. Prisen er at Bon ikke får at vide
+> at arrangementet blev oprettet, så knappen ser ens ud hver gang. Ved ~9 events om året er
+> det til at leve med; vil vi have status, kan et rigtigt kald lægges ovenpå senere.
+
+**På tavlens side** (kort, se dens egen CLAUDE-fil for detaljer): `PATCH
+/api/arrangements/:id` tager nu også `name`/`event_start`/`event_end`/`bon_event_ref`, så
+et forkert link kan rettes bagefter (**✎ Redigér**) i stedet for at være støbt fast — og
+`scripts/link-arrangements-to-bon.js` koblede de gamle arrangementer, der kun bar et navn.
+Det script **matcher på startdato, ikke navn**: navnene er menneskeskrevne og stemmer ikke
+("Vig festival 2026" mod "Vig Festival", "Kultursalonerne gisselfeld" mod "Gisselfelt").
+
+> ⚠️ **Tavlens database må aldrig skrives direkte mens dens server kører.** Whiteboard
+> bruger sql.js — databasen ligger i hukommelsen og gemmes til fil ved ændringer, så en
+> fil-skrivning bliver overskrevet ved næste gemning. Skriv gennem
+> `http://localhost:3847/api/...` fra serveren selv (nginx-gaten rammer kun udefra); det
+> validerer også og logger til `item_log`. At LÆSE filen er fint.
+
+**Konvention:** et arrangements `event_start` er eventets **første dag** — ikke pakkedagen.
+Pakning udtrykkes som `day_offset = -1` på opgaven. (De syv seedede skabeloner har alle
+`day_offset = NULL`, altså udaterede tjekliste-opgaver, så en ændret arrangement-dato river
+ikke forfaldsdatoer skæve.)
+
+**Bevidst udeladt:** Bon viser ikke om der findes et arrangement på tavlen. Det kræver at
+Bon spørger tavlen — altså den API-kobling der er valgt fra ovenfor.
 ### Forhandler-ordrer: hvem betaler, og hvem er maden til? (27. august 2026)
 
 Able er et frokostbestillings-firma. De lægger ordren ind på **vores egen**
@@ -5558,7 +5826,7 @@ rører kun de firmaer der er markeret; den generelle sag er
 > - **Delivery popout (19. maj 2026)**: Bud-bestilling er flyttet fra overlay-modal til **separat popup-vindue** (`window.open` med target `rr-delivery-note-${bonId}` så flere bookings kan håndteres parallelt). Hvert felt i popoutet er en mini-template med `{variabel}`-syntaks — sammensatte felter (`{bon_id} · {total_boxes} kasser`) tillader at pakke flere variabler i ét chip-klik. By-expressen bruger `step`-property til at gruppere felter pr. Lobo-wizard-trin. Bagudkompatibilitet: vehicles uden `booking_fields_json` viser kun "Samlet tekst"-mode. Frontend bruger `Array.isArray(payload.fields)` til at detecte konfiguration — ingen separat `_configured`-flag. `services/booking_template.js` har en intern `_renderWithMeta(template, vars)` der returnerer `{ text, hasMissing }`; `renderTemplate()` (eksisterende public API) er uændret signatur men implementeret via samme helper. Auth: separat `requireAuthRedirect` middleware i `routes/delivery_views.js` fordi `shared/auth.js`'s `requireAuth` er JSON-orienteret — HTML-popout redirecter til `/login.html?next=…` ved manglende session. Den gamle `shared/manual_booking_modal.js` er slettet uden feature-flag-periode — popoutet er funktionelt superset af modalen.
 > - **Kunde-flags (19. maj 2026)**: Polymorf datamodel `entity_flags(entity_type, entity_id)` matcher contact_points-mønstret. To handlinger: `ack` (per-bon, lever videre — "Forstået"-knap) og `dismiss` (permanent — "Færdig — fjern"-knap). UI-wording bevidst valgt klarere end spec'ens "Set"/"Gjort". Strip auto-collapse: 1 flag = open, 2+ = collapsed. Bevarer brugerens åbnede tilstand ved ack/dismiss — nulstilles kun ved bon-skift via `setBonId`. Firma-flag vises på ALLE bons under firmaet (bevidst — fx "Fakturaer til Anne" skal popoppe overalt). Strippen vises på alle bon-statusser uanset om bonen er aktiv eller afsluttet — status-filter (`b.status_code IN (aktive)`) kan tilføjes senere hvis støj bliver et problem. Dismissed flag bliver synlige som læse-only items i Kunde 360° Aktivitet-tab; Firma 360° Aktivitet-tab er ikke implementeret endnu (kræver firma-aggregering af crm_activities).
 > - **SSE-event-konvention (13. maj 2026)**: alle `bon_*`-events bruger `{id, ...metadata}`. Polymorfe events (`mail_*`, `po_*`, `supplier_*`) bevarer semantiske FK-navne (`bon_id`, `customer_id` etc.) fordi de kan referere flere entiteter. Frontend skal IKKE bruge fallback-pattern `data.id || data.bon_id` — vælg én eller den anden afhængigt af event-type.
-> - **Force-mode auth (13. maj 2026)**: rolle-tjek mod `req.session.userId` (IKKE body.user_id). Body bruges KUN til audit-felter. Privilege-escalation-vektor lukket i Patch D.
+> - **Force-mode auth (13. maj 2026, revideret aug 2026)**: force kræver en gyldig session — men ikke længere admin-rolle. Audit-user-id kommer fra `req.session.userId`, ALDRIG fra `body.user_id`: efter at rollekravet er væk, er auditsporet det eneste der peger på et menneske, så afsenderen må ikke kunne skrive en anden i historikken. Privilege-escalation-vektoren fra Patch D er stadig lukket.
 > - **Partially approved (13. maj 2026)**: ny status-værdi på `goods_receipts` når mindst én item-Grocy-fejl. Bevidste skips (missing-status, no-pid) tæller ikke. UI-rendering kommer i Fase 3 varemodtagelses-listview.
 > - **Tilbud-status convert-only (13. maj 2026, revideret 13. august 2026)**: `offer_status='won'` kan KUN sættes via `POST /api/quotes/:id/convert` — som nu opretter en NY bon (`source_quote_id`) og låser bilaget i stedet for at flippe `is_offer`. PATCH `/:id/status` accepterer kun draft/sent/lost/expired, og afvises helt (409) mens tilbuddet er låst.
 > - **Test-spec-format**: Hver track har spec i `tests/specs/T_*.md` med 11 sektioner (formål, forudsætninger, strategi, cases, eksempel, fejlsignaler, filer, hvad-vi-ved, næste, status, findings). Findings nummereret F* (track-lokale), observations #NNN (globale i TEST_OBSERVATIONS.md).
@@ -6036,7 +6304,7 @@ NY → VENTER → GODKENDT → IGANG → KLAR → LEVERET → FAKTURERET → AFS
 Fra alle: → AFLYST
 ```
 
-Med `force: true` kan admin sætte hvilken som helst status.
+Med `force: true` kan enhver **indlogget** bruger sætte hvilken som helst status — efter bekræftelse i UI'et, og skiftet skrives i historikken med `was_forced` + brugerens id fra sessionen. Admin-kravet faldt aug 2026: auth er rolle-baseret med delte konti, så det ramte roller og ikke ansvar.
 POS-ordrer (Zettle) sættes direkte til BETALT.
 
 ---

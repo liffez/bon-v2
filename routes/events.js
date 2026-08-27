@@ -98,7 +98,7 @@ function getEventBons(eventId) {
                b.pax, b.total_units, b.total_price, b.payment_type,
                b.created_at, b.kitchen_info, b.customer_wishes, b.internal_notes,
                b.inventory_deducted, b.inventory_deduct_status, b.event_role,
-               b.event_covers_until,
+               b.event_covers_until, b.event_prep_auto_rest,
                sd.code  AS status_code,
                sd.label AS status_label,
                sd.color AS status_color,
@@ -618,6 +618,272 @@ async function computeTopupSuggestion(event, date) {
     };
 }
 
+// ─── REST-PREP: forecast-bonnen holder resten op til dagens mål ────────────
+// (migration 166)
+//
+// På et event med event-ordre-kobling ligger der TO prep-bons pr. dag: broens
+// (kundernes forudbestillinger — vokser ved hver ordre) og office' egen fra
+// forecasten. Overlappet stod indtil nu kun som fritekst i køkkeninfoen, så
+// begge blev talt fuldt med — i ugeoversigt, kapacitet, top-up, retur OG i
+// HQ-lagertrækket ved LEVERET.
+//
+//     mål for dagen  =  max(forecast, forudbestilt)      ← pr. kategori, pr. dag
+//     rest-bonnen    =  mål − alt andet preppet den dag
+//
+// max() er "forecasten styrer, indtil de faktiske ordrer løber fra den" — så
+// behøver forecasten aldrig blive rettet automatisk bag office' ryg.
+//
+// Hvorfor det genberegnes frem for at blive rettet i hånden: forudbestillinger
+// kan komme ind helt frem til bestillingsfristen. En manuel rettelse er
+// forældet dagen efter, og så gentager præcis den drift der skabte problemet.
+
+// Statusser hvor rest-bonnen stadig må genberegnes. Spejler broens egen
+// reconcile-liste (BRIDGE_ROLES.prep i routes/event-bridge.js) med vilje: gik
+// de to fra hinanden, kunne broen opdatere SIN bon på en dag hvor resten er
+// frosset — og så er summen forkert igen, uden at nogen ser det.
+const REST_PREP_MUTABLE = ['NY', 'GODKENDT'];
+
+// Køkkenteksten vi selv styrer. Kun FØRSTE linje ejes af os og skrives om ved
+// hver genberegning; alt derunder er skrevet af et menneske og røres aldrig.
+const REST_KITCHEN_MARK = '⟳';
+
+// Datointervallet en rest-bon dækker. Flerdags-pakning (migration 156) betyder
+// at én prep-bon kan række flere event-dage frem.
+function restBonRange(bon) {
+    const from = bon.delivery_date;
+    const to = (bon.event_covers_until && bon.event_covers_until > from) ? bon.event_covers_until : from;
+    return { from, to };
+}
+
+/**
+ * Dagens mål pr. kategori for et datointerval: max(forecast, forudbestilt).
+ *
+ * Beregnes pr. DAG og summeres bagefter. Summerede man først, kunne en dag hvor
+ * ordrerne har overhalet forecasten blive udlignet af en dag hvor de ikke har —
+ * og så ville målet være for lavt netop på den dag der er presset.
+ *
+ * "Forudbestilt" er broens EGNE prep-bons (event_bridge_bons), ikke alt prep:
+ * det er kun dem der pr. definition allerede er solgt.
+ */
+function computeDayTargets(db, eventId, from, to) {
+    const fc = db.prepare(`
+        SELECT forecast_date AS d, category AS cat, expected_qty AS qty
+        FROM event_forecast
+        WHERE event_id = ? AND forecast_date BETWEEN ? AND ?
+    `).all(eventId, from, to);
+
+    const bridge = db.prepare(`
+        SELECT b.delivery_date AS d, bl.category AS cat, COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bons b
+        JOIN event_bridge_bons ebb ON ebb.bon_id = b.id AND ebb.role = 'prep'
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE b.event_id = ? AND b.delivery_date BETWEEN ? AND ? AND bl.category IS NOT NULL
+          ${EXCLUDE_CANCELLED_SQL}
+        GROUP BY b.delivery_date, bl.category
+    `).all(eventId, from, to);
+
+    const key = (d, cat) => `${d}|${cat}`;
+    const fcMap = new Map();
+    for (const r of fc) fcMap.set(key(r.d, r.cat), r.qty);
+    const brMap = new Map();
+    for (const r of bridge) brMap.set(key(r.d, r.cat), r.qty);
+
+    const targets    = new Map();   // kategori → mål over hele intervallet
+    const bridgeByCat = new Map();  // kategori → forudbestilt (til visning)
+    for (const k of new Set([...fcMap.keys(), ...brMap.keys()])) {
+        const cat = k.slice(k.indexOf('|') + 1);
+        const br  = brMap.get(k) || 0;
+        targets.set(cat, (targets.get(cat) || 0) + Math.max(fcMap.get(k) || 0, br));
+        bridgeByCat.set(cat, (bridgeByCat.get(cat) || 0) + br);
+    }
+    return { targets, bridgeByCat };
+}
+
+/**
+ * Alt der allerede er preppet i intervallet pr. kategori — undtagen én bon.
+ *
+ * Bevidst simpel afgrænsning: en bon tælles med hvis dens delivery_date ligger
+ * i intervallet. En flerdags-bon der rækker UD over intervallet tælles altså
+ * fuldt med. Vi kender ikke fordelingen pr. dag (samme grund som
+ * computeCoveredDays ikke fordeler mængder), og et pro-rata-gæt ville forplante
+ * sig ind i målet som var det en måling.
+ */
+function preppedExcept(db, eventId, from, to, exceptBonId) {
+    const rows = db.prepare(`
+        SELECT bl.category AS cat, COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bons b
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ? AND pc.code = 'produktion'
+          AND b.delivery_date BETWEEN ? AND ?
+          AND b.id != ? AND bl.category IS NOT NULL
+          ${EXCLUDE_CANCELLED_SQL}
+        GROUP BY bl.category
+    `).all(eventId, from, to, exceptBonId);
+    const m = new Map();
+    for (const r of rows) m.set(r.cat, r.qty);
+    return m;
+}
+
+// Skriv vores egen første linje i køkkeninfoen uden at røre menneskets tekst.
+function applyKitchenMark(existing, text) {
+    const lines = String(existing || '').split('\n');
+    if (lines.length && lines[0].trimStart().startsWith(REST_KITCHEN_MARK)) lines[0] = text;
+    else lines.unshift(text);
+    return lines.join('\n').trim();
+}
+
+// Køkkenteksten. Rest 0 må IKKE se ud som en fejl — bonnen har stået på tavlen
+// i dagevis, og hvis den pludselig var tom uden forklaring, ville køkkenet lede
+// efter det de manglede. Den peger derfor på den bon de skal lave efter.
+function restKitchenText(restTotal, bridgeNumbers) {
+    // Bon-numrene som en læsbar opremsning — sætningen bygges udenom, så der
+    // ikke kan stå "Det er se B4166 I skal lave efter".
+    const list = bridgeNumbers.length ? bridgeNumbers.join(' + ') : null;
+    if (restTotal === 0) {
+        return list
+            ? `${REST_KITCHEN_MARK} 0 — hele dagens mål er forudbestilt. Det er ${list} I skal lave efter.`
+            : `${REST_KITCHEN_MARK} 0 — der er ikke noget at lave ud over det der allerede er preppet.`;
+    }
+    return list
+        ? `${REST_KITCHEN_MARK} Rest ud over det forudbestilte (se ${list}). Tallet opdateres automatisk indtil køkkenet går i gang.`
+        : `${REST_KITCHEN_MARK} Holdes automatisk på dagens forecast, indtil køkkenet går i gang.`;
+}
+
+/**
+ * Genberegn ÉN rest-prep-bon mod dagens mål.
+ *
+ * Ren funktion (db injiceres) så den kan testes uden HTTP og uden Grocy.
+ * Returnerer { action: 'updated'|'unchanged'|'frozen'|'skipped', … }.
+ * Kaster aldrig på "ikke en rest-bon" — kaldere fyrer den bredt.
+ */
+function reconcileRestBon(db, bonId, userId = null) {
+    const bon = db.prepare(`
+        SELECT b.id, b.bon_number, b.event_id, b.delivery_date, b.event_covers_until,
+               b.event_prep_auto_rest, b.inventory_deducted, b.kitchen_info,
+               sd.code AS status_code, pc.code AS price_category_code
+        FROM bons b
+        JOIN status_definitions sd ON sd.id = b.status_id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
+        WHERE b.id = ?
+    `).get(bonId);
+
+    if (!bon || bon.event_prep_auto_rest !== 1 || bon.event_id == null) {
+        return { action: 'skipped', reason: 'not_rest_bon' };
+    }
+    if (bon.price_category_code !== 'produktion') {
+        return { action: 'skipped', reason: 'not_production' };
+    }
+    // Frysen: køkkenet må aldrig få grundlaget revet væk midt i arbejdet.
+    if (bon.inventory_deducted === 1 || !REST_PREP_MUTABLE.includes(bon.status_code)) {
+        return {
+            action: 'frozen', bon_id: bon.id, bon_number: bon.bon_number,
+            status: bon.status_code,
+            reason: bon.inventory_deducted === 1 ? 'stock_deducted' : 'status',
+        };
+    }
+
+    const { from, to } = restBonRange(bon);
+    const { targets, bridgeByCat } = computeDayTargets(db, bon.event_id, from, to);
+    const other = preppedExcept(db, bon.event_id, from, to, bon.id);
+
+    const lines = db.prepare(
+        `SELECT id, category, quantity, unit_price FROM bon_lines WHERE bon_id = ? ORDER BY sort_order, id`
+    ).all(bon.id);
+    const byCat = new Map();
+    for (const l of lines) {
+        if (!l.category) continue;                       // fritekst uden kategori: office'
+        if (!byCat.has(l.category)) byCat.set(l.category, []);
+        byCat.get(l.category).push(l);
+    }
+
+    const changes   = [];
+    const warnings  = [];
+    let restTotal   = 0;
+
+    for (const [cat, target] of targets) {
+        const rest = Math.max(0, target - (other.get(cat) || 0));
+        restTotal += rest;
+        const catLines = byCat.get(cat) || [];
+        if (catLines.length === 0) {
+            // Vi opfinder ikke produkter. Målet findes, men office har ikke valgt
+            // hvad resten skal bestå af — det er et menneskevalg.
+            if (rest > 0) {
+                warnings.push(`${cat}: ${rest} mangler ud over det forudbestilte, men rest-bonnen har ingen linjer i kategorien — vælg selv produkterne.`);
+            }
+            continue;
+        }
+        // Mixet er office' valg af HVAD der laves ekstra og skal bevares — det
+        // må ikke overskrives af hvad kunderne tilfældigvis har bestilt.
+        // Er alt nulstillet (resten har været 0), findes der intet forhold at
+        // bevare, og en jævn fordeling er det ærligste gæt.
+        let weights = catLines.map(l => l.quantity || 0);
+        if (weights.reduce((a, b) => a + b, 0) === 0) weights = catLines.map(() => 1);
+        const alloc = allocateInteger(rest, weights);
+        catLines.forEach((l, i) => {
+            if (alloc[i] !== l.quantity) {
+                changes.push({ id: l.id, from: l.quantity, to: alloc[i], unit_price: l.unit_price ?? 0 });
+            }
+        });
+    }
+
+    // Kategorier på bonnen UDEN et mål (fx "Tilbehør & Bokse", som forecasten
+    // ikke dækker) røres aldrig — de er office' egne linjer.
+
+    const bridgeNumbers = db.prepare(`
+        SELECT b.bon_number FROM bons b
+        JOIN event_bridge_bons ebb ON ebb.bon_id = b.id AND ebb.role = 'prep'
+        WHERE b.event_id = ? AND b.delivery_date BETWEEN ? AND ?
+          ${EXCLUDE_CANCELLED_SQL}
+        ORDER BY b.delivery_date, b.id
+    `).all(bon.event_id, from, to).map(r => r.bon_number);
+
+    const kitchenText = restKitchenText(restTotal, bridgeNumbers);
+    const newKitchen  = applyKitchenMark(bon.kitchen_info, kitchenText);
+    const kitchenChanged = newKitchen !== (bon.kitchen_info || '');
+
+    if (changes.length === 0 && !kitchenChanged) {
+        return { action: 'unchanged', bon_id: bon.id, bon_number: bon.bon_number, rest_total: restTotal, warnings };
+    }
+
+    transaction(db, () => {
+        const upd = db.prepare(`UPDATE bon_lines SET quantity = ?, line_total = ? WHERE id = ?`);
+        for (const c of changes) upd.run(c.to, c.to * (c.unit_price ?? 0), c.id);
+        if (kitchenChanged) {
+            db.prepare(`UPDATE bons SET kitchen_info = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+                .run(newKitchen, bon.id);
+        }
+        recalcBonTotalUnits(db, bon.id);
+    });
+
+    if (changes.length > 0) {
+        logChange({
+            entityType: 'bon', entityId: bon.id, action: 'update', fieldName: 'event_rest_prep',
+            oldValue: String(changes.reduce((a, c) => a + c.from, 0)),
+            newValue: String(changes.reduce((a, c) => a + c.to, 0)),
+            notes: `Rest-prep genberegnet: mål ${[...targets.values()].reduce((a, b) => a + b, 0)} − allerede preppet ${[...other.values()].reduce((a, b) => a + b, 0)} = ${restTotal}`,
+            userId,
+        });
+    }
+    broadcast('bon_updated', { id: bon.id, event_id: bon.event_id });
+    broadcast('event_updated', { id: bon.event_id });
+
+    return {
+        action: 'updated', bon_id: bon.id, bon_number: bon.bon_number,
+        rest_total: restTotal, changed_lines: changes.length,
+        bridge_total: [...bridgeByCat.values()].reduce((a, b) => a + b, 0),
+        warnings,
+    };
+}
+
+/** Genberegn alle rest-prep-bons på et event. Bruges af broen og forecast-PUT. */
+function reconcileRestBonsForEvent(db, eventId, userId = null) {
+    const ids = db.prepare(
+        `SELECT id FROM bons WHERE event_id = ? AND event_prep_auto_rest = 1`
+    ).all(eventId).map(r => r.id);
+    return ids.map(id => reconcileRestBon(db, id, userId));
+}
+
 // ─── EVENTS — CRUD ─────────────────────────────────────────────────────────
 
 router.get('/', requireAuth(), handle((req, res) => {
@@ -787,7 +1053,7 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     // Forecast pr. dag pr. kategori. Vi sender også de dage events spænder over
     // (start_date → end_date eller bare start_date hvis ingen end_date).
     const forecast = getDb().prepare(`
-        SELECT id, forecast_date, category, expected_qty, notes
+        SELECT id, forecast_date, category, expected_qty, original_qty, notes
         FROM event_forecast WHERE event_id = ? ORDER BY forecast_date, category
     `).all(event.id);
     const days = [];
@@ -839,6 +1105,22 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     const prepped = {};   // "date|category" → qty
     for (const r of preppedRows) prepped[`${r.date}|${r.category}`] = r.qty;
 
+    // Heraf FORUDBESTILT — broens egne prep-bons (migration 166). Delmængde af
+    // `prepped`, ikke noget der lægges til. Uden det tal kan forecast-tabellen
+    // ikke vise forskellen på "vi har preppet 732" og "400 af dem er allerede
+    // solgt" — og det var præcis dét køkkenet ikke kunne se.
+    const bridgePreppedRows = getDb().prepare(`
+        SELECT b.delivery_date AS date, bl.category AS category, COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bons b
+        JOIN event_bridge_bons ebb ON ebb.bon_id = b.id AND ebb.role = 'prep'
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE b.event_id = ? AND bl.category IS NOT NULL
+          ${EXCLUDE_CANCELLED_SQL}
+        GROUP BY b.delivery_date, bl.category
+    `).all(event.id);
+    const bridgePrepped = {};
+    for (const r of bridgePreppedRows) bridgePrepped[`${r.date}|${r.category}`] = r.qty;
+
     // Global link til event-order-3's admin (event-broen). Tom = knap skjules.
     const eventOrderAdminUrl = getDb().prepare(
         `SELECT value FROM settings WHERE key = 'event_order_admin_url'`
@@ -862,7 +1144,7 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     // Grocy, så den svarer også når forslaget ikke kan beregnes.
     const returnBookings = getReturnBookings(event.id);
 
-    res.json({ event, bons, pnl, forecast, days, categories, prepped,
+    res.json({ event, bons, pnl, forecast, days, categories, prepped, bridge_prepped: bridgePrepped,
                covered_days: coveredDays,
                return_bookings: returnBookings,
                bons_missing_contact: missingContact,
@@ -1255,26 +1537,46 @@ router.put('/:id/forecast', requireAuth(), handle((req, res) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : null;
     if (!items) return res.status(400).json({ error: 'items (array) er påkrævet' });
 
+    // Den OPRINDELIGE forecast bæres med over reconcile'en (migration 166).
+    // PUT sletter og genindsætter alt, så uden dette ville "hvad gættede vi
+    // egentlig på?" gå tabt i det øjeblik tallet rettes — og eventet kunne ikke
+    // evalueres bagefter. original_qty fyldes først når et tal FAKTISK ændrer
+    // sig; indtil da er expected_qty selv den oprindelige, og NULL siger ærligt
+    // "aldrig korrigeret" frem for at påstå en historik vi ikke har.
+    const prev = new Map();
+    for (const r of db.prepare(
+        `SELECT forecast_date, category, expected_qty, original_qty FROM event_forecast WHERE event_id = ?`
+    ).all(event.id)) {
+        prev.set(`${r.forecast_date}|${r.category}`, r);
+    }
+
     transaction(db, () => {
         db.prepare(`DELETE FROM event_forecast WHERE event_id = ?`).run(event.id);
         const ins = db.prepare(`
-            INSERT INTO event_forecast (event_id, forecast_date, category, expected_qty, notes, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO event_forecast (event_id, forecast_date, category, expected_qty, original_qty, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
         for (const it of items) {
             const qty = Math.max(0, parseInt(it.expected_qty, 10) || 0);
             if (qty === 0) continue;
             if (!it.forecast_date || !it.category) continue;
-            ins.run(event.id, it.forecast_date, String(it.category).trim(), qty, it.notes ?? null);
+            const cat = String(it.category).trim();
+            const old = prev.get(`${it.forecast_date}|${cat}`);
+            const originalQty = old
+                ? (old.original_qty ?? (old.expected_qty !== qty ? old.expected_qty : null))
+                : null;
+            ins.run(event.id, it.forecast_date, cat, qty, originalQty, it.notes ?? null);
         }
     });
     logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'forecast', userId: req.session?.userId });
+    // Målet flyttede sig ⇒ resten flyttede sig med.
+    const restPrep = reconcileRestBonsForEvent(db, event.id, req.session?.userId ?? null);
     broadcast('event_updated', { id: event.id });
     const forecast = db.prepare(`
-        SELECT id, forecast_date, category, expected_qty, notes
+        SELECT id, forecast_date, category, expected_qty, original_qty, notes
         FROM event_forecast WHERE event_id = ? ORDER BY forecast_date, category
     `).all(event.id);
-    res.json({ forecast });
+    res.json({ forecast, rest_prep: restPrep });
 }));
 
 // ─── EVENT-BON GENERATOR ───────────────────────────────────────────────────
@@ -1338,6 +1640,25 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
         return res.status(400).json({ error: 'event_covers_until skal være YYYY-MM-DD' });
     }
 
+    // Rest-prep (migration 166): "denne bon holder resten op til dagens mål og
+    // må genberegnes når forudbestillingerne ændrer sig". Kun prep — top-up er
+    // per definition dagens supplement, og salg/udgift har intet mål at holde.
+    // Kun ÉN pr. (event, pakkedag): to overlappende ville trække hinanden fra og
+    // kunne svinge frem og tilbage, så math'en skal være entydig.
+    const autoRest = (role === 'prep' && b.event_prep_auto_rest) ? 1 : 0;
+    if (autoRest) {
+        const clash = db.prepare(`
+            SELECT bon_number FROM bons
+            WHERE event_id = ? AND delivery_date = ? AND event_prep_auto_rest = 1
+        `).get(event.id, deliveryDate);
+        if (clash) {
+            return res.status(409).json({
+                error: `${clash.bon_number} holder allerede resten for ${deliveryDate}. Slå det fra dér først.`,
+                code: 'REST_PREP_EXISTS',
+            });
+        }
+    }
+
     // Kontaktperson arves fra eventet (migration 139) med mindre kaldet
     // sætter noget selv. Uden den stod event-bons uden kunde — køkkenets
     // kort viste "Ukendt", og kontoret tastede samme person ind på hver bon.
@@ -1347,7 +1668,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
         const r = db.prepare(`
             INSERT INTO bons (
                 bon_number, status_id, location_id, price_category_id, price_category, event_id, event_role,
-                event_covers_until,
+                event_covers_until, event_prep_auto_rest,
                 order_date, delivery_date, pickup_time, delivery_time,
                 delivery_type, delivery_address_id, pax, total_units, payment_type,
                 customer_id, company_id, day_contact_name, day_contact_phone,
@@ -1358,7 +1679,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
                 created_at, updated_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?,
-                ?,
+                ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -1370,7 +1691,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
             )
         `).run(
             bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, role,
-            coversUntil,
+            coversUntil, autoRest,
             orderDate, deliveryDate, b.pickup_time ?? null, b.delivery_time ?? null,
             b.delivery_type ?? 'event', addressId, b.pax ?? 0, 0, b.payment_type ?? (isProduction ? 'cash' : 'cash'),
             b.customer_id ?? contact.customer_id, b.company_id ?? contact.company_id,
@@ -1425,7 +1746,73 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     });
     broadcast('bon_created', { id: result, bon_number: bonNumber, event_id: event.id });
     broadcast('event_updated', { id: event.id });
-    res.status(201).json(getBon(result));
+    // Genberegn straks: office kan have tastet dagens fulde mål frem for resten
+    // (måltals-strippen viser begge tal, men den er et hint, ikke en spærring).
+    const restResult = autoRest ? reconcileRestBon(db, result, req.session?.userId ?? null) : null;
+    res.status(201).json({ ...getBon(result), rest_prep: restResult });
+}));
+
+// ─── REST-PREP TIL/FRA på en eksisterende bon (migration 166) ──────────────
+// Bons lavet FØR rest-prep fandtes — eller før forudbestillingerne begyndte at
+// komme ind — kan tages med bagefter. Slås det til, genberegnes bonnen med det
+// samme, så man ser konsekvensen frem for at skulle gætte den.
+//
+// requireAuth() og ikke admin: den der opdager at tallet er skredet, skal kunne
+// rette op på stedet.
+router.post('/:id/bons/:bonId/rest-prep', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const bon = db.prepare(`
+        SELECT b.id, b.bon_number, b.event_id, b.delivery_date, b.event_role,
+               b.event_prep_auto_rest, b.inventory_deducted,
+               sd.code AS status_code, pc.code AS price_category_code
+        FROM bons b
+        JOIN status_definitions sd ON sd.id = b.status_id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
+        WHERE b.id = ? AND b.event_id = ?
+    `).get(parseInt(req.params.bonId, 10), event.id);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet på dette event' });
+
+    const enabled = req.body?.enabled === false ? 0 : 1;
+
+    if (enabled) {
+        if (bon.event_role !== 'prep' || bon.price_category_code !== 'produktion') {
+            return res.status(400).json({ error: 'Kun en prep-bon kan holde resten.' });
+        }
+        // Broens egen bon ER de forudbestilte — den kan ikke også være resten.
+        const isBridge = db.prepare(`SELECT 1 FROM event_bridge_bons WHERE bon_id = ?`).get(bon.id);
+        if (isBridge) {
+            return res.status(400).json({ error: 'Denne bon ER forudbestillingerne — den kan ikke også holde resten.' });
+        }
+        const clash = db.prepare(`
+            SELECT bon_number FROM bons
+            WHERE event_id = ? AND delivery_date = ? AND event_prep_auto_rest = 1 AND id != ?
+        `).get(event.id, bon.delivery_date, bon.id);
+        if (clash) {
+            return res.status(409).json({
+                error: `${clash.bon_number} holder allerede resten for ${bon.delivery_date}. Slå det fra dér først.`,
+                code: 'REST_PREP_EXISTS',
+            });
+        }
+    }
+
+    db.prepare(`UPDATE bons SET event_prep_auto_rest = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(enabled, bon.id);
+    logChange({
+        entityType: 'bon', entityId: bon.id, action: 'update', fieldName: 'event_prep_auto_rest',
+        oldValue: String(bon.event_prep_auto_rest ?? 0), newValue: String(enabled),
+        notes: enabled
+            ? 'Bonnen holder nu resten op til dagens mål og genberegnes når forudbestillingerne ændrer sig.'
+            : 'Bonnen genberegnes ikke længere — tallene er nu manuelle.',
+        userId: req.session?.userId,
+    });
+
+    const result = enabled ? reconcileRestBon(db, bon.id, req.session?.userId ?? null) : null;
+    broadcast('bon_updated', { id: bon.id, event_id: event.id });
+    broadcast('event_updated', { id: event.id });
+    res.json({ ok: true, enabled: !!enabled, rest_prep: result });
 }));
 
 // ─── LØN PÅ PLADSEN (§18) ──────────────────────────────────────────────────
@@ -1994,3 +2381,8 @@ module.exports.getReturnedByProduct = getReturnedByProduct;
 module.exports.getReturnBookings = getReturnBookings;
 module.exports.resolveCoversUntil = resolveCoversUntil;
 module.exports.computeCoveredDays = computeCoveredDays;
+module.exports.reconcileRestBon = reconcileRestBon;
+module.exports.reconcileRestBonsForEvent = reconcileRestBonsForEvent;
+module.exports.computeDayTargets = computeDayTargets;
+module.exports.applyKitchenMark = applyKitchenMark;
+module.exports.restKitchenText = restKitchenText;

@@ -23,6 +23,52 @@ Målet er at lageret **afspejler den virkelighed**, med mindst mulig medarbejder
 
 ---
 
+## 1b. Princippet bag det hele (aftalt 26.08.2026)
+
+> **Motoren skal flytte tallene mod virkeligheden, ikke vente på at virkeligheden er pæn.**
+
+Er en bon sat til LEVERET, har kunden fået de varer der stod på bonnen. Maden er ude
+af huset, råvarerne er brugt. Det er en kendsgerning, og lageret skal afspejle den.
+
+Man kan ikke sige til en kunde en time før levering at hun ikke får sin mad, fordi der
+mangler 1,2 gram hvidløg. Mangler der noget i køkkenet, fikses det eller erstattes —
+løber løvstikke-mayoen tør på en festival, får gæsten senneps-mayo hvis hun vil.
+Det "ødelægger" lageret, men ikke mere end at næste optælling retter det op.
+**Optællingen er backstoppet; motoren skal ikke forsøge at være det.**
+
+Tre følger af princippet:
+
+1. **Ingen blokering.** Rækker råvarerne ikke, træk hvad der ER, læg resten på
+   indkøbslisten, og lad leveringen gå igennem. Se #560 — §2 og §4.4 nedenfor er
+   endnu ikke rettet til dette.
+2. **Hele batches er en størrelse, ikke et veto.** Reglen afgør *hvor meget* der laves
+   når det kan lade sig gøre — ikke *om* der blev lavet noget.
+3. **Sig det højt frem for at gætte.** Mangler et tal, skal det kunne ses at det
+   mangler. En tavs nul-værdi er værre end en synlig tom.
+
+### Lagerpris og kostpris er ikke det samme
+
+En tilbagevendende forvirring, så den står her:
+
+| | hvad det er | hvor det kommer fra |
+|---|---|---|
+| **Lagerpris** | hvad varen er bogført til | det vi betalte — for købte varer |
+| **Kostpris** | hvad opskriften koster at lave | Σ ingrediens × pris ÷ udbytte |
+
+For en **købt** råvare er de to det samme tal. For noget **vi selv laver** findes der
+ingen købspris — og så er lagerprisen et tal Grocy har båret videre fra en optælling,
+mens kostprisen er svaret. `services/recipeCost.js` foretrækker i dag lagerprisen når
+den findes, hvilket gør elleve salgbare retters kostpris 1–11 % for lav. Se #558.
+
+Målt 26.08: Remoulade står til 43,47 kr/kg og koster 70,15 at lave. Chili Mayo 80 mod
+117,76. Kylling-BBQ 91,33 mod 109,75.
+
+**Retningen er aftalt:** alt skal have en kostpris, og det skal kunne ses hvis noget
+mangler en. På sigt lægges opskriftens produktionstid oven i råvareprisen, så man kan
+se hvad det koster at lave fx syltet rødkål (hænger sammen med #276).
+
+---
+
 ## 2. Kernemodel (låst med køkkenet)
 
 **Ét princip:** hver underopskrift laver **ét produkt** med et udbytte (kg *eller* stk).

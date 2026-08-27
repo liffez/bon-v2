@@ -104,7 +104,9 @@
     "test:autobatch-packing": "node --experimental-sqlite scripts/test-autobatch-packing.js",
     "test:convert-units": "node scripts/test-convert-units.js",
     "tjek:dagen": "node --env-file=.env --experimental-sqlite scripts/tjek-dagen.js",
-    "test:preview-produced": "node scripts/test-preview-produced.js"
+    "test:preview-produced": "node scripts/test-preview-produced.js",
+    "test:event-rest-prep": "node --experimental-sqlite scripts/test-event-rest-prep.js",
+    "test:event-rest-prep-http": "node --experimental-sqlite scripts/test-event-rest-prep-http.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

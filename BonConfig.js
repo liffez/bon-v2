@@ -12,9 +12,12 @@ const BON_CONFIG = {
 
     /**
      * Statusser
-     * label:   Vises på knapper og filtre (konfigurerbar via settings)
-     * color:   Baggrund på aktiv knap, venstre strip og kalender-blok
-     * text:    Tekstfarve på aktiv knap ('white' eller mørk hex)
+     * label:      Vises på knapper og filtre (konfigurerbar via settings)
+     * color:      Baggrund på aktiv knap, venstre strip og kalender-blok
+     * text:       Tekstfarve på aktiv knap ('white' eller mørk hex)
+     * cardButton: false = statussen vises IKKE som knap på bon-kortet i views
+     *             der ellers viser alle statusser (VIEW_WINDOWS 'all'). Den har
+     *             stadig label og farve, så den kan vises og filtreres.
      */
     statuses: {
         'ny':         { label: 'NY',          color: '#8090b0', text: '#ffffff' },
@@ -27,6 +30,13 @@ const BON_CONFIG = {
         'betalt':     { label: 'BETALT',      color: '#e020a0', text: '#ffffff' },
         'afsluttet':  { label: 'AFSLUTTET',   color: '#cc2020', text: '#ffffff' },
         'tilbud':     { label: 'TILBUD',      color: '#b0b8c8', text: '#333333' },
+        // Aflyst er ikke et trin i sekvensen — men den skal have label og farve
+        // ét sted. Manglede den her, viste bon-draweren INGEN aktiv status på en
+        // aflyst bon (bonen så statusløs ud), og kalenderen måtte holde sin egen
+        // kopi for at kunne filtrere. Grå, ikke rød: den er ude af spil, og rød
+        // er allerede AFSLUTTET. cardButton:false — køkkenkortene skal ikke have
+        // et aflys-klik ved siden af KLAR; aflysning hører til i draweren.
+        'aflyst':     { label: 'AFLYST',      color: '#8a8a8a', text: '#ffffff', cardButton: false },
     },
 
     /**
