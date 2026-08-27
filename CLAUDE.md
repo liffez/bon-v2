@@ -5240,6 +5240,58 @@ admin) på bon 4004: advarsel → bekræft → AFSLUTTET, `changelog.user_id = 2
 `was_forced: true`, og `OVERSTYRET` synligt i historikken.
 
 
+### AFLYST var en status man ikke kunne se eller vælge (27. august 2026)
+
+Opfølgning på ovenstående. Kontoret spurgte om AFLYST var det samme som AFSLUTTET.
+Det er det ikke — og forvekslingen er dyr: en aflyst ordre holdes ude af omsætning,
+workload og kapacitet (`EXCLUDE_CANCELLED_SQL`), mens en afsluttet **tæller med**.
+Sætter man en aflyst bon til AFSLUTTET, flytter man den ind i regnskabet.
+
+Grunden til at nogen ville gøre det: `aflyst` stod ikke i `BON_CONFIG.statuses`
+(bevidst — den er ikke et trin i sekvensen). Men drawerens status-bar bygges af
+netop den liste, så tre ting fulgte:
+
+1. **Aflysning kunne kun ske gennem knappen der hed "Slet bon"** — to-trins, hvor
+   første tryk aflyser og andet sletter permanent. Navnet lovede kun det ene, og
+   det farligste. Knappen hedder nu **"Aflys bon"** / **"Slet permanent"** efter
+   hvad et tryk faktisk gør, med tooltip der siger konsekvensen.
+2. **En aflyst bon viste INGEN aktiv status** — `curStatus = 'aflyst'` matchede
+   ingen knap, så bonen så statusløs ud i draweren.
+3. **Kalenderen havde måttet holde sin egen kopi** af label og farve for at kunne
+   filtrere på den. Den er fjernet; farven bor ét sted nu.
+
+- `aflyst` er tilføjet med **grå** `#8a8a8a`, ikke DB'ens røde `#bc181b`: rød er
+  allerede AFSLUTTET, og grå siger "ude af spil".
+- Nyt felt **`cardButton: false`**: statussen har label og farve, men vises ikke som
+  knap på bon-kortet i views der ellers viser alle statusser. Køkkenkortene skal
+  ikke have et aflys-klik ved siden af KLAR. Det er skrevet som en **undtagelse**,
+  ikke en hvidliste, så en ny status fortsat dukker op af sig selv.
+  (I dag rammer `'all'`-fallbacken ingen kort — kun `kitchen-today`/`kitchen-later`
+  bruger `createCard`, og begge har eksplicitte lister. Flaget er et værn fremad.)
+- `BON_CONFIG.sequence` er urørt: aflyst er ikke et trin frem. Feltet bruges i
+  øvrigt ikke af noget i dag.
+
+> ⚠️ **`status_transitions.requires_confirmation` er dødt i frontenden.** Feltet er
+> udfyldt i seed for alle → AFLYST, men **ingen** frontend læser det: serveren
+> returnerer det først i svaret, altså efter skiftet er sket. En rå AFLYST-knap ville
+> derfor være ét klik uden varsel, hvor "Slet bon" i dag spørger. `_setStatus` har
+> fået en eksplicit bekræftelse for `aflyst` med samme ord som slet-vejen. At vække
+> feltet til live ville aktivere ~10 sovende bekræftelser på én gang og hører til sin
+> egen opgave.
+
+**Verificeret** som køkken-rolle mod testserveren: AFLYST står sidst i drawerens
+status-bar, bekræftelsen kommer, statussen bliver aktiv (bugfix 2), og slet-knappen
+skifter til "Slet permanent" uden genindlæsning. `buildStatusBar` kaldt direkte med
+`view: 'all'` giver alle statusser **uden** AFLYST — **mutations-testet**: fjernes
+`cardButton`, dukker den op. Kalenderens filterbar er uændret (samme knap, samme
+`#8a8a8a`), nu fra ét sted. Regression: T_BON 25/25, drawer 61/61, bons-list
+77/78·1 SKIP.
+
+> Browser-panelet frøs undervejs (viewport 0×0 — se memory `project_browser_panel_freezes`),
+> så klikkene er sendt gennem de ægte lyttere frem for som fysiske museklik. Layout er
+> derfor ikke efterprøvet visuelt; adfærd og markup er.
+
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

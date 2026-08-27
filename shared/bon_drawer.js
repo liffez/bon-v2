@@ -357,7 +357,7 @@ class BonDrawer {
             </div>
 
             <div class="drawer-footer">
-                <button type="button" class="btn-drawer-slet">Slet bon</button>
+                <button type="button" class="btn-drawer-slet">Aflys / slet</button>
                 <button type="button" class="btn-drawer-gem" disabled>Gem</button>
             </div>
         `;
@@ -613,6 +613,7 @@ class BonDrawer {
 
         // Status bar
         this._renderStatusBar();
+        this._renderDeleteButton();
         this._renderInvoiceWarning();
 
         // Levering
@@ -1607,6 +1608,20 @@ class BonDrawer {
         }
     }
 
+    /**
+     * Slet-knappen er to-trins: en aktiv bon aflyses, en allerede aflyst slettes
+     * permanent. Etiketten fulgte ikke med, så knappen lovede altid det farligste.
+     */
+    _renderDeleteButton() {
+        const btn = this.el.querySelector('.btn-drawer-slet');
+        if (!btn) return;
+        const isAflyst = (this.data && this.data.status_code) === 'AFLYST';
+        btn.textContent = isAflyst ? 'Slet permanent' : 'Aflys bon';
+        btn.title = isAflyst
+            ? 'Fjerner bonen med linjer, historik og mails. Kan ikke fortrydes.'
+            : 'Sætter status til AFLYST. Bonen bliver stående og kan findes igen.';
+    }
+
     _renderStatusBar() {
         const bar = this.el.querySelector('.drawer-status-bar');
         bar.innerHTML = '';
@@ -1651,6 +1666,17 @@ class BonDrawer {
         const curStatus = statusToFrontend(this.data.status_code || '');
         if (statusKey === curStatus) return;
         const backendCode = statusToBackend(statusKey);
+
+        // Aflysning spørger først. `status_transitions.requires_confirmation`
+        // findes i databasen for netop denne vej, men INGEN frontend læser det
+        // felt — serveren returnerer det først i svaret, altså efter skiftet er
+        // sket. Uden dette ville AFLYST-knappen være ét klik uden varsel, mens
+        // "Aflys / slet"-knappen nedenfor spørger. Samme ord begge steder.
+        if (statusKey === 'aflyst' && !force) {
+            if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\n'
+                + 'Den holdes ude af omsætning og produktion, men bliver stående '
+                + 'så den kan findes igen.')) return;
+        }
         const fromLabel = (BON_CONFIG.statuses[curStatus] || {}).label || curStatus;
         const toLabel = (BON_CONFIG.statuses[statusKey] || {}).label || statusKey;
         try {
@@ -1661,6 +1687,7 @@ class BonDrawer {
             // Bekræftede vi, er bonnen nu faktureret uden faktura → mærke.
             this.data.missing_invoice = (confirmNoInvoice && ['FAKTURERET', 'AFSLUTTET'].includes(backendCode)) ? 1 : 0;
             this._renderStatusBar();
+            this._renderDeleteButton();
             this._renderInvoiceWarning();
             this._showStatusFlash();
         } catch (err) {
@@ -2100,7 +2127,9 @@ class BonDrawer {
             return;
         }
 
-        if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\nTip: åbn den aflyste bon og tryk "Slet bon" igen for at slette den permanent.')) return;
+        if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\n'
+            + 'Den holdes ude af omsætning og produktion, men bliver stående så den '
+            + 'kan findes igen. Vil du fjerne den helt, så tryk "Slet permanent" bagefter.')) return;
         try {
             await patchBonStatus(this.bonId, 'AFLYST');
             // Bonen er aflyst — spørg ikke om at gemme eventuelle felt-ændringer.
