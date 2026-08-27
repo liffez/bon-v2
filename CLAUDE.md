@@ -5291,6 +5291,28 @@ skifter til "Slet permanent" uden genindlæsning. `buildStatusBar` kaldt direkte
 > så klikkene er sendt gennem de ægte lyttere frem for som fysiske museklik. Layout er
 > derfor ikke efterprøvet visuelt; adfærd og markup er.
 
+**Efterspil samme dag: knappen lærte det ikke.** Fra en terminal status gav "Aflys bon"
+en blank `Transition AFSLUTTET → AFLYST er ikke tilladt` uden tilbud om at overstyre —
+mens AFLYST i status-baren virkede. `_handleDelete` kaldte `patchBonStatus` **direkte**
+og havde hverken bekræftelse eller force-gren; kun `_setStatus` fik dem. To veje til
+samme handling, hvor den ene lærte det nye. Knappen delegerer nu til `_setStatus('aflyst')`,
+så de deler kode og ikke kan skride fra hinanden igen — samme lære som `_tOpenQuote`
+vs. `_tCopyBon` (#428).
+
+`_setStatus` returnerer nu `true`/`false`. Uden det kunne kalderen ikke skelne "aflyst"
+fra "brugeren sagde nej i override-dialogen", og ville have nulstillet `dirty` på en bon
+der aldrig blev aflyst.
+
+Draweren **lukker ikke længere** efter aflysning fra knappen (det gjorde den før):
+aflysning er ikke en fjernelse, AFLYST er nu synlig i status-baren, og "Slet permanent"
+står klar hvis den skal væk helt. At blive er også det samme som status-bar-vejen gør.
+
+Verificeret på en BETALT bon: aflys-bekræftelse → override-dialog → AFLYST, knappen
+skifter til "Slet permanent", draweren bliver. Nej til override og nej til aflysning
+lader begge bonen stå på BETALT uden fejlbesked. "Slet permanent" sletter stadig
+(`GET /api/bons/4008` → 404 bagefter). En udløbet session giver "Ikke logget ind" i
+stedet for override-tilbuddet, hvilket er rigtigt: uden bruger er der intet auditspor.
+
 
 ## Næste opgave
 

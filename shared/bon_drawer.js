@@ -1662,9 +1662,9 @@ class BonDrawer {
     }
 
     async _setStatus(statusKey, force, confirmNoInvoice) {
-        if (!this.data) return;
+        if (!this.data) return false;
         const curStatus = statusToFrontend(this.data.status_code || '');
-        if (statusKey === curStatus) return;
+        if (statusKey === curStatus) return false;
         const backendCode = statusToBackend(statusKey);
 
         // Aflysning spørger først. `status_transitions.requires_confirmation`
@@ -1675,7 +1675,8 @@ class BonDrawer {
         if (statusKey === 'aflyst' && !force) {
             if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\n'
                 + 'Den holdes ude af omsætning og produktion, men bliver stående '
-                + 'så den kan findes igen.')) return;
+                + 'så den kan findes igen. Vil du fjerne den helt, så tryk '
+                + '"Slet permanent" bagefter.')) return false;
         }
         const fromLabel = (BON_CONFIG.statuses[curStatus] || {}).label || curStatus;
         const toLabel = (BON_CONFIG.statuses[statusKey] || {}).label || statusKey;
@@ -1690,6 +1691,7 @@ class BonDrawer {
             this._renderDeleteButton();
             this._renderInvoiceWarning();
             this._showStatusFlash();
+            return true;
         } catch (err) {
             // Fakturavagt (#319): bonnen markeres faktureret uden at der findes
             // en kladde eller bogført faktura. Vi spørger ÉN gang — blokerer ikke.
@@ -1701,7 +1703,7 @@ class BonDrawer {
                 )) {
                     return this._setStatus(statusKey, force, true);
                 }
-                return;
+                return false;
             }
             // Override af en status-vej der ikke findes i flowet. Backenden
             // afviser med code='TRANSITION_NOT_ALLOWED' + can_force=true når
@@ -1722,9 +1724,10 @@ class BonDrawer {
                 )) {
                     return this._setStatus(statusKey, true);
                 }
-                return;
+                return false;
             }
             alert(err.message || 'Kunne ikke skifte status');
+            return false;
         }
     }
 
@@ -2127,17 +2130,19 @@ class BonDrawer {
             return;
         }
 
-        if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\n'
-            + 'Den holdes ude af omsætning og produktion, men bliver stående så den '
-            + 'kan findes igen. Vil du fjerne den helt, så tryk "Slet permanent" bagefter.')) return;
-        try {
-            await patchBonStatus(this.bonId, 'AFLYST');
-            // Bonen er aflyst — spørg ikke om at gemme eventuelle felt-ændringer.
-            this.dirty = false;
-            this._doHide();
-        } catch (err) {
-            alert(err.message || 'Kunne ikke slette/aflyse bon');
-        }
+        // Samme vej som AFLYST-knappen i status-baren. Knappen kaldte tidligere
+        // patchBonStatus direkte og havde derfor hverken bekræftelse eller tilbud
+        // om at overstyre en vej der ikke findes — fra en terminal status (fx
+        // AFSLUTTET → AFLYST, bevidst blokeret, se BON_V2_PRINCIPPER §4) endte
+        // den bare i en blank fejlbesked. To veje til samme handling skrider fra
+        // hinanden; nu deler de kode.
+        //
+        // Draweren lukker IKKE længere bagefter: aflysning er ikke en fjernelse,
+        // og nu hvor AFLYST er en synlig status kan man se at det virkede — og
+        // "Slet permanent" står klar hvis den skal væk helt.
+        const ok = await this._setStatus('aflyst');
+        // Bonen er aflyst — spørg ikke om at gemme eventuelle felt-ændringer.
+        if (ok) this.dirty = false;
     }
 
     /* ══════════════════════════════════════════════════════
