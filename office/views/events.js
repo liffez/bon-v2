@@ -202,8 +202,13 @@ async function _evRenderDetail(id) {
         _evState.days = days;
         _evState.categories = categories;
         _evState.prepped = data.prepped || {};   // "date|category" → allerede prepped
+        // Heraf FORUDBESTILT (migration 166) — broens egne prep-bons. Delmængde
+        // af prepped, ikke noget der lægges til. Uden den kan tabellen ikke vise
+        // forskellen på "vi har preppet 732" og "400 af dem er allerede solgt".
+        _evState.bridgePrepped = data.bridge_prepped || {};
         // Dage pakket med af en tidligere dags prep-bon (migration 156).
         _evState.coveredDays = data.covered_days || {};
+        _evState.bons = bons;   // forecast-rækken skal kunne finde dagens prep-bon
         _evState.event = ev;
         // Bogførte returer (#536) — så Retur-sektionen kan vise at den er gjort
         // uden at man først skal trykke "beregn".
@@ -1407,10 +1412,57 @@ function _evBindPlanToggle() {
     });
 }
 
-function _evForecastTable(ev, days, categories, forecast) {
+// Hvilken bon kan overtage resten for en dag? Office' egen prep-bon (ikke
+// broens), stadig mutérbar. Er der flere kandidater, gætter vi IKKE — så
+// henvises der til listen, hvor man selv kan se hvilken man vælger.
+function _evRestCandidate(date) {
+    const c = (_evState.bons || []).filter(b =>
+        b.delivery_date === date && b.role === 'prep' && !b.is_bridge &&
+        !b.event_prep_auto_rest && b.inventory_deducted !== 1 &&
+        (!b.status_code || ['NY', 'GODKENDT'].includes(b.status_code)));
+    return c.length === 1 ? c[0] : null;
+}
+
+function _evForecastTable(ev, days, categoriesFromGrocy, forecast) {
+    // Kategorierne kommer fra Grocy, men en forecast der ALLEREDE er gemt skal
+    // kunne ses selvom Grocy er nede — ellers forsvinder både tallene og
+    // over-preppet-advarslen præcis når man ikke kan se hvorfor. Vi opfinder
+    // ingen kategorier; vi tager dem der faktisk står på eventet med.
+    const _extraCats = new Set();
+    for (const f of forecast) if (f.category) _extraCats.add(f.category);
+    for (const k of Object.keys(_evState.prepped || {})) _extraCats.add(k.slice(k.indexOf('|') + 1));
+    const categories = [...new Set([...(categoriesFromGrocy || []), ..._extraCats])];
+
     const map = {};
-    for (const f of forecast) map[_evForecastKey(f.forecast_date, f.category)] = f.expected_qty;
+    const origMap = {};   // kun udfyldt hvor forecasten FAKTISK er blevet rettet
+    for (const f of forecast) {
+        map[_evForecastKey(f.forecast_date, f.category)] = f.expected_qty;
+        if (f.original_qty != null && f.original_qty !== f.expected_qty) {
+            origMap[_evForecastKey(f.forecast_date, f.category)] = f.original_qty;
+        }
+    }
     const openHours = _evParseOpenHours(ev);
+    const preppedMap = _evState.prepped || {};
+    const bridgeMap  = _evState.bridgePrepped || {};
+
+    // Dagens regnskab: mål = max(forecast, forudbestilt) pr. kategori, summeret.
+    // Pr. KATEGORI og ikke på dagstotalen — ellers kunne en kategori hvor
+    // ordrerne har overhalet blive udlignet af en hvor de ikke har.
+    function dayAccounting(d) {
+        let target = 0, bridge = 0, prepped = 0;
+        const cats = new Set([...categories]);
+        for (const k of Object.keys(bridgeMap)) if (k.startsWith(d + '|')) cats.add(k.slice(d.length + 1));
+        for (const k of Object.keys(preppedMap)) if (k.startsWith(d + '|')) cats.add(k.slice(d.length + 1));
+        for (const cat of cats) {
+            const key = _evForecastKey(d, cat);
+            const fc = map[key] || 0;
+            const br = bridgeMap[key] || 0;
+            target  += Math.max(fc, br);
+            bridge  += br;
+            prepped += preppedMap[key] || 0;
+        }
+        return { target, bridge, prepped, over: Math.max(0, prepped - target) };
+    }
 
     // Tomt event uden Grocy-kategorier: vis info-tekst
     if (categories.length === 0) {
@@ -1459,14 +1511,44 @@ function _evForecastTable(ev, days, categories, forecast) {
         const cells = categories.map(cat => {
             const qty = map[_evForecastKey(d, cat)] || 0;
             rowTotal += qty;
+            const orig = origMap[_evForecastKey(d, cat)];
+            // En rettet forecast markeres, så "hvad gættede vi egentlig på?"
+            // ikke går tabt i det øjeblik tallet rettes (migration 166).
+            const origAttr = orig != null
+                ? ` title="Oprindeligt forecastet: ${orig}" class="ev-fc-input ev-fc-edited"`
+                : ' class="ev-fc-input"';
             return `<td><input type="number" min="0" step="1" value="${qty || ''}" placeholder="0"
-                    data-fc-date="${d}" data-fc-cat="${_evEsc(cat)}" class="ev-fc-input"></td>`;
+                    data-fc-date="${d}" data-fc-cat="${_evEsc(cat)}"${origAttr}></td>`;
         }).join('');
         const covNote = cov
             ? `<div class="ev-fc-covered" title="Varerne til denne dag kørte med prep-bonnen fra ${_evFmtDate(cov.from)}. Skal der hentes mere, er det en top-up.">✓ pakket med ${_evEsc(cov.bon_number)}</div>`
             : '';
+
+        // Regnestykket der før kun stod som fritekst i køkkeninfoen: hvor meget
+        // af dagen er allerede solgt, og hænger det preppede sammen med målet?
+        const acc = dayAccounting(d);
+        let accNote = '';
+        if (acc.bridge > 0 || acc.prepped > 0) {
+            const parts = [];
+            if (acc.bridge > 0) parts.push(`🔗 ${acc.bridge} forudbestilt`);
+            parts.push(`${acc.prepped} preppet`);
+            if (acc.over > 0) {
+                // Handlingen hører hjemme dér hvor problemet opdages. Uden den
+                // står advarslen som en konstatering man selv skal finde vej ud af,
+                // og prep-listen ligger langt nede på siden.
+                const cand = _evRestCandidate(d);
+                const fix = cand
+                    ? ` <button class="ev-btn ev-btn-small ev-fc-fix" data-act="rest-on" data-bon-id="${cand.id}"
+                         title="${_evEsc(cand.bon_number)} holder resten op til dagens mål og retter sig selv når nye forudbestillinger kommer ind.">⟳ Ret ${_evEsc(cand.bon_number)}</button>`
+                    : ` <span class="ev-fc-fix-hint">— sæt "⟳ Hold resten" på dagens prep-bon nedenfor</span>`;
+                accNote = `<div class="ev-fc-acc ev-fc-acc-over"
+                    title="Broens forudbestillinger og forecast-prep-bonnen tæller begge fuldt med — i ugeoversigt, kapacitet, top-up, retur og HQ-lagertrækket.">⚠ ${acc.prepped} preppet mod mål ${acc.target} — ${acc.over} for meget${fix}</div>`;
+            } else {
+                accNote = `<div class="ev-fc-acc" title="Mål = max(forecast, forudbestilt). Forecasten styrer, indtil de faktiske ordrer løber fra den.">${parts.join(' · ')} · mål ${acc.target}</div>`;
+            }
+        }
         html += `<tr${cov ? ' class="ev-fc-row-covered"' : ''}>
-            <td class="ev-fc-day">${_evFmtDate(d)}${covNote}</td>
+            <td class="ev-fc-day">${_evFmtDate(d)}${covNote}${accNote}</td>
             <td class="ev-fc-oh"><input type="text" class="ev-oh-input" maxlength="40"
                 value="${_evEsc(openHours[d] || '')}" placeholder="fx 10–18" data-oh-date="${d}"
                 title="Åbningstid på pladsen denne dag — vises også i prep-modalen"></td>
@@ -1778,6 +1860,43 @@ function _evBindForecastHandlers(ev) {
             _evOpenGenModal(_evState.event, 'topup', { forecastDate: btn.dataset.fcDate });
         });
     });
+
+    // Rest-prep til/fra (migration 166). Slår man det TIL, genberegnes bonnen
+    // med det samme — konsekvensen skal kunne ses, ikke gættes.
+    _evContainer.querySelectorAll('[data-act="rest-on"], [data-act="rest-off"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const on = btn.dataset.act === 'rest-on';
+            const bonId = btn.dataset.bonId;
+            if (!on && !confirm('Bonnen holder op med at rette sig selv mod forudbestillingerne.\n\nTallene bliver dine, og de kan komme til at tælle dobbelt med broens bon. Fortsæt?')) return;
+            btn.disabled = true;
+            try {
+                _evMarkLocalAction();
+                const res = await _evFetch(`/events/${_evCurrentId}/bons/${bonId}/rest-prep`, {
+                    method: 'POST', body: JSON.stringify({ enabled: on }),
+                });
+                _evMarkLocalAction();
+                await _evRender();
+                const st = _evContainer.querySelector('#ev-fc-status');
+                if (st) {
+                    const r = res.rest_prep;
+                    if (!on) {
+                        st.textContent = 'Bonnen retter sig ikke længere selv.';
+                        st.className = 'ev-fc-status';
+                    } else if (r && r.action === 'frozen') {
+                        st.textContent = `Slået til — men bonnen er ${r.status === undefined ? 'frosset' : r.status.toLowerCase()} og genberegnes først hvis den går tilbage til GODKENDT.`;
+                        st.className = 'ev-fc-status err';
+                    } else if (r) {
+                        st.textContent = `${r.bon_number}: holder nu resten — ${r.rest_total} ud over ${r.bridge_total} forudbestilte.`
+                            + (r.warnings && r.warnings.length ? ' ⚠ ' + r.warnings.join(' ') : '');
+                        st.className = 'ev-fc-status ok';
+                    }
+                }
+            } catch (err) {
+                alert(err.message || 'Kunne ikke ændre rest-prep.');
+                btn.disabled = false;
+            }
+        });
+    });
 }
 
 function _evRecalcForecastTotals() {
@@ -1816,6 +1935,20 @@ function _evBonStatusPill(b) {
     return `<span class="ev-bon-status" style="${style}">${_evEsc(label)}</span>`;
 }
 
+// Rest-prep til/fra (migration 166). Vises kun på en prep-bon office selv
+// ejer: broens bon ER forudbestillingerne, og en frosset bon kan alligevel
+// ikke genberegnes — en knap der kun kan fejle er værre end ingen knap.
+function _evRestPrepBtn(b) {
+    if (b.role !== 'prep' || b.is_bridge) return '';
+    if (b.status_code && !['NY', 'GODKENDT'].includes(b.status_code)) return '';
+    if (b.inventory_deducted === 1) return '';
+    return b.event_prep_auto_rest
+        ? `<button class="ev-btn ev-btn-small ev-btn-ghost" data-act="rest-off" data-bon-id="${b.id}"
+             title="Bonnen holder op med at rette sig selv. Tallene bliver dine.">Slå fra</button>`
+        : `<button class="ev-btn ev-btn-small" data-act="rest-on" data-bon-id="${b.id}"
+             title="Lad bonnen holde resten op til dagens mål og rette sig selv når nye forudbestillinger kommer ind.">⟳ Hold resten</button>`;
+}
+
 function _evRoleSection(role, bons) {
     if (!bons || bons.length === 0) {
         return `
@@ -1827,7 +1960,9 @@ function _evRoleSection(role, bons) {
     const rows = bons.map(b => `
         <tr data-bon-id="${b.id}" data-deduct="${b.inventory_deduct_status || ''}">
             <td class="ev-bon-num">${_evEsc(b.bon_number)}${b.is_bridge
-                ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. En prep-bon herfra er ALLEREDE SOLGT og indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.">🔗 forudbestilt</span>`
+                ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. Den er ALLEREDE SOLGT — ikke ekstra produktion.">🔗 forudbestilt</span>`
+                : ''}${b.event_prep_auto_rest
+                ? ` <span class="ev-bon-rest" title="Holder RESTEN op til dagens mål: max(forecast, forudbestilt) minus det der allerede er preppet. Retter sig selv når nye ordrer kommer ind — indtil køkkenet går i gang.">⟳ holder resten</span>`
                 : ''}</td>
             <td>${_evBonStatusPill(b)}</td>
             <td>${_evFmtDate(b.delivery_date)}${b.event_covers_until
@@ -1836,12 +1971,13 @@ function _evRoleSection(role, bons) {
             <td class="ev-num">${b.total_units || 0}</td>
             <td class="ev-num">${_evFmtKr(b.total_price)}</td>
             <td class="ev-bon-flag">${_evDeductLabel(b)}</td>
+            <td class="ev-bon-act">${_evRestPrepBtn(b)}</td>
         </tr>`).join('');
     return `
         <div class="ev-role-section">
             <div class="ev-role-head">${_EV_ROLE_ICON[role]} ${_EV_ROLE_LABEL[role]} <span class="ev-role-count">(${bons.length})</span></div>
             <table class="ev-bon-table">
-                <thead><tr><th>Bon</th><th>Status</th><th>Dato</th><th>Enheder</th><th>Total</th><th></th></tr></thead>
+                <thead><tr><th>Bon</th><th>Status</th><th>Dato</th><th>Enheder</th><th>Total</th><th></th><th></th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>
         </div>`;
@@ -2193,6 +2329,23 @@ async function _evOpenGenModal(event, role, opts) {
     const stripInner = initialDates.length ? _evTargetStripHtml(initialDates) : '';
     const targetStrip = `<div class="ev-target-strip" id="evm-targets"${stripInner ? '' : ' style="display:none"'}>${stripInner}</div>`;
 
+    // Rest-prep (migration 166). Kun prep, og kun når der FAKTISK er
+    // forudbestillinger den dag — ellers ville fluebenet være et tilbud om at
+    // løse et problem man ikke har.
+    const _bridgeMap = _evState.bridgePrepped || {};
+    const bridgeOnDates = initialDates.reduce((sum, d) => sum + Object.keys(_bridgeMap)
+        .filter(k => k.startsWith(d + '|'))
+        .reduce((a, k) => a + (_bridgeMap[k] || 0), 0), 0);
+    const restToggle = (role === 'prep' && bridgeOnDates > 0) ? `
+        <label class="ev-rest-toggle">
+            <input type="checkbox" id="evm-auto-rest" checked>
+            <span>
+                <strong>Hold opdateret mod forudbestillingerne</strong>
+                <span class="ev-rest-sub">Der er ${bridgeOnDates} forudbestilte. Bonnen holder <em>resten</em> op til dagens mål
+                og retter sig selv når nye ordrer kommer ind — indtil køkkenet går i gang. Uden fluebenet tælles begge bons fuldt med.</span>
+            </span>
+        </label>` : '';
+
     // Dags-checkbokse. Én prep-bon der dækker flere dage er ÉN pakning: én
     // pakkeliste, ét lagertræk ved LEVERET. Derfor er "hvilke dage" et valg
     // her og ikke noget der udledes bagefter.
@@ -2222,6 +2375,7 @@ async function _evOpenGenModal(event, role, opts) {
         </div>
         ${dayPicker}
         ${targetStrip}
+        ${restToggle}
         <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${defaultDate}"></label>
         ${isTopup ? '<div id="evm-topup" class="ev-topup-strip"></div>' : ''}
         <div class="ev-modal-oh" id="evm-oh" style="display:none"></div>
@@ -2285,6 +2439,8 @@ async function _evOpenGenModal(event, role, opts) {
         }
         // Salg/udgift på et event sælges til festivalpris (matcher pre-fill + priceMode).
         if (!isProd && !isExpense) body.price_category_code = 'festival';
+        const restEl = document.getElementById('evm-auto-rest');
+        if (restEl && restEl.checked) body.event_prep_auto_rest = 1;
         await _evFetch(`/events/${event.id}/bons`, { method: 'POST', body: JSON.stringify(body) });
         _evRender();
     }, { submitLabel: _EV_SUBMIT_LABEL[role] || 'Gem' });

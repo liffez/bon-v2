@@ -5323,6 +5323,89 @@ lader begge bonen stå på BETALT uden fejlbesked. "Slet permanent" sletter stad
 (`GET /api/bons/4008` → 404 bagefter). En udløbet session giver "Ikke logget ind" i
 stedet for override-tilbuddet, hvilket er rigtigt: uden bruger er der intet auditspor.
 
+### Rest-prep: to prep-bons på samme event-dag tælles ikke længere dobbelt (27. august 2026)
+> Spec: `docs/CLAUDE_EVENT.md §19`. Migration 166.
+
+Køkkenet kunne ikke se hvor meget der skulle laves til Ungdommens folkemøde: der lå **to**
+prep-bons på hver dag — broens forudbestillinger (B4166, vokser ved hver ordre) og office'
+egen fra forecasten (B4147). Forecasten ER dagens total og indeholder de forudbestilte,
+men det stod kun som fritekst i broens køkkeninfo: *"indgår disse i den (lav dem ikke oveni)"*.
+
+Det var ikke kun forvirring. Målt i drift 2. sep: forecast 400, forudbestilt 332,
+registreret produktion **732**. Fire konsekvenser, hvoraf den første er den alvorlige:
+
+1. **HQ-lageret ville blive trukket dobbelt.** Let-event prep-bons er undtaget §5-gaten og
+   trækker uanset det globale flag ([db/helpers.js](db/helpers.js) `autoConsumeBonInventory`).
+   Begge bons på LEVERET = råvarer for 732 ud af huset, mens der forlod huset 400. Fejlen
+   dukker først op ved næste optælling som en uforklarlig difference.
+2. `computeTopupSuggestion` + `computeReturnSuggestion` summerer alt prep → retur ville
+   bogføre 332 for meget tilbage på HQ.
+3. Ugeoversigt og kapacitet: 732 enh onsdag → falsk "Understaffed".
+4. Køkkenet så to kort og skulle selv regne.
+
+Samme fejlklasse som #305/#319 (memory `project_silent_sideeffect_failures`): to systemer
+er uenige, og uenigheden er usynlig.
+
+**Reglen** (Leif): `mål = max(forecast, forudbestilt)` pr. kategori pr. dag; office' bon
+holder **resten** op til målet. `max()` er *"forecasten styrer, med mindre den bliver
+overhalet af de faktiske ordrer"* — så behøver forecasten aldrig blive rettet bag ryggen på
+nogen. Pr. dag og ikke på summen: ellers kunne en presset dag blive udlignet af en rolig.
+
+**Den genberegnes frem for at blive rettet i hånden**, fordi forudbestillinger kan komme ind
+helt frem til bestillingsfristen (30. aug for eventet 2.–3. sep). Der findes ikke noget godt
+tidspunkt at rette på: for tidligt bliver forkert igen, for sent efterlader køkkenet uden
+grundlag. Tre triggere: broens prep-push · `PUT /:id/forecast` · oprettelse/toggle.
+
+**Værn:**
+- **Opt-in pr. bon** (`bons.event_prep_auto_rest`) — en bon office har sammensat i hånden må
+  ikke pludselig flytte sig. Fluebenet vises kun når dagen faktisk har forudbestillinger.
+- **Frysen** stopper genberegningen når bonnen forlader `NY`/`GODKENDT` eller har trukket
+  lager. Listen spejler broens `BRIDGE_ROLES.prep.reconcile` med vilje — gik de fra hinanden,
+  kunne broen opdatere SIN bon på en dag hvor resten er frosset. Derefter er nye ordrer en top-up.
+- **Kun kategorier med et mål røres** (`Tilbehør & Bokse` står urørt), og vi opfinder aldrig
+  produkter — mangler der linjer i en kategori med et mål, rapporteres det.
+- **Mixet bevares proportionalt**: det er office' valg af hvad der laves ekstra og må ikke
+  overskrives af hvad kunderne tilfældigvis har bestilt.
+- **Én rest-bon pr. (event, dag)** (partielt unique-indeks) — to ville trække hinanden fra.
+- **En fejlet genberegning må aldrig koste kundens ordre**: broen kalder i try/catch og
+  rapporterer fejlen i svaret. Samme princip som `goodsReceiptWebhook`.
+
+**Rest = 0**: bonnen bliver **stående** med linjer på 0 og teksten *"⟳ 0 — hele dagens mål er
+forudbestilt. Det er B4166 I skal lave efter."* Beslutning (Leif): *"de har set på 2 bonner i
+lang tid, så det vil nok være mærkeligt hvis den pludselig forsvandt."* Automatisk aflysning
+ville også være en destruktiv bivirkning af at en kunde bestilte. 0-mængde-linjer skjules på
+køkkenkortet (`mapApiBonToCardData`) — de er ikke arbejde, og der findes **nul** 0-linjer i
+driftshistorikken, så filteret kan ikke skjule noget der plejede at være synligt.
+
+**Den oprindelige forecast bevares** (`event_forecast.original_qty`). Forecasten korrigeres
+løbende; uden feltet gik "hvad gættede vi egentlig på?" tabt i samme øjeblik tallet blev
+rettet. `PUT /forecast` sletter og genindsætter alt, så værdien bæres eksplicit med over.
+**NULL = aldrig korrigeret** — eksisterende rækker backfilles bevidst ikke; vi ved ikke om de
+er rettet, og et gæt ville se ud som en måling.
+
+**Synligt for office:** forecast-tabellen viser `🔗 332 forudbestilt · 400 preppet · mål 400`
+pr. dag, og `⚠ 732 preppet mod mål 400 — 332 for meget · ⟳ Ret B4147` når det er skredet —
+**handlingen ligger i advarslen**, ikke kun i bon-listen langt nede på siden. Er der flere
+office-prep-bons på dagen, gætter vi ikke hvilken der skal holde resten, men henviser til listen. Advarslen bygger
+kun på SQL, ikke på Grocy — derfor falder tabellen nu tilbage på de kategorier der allerede
+står på eventet når Grocy er nede; før forsvandt hele tabellen, og dermed advarslen, præcis
+når man ikke kunne se hvorfor. Bon-listen mærker rollerne og har en `⟳ Hold resten`-knap på
+en prep-bon der ikke er koblet (vises kun når den kan virke).
+
+**Tests:** `npm run test:event-rest-prep` (59) + `test:event-rest-prep-http` (36) — den første
+kører også den ÆGTE `/webhook/event-prep`-route med Grocy stubbet i require-cachen, så
+bro-triggeren er efterprøvet og ikke bare inspiceret. **Mutations-testet:** 12 mutationer
+(syv kerneregler + fem wiring-punkter) rulles hver især tilbage og fælder hver sin navngivne
+assert; to af dem producerer drifts-tallet 732 igen. Regression grøn: event-bridge-prep 69
+(inkl. "broen må ALDRIG røre en prep-bon office selv har lavet" — den holder, fordi rest-prep
+er opt-in), event-menu 42, event-contact 26, event-labor 101, topup 35, prep-covers 33,
+retur-trace 40, event-cancelled 26, event-polish 27, event-gate 15, prep-packing 12.
+Browser-verificeret ende-til-ende mod syntetisk event i dev-DB; testdata ryddet.
+
+> ⚠️ **Drift 2.–3. september:** B4147 og B4148 står stadig med hele forecasten. Slå
+> `⟳ Hold resten` til på dem efter deploy — så retter de sig selv frem mod
+> bestillingsfristen 30. august. Sker det ikke, skal de rettes ned i hånden **efter**
+> den 30., før de sættes til LEVERET; ellers trækkes HQ-lageret for meget.
 
 ## Næste opgave
 
