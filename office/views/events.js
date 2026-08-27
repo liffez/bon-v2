@@ -68,10 +68,75 @@ async function _evFetch(path, opts) {
 
 // ── ENTRY ────────────────────────────────────────────────────────────────
 
+// Skift mellem liste (id = null) og detalje. Ét sted der ejer BÅDE state og
+// URL — holdes de adskilt, driver de fra hinanden, og så peger et kopieret
+// link et andet sted hen end det skærmen viser.
+function _evGoto(id) {
+    _evCurrentId = id;
+    const url = new URL(window.location);
+    if (id == null) url.searchParams.delete('event');
+    else url.searchParams.set('event', id);
+    history.replaceState({}, '', url);
+    _evRender();
+}
+
+// Bon-URL der åbner PRÆCIS dette event. Bygges ud fra den aktuelle adresse, så
+// den er rigtig uanset hvilken sti office er udstillet på. Tavlen gemmer den i
+// `bon_event_ref` og linker direkte til den — indtil nu kunne den kun sende
+// folk til Events-LISTEN, hvor man selv skulle finde eventet igen.
+function _evSelfUrl(id) {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('view', 'events');
+    url.searchParams.set('event', id);
+    return url.toString();
+}
+
+// Whiteboards adresse. Hentes én gang og genbruges — den ændrer sig ikke
+// midt i en session. Er den ikke sat, skjules tavle-knappen: en knap der ikke
+// kan virke er værre end ingen knap. Samme lydløse degradering som Sidekick.
+let _evWbBasePromise = null;
+function _evWhiteboardBase() {
+    if (!_evWbBasePromise) {
+        _evWbBasePromise = fetch('/api/sidekick/config', { credentials: 'same-origin' })
+            .then(r => r.ok ? r.json() : {})
+            .then(cfg => {
+                const base = (cfg.whiteboardBase || '').trim();
+                // Kun http(s) — feltet kommer fra .env, men en href er en href.
+                if (base && !/^https?:\/\//i.test(base)) {
+                    console.warn('[events] whiteboardBase er ikke en http(s)-URL — tavle-knap skjult');
+                    return '';
+                }
+                if (!base) console.warn('[events] WHITEBOARD_BASE_URL er ikke sat — tavle-knap skjult');
+                return base;
+            })
+            .catch(() => '');
+    }
+    return _evWbBasePromise;
+}
+
+// Deep-link til tavlens "Nyt arrangement", udfyldt med det Bon allerede ved.
+// Skabelonvalget sender vi bevidst IKKE — hvilket grej der skal med denne gang
+// er tavlens (og menneskets) beslutning, ikke vores.
+function _evArrangementUrl(base, ev) {
+    const url = new URL(base.replace(/\/+$/, '') + '/');
+    url.searchParams.set('open', 'arrangement');
+    url.searchParams.set('name', ev.name || '');
+    if (ev.start_date) url.searchParams.set('start', ev.start_date);
+    if (ev.end_date)   url.searchParams.set('end', ev.end_date);
+    // Reference tilbage som URL frem for navn: tavlen linker en URL direkte til
+    // selve eventet, mens et navn kun kan lande på Events-listen.
+    url.searchParams.set('ref', _evSelfUrl(ev.id));
+    return url.toString();
+}
+
 window.initEvents = function initEvents(containerEl, opts) {
     _evContainer = containerEl;
     _evOpts = opts || {};
-    _evCurrentId = null;
+    // ?event=N åbner eventet direkte (deep-link fra tavlen, eller et delt link).
+    const evId = parseInt(new URLSearchParams(window.location.search).get('event'), 10);
+    _evCurrentId = Number.isFinite(evId) && evId > 0 ? evId : null;
     _evRender();
 };
 
@@ -132,7 +197,7 @@ async function _evRender() {
             </div>`;
         _evContainer.querySelectorAll('[data-act="new-event"]').forEach(b => b.addEventListener('click', _evOpenNewModal));
         _evContainer.querySelectorAll('[data-event-id]').forEach(el => {
-            el.addEventListener('click', () => { _evCurrentId = parseInt(el.dataset.eventId); _evRender(); });
+            el.addEventListener('click', () => _evGoto(parseInt(el.dataset.eventId)));
         });
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente events: ${_evEsc(err.message)}</div>`;
@@ -187,7 +252,10 @@ function _evContactLine(ev, missing) {
 async function _evRenderDetail(id) {
     _evContainer.innerHTML = `<div class="ev-loading">Henter event…</div>`;
     try {
-        const data = await _evFetch(`/events/${id}/overview`);
+        const [data, wbBase] = await Promise.all([
+            _evFetch(`/events/${id}/overview`),
+            _evWhiteboardBase()
+        ]);
         const ev = data.event;
         // Event-ordre-admin-link (event-broen). Kun http(s) — undgå javascript:-URL'er.
         const _adminRaw = (data.event_order_admin_url || '').trim();
@@ -228,6 +296,7 @@ async function _evRenderDetail(id) {
                     </div>
                     <div class="ev-detail-actions">
                         ${adminUrl && ev.event_order_enabled ? `<a class="ev-btn ev-btn-small" href="${_evEsc(adminUrl)}" target="_blank" rel="noopener" title="Åbn event-ordre-forudbestilling (admin)">🔗 Event-ordre-admin</a>` : ''}
+                        ${wbBase ? `<a class="ev-btn ev-btn-small" href="${_evEsc(_evArrangementUrl(wbBase, ev))}" target="_blank" rel="noopener" title="Åbner tavlens &quot;Nyt arrangement&quot; med navn, datoer og link tilbage hertil udfyldt. Du vælger selv skabelon(er).">📋 Pakkeliste på tavlen</a>` : ''}
                         <button class="ev-btn ev-btn-small" data-act="edit-event">✎ Redigér</button>
                         <button class="ev-btn ev-btn-small ev-btn-danger" data-act="delete-event">🗑 Slet</button>
                     </div>
@@ -316,7 +385,7 @@ async function _evRenderDetail(id) {
             </div>`;
 
         _evContainer.querySelector('[data-act="back"]')
-            .addEventListener('click', () => { _evCurrentId = null; _evRender(); });
+            .addEventListener('click', () => _evGoto(null));
         // querySelectorAll: "Redigér" findes både i headeren og som "Tilføj"
         // i kontaktlinjen — begge skal åbne modalen.
         _evContainer.querySelectorAll('[data-act="edit-event"]').forEach(btn =>
@@ -351,7 +420,7 @@ async function _evRenderDetail(id) {
         _evLoadLabor(ev);
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
-        _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
+        _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => _evGoto(null));
     }
 }
 
@@ -1965,7 +2034,7 @@ function _evOpenEventModal(ev) {
             const created = await _evFetch('/events', { method: 'POST', body: JSON.stringify(body) });
             _evCurrentId = created.id;
         }
-        _evRender();
+        _evGoto(_evCurrentId);
     });
 
     // Kontaktperson — samme søgekomponent som bon-draweren, så kunden vælges
@@ -2071,8 +2140,7 @@ async function _evDeleteEvent(ev) {
     try {
         const res = await _evFetch(`/events/${ev.id}`, { method: 'DELETE' });
         const n = res.unlinked_bons || 0;
-        _evCurrentId = null;
-        _evRender();
+        _evGoto(null);
         // Lille kvittering
         setTimeout(() => {
             const tb = _evContainer && _evContainer.querySelector('.ev-toolbar');
