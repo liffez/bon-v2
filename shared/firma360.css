@@ -372,6 +372,11 @@
     transition: opacity 0.12s, color 0.12s;
 }
 .f3-row-editable:hover .f3-edit-btn { opacity: 1; }
+/* Tom række: blyanten står fremme (dæmpet), og hele rækken kan klikkes.
+   Ellers ser et tomt felt ud som om det slet ikke kan redigeres. */
+.f3-row-editable.f3-row-empty .f3-edit-btn { opacity: .5; }
+.f3-row-editable.f3-row-empty { cursor: pointer; }
+.f3-row-editable.f3-row-empty:hover .f3-val { color: var(--brand-primary, #8e631f); }
 .f3-row-editable .f3-edit-btn:hover { color: var(--brand-primary, #8e631f); }
 .f3-edit-wrap {
     flex: 1;

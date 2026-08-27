@@ -226,6 +226,12 @@ function _f3RenderOversigt(el) {
     el.querySelector('#f3-paste-btn')?.addEventListener('click', _f3OpenPaste);
     el.querySelectorAll('.f3-edit-btn[data-edit-field]').forEach(btn =>
         btn.addEventListener('click', () => _f3StartEditField(btn.dataset.editField)));
+    // Tom række: hele rækken er klikbar, ikke kun den lille blyant.
+    el.querySelectorAll('.f3-row-editable.f3-row-empty').forEach(row =>
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.f3-edit-btn')) return;   // blyanten har sin egen
+            _f3StartEditField(row.dataset.fieldRow);
+        }));
     el.querySelector('#f3-reseller-cb')?.addEventListener('change', _f3ToggleReseller);
     el.querySelectorAll('.f3-cp-toggle-public').forEach(btn =>
         btn.addEventListener('click', _f3HandleTogglePublic));
@@ -330,10 +336,16 @@ function _f3RenderResellerRow(company) {
 }
 
 function _f3EditableRow(label, field, value) {
-    const val = value
-        ? (field === 'legal_name' ? escapeHtml(value) : escapeHtml(String(value)))
-        : '<span class="f3-muted">—</span>';
-    return `<div class="f3-row f3-row-editable" data-field-row="${field}">
+    // Et TOMT felt har intet indhold at opdage ved at holde musen over det, så
+    // dér står blyanten fremme og hele rækken kan klikkes. Har feltet en værdi,
+    // er værdien indholdet og blyanten sekundær — den dukker op ved hover, som
+    // før. (Fundet i drift: en ny "Rabat —"-række så ud som om den manglede
+    // en knap, fordi blyanten var usynlig indtil man tilfældigvis ramte rækken.)
+    const empty = value === null || value === undefined || value === '';
+    const val = empty
+        ? '<span class="f3-muted">—</span>'
+        : (field === 'legal_name' ? escapeHtml(value) : escapeHtml(String(value)));
+    return `<div class="f3-row f3-row-editable${empty ? ' f3-row-empty' : ''}" data-field-row="${field}">
         <span class="f3-lbl">${label}</span>
         <span class="f3-val">${val}</span>
         <button class="f3-edit-btn" data-edit-field="${field}" title="Ret ${label}">✎</button>
