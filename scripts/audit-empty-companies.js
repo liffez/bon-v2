@@ -51,7 +51,25 @@ const LIMIT    = (() => {
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 
 const CANDIDATE_SQL = `
-    SELECT c.id, c.name, COALESCE(c.cvr,'') cvr, COALESCE(c.created_at,'') created_at
+    SELECT c.id, c.name, COALESCE(c.cvr,'') cvr, COALESCE(c.created_at,'') created_at,
+           -- Er rækken en dublet af et AKTIVT firma der rent faktisk handler?
+           -- Det er den mest brugbare oplysning når 374 navne skal skimmes:
+           -- "Akademisk Arkitektforening" ser ud som en rigtig kunde man ikke
+           -- må røre — indtil man ser at Arkitektforeningen (samme CVR) står
+           -- med 112 bons ved siden af.
+           (SELECT o.id   FROM companies o
+             WHERE o.cvr = c.cvr AND c.cvr <> '' AND o.id <> c.id AND o.is_active = 1
+               AND EXISTS (SELECT 1 FROM bons b WHERE b.company_id = o.id)
+             ORDER BY (SELECT COUNT(*) FROM bons b WHERE b.company_id = o.id) DESC LIMIT 1) dup_id,
+           (SELECT o.name FROM companies o
+             WHERE o.cvr = c.cvr AND c.cvr <> '' AND o.id <> c.id AND o.is_active = 1
+               AND EXISTS (SELECT 1 FROM bons b WHERE b.company_id = o.id)
+             ORDER BY (SELECT COUNT(*) FROM bons b WHERE b.company_id = o.id) DESC LIMIT 1) dup_name,
+           (SELECT COUNT(*) FROM bons b WHERE b.company_id =
+             (SELECT o.id FROM companies o
+               WHERE o.cvr = c.cvr AND c.cvr <> '' AND o.id <> c.id AND o.is_active = 1
+                 AND EXISTS (SELECT 1 FROM bons b2 WHERE b2.company_id = o.id)
+               ORDER BY (SELECT COUNT(*) FROM bons b3 WHERE b3.company_id = o.id) DESC LIMIT 1)) dup_bons
       FROM companies c
      WHERE c.is_active = 1
        AND COALESCE(c.is_internal, 0) = 0
@@ -119,15 +137,28 @@ function main() {
     if (!rows.length) { console.log('\nIntet at rydde op.'); db.close(); return; }
 
     const medCvr = rows.filter(r => r.cvr).length;
-    console.log(`  heraf med CVR: ${medCvr}   uden CVR: ${rows.length - medCvr}\n`);
+    const dubletter = rows.filter(r => r.dup_id).length;
+    console.log(`  heraf med CVR: ${medCvr}   uden CVR: ${rows.length - medCvr}`);
+    console.log(`  heraf dubletter af et aktivt firma med bons: ${dubletter}\n`);
 
     for (const r of rows.slice(0, LIMIT)) {
-        console.log(`  #${String(r.id).padEnd(5)} ${r.name.slice(0, 58).padEnd(60)} ${r.cvr ? 'CVR ' + r.cvr : ''}`);
+        // "firma #2490" — IKKE bare "#2490". Bon-numre ser ud som "cafe-2490",
+        // og et bart #2490 læses derfor som en bon. (Fanget i drift: listens
+        // "#2490 Akademisk Arkitektforening" blev slået op som bonnen cafe-2490,
+        // der ligger på et helt andet firma.)
+        const dup = r.dup_id
+            ? `  ⤷ dublet af firma #${r.dup_id} "${r.dup_name}" (${r.dup_bons} bons)`
+            : '';
+        console.log(`  firma #${String(r.id).padEnd(5)} ${r.name.slice(0, 52).padEnd(54)} ${(r.cvr ? 'CVR ' + r.cvr : '').padEnd(15)}${dup}`);
     }
     if (rows.length > LIMIT) console.log(`  … og ${rows.length - LIMIT} mere (--limit ${rows.length} for at se alle)`);
 
     if (!APPLY) {
         console.log(`\nIngen af dem har en bon, en kontaktperson eller en mail.`);
+        if (dubletter) {
+            console.log(`${dubletter} af dem er dubletter af et firma der handler — samme CVR, alle bons`);
+            console.log(`ligger på den anden række. Dem kan du trygt lægge væk.`);
+        }
         console.log(`Rækker med e-conomic-nummer, påmindelse, event, tilbud, kampagne eller`);
         console.log(`booking-token er allerede fredet og står ikke på listen.\n`);
         db.close();

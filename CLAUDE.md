@@ -5346,6 +5346,18 @@ Testdata ryddet.
   Kør forhandler-oprydningen FØRST — ellers står dens fire rækker stadig med
   bons og bliver fredet.
 
+  Rapporten markerer hver kandidat der er **dublet af et aktivt firma med bons**
+  (samme CVR). Det er den mest brugbare oplysning når 374 navne skal skimmes:
+  `Akademisk Arkitektforening` ser ud som en rigtig kunde man ikke må røre —
+  indtil man ser at `Arkitektforeningen` (samme CVR 62572310) står med 112 bons
+  ved siden af. 106 af de 374 er sådan nogen.
+
+  > ⚠️ **Skriv `firma #2490`, ikke `#2490`.** Bon-numre ser ud som `cafe-2490`
+  > og `B4224`, så et bart `#2490` i en terminal læses som en bon. Det skete i
+  > drift: listens `#2490 Akademisk Arkitektforening` blev slået op som bonnen
+  > `cafe-2490`, som ligger på et helt andet firma (Danner, #2548) — og så ser
+  > oprydningen ud til at ville fjerne et firma der handler.
+
   > Tre referencer blev fundet FØR første kørsel i drift, ikke bagefter:
   > `attachments` og `crm_custom_values` (begge `entity_type='company'`) er tomme
   > i dag, men referencerne findes — værnet skal være der før nogen begynder at
