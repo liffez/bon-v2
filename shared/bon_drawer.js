@@ -1676,12 +1676,23 @@ class BonDrawer {
                 }
                 return;
             }
-            // Admin-override: en ellers ugyldig status-vej kan tvinges igennem.
-            // Backenden afviser med code='TRANSITION_NOT_ALLOWED' + can_force=true
-            // når den indloggede session er admin. Vi spørger om bekræftelse og
-            // prøver igen med force:true.
+            // Override af en status-vej der ikke findes i flowet. Backenden
+            // afviser med code='TRANSITION_NOT_ALLOWED' + can_force=true når
+            // der er en session at skrive i auditsporet. Vi spørger om
+            // bekræftelse og prøver igen med force:true.
+            //
+            // Alle indloggede kan overstyre, ikke kun admin: virkeligheden
+            // følger ikke altid flow-diagrammet (en kunde aflyser efter
+            // levering), og den der står med sagen skal kunne rette op.
+            // Derfor er advarslen det der bærer beslutningen — den skal sige
+            // hvad der springes over, og at det kan ses bagefter.
             if (!force && err.code === 'TRANSITION_NOT_ALLOWED' && err.body && err.body.can_force) {
-                if (confirm(`"${fromLabel}" → "${toLabel}" er ikke en normal status-vej.\n\nVil du overstyre som admin? (Springer normal valideringsrækkefølge over.)`)) {
+                if (confirm(
+                    `"${fromLabel}" → "${toLabel}" er ikke en normal status-vej.\n\n`
+                    + 'Skift den alligevel? Kontroller og automatik der hører til de '
+                    + 'normale trin springes over — fx lagertræk og afbestilling af bud.\n\n'
+                    + 'Skiftet noteres i bonnens historik med dit navn.'
+                )) {
                     return this._setStatus(statusKey, true);
                 }
                 return;

@@ -138,6 +138,22 @@
     color: #bc181b;
     font-weight: 600;
 }
+/* Statusskift der gik uden om det normale flow. Dæmpet mærke, ikke en alarm:
+   det er en lovlig handling — men den skal kunne ses når man leder efter
+   hvorfor fx lagertræk ikke er sket. */
+.changelog-detail .changelog-forced {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #8a5a00;
+    background: #fbeecf;
+    border: 1px solid #e6cf9a;
+    white-space: nowrap;
+}
 
 /* Fri-tekst-note (booking, auto-satte tider) under selve ændringen */
 .changelog-note {

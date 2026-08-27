@@ -151,7 +151,7 @@ NY → VENTER → GODKENDT → IGANG → KLAR → LEVERET → FAKTURERET → AFS
 AFLYST
 ```
 
-**Bemærk:** Flowet er vejledning. Med `force: true` kan admin sætte hvad som helst.
+**Bemærk:** Flowet er vejledning. Med `force: true` kan enhver indlogget bruger sætte hvad som helst — efter en bekræftelse, og det noteres i historikken.
 POS-ordrer (Zettle) sættes direkte til BETALT.
 
 ---
