@@ -1449,9 +1449,14 @@ falder forecast-tabellen nu tilbage på de kategorier der allerede står på eve
 er nede — før forsvandt hele tabellen, og dermed også advarslen, præcis når man ikke kunne
 se hvorfor.
 
-Bon-listen mærker rollerne (`🔗 forudbestilt` / `⟳ holder resten`) og har en `⟳ Hold resten`-
-knap på en prep-bon der ikke er koblet. Knappen vises kun når den kan virke — broens egen
-bon og en frosset bon får den ikke; en knap der kun kan fejle er værre end ingen knap.
+**Handlingen ligger i selve advarslen**, ikke kun i bon-listen: `⚠ 732 preppet mod mål 400 —
+332 for meget · ⟳ Ret B4147`. Prep-listen ligger langt nede på siden, og en advarsel uden
+vej videre er bare en konstatering. Findes der flere office-prep-bons på dagen, gætter vi
+IKKE hvilken der skal holde resten — så henvises der til listen.
+
+Bon-listen mærker rollerne (`🔗 forudbestilt` / `⟳ holder resten`) og har sin egen
+`⟳ Hold resten`-knap. Begge knapper deler handler. De vises kun når de kan virke — broens
+egen bon og en frosset bon får dem ikke; en knap der kun kan fejle er værre end ingen knap.
 
 ### 19.8 Filer
 

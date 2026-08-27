@@ -767,3 +767,12 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
     background: #f4efe2; color: #7a5f16; font-size: 10px; white-space: nowrap; cursor: help;
 }
 .ev-bon-act { text-align: right; white-space: nowrap; }
+
+/* Handlingen i selve over-preppet-advarslen. Uden den er advarslen en
+   konstatering man selv skal finde vej ud af — og prep-listen ligger langt nede. */
+.ev-fc-fix {
+    margin-left: 6px; vertical-align: baseline;
+    background: #fff; border-color: #c0392b; color: #8a2222;
+}
+.ev-fc-fix:hover { background: #fdf0ef; }
+.ev-fc-fix-hint { margin-left: 4px; font-weight: 400; opacity: .85; }

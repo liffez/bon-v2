@@ -5384,7 +5384,9 @@ rettet. `PUT /forecast` sletter og genindsætter alt, så værdien bæres ekspli
 er rettet, og et gæt ville se ud som en måling.
 
 **Synligt for office:** forecast-tabellen viser `🔗 332 forudbestilt · 400 preppet · mål 400`
-pr. dag, og `⚠ 732 preppet mod mål 400 — 332 for meget` når det er skredet. Advarslen bygger
+pr. dag, og `⚠ 732 preppet mod mål 400 — 332 for meget · ⟳ Ret B4147` når det er skredet —
+**handlingen ligger i advarslen**, ikke kun i bon-listen langt nede på siden. Er der flere
+office-prep-bons på dagen, gætter vi ikke hvilken der skal holde resten, men henviser til listen. Advarslen bygger
 kun på SQL, ikke på Grocy — derfor falder tabellen nu tilbage på de kategorier der allerede
 står på eventet når Grocy er nede; før forsvandt hele tabellen, og dermed advarslen, præcis
 når man ikke kunne se hvorfor. Bon-listen mærker rollerne og har en `⟳ Hold resten`-knap på

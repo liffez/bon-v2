@@ -208,6 +208,7 @@ async function _evRenderDetail(id) {
         _evState.bridgePrepped = data.bridge_prepped || {};
         // Dage pakket med af en tidligere dags prep-bon (migration 156).
         _evState.coveredDays = data.covered_days || {};
+        _evState.bons = bons;   // forecast-rækken skal kunne finde dagens prep-bon
         _evState.event = ev;
         // Bogførte returer (#536) — så Retur-sektionen kan vise at den er gjort
         // uden at man først skal trykke "beregn".
@@ -1411,6 +1412,17 @@ function _evBindPlanToggle() {
     });
 }
 
+// Hvilken bon kan overtage resten for en dag? Office' egen prep-bon (ikke
+// broens), stadig mutérbar. Er der flere kandidater, gætter vi IKKE — så
+// henvises der til listen, hvor man selv kan se hvilken man vælger.
+function _evRestCandidate(date) {
+    const c = (_evState.bons || []).filter(b =>
+        b.delivery_date === date && b.role === 'prep' && !b.is_bridge &&
+        !b.event_prep_auto_rest && b.inventory_deducted !== 1 &&
+        (!b.status_code || ['NY', 'GODKENDT'].includes(b.status_code)));
+    return c.length === 1 ? c[0] : null;
+}
+
 function _evForecastTable(ev, days, categoriesFromGrocy, forecast) {
     // Kategorierne kommer fra Grocy, men en forecast der ALLEREDE er gemt skal
     // kunne ses selvom Grocy er nede — ellers forsvinder både tallene og
@@ -1521,8 +1533,16 @@ function _evForecastTable(ev, days, categoriesFromGrocy, forecast) {
             if (acc.bridge > 0) parts.push(`🔗 ${acc.bridge} forudbestilt`);
             parts.push(`${acc.prepped} preppet`);
             if (acc.over > 0) {
+                // Handlingen hører hjemme dér hvor problemet opdages. Uden den
+                // står advarslen som en konstatering man selv skal finde vej ud af,
+                // og prep-listen ligger langt nede på siden.
+                const cand = _evRestCandidate(d);
+                const fix = cand
+                    ? ` <button class="ev-btn ev-btn-small ev-fc-fix" data-act="rest-on" data-bon-id="${cand.id}"
+                         title="${_evEsc(cand.bon_number)} holder resten op til dagens mål og retter sig selv når nye forudbestillinger kommer ind.">⟳ Ret ${_evEsc(cand.bon_number)}</button>`
+                    : ` <span class="ev-fc-fix-hint">— sæt "⟳ Hold resten" på dagens prep-bon nedenfor</span>`;
                 accNote = `<div class="ev-fc-acc ev-fc-acc-over"
-                    title="Broens forudbestillinger og forecast-prep-bonnen tæller begge fuldt med — i ugeoversigt, kapacitet, top-up, retur og HQ-lagertrækket. Sæt 'holder resten' på forecast-bonnen, så retter den sig selv.">⚠ ${acc.prepped} preppet mod mål ${acc.target} — ${acc.over} for meget</div>`;
+                    title="Broens forudbestillinger og forecast-prep-bonnen tæller begge fuldt med — i ugeoversigt, kapacitet, top-up, retur og HQ-lagertrækket.">⚠ ${acc.prepped} preppet mod mål ${acc.target} — ${acc.over} for meget${fix}</div>`;
             } else {
                 accNote = `<div class="ev-fc-acc" title="Mål = max(forecast, forudbestilt). Forecasten styrer, indtil de faktiske ordrer løber fra den.">${parts.join(' · ')} · mål ${acc.target}</div>`;
             }
