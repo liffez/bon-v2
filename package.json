@@ -17,6 +17,8 @@
     "test:nav": "node --test --test-force-exit tests/safe_navigate.test.js tests/sse_stream.test.js",
     "test:modal": "node --test tests/modal_outside_click.test.js",
     "test:forhandler": "node --experimental-sqlite --test tests/reseller_end_customer.test.js",
+    "ryd:forhandler-firmaer": "node --experimental-sqlite scripts/merge-reseller-junk-companies.js",
+    "ryd:tomme-firmaer": "node --experimental-sqlite scripts/audit-empty-companies.js",
     "test:labor": "node --test tests/labor_location.test.js tests/open_shift.test.js tests/wage_csv.test.js",
     "test:drift-cost": "node --experimental-sqlite scripts/test-drift-event-cost.js",
     "test:drift-location": "node --experimental-sqlite scripts/test-drift-location.js",

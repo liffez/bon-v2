@@ -51,15 +51,19 @@ const PLAN = [
     // Able under et andet navn — samme CVR, samme e-conomic-nummer.
     { id: 3551, expect_name: 'able ApS',           kind: 'duplicate' },
 
-    // Cisco ER et rigtigt firma, men findes allerede: 3465 + 3466 "Cisco Systems
-    // Denmark" og 3494 "Cisco", alle CVR 20456493. Rækken her er et artefakt fra
-    // formularen — omdøbes den, bliver den den fjerde Cisco.
+    // Cisco har OGSÅ købt direkte hos os og findes allerede som rigtigt firma:
+    // 3465 + 3466 "Cisco Systems Denmark" og 3494 "Cisco", alle CVR 20456493.
+    // Rækken her er et artefakt fra formularen — omdøbes den, bliver den den
+    // fjerde Cisco.
     { id: 3951, expect_name: 'Cisco / able',       kind: 'end_customer', end_customer: 'Cisco' },
 
-    // Systematic ER et rigtigt firma, og findes IKKE i forvejen under noget navn.
-    // Den ene række beholdes derfor som firmaet (mangler stadig CVR — beriges i
-    // Firma 360°), den anden er en dublet af samme og deaktiveres.
-    { id: 4176, expect_name: 'Systematic / able',  kind: 'end_customer', end_customer: 'Systematic', rename_to: 'Systematic' },
+    // Systematic har KUN købt gennem Able — de er aldrig kunde hos os selv.
+    // Så de skal ikke have en firma-række: bonnen hører til Able, og navnet
+    // hører til på bonnen. En tom Systematic-række uden bons, kontakter eller
+    // CVR ville være præcis den slags indholdsløse firma der skal ryddes væk.
+    // (`rename_to` findes stadig — den bruges den dag en slutkunde VISER sig at
+    // handle direkte med os, og vi ikke har dem i forvejen.)
+    { id: 4176, expect_name: 'Systematic / able',  kind: 'end_customer', end_customer: 'Systematic' },
     { id: 4182, expect_name: 'Systematic  (Able)', kind: 'end_customer', end_customer: 'Systematic' },
 ];
 

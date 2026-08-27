@@ -5315,6 +5315,33 @@ Testdata ryddet.
   bevidst ikke rører). B4194 (16.435 kr, VENTER) lå på en række uden
   e-conomic-nummer og kunne ikke faktureres — den kan den nu.
 
+  **Slutkunden får ikke sin egen firma-række.** Systematic har kun handlet
+  gennem Able og er derfor ikke kunde hos os; navnet hører til på bonnen.
+  Cisco HAR handlet direkte, men findes allerede tre gange (CVR 20456493) —
+  en omdøbning ville give den fjerde. `rename_to` findes i planen til den dag
+  en slutkunde viser sig at handle direkte og ikke findes i forvejen.
+
+- **`scripts/audit-empty-companies.js`** — den generelle regel fra drift: en
+  firma-række beholdes hvis der er **en bon, en kontaktperson eller en mail**
+  på den. Ellers er den et artefakt fra formularens fri-tekst-felt eller fra
+  v1-importen (de fire Per Aarsleff-rækker er oprettet i samme sekund,
+  2026-04-08 11:16:29, og har ingen af delene). Fire værn oveni: e-conomic-nr,
+  `is_internal`, påmindelser og fremmednøgler fra events/kampagner/booking-tokens.
+  Rækker **deaktiveres**, slettes aldrig — en changelog-linje kan pege på dem år
+  efter. Dry-run default, `VACUUM INTO`-backup, transaktion der ruller tilbage
+  hvis antal bons flytter sig.
+
+  > ⚠️ **`rfm_scores` er bevidst IKKE et værn.** Tabellen er beregnet og har en
+  > række for stort set hvert firma (1.346 af 1.452 i drift). Bruges den som
+  > bevis på en relation, freder den alt: 377 kandidater → 0. Fanget under
+  > afprøvning, hvor scriptet meldte "intet at rydde op" på et kartotek hvor
+  > hver tredje række var tom.
+
+  Målt mod driftsdata: **1.361 → 984 aktive firmaer** (377 deaktiveret, 243 af
+  dem med CVR fra berigelse). 0 bons rørt, 0 bons efterladt på en inaktiv række.
+  Kør forhandler-oprydningen FØRST — ellers står dens fire rækker stadig med
+  bons og bliver fredet.
+
 **Bredere fund, ikke løst her:** af 114 web-bestillinger i drift ligger **39** på et
 andet firma end kundens eget — `University of Copenhagen` mod `Københavns
 Universitet`, `ATV` mod `Akademiet for de tekniske videnskaber`, `Stromma` mod
