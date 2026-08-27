@@ -1,0 +1,143 @@
+{
+ "instance": "HQ",
+ "qty": 10,
+ "recipes": {
+  "88": {
+   "name": "Kyllingen",
+   "cost_price": 23.4838,
+   "co2e_per_serving": 0.6521,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0009,
+    "Eddike": 0.0357,
+    "Kylling - rå": 0.9375,
+    "kål": 0.168,
+    "Mayonaise": 0.3,
+    "Pebberkorn - Hele": 0.0021,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Rå": 0.0893,
+    "Salt - Flager": 0.0157,
+    "Servietter": 10,
+    "Spicy Chili Sauce": 0.03,
+    "Spinat": 0.03,
+    "Sukker": 0.0179,
+    "Tranebærsaft": 0.0357,
+    "vand": 0.0714
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kylling - BBQ": 0.75,
+    "kål": 0.168,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10,
+    "Spicy Chili Sauce": 0.03,
+    "Spinat": 0.03
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kylling - BBQ": 0.75,
+    "kål": 0.168,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10,
+    "Spicy Chili Sauce": 0.03,
+    "Spinat": 0.03
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kylling - BBQ": 0.75,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Chili Mayo": {
+     "vaegt_g": 330,
+     "yield": 0.33
+    },
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "111": {
+   "name": "Kyllingen slider",
+   "cost_price": 10.7651,
+   "co2e_per_serving": 0.2767,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0004,
+    "Eddike": 0.0157,
+    "Kylling - rå": 0.375,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Pebberkorn - Hele": 0.0009,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Rå": 0.0393,
+    "Salt - Flager": 0.0063,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spicy Chili Sauce": 0.012,
+    "Spinat": 0.02,
+    "Sukker": 0.0079,
+    "Tranebærsaft": 0.0157,
+    "vand": 0.0314
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Kylling - BBQ": 0.3,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.11,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spicy Chili Sauce": 0.012,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Kylling - BBQ": 0.3,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.11,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spicy Chili Sauce": 0.012,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Kylling - BBQ": 0.3,
+    "Rødløg - Sylt": 0.11,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Chili Mayo": {
+     "vaegt_g": 132,
+     "yield": 0.132
+    },
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  }
+ }
+}

@@ -58,7 +58,7 @@ function deleteBon(id) {
 
 function patchBonStatus(id, statusCode, userId, force, confirmNoInvoice) {
     const payload = { status_code: statusCode, user_id: userId };
-    if (force) payload.force = true;   // admin-override af ellers ugyldig status-vej
+    if (force) payload.force = true;   // override af ellers ugyldig status-vej (kræver login)
     // Fakturavagt (#319): bekræft at bonnen bevidst markeres faktureret uden faktura
     if (confirmNoInvoice) payload.confirm_no_invoice = true;
     return apiFetch('/bons/' + id + '/status', {

@@ -1,0 +1,2122 @@
+{
+ "instance": "HQ",
+ "qty": 10,
+ "recipes": {
+  "23": {
+   "name": "Kartoflen",
+   "cost_price": 17.7748,
+   "co2e_per_serving": 0.2927,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0009,
+    "Eddike": 0.0357,
+    "Kartofler": 0.85,
+    "kål": 0.168,
+    "Løvstikke - Frisk": 0.009,
+    "Mayonaise": 0.3,
+    "Pebberkorn - Hele": 0.0013,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Rå": 0.0893,
+    "Salt - Flager": 0.0207,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Sukker": 0.0179,
+    "Tranebærsaft": 0.0357,
+    "vand": 0.0714
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kartofler": 0.85,
+    "kål": 0.168,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.25,
+    "Salt - Flager": 0.02,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kartofler": 0.85,
+    "kål": 0.168,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.25,
+    "Salt - Flager": 0.02,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kartofler": 0.85,
+    "Purløg": 0.03,
+    "Rødløg - Sylt": 0.25,
+    "Salt - Flager": 0.02,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "24": {
+   "name": "Fisken",
+   "cost_price": 19.8369,
+   "co2e_per_serving": 0.433,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.05,
+    "Eddike": 0.05,
+    "Fiske-Frikadeller": 0.65,
+    "Gulerødder - Rå": 0.25,
+    "Ingefær": 0.0038,
+    "kål": 0.168,
+    "Mayonaise": 0.175,
+    "Pickles/Relish": 0.175,
+    "Rødkål - Rå": 0.132,
+    "Salt - alm": 0.0038,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Sukker": 0.05,
+    "vand": 0.15
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Fiske-Frikadeller": 0.65,
+    "Gulerødder - Sylt": 0.25,
+    "kål": 0.168,
+    "Remoulade": 0.35,
+    "Rødkål - Rå": 0.132,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Fiske-Frikadeller": 0.65,
+    "Gulerødder - Sylt": 0.25,
+    "kål": 0.168,
+    "Remoulade": 0.35,
+    "Rødkål - Rå": 0.132,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Fiske-Frikadeller": 0.65,
+    "Gulerødder - Sylt": 0.25,
+    "Remoulade": 0.35,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "25": {
+   "name": "Frikadellen",
+   "cost_price": 23.8166,
+   "co2e_per_serving": 0.5535,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "appelsiner": 0.0171,
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Eddike": 0.12,
+    "Frikadeller": 0.65,
+    "kål": 0.168,
+    "Mayonaise": 0.25,
+    "Pebberkorn - Hele": 0.0021,
+    "Rødkål - Rå": 0.432,
+    "Salt - alm": 0.0015,
+    "Sennep": 0.0075,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Stjerne Anis": 0.0018,
+    "Sukker": 0.021,
+    "Tranebærsaft": 0.12,
+    "vand": 0.24
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Frikadeller": 0.65,
+    "kål": 0.168,
+    "Mayonaise": 0.25,
+    "Rødkål - Rå": 0.132,
+    "Rødkål - Sylt": 0.3,
+    "Sennep": 0.0075,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Frikadeller": 0.65,
+    "kål": 0.168,
+    "Mayonaise": 0.25,
+    "Rødkål - Rå": 0.132,
+    "Rødkål - Sylt": 0.3,
+    "Sennep": 0.0075,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Frikadeller": 0.65,
+    "Rødkål - Sylt": 0.3,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    },
+    "Senneps Mayo": {
+     "vaegt_g": 250,
+     "yield": 0.25
+    }
+   }
+  },
+  "26": {
+   "name": "Italieneren",
+   "cost_price": 21.6152,
+   "co2e_per_serving": 0.5613,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Cherry Tomater": 0.32,
+    "Chili Mayo": 0.3,
+    "Granatæble Glace": 0.1,
+    "kål": 0.168,
+    "Mozzarella": 0.5,
+    "Rødkål - Rå": 0.132,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Cherry Tomater": 0.32,
+    "Chili Mayo": 0.3,
+    "Granatæble Glace": 0.1,
+    "kål": 0.168,
+    "Mozzarella": 0.5,
+    "Rødkål - Rå": 0.132,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Cherry Tomater": 0.32,
+    "Chili Mayo": 0.3,
+    "Granatæble Glace": 0.1,
+    "kål": 0.168,
+    "Mozzarella": 0.5,
+    "Rødkål - Rå": 0.132,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10,
+    "Spinat": 0.03
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Cherry Tomater": 0.32,
+    "Chili Mayo": 0.3,
+    "Granatæble Glace": 0.1,
+    "Mozzarella": 0.5,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "27": {
+   "name": "Grisen på Rug",
+   "cost_price": 25.9266,
+   "co2e_per_serving": 0.767,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Cayenne peber": 0.006,
+    "Citronsaft": 0.015,
+    "Eddike": 0.0015,
+    "Hvidløg - i tern": 0.027,
+    "Ingefær": 0.006,
+    "kål": 0.196,
+    "Løg - Rå": 0.09,
+    "Løvstikke - Frisk": 0.009,
+    "Mayonaise": 0.3,
+    "Pebberkorn - Hele": 0.0008,
+    "Rosiner": 0.09,
+    "Rødkål - Rå": 0.154,
+    "Salt - alm": 0.006,
+    "Salt - Flager": 0.016,
+    "Servietter": 10,
+    "Spinat": 0.035,
+    "Sukker": 0.075,
+    "Svinekam": 0.88,
+    "Æbler": 0.5
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.196,
+    "Langtids Stegt Gris": 0.8,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.154,
+    "Servietter": 10,
+    "Spinat": 0.035,
+    "Æble chuthney": 0.3,
+    "Æbler": 0.2
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.196,
+    "Langtids Stegt Gris": 0.8,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.154,
+    "Servietter": 10,
+    "Spinat": 0.035,
+    "Æble chuthney": 0.3,
+    "Æbler": 0.2
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Langtids Stegt Gris": 0.8,
+    "Servietter": 10,
+    "Æble chuthney": 0.3,
+    "Æbler": 0.2
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 350,
+     "yield": 0.35
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "33": {
+   "name": "Skinken",
+   "cost_price": 22.6359,
+   "co2e_per_serving": 0.5147,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.196,
+    "Lufttørret Skinke": 0.16,
+    "Mayonaise": 0.3,
+    "Ost - skiver": 0.3,
+    "Rødkål - Rå": 0.154,
+    "Semidried Tomater": 0.133,
+    "Sennep": 0.009,
+    "Servietter": 10,
+    "Spinat": 0.035
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.196,
+    "Lufttørret Skinke": 0.16,
+    "Mayonaise": 0.3,
+    "Ost - skiver": 0.3,
+    "Rødkål - Rå": 0.154,
+    "Semidried Tomater": 0.133,
+    "Sennep": 0.009,
+    "Servietter": 10,
+    "Spinat": 0.035
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.196,
+    "Lufttørret Skinke": 0.16,
+    "Mayonaise": 0.3,
+    "Ost - skiver": 0.3,
+    "Rødkål - Rå": 0.154,
+    "Semidried Tomater": 0.133,
+    "Sennep": 0.009,
+    "Servietter": 10,
+    "Spinat": 0.035
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Lufttørret Skinke": 0.16,
+    "Ost - skiver": 0.3,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 350,
+     "yield": 0.35
+    },
+    "Senneps Mayo": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "34": {
+   "name": "Ægget",
+   "cost_price": 20.4659,
+   "co2e_per_serving": 0.3217,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0011,
+    "Eddike": 0.0429,
+    "kål": 0.168,
+    "Løvstikke - Frisk": 0.009,
+    "Mayonaise": 0.3,
+    "Pebberkorn - Hele": 0.0016,
+    "Purløg": 0.05,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Rå": 0.1071,
+    "Salt - Flager": 0.0309,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Sukker": 0.0214,
+    "Tranebærsaft": 0.0429,
+    "vand": 0.0857,
+    "Æg": 0.6
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.168,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Purløg": 0.05,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.03,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Æg": 0.6
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.168,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Purløg": 0.05,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.03,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Æg": 0.6
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Purløg": 0.05,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.03,
+    "Servietter": 10,
+    "Æg": 0.6
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "52": {
+   "name": "Fisken Slider",
+   "cost_price": 9.8749,
+   "co2e_per_serving": 0.2086,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.024,
+    "Eddike": 0.024,
+    "Fiske-Frikadeller": 0.325,
+    "Gulerødder - Rå": 0.12,
+    "Ingefær": 0.0018,
+    "kål": 0.112,
+    "Mayonaise": 0.065,
+    "Pickles/Relish": 0.065,
+    "Rødkål - Rå": 0.088,
+    "Salt - alm": 0.0018,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Sukker": 0.024,
+    "vand": 0.072
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Fiske-Frikadeller": 0.325,
+    "Gulerødder - Sylt": 0.12,
+    "kål": 0.112,
+    "Remoulade": 0.13,
+    "Rødkål - Rå": 0.088,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Fiske-Frikadeller": 0.325,
+    "Gulerødder - Sylt": 0.12,
+    "kål": 0.112,
+    "Remoulade": 0.13,
+    "Rødkål - Rå": 0.088,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Fiske-Frikadeller": 0.325,
+    "Gulerødder - Sylt": 0.12,
+    "Remoulade": 0.13,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "53": {
+   "name": "Frikadellen Slider",
+   "cost_price": 11.8856,
+   "co2e_per_serving": 0.2752,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "appelsiner": 0.0069,
+    "Brød Rug": 0.6,
+    "Eddike": 0.048,
+    "Frikadeller": 0.325,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Pebberkorn - Hele": 0.0008,
+    "Rødkål - Rå": 0.208,
+    "Salt - alm": 0.0006,
+    "Sennep": 0.0036,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Stjerne Anis": 0.0007,
+    "Sukker": 0.0084,
+    "Tranebærsaft": 0.048,
+    "vand": 0.096
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Frikadeller": 0.325,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Rødkål - Sylt": 0.12,
+    "Sennep": 0.0036,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Frikadeller": 0.325,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Rødkål - Sylt": 0.12,
+    "Sennep": 0.0036,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Frikadeller": 0.325,
+    "Rødkål - Sylt": 0.12,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Senneps Mayo": {
+     "vaegt_g": 120,
+     "yield": 0.12
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "54": {
+   "name": "Italieneren slider",
+   "cost_price": 10.5413,
+   "co2e_per_serving": 0.2742,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Cherry Tomater": 0.16,
+    "Chili Mayo": 0.15,
+    "kål": 0.112,
+    "Mozzarella": 0.25,
+    "Rødkål - Rå": 0.088,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Cherry Tomater": 0.16,
+    "Chili Mayo": 0.15,
+    "kål": 0.112,
+    "Mozzarella": 0.25,
+    "Rødkål - Rå": 0.088,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Cherry Tomater": 0.16,
+    "Chili Mayo": 0.15,
+    "kål": 0.112,
+    "Mozzarella": 0.25,
+    "Rødkål - Rå": 0.088,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Cherry Tomater": 0.16,
+    "Chili Mayo": 0.15,
+    "Mozzarella": 0.25,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "55": {
+   "name": "Grisen på Rug slider",
+   "cost_price": 12.5659,
+   "co2e_per_serving": 0.3718,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Cayenne peber": 0.0024,
+    "Citronsaft": 0.006,
+    "Eddike": 0.0006,
+    "Hvidløg - i tern": 0.0108,
+    "Ingefær": 0.0024,
+    "kål": 0.112,
+    "Løg - Rå": 0.036,
+    "Løvstikke - Frisk": 0.0036,
+    "Mayonaise": 0.12,
+    "Pebberkorn - Hele": 0.0004,
+    "Rosiner": 0.036,
+    "Rødkål - Rå": 0.088,
+    "Salt - alm": 0.0024,
+    "Salt - Flager": 0.008,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Sukker": 0.03,
+    "Svinekam": 0.44,
+    "Æbler": 0.245
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "kål": 0.112,
+    "Langtids Stegt Gris": 0.4,
+    "Løvstikke pakke": 0.0036,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æble chuthney": 0.12,
+    "Æbler": 0.125
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "kål": 0.112,
+    "Langtids Stegt Gris": 0.4,
+    "Løvstikke pakke": 0.0036,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æble chuthney": 0.12,
+    "Æbler": 0.125
+   },
+   "production": {
+    "Langtids Stegt Gris": 0.4,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Æble chuthney": 0.12,
+    "Æbler": 0.125
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 120,
+     "yield": 0.12
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "57": {
+   "name": "Kartoflen slider",
+   "cost_price": 8.6062,
+   "co2e_per_serving": 0.133,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0004,
+    "Eddike": 0.0143,
+    "Kartofler": 0.35,
+    "kål": 0.112,
+    "Løvstikke - Frisk": 0.0036,
+    "Mayonaise": 0.12,
+    "Pebberkorn - Hele": 0.0005,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Rå": 0.0357,
+    "Salt - Flager": 0.0103,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Sukker": 0.0071,
+    "Tranebærsaft": 0.0143,
+    "vand": 0.0286
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Kartofler": 0.35,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0036,
+    "Mayonaise": 0.12,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.1,
+    "Salt - Flager": 0.01,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Kartofler": 0.35,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0036,
+    "Mayonaise": 0.12,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.1,
+    "Salt - Flager": 0.01,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Kartofler": 0.35,
+    "Purløg": 0.02,
+    "Rødløg - Sylt": 0.1,
+    "Salt - Flager": 0.01,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 120,
+     "yield": 0.12
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "60": {
+   "name": "Skinken slider",
+   "cost_price": 14.0894,
+   "co2e_per_serving": 0.3634,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "kål": 0.112,
+    "Lufttørret Skinke": 0.15,
+    "Mayonaise": 0.12,
+    "Ost - skiver": 0.3,
+    "Rødkål - Rå": 0.088,
+    "Semidried Tomater": 0.067,
+    "Sennep": 0.0036,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "kål": 0.112,
+    "Lufttørret Skinke": 0.15,
+    "Mayonaise": 0.12,
+    "Ost - skiver": 0.3,
+    "Rødkål - Rå": 0.088,
+    "Semidried Tomater": 0.067,
+    "Sennep": 0.0036,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "kål": 0.112,
+    "Lufttørret Skinke": 0.15,
+    "Mayonaise": 0.12,
+    "Ost - skiver": 0.3,
+    "Rødkål - Rå": 0.088,
+    "Semidried Tomater": 0.067,
+    "Sennep": 0.0036,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Lufttørret Skinke": 0.15,
+    "Ost - skiver": 0.3,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Senneps Mayo": {
+     "vaegt_g": 120,
+     "yield": 0.12
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "61": {
+   "name": "\"Tunen\" Spicy  slider",
+   "cost_price": 9.3473,
+   "co2e_per_serving": 0.1635,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Cayenne peber": 0.003,
+    "Chilli Pulver": 0.003,
+    "Citronsaft": 0.0005,
+    "Eddike": 0.0214,
+    "Hvidløgs Pulver": 0.012,
+    "Ingrid Ærter": 0.3,
+    "kål": 0.084,
+    "Majs": 0.09,
+    "Mayo - Vegansk": 0.195,
+    "Pebberkorn - Hele": 0.0008,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.066,
+    "Rødløg - Rå": 0.0536,
+    "Røget Paprika": 0.015,
+    "Salt - alm": 0.003,
+    "Salt - Flager": 0.0004,
+    "Servietter": 5,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.015,
+    "Sukker": 0.0107,
+    "Tranebærsaft": 0.0214,
+    "vand": 0.0429
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.15,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.066,
+    "Rødløg - Sylt": 0.15,
+    "Servietter": 5,
+    "Små Burgerlommer": 10,
+    "Spicy \"Tuna\"": 0.3,
+    "Spinat": 0.015
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.15,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.066,
+    "Rødløg - Sylt": 0.15,
+    "Servietter": 5,
+    "Små Burgerlommer": 10,
+    "Spicy \"Tuna\"": 0.3,
+    "Spinat": 0.015
+   },
+   "production": {
+    "Mayo - Vegansk": 0.15,
+    "Purløg": 0.02,
+    "Rødløg - Sylt": 0.15,
+    "Servietter": 5,
+    "Små Burgerlommer": 10,
+    "Spicy \"Tuna\"": 0.3
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 150,
+     "yield": 0.15
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "62": {
+   "name": "Ægget slider",
+   "cost_price": 10.0255,
+   "co2e_per_serving": 0.1523,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0005,
+    "Eddike": 0.0214,
+    "kål": 0.112,
+    "Løvstikke - Frisk": 0.0036,
+    "Mayonaise": 0.12,
+    "Pebberkorn - Hele": 0.0008,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Rå": 0.0536,
+    "Salt - Flager": 0.0204,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Sukker": 0.0107,
+    "Tranebærsaft": 0.0214,
+    "vand": 0.0429,
+    "Æg": 0.3
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0036,
+    "Mayonaise": 0.12,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.15,
+    "Salt - Flager": 0.02,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æg": 0.3
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0036,
+    "Mayonaise": 0.12,
+    "Purløg": 0.02,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.15,
+    "Salt - Flager": 0.02,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æg": 0.3
+   },
+   "production": {
+    "Purløg": 0.02,
+    "Rødløg - Sylt": 0.15,
+    "Salt - Flager": 0.02,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Æg": 0.3
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 120,
+     "yield": 0.12
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "63": {
+   "name": "\"Tunen\"",
+   "cost_price": 19.0569,
+   "co2e_per_serving": 0.3191,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Cayenne peber": 0.0075,
+    "Chilli Pulver": 0.0075,
+    "Citronsaft": 0.0011,
+    "Eddike": 0.0429,
+    "Hvidløgs Pulver": 0.03,
+    "Ingrid Ærter": 0.75,
+    "kål": 0.168,
+    "Majs": 0.225,
+    "Mayo - Vegansk": 0.3125,
+    "Pebberkorn - Hele": 0.0016,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Rå": 0.1071,
+    "Røget Paprika": 0.0375,
+    "Salt - alm": 0.0075,
+    "Salt - Flager": 0.0009,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Sukker": 0.0214,
+    "Tranebærsaft": 0.0429,
+    "vand": 0.0857
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.168,
+    "Mayo - Vegansk": 0.2,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.3,
+    "Servietter": 10,
+    "Spicy \"Tuna\"": 0.75,
+    "Spinat": 0.03
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "kål": 0.168,
+    "Mayo - Vegansk": 0.2,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.3,
+    "Servietter": 10,
+    "Spicy \"Tuna\"": 0.75,
+    "Spinat": 0.03
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Mayo - Vegansk": 0.2,
+    "Purløg": 0.03,
+    "Rødløg - Sylt": 0.3,
+    "Servietter": 10,
+    "Spicy \"Tuna\"": 0.75
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "77": {
+   "name": "Alm slider Boks - fisken, Frikadellen, kartoflen",
+   "cost_price": 30.6137,
+   "co2e_per_serving": 0.625,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "appelsiner": 0.0023,
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0081,
+    "Eddike": 0.0288,
+    "Fiske-Frikadeller": 0.1083,
+    "Frikadeller": 0.1083,
+    "Gulerødder - Rå": 0.04,
+    "Ingefær": 0.0006,
+    "Kartofler": 0.1167,
+    "kål": 0.112,
+    "Løvstikke - Frisk": 0.0012,
+    "Mayonaise": 0.1017,
+    "Pebberkorn - Hele": 0.0005,
+    "Pickles/Relish": 0.0217,
+    "Purløg": 0.0067,
+    "Rødkål - Rå": 0.128,
+    "Rødløg - Rå": 0.0119,
+    "Salt - alm": 0.0008,
+    "Salt - Flager": 0.0034,
+    "Sennep": 0.0012,
+    "Servietter": 7.6663,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Stjerne Anis": 0.0002,
+    "Sukker": 0.0132,
+    "Tranebærsaft": 0.0208,
+    "vand": 0.0655
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Fiske-Frikadeller": 0.1083,
+    "Frikadeller": 0.1083,
+    "Gulerødder - Sylt": 0.04,
+    "Kartofler": 0.1167,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0012,
+    "Mayonaise": 0.08,
+    "Purløg": 0.0067,
+    "Remoulade": 0.0433,
+    "Rødkål - Rå": 0.088,
+    "Rødkål - Sylt": 0.04,
+    "Rødløg - Sylt": 0.0333,
+    "Salt - Flager": 0.0033,
+    "Sennep": 0.0012,
+    "Servietter": 7.6663,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Fiske-Frikadeller": 0.1083,
+    "Frikadeller": 0.1083,
+    "Gulerødder - Sylt": 0.04,
+    "Kartofler": 0.1167,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0012,
+    "Mayonaise": 0.08,
+    "Purløg": 0.0067,
+    "Remoulade": 0.0433,
+    "Rødkål - Rå": 0.088,
+    "Rødkål - Sylt": 0.04,
+    "Rødløg - Sylt": 0.0333,
+    "Salt - Flager": 0.0033,
+    "Sennep": 0.0012,
+    "Servietter": 7.6663,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Servietter": 4.3333
+   },
+   "sub_recipes": {
+    "Fisken Slider": {
+     "vaegt_g": 465,
+     "yield": 3.3333
+    },
+    "Frikadellen Slider": {
+     "vaegt_g": 462.87,
+     "yield": 3.3333
+    },
+    "Kartoflen slider": {
+     "vaegt_g": 474.53,
+     "yield": 3.3333
+    }
+   }
+  },
+  "78": {
+   "name": "Vegetar slider Boks - Æg, DK Italiener, kartoffel",
+   "cost_price": 29.3631,
+   "co2e_per_serving": 0.5658,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Cherry Tomater": 0.0533,
+    "Chili Mayo": 0.05,
+    "Citronsaft": 0.0003,
+    "Eddike": 0.0119,
+    "Kartofler": 0.1167,
+    "kål": 0.112,
+    "Løvstikke - Frisk": 0.0024,
+    "Mayonaise": 0.08,
+    "Mozzarella": 0.0833,
+    "Pebberkorn - Hele": 0.0004,
+    "Purløg": 0.0133,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Rå": 0.0298,
+    "Salt - Flager": 0.0102,
+    "Semidried Tomater": 0.0223,
+    "Servietter": 6.6663,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Sukker": 0.006,
+    "Tranebærsaft": 0.0119,
+    "vand": 0.0238,
+    "Æg": 0.1
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Cherry Tomater": 0.0533,
+    "Chili Mayo": 0.05,
+    "Kartofler": 0.1167,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0024,
+    "Mayonaise": 0.08,
+    "Mozzarella": 0.0833,
+    "Purløg": 0.0133,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.0833,
+    "Salt - Flager": 0.01,
+    "Semidried Tomater": 0.0223,
+    "Servietter": 6.6663,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æg": 0.1
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Cherry Tomater": 0.0533,
+    "Chili Mayo": 0.05,
+    "Kartofler": 0.1167,
+    "kål": 0.112,
+    "Løvstikke pakke": 0.0024,
+    "Mayonaise": 0.08,
+    "Mozzarella": 0.0833,
+    "Purløg": 0.0133,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.0833,
+    "Salt - Flager": 0.01,
+    "Semidried Tomater": 0.0223,
+    "Servietter": 6.6663,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æg": 0.1
+   },
+   "production": {
+    "Servietter": 3.3333
+   },
+   "sub_recipes": {
+    "Italieneren slider": {
+     "vaegt_g": 482.33,
+     "yield": 3.3333
+    },
+    "Kartoflen slider": {
+     "vaegt_g": 474.53,
+     "yield": 3.3333
+    },
+    "Ægget slider": {
+     "vaegt_g": 477.87,
+     "yield": 3.3333
+    }
+   }
+  },
+  "88": {
+   "name": "Kyllingen",
+   "cost_price": 23.4838,
+   "co2e_per_serving": 0.6521,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0009,
+    "Eddike": 0.0357,
+    "Kylling - rå": 0.9375,
+    "kål": 0.168,
+    "Mayonaise": 0.3,
+    "Pebberkorn - Hele": 0.0021,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Rå": 0.0893,
+    "Salt - Flager": 0.0157,
+    "Servietter": 10,
+    "Spicy Chili Sauce": 0.03,
+    "Spinat": 0.03,
+    "Sukker": 0.0179,
+    "Tranebærsaft": 0.0357,
+    "vand": 0.0714
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kylling - BBQ": 0.75,
+    "kål": 0.168,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10,
+    "Spicy Chili Sauce": 0.03,
+    "Spinat": 0.03
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kylling - BBQ": 0.75,
+    "kål": 0.168,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.132,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10,
+    "Spicy Chili Sauce": 0.03,
+    "Spinat": 0.03
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kylling - BBQ": 0.75,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Chili Mayo": {
+     "vaegt_g": 330,
+     "yield": 0.33
+    },
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "91": {
+   "name": " Falaflen",
+   "cost_price": 18.9854,
+   "co2e_per_serving": 0.3629,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0169,
+    "Eddike": 0.0357,
+    "Gulerødder - Rå": 0.1388,
+    "Hvidløg - i tern": 0.003,
+    "Hvidløgs Pulver": 0.0163,
+    "Ingrid Ærter": 0.1665,
+    "kål": 0.224,
+    "Mayo - Vegansk": 0.3,
+    "Olie": 0.0361,
+    "pebber - stødt": 0.0031,
+    "Pebberkorn - Hele": 0.0013,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Rå": 0.0893,
+    "Røget Paprika": 0.01,
+    "Salt - alm": 0.0054,
+    "Salt - Flager": 0.0037,
+    "Servietter": 10,
+    "Spidskommen": 0.0067,
+    "Spinat": 0.04,
+    "Sukker": 0.0179,
+    "Tahini": 0.0135,
+    "Tempty": 0.1388,
+    "Tranebærsaft": 0.0357,
+    "vand": 0.0714,
+    "vegansk yoghurt": 0.2
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.016,
+    "Falaffel": 0.571,
+    "Hvidløg - i tern": 0.003,
+    "Hvidløgs Pulver": 0.008,
+    "kål": 0.224,
+    "Mayo - Vegansk": 0.3,
+    "pebber - stødt": 0.0014,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.25,
+    "Salt - alm": 0.001,
+    "Salt - Flager": 0.003,
+    "Servietter": 10,
+    "Spinat": 0.04,
+    "Tahini": 0.0135,
+    "vegansk yoghurt": 0.2
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.016,
+    "Falaffel": 0.571,
+    "Hvidløg - i tern": 0.003,
+    "Hvidløgs Pulver": 0.008,
+    "kål": 0.224,
+    "Mayo - Vegansk": 0.3,
+    "pebber - stødt": 0.0014,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.25,
+    "Salt - alm": 0.001,
+    "Salt - Flager": 0.003,
+    "Servietter": 10,
+    "Spinat": 0.04,
+    "Tahini": 0.0135,
+    "vegansk yoghurt": 0.2
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Falaffel": 0.571,
+    "Rødløg - Sylt": 0.25,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 400,
+     "yield": 0.4
+    },
+    "Tahin dressing": {
+     "vaegt_g": 334.5,
+     "yield": 0.3345
+    },
+    "Yoghurt dressing": {
+     "vaegt_g": 211.4,
+     "yield": 0.2114
+    }
+   }
+  },
+  "92": {
+   "name": "Trøflen",
+   "cost_price": 23.3877,
+   "co2e_per_serving": 0.3876,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "balsamico eddike": 0.012,
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Feta ost": 0.2,
+    "Gulerødder - Rå": 0.1388,
+    "Hvidløgs Pulver": 0.0083,
+    "Ingrid Ærter": 0.1665,
+    "kål": 0.168,
+    "Løg - Rå": 0.2,
+    "Mayonaise": 0.3,
+    "Olie": 0.0361,
+    "pebber - stødt": 0.0017,
+    "Rødkål - Rå": 0.132,
+    "Røget Paprika": 0.01,
+    "Salt - alm": 0.0044,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10,
+    "Spidskommen": 0.0067,
+    "Spinat": 0.03,
+    "Tempty": 0.1388,
+    "Trøffel olie": 0.003,
+    "vand": 0.1
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "balsamico eddike": 0.012,
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Falaffel": 0.571,
+    "Feta ost": 0.2,
+    "kål": 0.168,
+    "Løg - Rå": 0.2,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.132,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Trøffel olie": 0.003,
+    "vand": 0.1
+   },
+   "raw": {
+    "balsamico eddike": 0.012,
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Falaffel": 0.571,
+    "Feta ost": 0.2,
+    "kål": 0.168,
+    "Løg - Rå": 0.2,
+    "Mayonaise": 0.3,
+    "Rødkål - Rå": 0.132,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10,
+    "Spinat": 0.03,
+    "Trøffel olie": 0.003,
+    "vand": 0.1
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Falaffel": 0.571,
+    "Feta ost": 0.2,
+    "Semidried Tomater": 0.133,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Balsamico + løg": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Frisk Grønt": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    },
+    "Trøffel Mayo": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "93": {
+   "name": "Falaflen - slider",
+   "cost_price": 10.3327,
+   "co2e_per_serving": 0.2249,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Balsamico Glace": 0.05,
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0105,
+    "Gulerødder - Rå": 0.0695,
+    "Hvidløg - i tern": 0.002,
+    "Hvidløgs Pulver": 0.0082,
+    "Ingrid Ærter": 0.0834,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.2,
+    "Olie": 0.0181,
+    "pebber - stødt": 0.0015,
+    "Rødkål - Rå": 0.066,
+    "Røget Paprika": 0.005,
+    "Salt - alm": 0.0027,
+    "Salt - Flager": 0.002,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spidskommen": 0.0033,
+    "Spinat": 0.015,
+    "Tahini": 0.009,
+    "Tempty": 0.0695,
+    "vegansk yoghurt": 0.1
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Balsamico Glace": 0.05,
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0105,
+    "Falaffel": 0.286,
+    "Hvidløg - i tern": 0.002,
+    "Hvidløgs Pulver": 0.004,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.2,
+    "pebber - stødt": 0.0007,
+    "Rødkål - Rå": 0.066,
+    "Salt - alm": 0.0005,
+    "Salt - Flager": 0.002,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.015,
+    "Tahini": 0.009,
+    "vegansk yoghurt": 0.1
+   },
+   "raw": {
+    "Balsamico Glace": 0.05,
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0105,
+    "Falaffel": 0.286,
+    "Hvidløg - i tern": 0.002,
+    "Hvidløgs Pulver": 0.004,
+    "kål": 0.084,
+    "Mayo - Vegansk": 0.2,
+    "pebber - stødt": 0.0007,
+    "Rødkål - Rå": 0.066,
+    "Salt - alm": 0.0005,
+    "Salt - Flager": 0.002,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.015,
+    "Tahini": 0.009,
+    "vegansk yoghurt": 0.1
+   },
+   "production": {
+    "Balsamico Glace": 0.05,
+    "Falaffel": 0.286,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 150,
+     "yield": 0.15
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    },
+    "Tahin dressing": {
+     "vaegt_g": 223,
+     "yield": 0.223
+    },
+    "Yoghurt dressing": {
+     "vaegt_g": 105.7,
+     "yield": 0.1057
+    }
+   }
+  },
+  "94": {
+   "name": "Trøflen - slider",
+   "cost_price": 12.4039,
+   "co2e_per_serving": 0.2013,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "balsamico eddike": 0.006,
+    "Brød Rug": 0.6,
+    "Feta ost": 0.15,
+    "Gulerødder - Rå": 0.0695,
+    "Hvidløgs Pulver": 0.0042,
+    "Ingrid Ærter": 0.0834,
+    "kål": 0.084,
+    "Løg - Rå": 0.1,
+    "Mayonaise": 0.15,
+    "Olie": 0.0181,
+    "pebber - stødt": 0.0008,
+    "Rødkål - Rå": 0.066,
+    "Røget Paprika": 0.005,
+    "Salt - alm": 0.0022,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spidskommen": 0.0033,
+    "Spinat": 0.015,
+    "Tempty": 0.0695,
+    "Trøffel olie": 0.0015,
+    "vand": 0.05
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "balsamico eddike": 0.006,
+    "Brød Rug": 0.6,
+    "Falaffel": 0.286,
+    "Feta ost": 0.15,
+    "kål": 0.084,
+    "Løg - Rå": 0.1,
+    "Mayonaise": 0.15,
+    "Rødkål - Rå": 0.066,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.015,
+    "Trøffel olie": 0.0015,
+    "vand": 0.05
+   },
+   "raw": {
+    "balsamico eddike": 0.006,
+    "Brød Rug": 0.6,
+    "Falaffel": 0.286,
+    "Feta ost": 0.15,
+    "kål": 0.084,
+    "Løg - Rå": 0.1,
+    "Mayonaise": 0.15,
+    "Rødkål - Rå": 0.066,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.015,
+    "Trøffel olie": 0.0015,
+    "vand": 0.05
+   },
+   "production": {
+    "Falaffel": 0.286,
+    "Feta ost": 0.15,
+    "Semidried Tomater": 0.067,
+    "Servietter": 3.3,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Balsamico + løg": {
+     "vaegt_g": 100,
+     "yield": 0.1
+    },
+    "Frisk Grønt": {
+     "vaegt_g": 150,
+     "yield": 0.15
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    },
+    "Trøffel Mayo": {
+     "vaegt_g": 150,
+     "yield": 0.15
+    }
+   }
+  },
+  "111": {
+   "name": "Kyllingen slider",
+   "cost_price": 10.7651,
+   "co2e_per_serving": 0.2767,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "Citronsaft": 0.0004,
+    "Eddike": 0.0157,
+    "Kylling - rå": 0.375,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Pebberkorn - Hele": 0.0009,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Rå": 0.0393,
+    "Salt - Flager": 0.0063,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spicy Chili Sauce": 0.012,
+    "Spinat": 0.02,
+    "Sukker": 0.0079,
+    "Tranebærsaft": 0.0157,
+    "vand": 0.0314
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "Kylling - BBQ": 0.3,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.11,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spicy Chili Sauce": 0.012,
+    "Spinat": 0.02
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "Kylling - BBQ": 0.3,
+    "kål": 0.112,
+    "Mayonaise": 0.12,
+    "Rødkål - Rå": 0.088,
+    "Rødløg - Sylt": 0.11,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spicy Chili Sauce": 0.012,
+    "Spinat": 0.02
+   },
+   "production": {
+    "Kylling - BBQ": 0.3,
+    "Rødløg - Sylt": 0.11,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10
+   },
+   "sub_recipes": {
+    "Chili Mayo": {
+     "vaegt_g": 132,
+     "yield": 0.132
+    },
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    }
+   }
+  },
+  "152": {
+   "name": "Kartoflen-One planet",
+   "cost_price": 18.5827,
+   "co2e_per_serving": 0.3145,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0011,
+    "Eddike": 0.0429,
+    "Kartofler": 1.2,
+    "kål": 0.224,
+    "Løvstikke - Frisk": 0.009,
+    "Mayonaise": 0.3,
+    "Pebberkorn - Hele": 0.0016,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Rå": 0.1071,
+    "Salt - Flager": 0.0209,
+    "Servietter": 10,
+    "Spinat": 0.04,
+    "Sukker": 0.0214,
+    "Tranebærsaft": 0.0429,
+    "vand": 0.0857
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kartofler": 1.2,
+    "kål": 0.224,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.02,
+    "Servietter": 10,
+    "Spinat": 0.04
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kartofler": 1.2,
+    "kål": 0.224,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.3,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.02,
+    "Servietter": 10,
+    "Spinat": 0.04
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Kartofler": 1.2,
+    "Purløg": 0.03,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.02,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 400,
+     "yield": 0.4
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    }
+   }
+  },
+  "154": {
+   "name": "Kombo Kartoflen-One planet",
+   "cost_price": 41.2095,
+   "co2e_per_serving": 1.0908,
+   "co2_complete": false,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Citronsaft": 0.0011,
+    "Eddike": 0.0429,
+    "Frikadeller": 1.3,
+    "Kartofler": 1.2,
+    "kål": 0.224,
+    "Løvstikke - Frisk": 0.009,
+    "Mayonaise": 0.7,
+    "Pebberkorn - Hele": 0.0016,
+    "pomfritbakker": 10,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Rå": 0.1071,
+    "Salt - Flager": 0.0209,
+    "Sennep": 0.012,
+    "Servietter": 10,
+    "Spinat": 0.04,
+    "Sukker": 0.0214,
+    "Tranebærsaft": 0.0429,
+    "vand": 0.0857
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Frikadeller": 1.3,
+    "Kartofler": 1.2,
+    "kål": 0.224,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.7,
+    "pomfritbakker": 10,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.02,
+    "Sennep": 0.012,
+    "Servietter": 10,
+    "Spinat": 0.04
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Frikadeller": 1.3,
+    "Kartofler": 1.2,
+    "kål": 0.224,
+    "Løvstikke pakke": 0.009,
+    "Mayonaise": 0.7,
+    "pomfritbakker": 10,
+    "Purløg": 0.03,
+    "Rødkål - Rå": 0.176,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.02,
+    "Sennep": 0.012,
+    "Servietter": 10,
+    "Spinat": 0.04
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Frikadeller": 1.3,
+    "Kartofler": 1.2,
+    "pomfritbakker": 10,
+    "Purløg": 0.03,
+    "Rødløg - Sylt": 0.3,
+    "Salt - Flager": 0.02,
+    "Servietter": 10
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 400,
+     "yield": 0.4
+    },
+    "Løvstikke Mayo": {
+     "vaegt_g": 300,
+     "yield": 0.3
+    },
+    "Senneps Mayo": {
+     "vaegt_g": 400,
+     "yield": 0.4
+    }
+   }
+  },
+  "161": {
+   "name": "Æggesalaten",
+   "cost_price": 19.444,
+   "co2e_per_serving": 0.3497,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "gurkemeje": 0.0255,
+    "karry": 0.0425,
+    "kål": 0.196,
+    "Løg - Rå": 0.0085,
+    "Mayonaise": 0.1063,
+    "pebber - stødt": 0.0034,
+    "Pickles/Relish": 0.1063,
+    "Purløg": 0.05,
+    "Rødkål - Rå": 0.154,
+    "Salt - alm": 0.0026,
+    "Sennep": 0.0425,
+    "Servietter": 10,
+    "Spinat": 0.035,
+    "Æbler": 0.25,
+    "Æg": 0.765
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "gurkemeje": 0.0255,
+    "karry": 0.0425,
+    "kål": 0.196,
+    "Løg - Rå": 0.0085,
+    "pebber - stødt": 0.0034,
+    "Purløg": 0.05,
+    "Remoulade": 0.2125,
+    "Rødkål - Rå": 0.154,
+    "Salt - alm": 0.0026,
+    "Sennep": 0.0425,
+    "Servietter": 10,
+    "Spinat": 0.035,
+    "Æbler": 0.25,
+    "Æg": 0.765
+   },
+   "raw": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "gurkemeje": 0.0255,
+    "karry": 0.0425,
+    "kål": 0.196,
+    "Løg - Rå": 0.0085,
+    "pebber - stødt": 0.0034,
+    "Purløg": 0.05,
+    "Remoulade": 0.2125,
+    "Rødkål - Rå": 0.154,
+    "Salt - alm": 0.0026,
+    "Sennep": 0.0425,
+    "Servietter": 10,
+    "Spinat": 0.035,
+    "Æbler": 0.25,
+    "Æg": 0.765
+   },
+   "production": {
+    "Brød Rug": 1.2,
+    "BurgerLommer - alm": 10,
+    "Purløg": 0.05,
+    "Servietter": 10,
+    "Æbler": 0.25
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 350,
+     "yield": 0.35
+    },
+    "Æggesalat": {
+     "vaegt_g": 850,
+     "yield": 0.85
+    }
+   }
+  },
+  "162": {
+   "name": "Æggesalaten slider",
+   "cost_price": 8.8662,
+   "co2e_per_serving": 0.1571,
+   "co2_complete": true,
+   "raw_equivalent": {
+    "Brød Rug": 0.6,
+    "gurkemeje": 0.0105,
+    "karry": 0.0175,
+    "kål": 0.112,
+    "Løg - Rå": 0.0035,
+    "Mayonaise": 0.0438,
+    "pebber - stødt": 0.0014,
+    "Pickles/Relish": 0.0438,
+    "Rødkål - Rå": 0.088,
+    "Salt - alm": 0.0011,
+    "Sennep": 0.0175,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æbler": 0.125,
+    "Æg": 0.315
+   },
+   "raw_equivalent_ufuldstaendig": [],
+   "consume": {
+    "Brød Rug": 0.6,
+    "gurkemeje": 0.0105,
+    "karry": 0.0175,
+    "kål": 0.112,
+    "Løg - Rå": 0.0035,
+    "pebber - stødt": 0.0014,
+    "Remoulade": 0.0875,
+    "Rødkål - Rå": 0.088,
+    "Salt - alm": 0.0011,
+    "Sennep": 0.0175,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æbler": 0.125,
+    "Æg": 0.315
+   },
+   "raw": {
+    "Brød Rug": 0.6,
+    "gurkemeje": 0.0105,
+    "karry": 0.0175,
+    "kål": 0.112,
+    "Løg - Rå": 0.0035,
+    "pebber - stødt": 0.0014,
+    "Remoulade": 0.0875,
+    "Rødkål - Rå": 0.088,
+    "Salt - alm": 0.0011,
+    "Sennep": 0.0175,
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Spinat": 0.02,
+    "Æbler": 0.125,
+    "Æg": 0.315
+   },
+   "production": {
+    "Servietter": 3.333,
+    "Små Burgerlommer": 10,
+    "Æbler": 0.125
+   },
+   "sub_recipes": {
+    "Frisk Grønt": {
+     "vaegt_g": 200,
+     "yield": 0.2
+    },
+    "Skære Slider Brød": {
+     "vaegt_g": 600,
+     "yield": 10
+    },
+    "Æggesalat": {
+     "vaegt_g": 350,
+     "yield": 0.35
+    }
+   }
+  }
+ }
+}

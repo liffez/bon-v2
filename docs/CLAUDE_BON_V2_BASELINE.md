@@ -146,7 +146,7 @@ Fra alle: → AFLYST
 ```
 
 Status-transitions er **UX-guidance, ikke håndhævelse**:
-- Admin kan altid sætte hvilken som helst status med `force: true`
+- Enhver indlogget bruger kan sætte hvilken som helst status med `force: true` (admin-only indtil aug 2026)
 - POS-ordrer (Zettle) sættes direkte til BETALT
 - Hele flowet er konfigurérbart i `status_definitions` + `status_transitions`-tabellerne
 
