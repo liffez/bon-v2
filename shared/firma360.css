@@ -342,6 +342,23 @@
     color: var(--color-text, #1f2024);
 }
 
+/* Forhandler-markering (migration 167) — checkbox + forklaring under.
+   Forklaringen er nødvendig: markeringen ændrer hvor FREMTIDIGE web-ordrer
+   lander, og det kan man ikke gætte ud fra ordet "forhandler". */
+.f3-reseller-val { display: block; }
+.f3-reseller-lbl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+.f3-reseller-hint {
+    display: block;
+    font-size: 11px;
+    line-height: 1.35;
+    margin-top: 2px;
+}
+
 /* Redigerbare stamdata-rækker (CVR / EAN / juridisk navn) */
 .f3-row-editable .f3-edit-btn {
     opacity: 0;

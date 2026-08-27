@@ -558,6 +558,9 @@ function mapApiBonToCardData(apiBon) {
     const customer = {
         name:          (apiBon.contact_name_full || '').trim() || 'Ukendt',
         company:       apiBon.company_name || '',
+        // Slutkunde på forhandler-ordrer (migration 167) — hvem maden er til,
+        // når firmaet på bonnen er den der betaler.
+        end_customer:  apiBon.end_customer_name || '',
         address:       addr,
         phone:         apiBon.contact_phone || '',
         company_phone: apiBon.company_phone || '',

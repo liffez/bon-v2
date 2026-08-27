@@ -272,6 +272,14 @@
 .customer-name    { font-weight: 700; font-size: 15px; }
 .customer-address { font-size: 13px; color: var(--gray-dark); margin-top: 2px; }
 
+/* Slutkunde på forhandler-ordrer (migration 167). Vises ALTID — også i
+   today-context hvor adressen er foldet væk — fordi ordren ofte afhentes,
+   og så er der ingen adresse der kan afsløre hvem maden er til. */
+.customer-endcustomer {
+    font-size: 13px; font-weight: 600; color: var(--brand-primary);
+    margin-top: 2px;
+}
+
 /* Today-context: adresse skjult by default, foldes ud via toggle */
 .bon-card.context-today .customer-address { display: none; }
 .bon-card.context-today.show-address .customer-address { display: block; }

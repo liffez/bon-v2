@@ -487,7 +487,7 @@ function createBon(input = {}) {
             order_date, delivery_date, delivery_time, pickup_time,
             delivery_type, delivery_method, delivery_address_id,
             pax, customer_wishes, invoice_info,
-            day_contact_name, day_contact_phone,
+            day_contact_name, day_contact_phone, end_customer_name,
             delivery_notes, delivery_price,
             kitchen_info, internal_notes,
             total_price, source_quote_id, created_by_user_id,
@@ -498,7 +498,7 @@ function createBon(input = {}) {
             date('now'), ?, ?, ?,
             ?, ?, ?,
             ?, ?, ?,
-            ?, ?,
+            ?, ?, ?,
             ?, ?,
             ?, ?,
             ?, ?, ?,
@@ -526,6 +526,9 @@ function createBon(input = {}) {
         input.delivery_type ?? 'delivery', input.delivery_method ?? null, input.delivery_address_id ?? null,
         input.pax ?? null, input.customer_wishes ?? null, input.invoice_info ?? null,
         input.day_contact_name ?? null, input.day_contact_phone ?? null,
+        // Slutkunde (forhandler-ordrer, migration 167). Fri tekst, defaulter til
+        // null ⇒ alle eksisterende kaldere er upåvirkede.
+        input.end_customer_name ?? null,
         input.delivery_notes ?? null, input.delivery_price ?? 0,
         input.kitchen_info ?? null, input.internal_notes ?? null,
         input.total_price ?? 0, input.source_quote_id ?? null, input.user_id ?? null,

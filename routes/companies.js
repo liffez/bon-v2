@@ -157,6 +157,81 @@ router.patch('/:id/identifiers', handle((req, res) => {
     res.json({ ok: true, company: updated });
 }));
 
+// PATCH /api/companies/:id/commercial — stående rabat + forhandler-markering
+//
+// Egen route frem for at hænge på /identifiers: de to felter er ikke
+// identifikation, de er HANDELSVILKÅR, og de rører penge og routing.
+//
+//   discount_percent  Stående rabat i procent. Triggeren `bons_seed_standing_discount`
+//                     (migration 111) kopierer satsen ned på hver NY bon på
+//                     firmaet. Snapshot: en ændring her rører aldrig
+//                     eksisterende bons — derfor betyder rækkefølgen noget.
+//
+//   is_reseller       Bestiller firmaet for andre? Web-webhooken lægger så
+//                     bonnen på DETTE firma, og gemmer det tastede firmanavn
+//                     som bonens slutkunde (migration 167).
+router.patch('/:id/commercial', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt firma-id' });
+
+    const existing = db.prepare('SELECT discount_percent, is_reseller FROM companies WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    const body = req.body || {};
+    const updates = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, 'discount_percent')) {
+        const raw = (body.discount_percent ?? '').toString().trim().replace(',', '.');
+        if (raw === '') {
+            updates.discount_percent = null;
+        } else {
+            const num = Number(raw);
+            // 100 % er ikke en rabat, det er foræring — og et negativt tal ville
+            // lægge TIL fakturaen. Begge dele er tastefejl, ikke aftaler.
+            if (!Number.isFinite(num) || num < 0 || num >= 100) {
+                return res.status(400).json({ error: 'Rabat skal være et tal mellem 0 og 100' });
+            }
+            updates.discount_percent = Math.round(num * 100) / 100;
+        }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'is_reseller')) {
+        updates.is_reseller = body.is_reseller ? 1 : 0;
+    }
+
+    const keys = Object.keys(updates);
+    if (keys.length === 0) {
+        return res.status(400).json({ error: 'Ingen felter at opdatere (discount_percent, is_reseller)' });
+    }
+
+    transaction(db, () => {
+        const setClauses = keys.map(k => `${k} = ?`);
+        const args = keys.map(k => updates[k]);
+        args.push(id);
+        db.prepare(`UPDATE companies SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...args);
+
+        for (const k of keys) {
+            if ((existing[k] ?? null) === (updates[k] ?? null)) continue;
+            logChange({
+                entityType: 'company',
+                entityId: id,
+                action: 'update',
+                fieldName: k,
+                oldValue: existing[k],
+                newValue: updates[k],
+                userId: getUserId(req),
+                notes: k === 'discount_percent'
+                    ? 'stående rabat — gælder bons oprettet herefter'
+                    : 'forhandler-markering — web-ordrer lægges på dette firma',
+            });
+        }
+    });
+
+    const updated = db.prepare('SELECT id, discount_percent, is_reseller FROM companies WHERE id = ?').get(id);
+    res.json({ ok: true, company: updated });
+}));
+
 // GET /api/companies/:id/enrich-preview — kør enrichment uden at gemme
 router.get('/:id/enrich-preview', handle(async (req, res) => {
     const db = getDb();

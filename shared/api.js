@@ -1070,6 +1070,18 @@ function patchCompanyIdentifiers(companyId, fields) {
     });
 }
 
+/**
+ * Handelsvilkår på et firma: stående rabat + forhandler-markering.
+ * Egen route (ikke /identifiers) fordi felterne rører penge og bon-routing.
+ */
+function patchCompanyCommercial(companyId, fields) {
+    // fields: { discount_percent?, is_reseller? } — kun medsendte felter opdateres
+    return apiFetch('/companies/' + companyId + '/commercial', {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
 function patchCustomerEconomic(customerId, fields) {
     return apiFetch('/customers/' + customerId + '/economic', {
         method: 'PATCH',

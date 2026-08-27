@@ -5193,6 +5193,104 @@ mod grocytest i begge faner; intet blev trukket fra lageret undervejs.
 > Serveren bruger DB'ens URL, så en frisk dev-opsætning kan ikke nå grocytest.
 > CLAUDE.md's egen Grocy-instans-sektion har samme gamle værdi.
 
+### Forhandler-ordrer: hvem betaler, og hvem er maden til? (27. august 2026)
+
+Able er et frokostbestillings-firma. De lægger ordren ind på **vores egen**
+bestillingsformular for deres kunder — og skriver slutkundens navn i formularens
+**Firma-felt**, fordi der ikke er noget andet felt at skrive det i.
+
+Webhooken matcher firma på **eksakt navn** og opretter en ny firma-række når navnet
+ikke findes. Hver skrivemåde blev derfor sit eget firma: `Systematic / able`,
+`Systematic  (Able)` (dobbelt mellemrum — en anden streng), `Cisco / able`,
+`Brunata / able`, `able ApS` … **otte rækker** i drift. Bonnen landede på den række,
+og så fulgte hverken e-conomic-kundenummeret (733), omsætningen eller den stående
+rabat med — de sidder på Able.
+
+Kunden blev derimod slået op på **email**, så `care@able.dk` ramte altid den rigtige
+person. Resultatet var en bon med **Ables medarbejder som kunde og en skraldespand
+som firma**.
+
+- **Migration 167**: `companies.is_reseller` + `bons.end_customer_name` (+ partielt
+  indeks). Ingen bagudfyldning: vi kan ikke vide hvilke gamle bons der havde en
+  slutkunde, og et gæt ud fra fri tekst i `customer_wishes` ville være netop den
+  slags data ingen bagefter kan skelne fra noget nogen har skrevet.
+- **Webhooken** slår nu bestilleren op FØR firmaet afgøres. Er bestillerens eget
+  firma markeret som forhandler, lander bonnen på **forhandleren**, og det tastede
+  navn gemmes som slutkunde. Kender vi ikke bestilleren (ny medarbejder), falder vi
+  tilbage til den gamle adfærd — vi gætter ikke på hvem der er forhandler ud fra et
+  navn nogen har tastet. Changelog-linjen forklarer hvorfor bonnen ikke ligger på
+  det navn der blev skrevet.
+- **EAN skrives ikke på en forhandlers firma-række.** Et EAN i en forhandler-ordre
+  hører til slutkunden; skrev vi det på Able, ville deres næste faktura gå til en
+  fremmed EAN-modtager.
+
+> ⚠️ **Routingen er en forudsætning for rabatten, ikke et pyntearbejde.**
+> Triggeren `bons_seed_standing_discount` (migration 111) læser `discount_percent`
+> fra **det firma bonnen ligger på**. Så længe bonnen landede på `Systematic / able`
+> (rabat 0), kunne Ables 12,5 % ikke virke — uanset hvad der stod på Able-rækken.
+
+**Rabatten var bygget, men usynlig.** `companies.discount_percent` har eksisteret
+siden 001, triggeren siden 111, og `recalcBonTotal` + e-conomic-adapteren har hele
+tiden regnet med den. Men **0 af 1.448 firmaer havde den sat**, og ordet "rabat"
+fandtes ikke i én eneste skærm uden for tilbuds-wizarden. Sat via SQL ville bons
+bare være 12,5 % billigere uden at nogen kunne se hvorfor — samme fejlklasse som
+memory'ens `silent_sideeffect_failures`.
+
+- **Firma 360° → Stamdata** har nu **Rabat** (dansk komma, `12,5 %`) og
+  **Forhandler** (afkrydsning med forklaring + bekræftelse ved tilslag).
+- **`PATCH /api/companies/:id/commercial`** — egen route frem for `/identifiers`,
+  fordi de to felter ikke er identifikation men handelsvilkår. Afviser < 0 og ≥ 100:
+  100 % er ikke en rabat, og et negativt tal ville lægge TIL fakturaen.
+- **Bon-draweren** viser `Rabat 12,5 %` + `Bonens total (inkl. moms)` under
+  linjesummen. Beløbet opfindes bevidst **ikke**: serveren regner rabatten af
+  linjesum PLUS levering, og hvornår levering tælles med afhænger af en regel der
+  bor på serveren. Vi viser satsen (et faktum) og serverens egen total (et andet).
+- **Faktureringen** viser rabatlinjen med beløb — dér ER summen kun varelinjerne,
+  og e-conomic trækker satsen pr. linje. Samtidig regner **KPI'en og listen** efter
+  rabat; ellers stod der 520 kr to steder og 455 kr et tredje.
+
+**Slutkunden kan findes.** Feltet er med i bon-listens søgeudtryk (bonnen ligger jo
+på Able — hverken kunde- eller firmanavn indeholder "Systematic"), som valgfri
+kolonne (**default fra** — den er kun udfyldt på forhandler-ordrer), og inline i
+Firma-kolonnen som `Able → Systematic`. Vises også på bon-kortet (`Til: …`, altid —
+også i today-context hvor adressen er foldet væk, for ordren afhentes ofte), i
+info-modalen, i bon-draweren, på mobilen og i faktureringen.
+
+> **Hvorfor tekst og ikke en FK til `companies`:** formularen giver os en streng, og
+> et FK ville kræve at nogen manuelt koblede hver bon. Teksten er nok til at søge og
+> filtrere på fra dag ét. Skal der senere aggregeres rigtig omsætning pr. slutkunde,
+> lægges en kobling ved siden af — samme mønster som indbakkens
+> `parsed_email` → kontaktpunkt.
+
+**Tests**: `npm run test:forhandler` — 22 asserts mod de ægte endpoints over HTTP,
+med skemaet bygget af de rigtige migrations i `:memory:`. **Mutations-testet:** syv
+kerneregler rulles hver især tilbage og fælder navngivne asserts (forhandler-routing
+8, slutkunde-navnet 2, EAN-værnet 1, eget-navn-checket 1, søgefeltet 1,
+rabat-valideringen 1, `createBon`-feltet 2). Kontrolprøven `uden forhandler-markering
+ville rabatten IKKE ramme` er selve pointen skrevet som en test. Regression grøn:
+quote_convert 10, moms_audit 18, bon_lines 10, auto_fees 18, crm_companies 8,
+migrate 6, fakturering-render 18, economic-invoice 103, web-order-lines 12.
+Browser-verificeret ende-til-ende på en tom dev-DB: web-ordre → bon på Able med
+slutkunde + 12,5 % rabat + ingen ny firma-række, kort, drawer, liste, søgning,
+info-modal, mobil og fakturering. Kontrolprøve med en almindelig kunde: uændret.
+Testdata ryddet.
+
+> **Deploy — rækkefølgen betyder noget.** Migrationen er inert indtil nogen sætter
+> flaget: `is_reseller` defaulter til 0, så alle 1.448 firmaer opfører sig præcis som
+> før. Efter deploy: markér Able som forhandler og sæt 12,5 % i Firma 360°. Rabatten
+> **snapshottes ved oprettelsen** — den rammer kun bons oprettet derefter, aldrig de
+> eksisterende. De otte gamle `able`-rækker er ikke ryddet op her; det er data, ikke
+> kode, og hører til stamdata-værktøjerne (`npm run audit:dubletter`).
+
+**Bredere fund, ikke løst her:** af 114 web-bestillinger i drift ligger **39** på et
+andet firma end kundens eget — `University of Copenhagen` mod `Københavns
+Universitet`, `ATV` mod `Akademiet for de tekniske videnskaber`, `Stromma` mod
+`Stromma Danmark A/S`. Fri tekst i et firma-felt er en dubletmaskine: 246 firmaer i
+basen har hverken CVR, EAN, kundenummer eller mere end én bon. Forhandler-reglen
+rører kun de firmaer der er markeret; den generelle sag er
+[#567](https://github.com/liffez/bon-v2/issues/567).
+
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -5659,6 +5757,7 @@ POST   /api/payment-types                                routes/payment_types.js
 PATCH  /api/payment-types/:id                            routes/payment_types.js (admin)
 GET    /api/invoices/queue?include_done=1                routes/invoices.js
 PATCH  /api/companies/:id/economic                       routes/companies.js
+PATCH  /api/companies/:id/commercial                     routes/companies.js (stående rabat + forhandler-markering)
 GET    /api/companies/:id/enrich-preview                 routes/companies.js (CVR diff uden gem)
 POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
 POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)
