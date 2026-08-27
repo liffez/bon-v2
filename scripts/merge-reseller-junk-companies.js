@@ -38,13 +38,28 @@ const { openDb, transaction } = require('../db/compat');
 //                         CVR). Bonnen flyttes, ingen slutkunde skrives.
 //   kind: 'end_customer'  rækken er en SLUTKUNDE tastet ind som firma.
 //                         `end_customer` skrives på bonnen, hvorefter den flyttes.
+//
+//   rename_to             KUN på 'end_customer': behold rækken som et rigtigt
+//                         firma under dette navn i stedet for at deaktivere den.
+//                         Bruges når slutkunden ER et rigtigt firma vi ikke har
+//                         i forvejen. Findes firmaet allerede (Cisco gør), skal
+//                         rækken deaktiveres — ellers får vi endnu en dublet.
 const RESELLER_ID = 3570;               // Able
 const RESELLER_NAME = 'Able';
 
 const PLAN = [
+    // Able under et andet navn — samme CVR, samme e-conomic-nummer.
     { id: 3551, expect_name: 'able ApS',           kind: 'duplicate' },
+
+    // Cisco ER et rigtigt firma, men findes allerede: 3465 + 3466 "Cisco Systems
+    // Denmark" og 3494 "Cisco", alle CVR 20456493. Rækken her er et artefakt fra
+    // formularen — omdøbes den, bliver den den fjerde Cisco.
     { id: 3951, expect_name: 'Cisco / able',       kind: 'end_customer', end_customer: 'Cisco' },
-    { id: 4176, expect_name: 'Systematic / able',  kind: 'end_customer', end_customer: 'Systematic' },
+
+    // Systematic ER et rigtigt firma, og findes IKKE i forvejen under noget navn.
+    // Den ene række beholdes derfor som firmaet (mangler stadig CVR — beriges i
+    // Firma 360°), den anden er en dublet af samme og deaktiveres.
+    { id: 4176, expect_name: 'Systematic / able',  kind: 'end_customer', end_customer: 'Systematic', rename_to: 'Systematic' },
     { id: 4182, expect_name: 'Systematic  (Able)', kind: 'end_customer', end_customer: 'Systematic' },
 ];
 
@@ -84,6 +99,12 @@ function main() {
     for (const p of PLAN) {
         const co = db.prepare('SELECT id, name, cvr, economic_customer_id, is_active FROM companies WHERE id = ?').get(p.id);
         if (!co) { console.log(`  ⤳ #${p.id} findes ikke længere — sprunget over`); continue; }
+        // Allerede omdøbt af en tidligere kørsel — det er den forventede
+        // slut-tilstand, ikke en fremmed række.
+        if (p.rename_to && co.name === p.rename_to) {
+            console.log(`  ⤳ #${p.id} er allerede omdøbt til "${p.rename_to}" — sprunget over`);
+            continue;
+        }
         if (co.name !== p.expect_name) {
             fail(`#${p.id} hedder nu "${co.name}", men planen er lagt for "${p.expect_name}".\n` +
                  `   Rækken er ændret siden planen blev lagt. Gennemgå den i hånden.`);
@@ -116,7 +137,9 @@ function main() {
         }
         if (!bons.length) console.log('      (ingen bons)');
         for (const k of kunder) console.log(`      kontakt ${k.first_name} ${k.last_name || ''} → flyttes til ${reseller.name}`);
-        console.log(`      rækken deaktiveres (slettes ikke — historikken skal kunne læses)`);
+        console.log(p.rename_to
+            ? `      rækken BEHOLDES og omdøbes til "${p.rename_to}" (slutkunden er et rigtigt firma vi ikke har i forvejen)`
+            : `      rækken deaktiveres (slettes ikke — historikken skal kunne læses)`);
     }
 
     const totalBons = work.reduce((n, w) => n + w.bons.length, 0);
@@ -154,11 +177,21 @@ function main() {
                 db.prepare('UPDATE customers SET company_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
                   .run(RESELLER_ID, k.id);
             }
-            db.prepare('UPDATE companies SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(w.co.id);
-            db.prepare(`
-                INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, notes)
-                VALUES ('company', ?, 'update', 'is_active', 1, 0, ?)
-            `).run(w.co.id, `deaktiveret — indholdet flyttet til ${reseller.name} (#${RESELLER_ID})`);
+            if (w.rename_to) {
+                db.prepare('UPDATE companies SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                  .run(w.rename_to, w.co.id);
+                db.prepare(`
+                    INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, notes)
+                    VALUES ('company', ?, 'update', 'name', ?, ?, ?)
+                `).run(w.co.id, w.co.name, w.rename_to,
+                    `oprettet af bestillingsformularen som forhandler-tekst; beholdt som rigtigt firma`);
+            } else {
+                db.prepare('UPDATE companies SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(w.co.id);
+                db.prepare(`
+                    INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, notes)
+                    VALUES ('company', ?, 'update', 'is_active', 1, 0, ?)
+                `).run(w.co.id, `deaktiveret — indholdet flyttet til ${reseller.name} (#${RESELLER_ID})`);
+            }
         }
 
         const bonsAfter = db.prepare('SELECT COUNT(*) n FROM bons').get().n;
