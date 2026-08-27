@@ -5321,6 +5321,22 @@ Testdata ryddet.
   en omdøbning ville give den fjerde. `rename_to` findes i planen til den dag
   en slutkunde viser sig at handle direkte og ikke findes i forvejen.
 
+- **CRM → Værktøjer → "Ryd tomme firmaer"** (`office/views/crm-verktoj.js`,
+  ved siden af sammenlægnings-guiden, admin-only). Tre grupper, afkrydsning,
+  søgning og "Læg de valgte væk". Rækkerne **deaktiveres**, slettes aldrig.
+
+  > ⚠️ **`POST /empty-companies/deactivate` gentjekker HVERT id mod reglen.**
+  > Listen i browseren kan være timer gammel, og i mellemtiden kan en bon være
+  > landet på rækken — fx fordi nogen tastede firmanavnet i bestillingsformularen.
+  > Rækker der ikke længere er tomme springes over og **rapporteres tilbage**;
+  > ellers ville der stå "42 lagt væk" på en liste hvor man valgte 43.
+  > Efterprøvet: bon lagt på kandidaten mellem hentning og POST →
+  > `{deactivated: 1, skipped: 1}`, og rækken forbliver aktiv.
+
+  Reglen bor i **`services/companyCleanup.js`** og deles af siden og scriptet.
+  To kopier ville skride fra hinanden, og så ville siden vise noget andet end
+  kommandolinjen fjerner.
+
 - **`scripts/audit-empty-companies.js`** — den generelle regel fra drift: en
   firma-række beholdes hvis der er **en bon, en kontaktperson eller en mail**
   på den. Ellers er den et artefakt fra formularens fri-tekst-felt eller fra

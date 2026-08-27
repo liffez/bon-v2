@@ -58,63 +58,15 @@ const CSV_PATH = (() => {
 })();
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 
-const CANDIDATE_SQL = `
-    SELECT c.id, c.name, COALESCE(c.cvr,'') cvr, COALESCE(c.created_at,'') created_at,
-           -- Er rækken en dublet af et AKTIVT firma der rent faktisk handler?
-           -- Det er den mest brugbare oplysning når 374 navne skal skimmes:
-           -- "Akademisk Arkitektforening" ser ud som en rigtig kunde man ikke
-           -- må røre — indtil man ser at Arkitektforeningen (samme CVR) står
-           -- med 112 bons ved siden af.
-           (SELECT o.id   FROM companies o
-             WHERE o.cvr = c.cvr AND c.cvr <> '' AND o.id <> c.id AND o.is_active = 1
-               AND EXISTS (SELECT 1 FROM bons b WHERE b.company_id = o.id)
-             ORDER BY (SELECT COUNT(*) FROM bons b WHERE b.company_id = o.id) DESC LIMIT 1) dup_id,
-           (SELECT o.name FROM companies o
-             WHERE o.cvr = c.cvr AND c.cvr <> '' AND o.id <> c.id AND o.is_active = 1
-               AND EXISTS (SELECT 1 FROM bons b WHERE b.company_id = o.id)
-             ORDER BY (SELECT COUNT(*) FROM bons b WHERE b.company_id = o.id) DESC LIMIT 1) dup_name,
-           (SELECT COUNT(*) FROM bons b WHERE b.company_id =
-             (SELECT o.id FROM companies o
-               WHERE o.cvr = c.cvr AND c.cvr <> '' AND o.id <> c.id AND o.is_active = 1
-                 AND EXISTS (SELECT 1 FROM bons b2 WHERE b2.company_id = o.id)
-               ORDER BY (SELECT COUNT(*) FROM bons b3 WHERE b3.company_id = o.id) DESC LIMIT 1)) dup_bons
-      FROM companies c
-     WHERE c.is_active = 1
-       AND COALESCE(c.is_internal, 0) = 0
-       AND COALESCE(c.economic_customer_id, '') = ''
-       ${KEEP_CVR ? "AND COALESCE(c.cvr,'') = ''" : ''}
-       -- Reglen: hverken bon, kontaktperson eller mail
-       AND NOT EXISTS (SELECT 1 FROM bons b       WHERE b.company_id  = c.id)
-       AND NOT EXISTS (SELECT 1 FROM customers cu WHERE cu.company_id = c.id AND cu.is_active = 1)
-       AND NOT EXISTS (
-             SELECT 1 FROM mail_threads mt
-               JOIN customers cu2 ON cu2.id = mt.customer_id
-              WHERE cu2.company_id = c.id)
-       -- Værn: noget andet peger på rækken
-       AND NOT EXISTS (SELECT 1 FROM entity_flags ef
-                        WHERE ef.entity_type = 'company' AND ef.entity_id = c.id
-                          AND ef.dismissed_at IS NULL)
-       AND NOT EXISTS (SELECT 1 FROM events e          WHERE e.company_id = c.id)
-       AND NOT EXISTS (SELECT 1 FROM campaign_members m WHERE m.company_id = c.id)
-       AND NOT EXISTS (SELECT 1 FROM booking_tokens t   WHERE t.company_id = c.id)
-       AND NOT EXISTS (SELECT 1 FROM attachments a
-                        WHERE a.entity_type = 'company' AND a.entity_id = c.id)
-       AND NOT EXISTS (SELECT 1 FROM crm_custom_values v
-                        WHERE v.entity_type = 'company' AND v.entity_id = c.id)
-       AND TRIM(COALESCE(c.notes, '')) = ''
-       -- rfm_scores er BEVIDST ikke et værn: tabellen er beregnet og har en
-       -- række for stort set hvert firma (1.346 af 1.452 i drift). Bruges den
-       -- som bevis på en relation, freder den alt, og reglen bliver tom. Målt:
-       -- 377 kandidater → 0.
-     ORDER BY c.id
-`;
+const cleanup = require('../services/companyCleanup');
 
 function main() {
     const db = openDb(DB_PATH);
     db.exec('PRAGMA foreign_keys = ON');
 
     const aktive = db.prepare("SELECT COUNT(*) n FROM companies WHERE is_active = 1").get().n;
-    const rows = db.prepare(CANDIDATE_SQL).all();
+    // Samme regel som CRM → Værktøjer bruger — se services/companyCleanup.js.
+    const rows = cleanup.findEmptyCompanies(db, { keepCvr: KEEP_CVR });
 
     console.log(`\nDatabase: ${DB_PATH}`);
     console.log(`Aktive firmaer: ${aktive}`);
@@ -150,13 +102,13 @@ function main() {
     const GRUPPER = [
         { navn: 'Dubletter af et firma der handler — samme CVR, alle bons ligger på den anden række',
           note: 'kan lægges væk uden videre',
-          rows: rows.filter(r => r.dup_id) },
+          rows: rows.filter(r => r.group === 'duplicate') },
         { navn: 'Har CVR, men ingen anden række med bons',
           note: 'ægte organisationer der aldrig blev til en ordre — skim dem',
-          rows: rows.filter(r => !r.dup_id && r.cvr) },
+          rows: rows.filter(r => r.group === 'dormant') },
         { navn: 'Uden CVR og uden spor',
           note: 'typisk noter og engangstekster tastet i formularens firma-felt',
-          rows: rows.filter(r => !r.dup_id && !r.cvr) },
+          rows: rows.filter(r => r.group === 'unknown') },
     ];
 
     for (const g of GRUPPER) {
@@ -166,7 +118,7 @@ function main() {
         for (const r of g.rows.slice(0, LIMIT)) {
             // "firma #2490" — IKKE bare "#2490". Bon-numre ser ud som
             // "cafe-2490", og et bart #2490 læses derfor som en bon.
-            const dup = r.dup_id ? `  ⤷ firma #${r.dup_id} "${r.dup_name}" (${r.dup_bons} bons)` : '';
+            const dup = r.twin ? `  ⤷ firma #${r.twin.id} "${r.twin.name}" (${r.twin.bons} bons)` : '';
             console.log(`      firma #${String(r.id).padEnd(5)} ${r.name.slice(0, 46).padEnd(48)}${dup}`);
         }
         if (g.rows.length > LIMIT) console.log(`      … og ${g.rows.length - LIMIT} mere`);
@@ -176,8 +128,8 @@ function main() {
         const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
         const linjer = ['firma_id;navn;cvr;gruppe;dublet_af_id;dublet_af_navn;dublet_bons;oprettet;beslutning'];
         for (const g of GRUPPER) for (const r of g.rows) {
-            linjer.push([r.id, q(r.name), q(r.cvr), q(g.navn), r.dup_id ?? '', q(r.dup_name ?? ''),
-                         r.dup_bons ?? '', q((r.created_at || '').slice(0, 10)), ''].join(';'));
+            linjer.push([r.id, q(r.name), q(r.cvr), q(g.navn), r.twin?.id ?? '', q(r.twin?.name ?? ''),
+                         r.twin?.bons ?? '', q(r.created_at), ''].join(';'));
         }
         // BOM, så æøå ikke bliver til volapyk når filen åbnes i Numbers/Excel.
         require('fs').writeFileSync(CSV_PATH, '\uFEFF' + linjer.join('\n') + '\n', 'utf8');
@@ -202,16 +154,9 @@ function main() {
 
     const bonsBefore = db.prepare('SELECT COUNT(*) n FROM bons').get().n;
 
+    let result;
     transaction(db, () => {
-        const upd = db.prepare('UPDATE companies SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-        const log = db.prepare(`
-            INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, notes)
-            VALUES ('company', ?, 'update', 'is_active', 1, 0, ?)
-        `);
-        for (const r of rows) {
-            upd.run(r.id);
-            log.run(r.id, 'deaktiveret — ingen bon, kontaktperson eller mail på rækken');
-        }
+        result = cleanup.deactivateCompanies(db, rows.map(r => r.id));
         // Værn: oprydningen må aldrig kunne røre en bon.
         const bonsAfter = db.prepare('SELECT COUNT(*) n FROM bons').get().n;
         if (bonsAfter !== bonsBefore) {
@@ -219,7 +164,7 @@ function main() {
         }
     });
 
-    console.log(`\n✓ ${rows.length} firma-rækker deaktiveret.`);
+    console.log(`\n✓ ${result.deactivated.length} firma-rækker deaktiveret.`);
     console.log(`   Fortryd alt:  UPDATE companies SET is_active = 1 WHERE id IN (${rows.slice(0, 5).map(r => r.id).join(',')}${rows.length > 5 ? ', …' : ''});`);
     console.log(`   eller rul databasen tilbage fra backup'en ovenfor.\n`);
     db.close();
