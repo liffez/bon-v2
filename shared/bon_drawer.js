@@ -203,6 +203,12 @@ class BonDrawer {
                 <div class="drawer-section" data-drawer-section="kunde">
                     <label class="drawer-label">Kunde</label>
                     <div class="drawer-kunde-container"></div>
+                    <!-- Slutkunde: hvem maden er til, når kunden ovenfor bestiller
+                         for en anden (forhandler-ordrer, migration 167). Kunden
+                         ovenfor er den der får fakturaen. -->
+                    <label class="drawer-sublabel" style="margin-top:12px">Slutkunde <span class="drawer-hint-inline">(hvis der bestilles for en anden)</span></label>
+                    <input type="text" class="drawer-field" data-field="end_customer_name"
+                           placeholder="Fx Systematic — firmaet maden skal ud til">
                     <label class="drawer-sublabel" style="margin-top:12px">Dagskontakt</label>
                     <div class="drawer-row">
                         <input type="text" class="drawer-field" data-field="day_contact_name" placeholder="Kontaktperson på dagen">
@@ -669,6 +675,10 @@ class BonDrawer {
         } else {
             this.kundeSoeg.clear();
         }
+
+        // Slutkunde (forhandler-ordrer). Ingen pre-fill — tom betyder "ingen
+        // slutkunde", og et gæt ville se ud som noget nogen havde skrevet.
+        this._setFieldValue('end_customer_name', d.end_customer_name || '');
 
         // Dagskontakt — pre-fill fra kunde hvis tom
         this._setFieldValue('day_contact_name', d.day_contact_name || d.contact_name_full || '');
@@ -1785,11 +1795,39 @@ class BonDrawer {
         if (typeof window !== 'undefined' && window.Moms && typeof window.Moms.momsOfIncl === 'function') {
             momsTxt = ' · heraf moms ' + Math.round(window.Moms.momsOfIncl(totalIncl)) + ' kr';
         }
+        // Stående rabat (migration 111). Uden de to rækker her er bonens total
+        // lavere end linjesummen uden at NOGEN skærm forklarer hvorfor — feltet
+        // findes i basen, men blev ikke vist ét eneste sted.
+        //
+        // Vi opfinder ikke rabatbeløbet: serveren regner den af linjesum PLUS
+        // levering (recalcBonTotal), og hvornår levering tælles med afhænger af
+        // en regel der bor på serveren. Så vi viser satsen (et faktum på bonen)
+        // og serverens egen total (et andet faktum) — ikke et mellemregnet tal
+        // der kan komme til at modsige fakturaen.
+        var discountHtml = '';
+        var pct = Number(this.data && this.data.offer_discount_percent) || 0;
+        if (pct > 0) {
+            var bonTotal = Number(this.data.total_price);
+            var pctTxt = pct.toLocaleString('da-DK', { maximumFractionDigits: 2 });
+            discountHtml =
+                '<div class="drawer-line-discount">' +
+                    '<span class="drawer-line-total-label">Rabat ' + pctTxt + ' %</span>' +
+                    '<span class="drawer-line-total-amount">trukket fra</span>' +
+                '</div>' +
+                (isFinite(bonTotal)
+                    ? '<div class="drawer-line-total drawer-line-total-final"' +
+                        ' title="Linjesum minus rabat — plus levering, hvis leveringen ikke står som en varelinje.">' +
+                        '<span class="drawer-line-total-label">Bonens total (inkl. moms)</span>' +
+                        '<span class="drawer-line-total-amount">' + bonTotal.toLocaleString('da-DK', { maximumFractionDigits: 0 }) + ' kr</span>' +
+                      '</div>'
+                    : '');
+        }
+
         list.innerHTML = linesHtml +
             '<div class="drawer-line-total">' +
                 '<span class="drawer-line-total-label">I alt (inkl. moms)' + momsTxt + '</span>' +
                 '<span class="drawer-line-total-amount">' + totalIncl.toLocaleString('da-DK', { maximumFractionDigits: 0 }) + ' kr</span>' +
-            '</div>';
+            '</div>' + discountHtml;
 
         var self = this;
 
@@ -2090,6 +2128,7 @@ class BonDrawer {
             'price_category_id', 'payment_type',
             'kitchen_selects',
             'day_contact_name', 'day_contact_phone',
+            'end_customer_name',
             'customer_wishes', 'invoice_info', 'kitchen_info', 'internal_notes'
         ];
 

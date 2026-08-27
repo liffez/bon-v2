@@ -692,6 +692,11 @@ function _buildBonInfoHtml(bon) {
         html += '<div class="info-section-title">Kunde</div>';
         const nameParts = [custName, compName].filter(Boolean);
         html += `<div class="info-customer-name">${_esc(nameParts.join(' · '))}</div>`;
+        // Slutkunde (forhandler-ordrer, migration 167) — firmaet ovenfor er den
+        // der betaler, dette er den maden skal ud til.
+        if (bon.end_customer_name) {
+            html += `<div class="info-customer-detail"><strong>Til: ${_esc(bon.end_customer_name)}</strong></div>`;
+        }
         if (addrStr) html += `<div class="info-customer-detail">${_esc(addrStr)}</div>`;
         // Telefonnumre: bestiller + dagskontakt
         if (bon.contact_phone) {

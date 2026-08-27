@@ -180,6 +180,8 @@ function _f3RenderOversigt(el) {
                     <div class="f3-row"><span class="f3-lbl">Adresse</span><span class="f3-val">${addr}</span></div>
                     <div class="f3-row"><span class="f3-lbl">Faktura</span><span class="f3-val">${company.invoice_method ? escapeHtml(company.invoice_method) : '<span class="f3-muted">—</span>'}</span></div>
                     ${_f3EditableRow('e-conomic', 'economic_customer_id', company.economic_customer_id)}
+                    ${_f3EditableRow('Rabat', 'discount_percent', _f3FormatDiscount(company.discount_percent))}
+                    ${_f3RenderResellerRow(company)}
 
                     <div class="f3-actions">
                         <button class="f3-btn f3-btn-primary" id="f3-enrich-btn">⟳ Berig fra CVR</button>
@@ -224,6 +226,13 @@ function _f3RenderOversigt(el) {
     el.querySelector('#f3-paste-btn')?.addEventListener('click', _f3OpenPaste);
     el.querySelectorAll('.f3-edit-btn[data-edit-field]').forEach(btn =>
         btn.addEventListener('click', () => _f3StartEditField(btn.dataset.editField)));
+    // Tom række: hele rækken er klikbar, ikke kun den lille blyant.
+    el.querySelectorAll('.f3-row-editable.f3-row-empty').forEach(row =>
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.f3-edit-btn')) return;   // blyanten har sin egen
+            _f3StartEditField(row.dataset.fieldRow);
+        }));
+    el.querySelector('#f3-reseller-cb')?.addEventListener('change', _f3ToggleReseller);
     el.querySelectorAll('.f3-cp-toggle-public').forEach(btn =>
         btn.addEventListener('click', _f3HandleTogglePublic));
     el.querySelectorAll('.f3-cp-delete').forEach(btn =>
@@ -292,13 +301,51 @@ const _F3_FIELD_META = {
     // Kunde-nr i e-conomic. Har sit EGET endpoint (og sin egen changelog-handling),
     // fordi koblingen er det der afgør om firmaets bons kan faktureres.
     economic_customer_id: { label: 'e-conomic', placeholder: 'Kunde-nr i e-conomic', inputmode: 'numeric' },
+    // Stående rabat. Har sit eget endpoint (/commercial) sammen med
+    // forhandler-markeringen — begge er handelsvilkår, ikke identifikation.
+    discount_percent: { label: 'Rabat', placeholder: 'fx 12,5', inputmode: 'decimal' },
 };
 
+/** "12,5 %" til visning. Tom/0 → tom streng, så rækken viser "—". */
+function _f3FormatDiscount(pct) {
+    const n = Number(pct);
+    if (!isFinite(n) || n <= 0) return '';
+    return n.toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' %';
+}
+
+/**
+ * Forhandler-markering (migration 167).
+ *
+ * Et firma der bestiller for ANDRE. Web-webhooken lægger så bonnen på dette
+ * firma i stedet for på det firmanavn bestilleren taster — og gemmer det
+ * tastede navn som bonens slutkunde. Uden markeringen blev hver skrivemåde
+ * til sit eget firma, og bonnen forlod forhandlerens kartotek.
+ */
+function _f3RenderResellerRow(company) {
+    const on = !!company.is_reseller;
+    return `<div class="f3-row">
+        <span class="f3-lbl">Forhandler</span>
+        <span class="f3-val f3-reseller-val">
+            <label class="f3-reseller-lbl">
+                <input type="checkbox" id="f3-reseller-cb"${on ? ' checked' : ''}>
+                <span>Bestiller for egne kunder</span>
+            </label>
+            <span class="f3-muted f3-reseller-hint">Web-ordrer fra firmaets kontakter lander her, og firma-feltet gemmes som slutkunde på bonnen.</span>
+        </span>
+    </div>`;
+}
+
 function _f3EditableRow(label, field, value) {
-    const val = value
-        ? (field === 'legal_name' ? escapeHtml(value) : escapeHtml(String(value)))
-        : '<span class="f3-muted">—</span>';
-    return `<div class="f3-row f3-row-editable" data-field-row="${field}">
+    // Et TOMT felt har intet indhold at opdage ved at holde musen over det, så
+    // dér står blyanten fremme og hele rækken kan klikkes. Har feltet en værdi,
+    // er værdien indholdet og blyanten sekundær — den dukker op ved hover, som
+    // før. (Fundet i drift: en ny "Rabat —"-række så ud som om den manglede
+    // en knap, fordi blyanten var usynlig indtil man tilfældigvis ramte rækken.)
+    const empty = value === null || value === undefined || value === '';
+    const val = empty
+        ? '<span class="f3-muted">—</span>'
+        : (field === 'legal_name' ? escapeHtml(value) : escapeHtml(String(value)));
+    return `<div class="f3-row f3-row-editable${empty ? ' f3-row-empty' : ''}" data-field-row="${field}">
         <span class="f3-lbl">${label}</span>
         <span class="f3-val">${val}</span>
         <button class="f3-edit-btn" data-edit-field="${field}" title="Ret ${label}">✎</button>
@@ -310,7 +357,11 @@ function _f3StartEditField(field) {
     const row = _f3State.container?.querySelector(`[data-field-row="${field}"]`);
     if (!meta || !row || row.classList.contains('editing')) return;
 
-    const current = _f3State.data?.company?.[field] ?? '';
+    // Rabatten vises med dansk komma i feltet — serveren tager imod begge dele.
+    const raw = _f3State.data?.company?.[field] ?? '';
+    const current = (field === 'discount_percent' && raw !== '' && raw != null)
+        ? String(raw).replace('.', ',')
+        : raw;
     row.classList.add('editing');
     row.innerHTML = `
         <span class="f3-lbl">${meta.label}</span>
@@ -357,12 +408,18 @@ async function _f3SaveField(field, rawValue) {
         if (value !== '' && !/^\d+$/.test(value)) {
             _f3ShowToast('e-conomic kunde-nr er et tal', 'error'); return;
         }
+    } else if (field === 'discount_percent') {
+        const num = Number(value.replace(',', '.'));
+        if (value !== '' && (!isFinite(num) || num < 0 || num >= 100)) {
+            _f3ShowToast('Rabat skal være et tal mellem 0 og 100', 'error'); return;
+        }
     }
 
     try {
         // e-conomic-koblingen har sit eget endpoint — den skriver en egen
         // changelog-handling, fordi den afgør om firmaets bons kan faktureres.
         if (field === 'economic_customer_id') await patchCompanyEconomic(_f3State.companyId, value);
+        else if (field === 'discount_percent') await patchCompanyCommercial(_f3State.companyId, { discount_percent: value });
         else await patchCompanyIdentifiers(_f3State.companyId, { [field]: value });
     } catch (err) {
         _f3ShowToast('Kunne ikke gemme: ' + (err.message || 'fejl'), 'error');
@@ -380,6 +437,40 @@ async function _f3SaveField(field, rawValue) {
             _f3OpenEnrich();
         }
     }
+}
+
+/**
+ * Slå forhandler-markeringen til/fra.
+ *
+ * Bekræftes ved TILslag, fordi den flytter hvor fremtidige web-ordrer lander.
+ * Fra-slag bekræftes ikke: det er tilbage til standardadfærden.
+ */
+async function _f3ToggleReseller(e) {
+    const cb = e.target;
+    const on = cb.checked;
+    const name = _f3State.data?.company?.name || 'firmaet';
+
+    if (on && !window.confirm(
+        'Markér "' + name + '" som forhandler?\n\n' +
+        'Web-bestillinger fra firmaets kontakter lægges herefter på ' + name +
+        ' — og det de skriver i Firma-feltet gemmes som slutkunde på bonnen ' +
+        'i stedet for at oprette et nyt firma.'
+    )) {
+        cb.checked = false;
+        return;
+    }
+
+    cb.disabled = true;
+    try {
+        await patchCompanyCommercial(_f3State.companyId, { is_reseller: on ? 1 : 0 });
+    } catch (err) {
+        cb.checked = !on;
+        cb.disabled = false;
+        _f3ShowToast('Kunne ikke gemme: ' + (err.message || 'fejl'), 'error');
+        return;
+    }
+    await _f3Reload();
+    _f3ShowToast(on ? 'Markeret som forhandler' : 'Forhandler-markering fjernet', 'success');
 }
 
 // ─── Påmindelser (CLAUDE_KUNDE_FLAGS.md) ────────────────────
@@ -627,7 +718,7 @@ async function _f3RenderBons(el) {
                             <td>${_f3FormatDate(b.delivery_date)}</td>
                             <td>${escapeHtml((b.customer_first_name || '') + ' ' + (b.customer_last_name || '')) || '<span class="f3-muted">—</span>'}</td>
                             <td>${b.pax || '—'}</td>
-                            <td><span class="f3-pill f3-pill-status">${escapeHtml(b.status_label || b.status_code || '—')}</span></td>
+                            <td>${statusBadgeHtml(b.status_code, { label: b.status_label })}</td>
                             <td>${formatKr(b.total_price || 0)}</td>
                         </tr>
                     `).join('')}

@@ -954,6 +954,13 @@ async function _mbShowDetail(bonId, opts) {
         html += '</div>';
     }
 
+    // Slutkunde (forhandler-ordrer, migration 167) — hvem maden er til, når
+    // firmaet ovenfor er den der betaler.
+    if (bon.end_customer_name) {
+        html += '<div class="m-detail-label">Slutkunde</div>';
+        html += '<div class="m-detail-value">' + _mbEsc(bon.end_customer_name) + '</div>';
+    }
+
     var phone = bon.contact_phone || bon.customer_phone || bon.day_contact_phone;
     if (phone) {
         html += '<div class="m-detail-label">Telefon</div>';

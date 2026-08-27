@@ -196,7 +196,7 @@ function _faktRowHtml(bon, isDone) {
             <div class="fakt-row-body">
                 <div class="fakt-row-top">
                     <span class="fakt-bon-num">#${bon.bon_number}</span>
-                    <span class="fakt-bon-amount">${_faktFmt(bon.line_total)} kr</span>
+                    <span class="fakt-bon-amount">${_faktFmt(_faktInvoiceTotal(bon))} kr</span>
                 </div>
                 <div class="fakt-row-kunde">${_escHtml(displayName)}</div>
                 <div class="fakt-row-sub">
@@ -223,7 +223,7 @@ function _faktDoneRowHtml(bon) {
             <div class="fakt-row-body">
                 <div class="fakt-row-top">
                     <span class="fakt-bon-num">#${bon.bon_number}</span>
-                    <span class="fakt-bon-amount">${_faktFmt(bon.line_total)} kr</span>
+                    <span class="fakt-bon-amount">${_faktFmt(_faktInvoiceTotal(bon))} kr</span>
                 </div>
                 <div class="fakt-row-kunde">${_escHtml(displayName)}</div>
                 <div class="fakt-row-sub">${dateStr}${fDate ? ' &middot; Faktureret ' + fDate : ''}</div>
@@ -337,6 +337,11 @@ function _faktSelectBon(bon) {
                         <div class="fakt-info-label">Firma</div>
                         <div class="fakt-info-val"><strong>${_escHtml(bon.company.name)}</strong>${bon.company.legal_name && bon.company.legal_name !== bon.company.name ? '<br><span style="font-size:11px;color:var(--color-text-dim);">' + _escHtml(bon.company.legal_name) + '</span>' : ''}${bon.company.cvr ? '<br>CVR ' + _escHtml(bon.company.cvr) : ''}</div>
                     </div>
+                    ${bon.end_customer_name ? `
+                    <div class="fakt-info-row">
+                        <div class="fakt-info-label">Slutkunde</div>
+                        <div class="fakt-info-val"><strong>${_escHtml(bon.end_customer_name)}</strong><br><span style="font-size:11px;color:var(--color-text-dim);">Firmaet ovenfor bestilte for dem — fakturaen går til firmaet</span></div>
+                    </div>` : ''}
                     ${bon.company.ean ? `
                     <div class="fakt-info-row">
                         <div class="fakt-info-label">EAN</div>
@@ -410,6 +415,12 @@ function _faktSelectBon(bon) {
                     ${(() => {
                         // Beregn ex/moms/incl konsistent med §6b. bon.line_total er INCL.
                         const m = window.Moms.computeMomsFields(bon.line_total || 0);
+                        // Stående/tilbuds-rabat. Her KAN vi vise beløbet: summen
+                        // ovenfor er varelinjerne, og e-conomic trækker satsen
+                        // pr. linje (economicInvoice.js sender den som
+                        // discountPercentage). Leveringen ligger ikke i
+                        // `line_total`, så der er intet at forveksle.
+                        const pct = Number(bon.offer_discount_percent) || 0;
                         return `
                             <div class="fakt-sum-row">
                                 <span>Subtotal (ekskl. moms)</span>
@@ -419,10 +430,19 @@ function _faktSelectBon(bon) {
                                 <span>Moms (25%)</span>
                                 <span>${_faktFmt(m.moms_amount)} kr</span>
                             </div>
+                            ${pct > 0 ? `
+                            <div class="fakt-sum-row fakt-sum-row-discount">
+                                <span>Rabat ${pct.toLocaleString('da-DK', { maximumFractionDigits: 2 })} % &middot; trækkes på hver linje i e-conomic</span>
+                                <span>&minus;${_faktFmt(m.total_incl_moms * pct / 100)} kr</span>
+                            </div>
+                            <div class="fakt-sum-row fakt-sum-row-total">
+                                <span><strong>Efter rabat (inkl. moms)</strong></span>
+                                <span><strong>${_faktFmt(m.total_incl_moms * (1 - pct / 100))} kr</strong></span>
+                            </div>` : `
                             <div class="fakt-sum-row fakt-sum-row-total">
                                 <span><strong>Total (inkl. moms)</strong></span>
                                 <span><strong>${_faktFmt(m.total_incl_moms)} kr</strong></span>
-                            </div>
+                            </div>`}
                         `;
                     })()}
                 </div>
@@ -1043,6 +1063,17 @@ function _faktOpenBon(bonId) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────
+/**
+ * Det beløb bonnen faktisk faktureres til: varelinjerne minus stående rabat.
+ *
+ * `line_total` er summen FØR rabat. Bruges den råt i listen, siger kortet 520 kr
+ * mens detaljepanelet ved siden af siger 455 kr — to påstande om samme beløb.
+ */
+function _faktInvoiceTotal(bon) {
+    const pct = Number(bon.offer_discount_percent) || 0;
+    return (bon.line_total || 0) * (1 - pct / 100);
+}
+
 function _faktFmt(n) {
     if (n == null) return '0';
     return Math.round(n).toLocaleString('da-DK');

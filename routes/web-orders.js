@@ -183,41 +183,80 @@ async function handleWebOrder(data) {
   const lastName  = (data.last_name || '').trim() || null;
   const fullName  = [firstName, lastName].filter(Boolean).join(' ');
 
-  // 4. Find eller opret firma
+  // 4. Find bestilleren på email
+  //
+  // Email er den eneste identitet formularen giver os der IKKE er fri tekst.
+  // Opslaget lå tidligere længere nede (trin 6); det er rykket herop fordi
+  // forhandler-reglen nedenfor skal vide hvem der bestiller, før firmaet
+  // afgøres. Samme forespørgsel, samme række — kun rækkefølgen er ændret.
+  const emailTrimmed = data.email?.trim() || '';
+  const existingCustomer = emailTrimmed
+    ? db.prepare(
+        'SELECT id, company_id FROM customers WHERE email = ? AND is_active = 1 LIMIT 1'
+      ).get(emailTrimmed) || null
+    : null;
+
+  // 5. Forhandler-undtagelsen (migration 167)
+  //
+  // Bestiller en kendt kunde, hvis eget firma er markeret som forhandler, er
+  // firma-feltet slutkundens navn — ikke den der skal betale. Bonnen lander på
+  // FORHANDLEREN, og teksten gemmes som end_customer_name.
+  //
+  // Uden reglen oprettede webhooken en firma-række pr. skrivemåde
+  // ("Systematic / able", "Systematic  (Able)", "Cisco / able" …), og bonnen
+  // forlod forhandlerens kartotek — så hverken e-conomic-kundenummeret,
+  // omsætningen eller den stående rabat fulgte med.
+  //
+  // Kender vi ikke bestilleren (ny medarbejder hos forhandleren), falder vi
+  // tilbage til den gamle adfærd. Det er det ærlige udfald: vi gætter ikke på
+  // hvem der er forhandler ud fra et navn nogen har tastet.
+  const reseller = existingCustomer?.company_id
+    ? db.prepare(
+        'SELECT id, name FROM companies WHERE id = ? AND is_active = 1 AND is_reseller = 1'
+      ).get(existingCustomer.company_id) || null
+    : null;
+
+  const typedCompany = data.company?.trim() || '';
+
   let companyId = null;
-  if (data.company?.trim()) {
+  let endCustomerName = null;
+
+  if (reseller) {
+    companyId = reseller.id;
+    // Står forhandlerens eget navn i feltet, bestiller de til sig selv —
+    // det er ikke en slutkunde.
+    const sameAsReseller = typedCompany.toLowerCase() === (reseller.name || '').trim().toLowerCase();
+    endCustomerName = (typedCompany && !sameAsReseller) ? typedCompany : null;
+  } else if (typedCompany) {
     const existing = db.prepare(
       'SELECT id FROM companies WHERE name = ? AND is_active = 1 LIMIT 1'
-    ).get(data.company.trim());
+    ).get(typedCompany);
 
     if (existing) {
       companyId = existing.id;
     } else {
       const res = db.prepare(
         'INSERT INTO companies (name, is_active) VALUES (?, 1)'
-      ).run(data.company.trim());
+      ).run(typedCompany);
       companyId = Number(res.lastInsertRowid);
     }
   }
 
-  // 5. EAN fra faktura-info
+  // 6. EAN fra faktura-info
   const eanInfo = data.ean_info || '';
   const eanMatch = eanInfo.match(/\b\d{13}\b/);
   const ean = eanMatch ? eanMatch[0] : null;
 
-  if (ean && companyId) {
+  // Ikke på en forhandler: et EAN i en forhandler-ordre hører til SLUTKUNDEN,
+  // ikke til forhandleren. Skrev vi det på forhandlerens firma-række, ville
+  // næste faktura til dem gå til en fremmed EAN-modtager.
+  if (ean && companyId && !reseller) {
     db.prepare("UPDATE companies SET ean = ? WHERE id = ? AND (ean IS NULL OR ean = '')")
       .run(ean, companyId);
   }
 
-  // 6. Find eller opret kunde (match på email)
-  let customerId = null;
-  if (data.email?.trim()) {
-    const existing = db.prepare(
-      'SELECT id FROM customers WHERE email = ? AND is_active = 1 LIMIT 1'
-    ).get(data.email.trim());
-    if (existing) customerId = existing.id;
-  }
+  // 7. Opret kunde hvis vi ikke kendte bestilleren
+  let customerId = existingCustomer?.id || null;
 
   if (!customerId) {
     const res = db.prepare(`
@@ -227,7 +266,7 @@ async function handleWebOrder(data) {
     customerId = Number(res.lastInsertRowid);
   }
 
-  // 7. Opret adresse (kun catering/levering)
+  // 8. Opret adresse (kun catering/levering)
   const orderType = data.ordertype || 'catering';
   const deliveryType = orderType === 'pickup' ? 'pickup' : 'delivery';
   let addressId = null;
@@ -251,7 +290,7 @@ async function handleWebOrder(data) {
     }
   }
 
-  // 8. Opret bon (fælles helper — #237)
+  // 9. Opret bon (fælles helper — #237)
   const pax = data.pax ? parseInt(data.pax) : null;
   const customerWishes = buildCustomerWishes(data);
 
@@ -270,13 +309,19 @@ async function handleWebOrder(data) {
     invoice_info: eanInfo || null,
     day_contact_name: data.contact_person || null,
     day_contact_phone: data.contact_phone || null,
+    end_customer_name: endCustomerName,
     delivery_notes: deliveryNotes,
     changelog_field: 'web_order',
-    changelog_message: `Oprettet via web-bestilling (${data.email || fullName})`,
+    changelog_message: reseller
+      // Forklarer HVORFOR bonnen ikke ligger på det firmanavn der blev tastet.
+      // Uden linjen ser det ud som om nogen har rettet firmaet i hånden.
+      ? `Oprettet via web-bestilling (${data.email || fullName}) — lagt på forhandleren ${reseller.name}` +
+        (endCustomerName ? `, slutkunde: ${endCustomerName}` : '')
+      : `Oprettet via web-bestilling (${data.email || fullName})`,
     broadcast_extra: { source: 'web_order' },
   });
 
-  // 9. Gem i web_orders
+  // 10. Gem i web_orders
   const addr = data.validatedAddress || {};
   db.prepare(`
     INSERT INTO web_orders (
@@ -304,7 +349,7 @@ async function handleWebOrder(data) {
     bonId
   );
 
-  // 9b. Auto-generér bon-linjer fra kundens menu-valg (#382).
+  // 10b. Auto-generér bon-linjer fra kundens menu-valg (#382).
   //     Best-effort: en Grocy-fejl må ALDRIG vælte selve bestillingen — bonen er
   //     allerede oprettet. Linjerne er et startpunkt office retter/prissætter.
   try {
@@ -313,7 +358,7 @@ async function handleWebOrder(data) {
     console.error(`[web-order] Kunne ikke auto-generere linjer for bon #${bonNumber}:`, lineErr.message);
   }
 
-  // 10. Send bekræftelsesmail til kunden + intern notifikation til ejer
+  // 11. Send bekræftelsesmail til kunden + intern notifikation til ejer
   //     (fire-and-forget — blokerer ikke response)
   const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
   const maaneder = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
@@ -363,7 +408,12 @@ async function handleWebOrder(data) {
   if (ownerEmail) {
     const baseUrl = (db.prepare("SELECT value FROM settings WHERE key = 'booking_public_url_base'").get()?.value || '').replace(/\/+$/, '');
     const drawerLink = baseUrl ? `${baseUrl}/office/?bon=${bonId}` : `Bon-id: ${bonId}`;
-    const firmaBlok = data.company?.trim() ? `Firma: ${data.company.trim()}` : '';
+    // Forhandler-ordre: mailen skal sige begge dele — hvem der betaler, og hvem
+    // maden er til. Ellers står der bare slutkundens navn under "Firma", og
+    // læseren tror bonnen ligger dér.
+    const firmaBlok = reseller
+      ? `Firma: ${reseller.name} (forhandler)` + (endCustomerName ? `\nSlutkunde: ${endCustomerName}` : '')
+      : (typedCompany ? `Firma: ${typedCompany}` : '');
     const ownerOenskerBlok = data.wishes?.trim() ? `Ønsker:\n${data.wishes.trim()}` : '(Ingen ønsker)';
 
     sendFromTemplate({

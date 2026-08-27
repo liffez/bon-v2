@@ -329,11 +329,21 @@ function _buildCustomer(c, num, bonDataForDelivery, contextClass) {
         ? `<span class="customer-toggle" onclick="event.stopPropagation(); toggleCustomerAddress(this);" title="Vis adresse">▾ adresse</span>`
         : '';
 
+    // Slutkunde (forhandler-ordrer, migration 167). Egen linje frem for et
+    // tillæg til firmanavnet: ved afhentning er der ingen adresse, og så er
+    // dette den eneste oplysning om hvor maden skal hen.
+    // Teksten kommer fra den OFFENTLIGE bestillingsformular — escapes.
+    const _escEnd = (typeof esc === 'function') ? esc : (s) => String(s);
+    const endCustomerHtml = c.end_customer
+        ? `<div class="customer-endcustomer">Til: ${_escEnd(c.end_customer)}</div>`
+        : '';
+
     return `
         <div class="bon-customer${hasDetails ? '' : ' no-expand'}"
              ${hasDetails ? 'onclick="toggleCustomer(this)"' : ''}>
             <div>
                 <div class="customer-name">${c.name}${company}${addressToggle}</div>
+                ${endCustomerHtml}
                 <div class="customer-address">${c.address}</div>
             </div>
             ${hasDetails ? '<div class="customer-expand">▾</div>' : ''}

@@ -5461,6 +5461,210 @@ ikke forfaldsdatoer skæve.)
 
 **Bevidst udeladt:** Bon viser ikke om der findes et arrangement på tavlen. Det kræver at
 Bon spørger tavlen — altså den API-kobling der er valgt fra ovenfor.
+### Forhandler-ordrer: hvem betaler, og hvem er maden til? (27. august 2026)
+
+Able er et frokostbestillings-firma. De lægger ordren ind på **vores egen**
+bestillingsformular for deres kunder — og skriver slutkundens navn i formularens
+**Firma-felt**, fordi der ikke er noget andet felt at skrive det i.
+
+Webhooken matcher firma på **eksakt navn** og opretter en ny firma-række når navnet
+ikke findes. Hver skrivemåde blev derfor sit eget firma: `Systematic / able`,
+`Systematic  (Able)` (dobbelt mellemrum — en anden streng), `Cisco / able`,
+`Brunata / able`, `able ApS` … **otte rækker** i drift. Bonnen landede på den række,
+og så fulgte hverken e-conomic-kundenummeret (733), omsætningen eller den stående
+rabat med — de sidder på Able.
+
+Kunden blev derimod slået op på **email**, så `care@able.dk` ramte altid den rigtige
+person. Resultatet var en bon med **Ables medarbejder som kunde og en skraldespand
+som firma**.
+
+- **Migration 167**: `companies.is_reseller` + `bons.end_customer_name` (+ partielt
+  indeks). Ingen bagudfyldning: vi kan ikke vide hvilke gamle bons der havde en
+  slutkunde, og et gæt ud fra fri tekst i `customer_wishes` ville være netop den
+  slags data ingen bagefter kan skelne fra noget nogen har skrevet.
+- **Webhooken** slår nu bestilleren op FØR firmaet afgøres. Er bestillerens eget
+  firma markeret som forhandler, lander bonnen på **forhandleren**, og det tastede
+  navn gemmes som slutkunde. Kender vi ikke bestilleren (ny medarbejder), falder vi
+  tilbage til den gamle adfærd — vi gætter ikke på hvem der er forhandler ud fra et
+  navn nogen har tastet. Changelog-linjen forklarer hvorfor bonnen ikke ligger på
+  det navn der blev skrevet.
+- **EAN skrives ikke på en forhandlers firma-række.** Et EAN i en forhandler-ordre
+  hører til slutkunden; skrev vi det på Able, ville deres næste faktura gå til en
+  fremmed EAN-modtager.
+
+> ⚠️ **Routingen er en forudsætning for rabatten, ikke et pyntearbejde.**
+> Triggeren `bons_seed_standing_discount` (migration 111) læser `discount_percent`
+> fra **det firma bonnen ligger på**. Så længe bonnen landede på `Systematic / able`
+> (rabat 0), kunne Ables 12,5 % ikke virke — uanset hvad der stod på Able-rækken.
+
+**Rabatten var bygget, men usynlig.** `companies.discount_percent` har eksisteret
+siden 001, triggeren siden 111, og `recalcBonTotal` + e-conomic-adapteren har hele
+tiden regnet med den. Men **0 af 1.448 firmaer havde den sat**, og ordet "rabat"
+fandtes ikke i én eneste skærm uden for tilbuds-wizarden. Sat via SQL ville bons
+bare være 12,5 % billigere uden at nogen kunne se hvorfor — samme fejlklasse som
+memory'ens `silent_sideeffect_failures`.
+
+- **Firma 360° → Stamdata** har nu **Rabat** (dansk komma, `12,5 %`) og
+  **Forhandler** (afkrydsning med forklaring + bekræftelse ved tilslag).
+- **`PATCH /api/companies/:id/commercial`** — egen route frem for `/identifiers`,
+  fordi de to felter ikke er identifikation men handelsvilkår. Afviser < 0 og ≥ 100:
+  100 % er ikke en rabat, og et negativt tal ville lægge TIL fakturaen.
+- **Bon-draweren** viser `Rabat 12,5 %` + `Bonens total (inkl. moms)` under
+  linjesummen. Beløbet opfindes bevidst **ikke**: serveren regner rabatten af
+  linjesum PLUS levering, og hvornår levering tælles med afhænger af en regel der
+  bor på serveren. Vi viser satsen (et faktum) og serverens egen total (et andet).
+- **Faktureringen** viser rabatlinjen med beløb — dér ER summen kun varelinjerne,
+  og e-conomic trækker satsen pr. linje. Samtidig regner **KPI'en og listen** efter
+  rabat; ellers stod der 520 kr to steder og 455 kr et tredje.
+
+**Slutkunden kan findes.** Feltet er med i bon-listens søgeudtryk (bonnen ligger jo
+på Able — hverken kunde- eller firmanavn indeholder "Systematic"), som valgfri
+kolonne (**default fra** — den er kun udfyldt på forhandler-ordrer), og inline i
+Firma-kolonnen som `Able → Systematic`. Vises også på bon-kortet (`Til: …`, altid —
+også i today-context hvor adressen er foldet væk, for ordren afhentes ofte), i
+info-modalen, i bon-draweren, på mobilen og i faktureringen.
+
+> **Hvorfor tekst og ikke en FK til `companies`:** formularen giver os en streng, og
+> et FK ville kræve at nogen manuelt koblede hver bon. Teksten er nok til at søge og
+> filtrere på fra dag ét. Skal der senere aggregeres rigtig omsætning pr. slutkunde,
+> lægges en kobling ved siden af — samme mønster som indbakkens
+> `parsed_email` → kontaktpunkt.
+
+**Tests**: `npm run test:forhandler` — 22 asserts mod de ægte endpoints over HTTP,
+med skemaet bygget af de rigtige migrations i `:memory:`. **Mutations-testet:** syv
+kerneregler rulles hver især tilbage og fælder navngivne asserts (forhandler-routing
+8, slutkunde-navnet 2, EAN-værnet 1, eget-navn-checket 1, søgefeltet 1,
+rabat-valideringen 1, `createBon`-feltet 2). Kontrolprøven `uden forhandler-markering
+ville rabatten IKKE ramme` er selve pointen skrevet som en test. Regression grøn:
+quote_convert 10, moms_audit 18, bon_lines 10, auto_fees 18, crm_companies 8,
+migrate 6, fakturering-render 18, economic-invoice 103, web-order-lines 12.
+Browser-verificeret ende-til-ende på en tom dev-DB: web-ordre → bon på Able med
+slutkunde + 12,5 % rabat + ingen ny firma-række, kort, drawer, liste, søgning,
+info-modal, mobil og fakturering. Kontrolprøve med en almindelig kunde: uændret.
+Testdata ryddet.
+
+> **Deploy — rækkefølgen betyder noget.** Migrationen er inert indtil nogen sætter
+> flaget: `is_reseller` defaulter til 0, så alle 1.448 firmaer opfører sig præcis som
+> før. Efter deploy: markér Able som forhandler og sæt 12,5 % i Firma 360°. Rabatten
+> **snapshottes ved oprettelsen** — den rammer kun bons oprettet derefter, aldrig de
+> eksisterende. De otte gamle `able`-rækker er ikke ryddet op her; det er data, ikke
+> kode, og hører til stamdata-værktøjerne (`npm run audit:dubletter`).
+
+**Efterspil fra første drifttest (28. august).** Fire ting kom retur:
+
+- **Blyanten på et tomt stamdata-felt var usynlig** (`opacity: 0` indtil hover).
+  For CVR og EAN går det, fordi der som regel står en værdi man sigter efter —
+  men en ny `Rabat —`-række så ud som om den manglede en knap, så flaget blev
+  sat og rabatten kunne ikke findes. Tomme rækker viser nu blyanten dæmpet, og
+  hele rækken kan klikkes. Gælder alle de redigerbare felter.
+- **Redigerings-rækken skød ud over kortet.** `.f3-edit-wrap` manglede
+  `min-width: 0`; en flex-item har `min-width: auto` og kan derfor ikke krympe
+  under sit indholds min-bredde. Målt: kortet slutter ved 626 px, wrap'en endte
+  ved 668, og "Annullér" blev klippet af. Pre-eksisterende, men først synligt da
+  rabat-feltet gav en grund til at åbne editoren.
+- **Bon-statusser var farveløse i Firma 360° og Kunde 360°** — hardkodet
+  `#e6eef3` og `#f0f0f0` i stedet for BON_CONFIG. Samme fejl som blev rettet i
+  ugeoversigt/web-ordrer/kalender 19. maj; de to 360°-skærme blev overset.
+  Ny `statusBadgeHtml(code, opts)` i `shared/utils.js` er nu ét sted at hente
+  farve + etiket, med grå fallback hvis BonConfig ikke er loadet.
+- **`scripts/merge-reseller-junk-companies.js`** rydder op i de rækker der nåede
+  at blive oprettet før migrationen. **Ikke** en almindelig sammenlægning:
+  rækkens NAVN er den eneste oplysning om hvem slutkunden var, så navnet skrives
+  over i `bons.end_customer_name` FØR bonnen flyttes. Rækkerne udpeges én ad
+  gangen med `expect_name` som spærre — en søgning på "able" fanger også
+  **`A Table Story ApS`** (CVR 44129485), som intet har med Able at gøre.
+  Per Aarsleff (3652/3654) og Brunata (3703) bærer ægte CVR og kontaktpunkter og
+  har 0 bons; de skal **omdøbes**, ikke slettes, og det er et menneskes
+  beslutning. Dry-run default, `VACUUM INTO`-backup, transaktion der ruller
+  tilbage hvis antal bons eller omsætning flytter sig, idempotent.
+
+  Kørt mod en kopi af driftsdata: Able 58 → **62 bons**, `Cisco` og `Systematic`
+  bevaret som slutkunder, ni able-agtige rækker → fem aktive (Able + de fire vi
+  bevidst ikke rører). B4194 (16.435 kr, VENTER) lå på en række uden
+  e-conomic-nummer og kunne ikke faktureres — den kan den nu.
+
+  **Slutkunden får ikke sin egen firma-række.** Systematic har kun handlet
+  gennem Able og er derfor ikke kunde hos os; navnet hører til på bonnen.
+  Cisco HAR handlet direkte, men findes allerede tre gange (CVR 20456493) —
+  en omdøbning ville give den fjerde. `rename_to` findes i planen til den dag
+  en slutkunde viser sig at handle direkte og ikke findes i forvejen.
+
+- **CRM → Værktøjer → "Ryd tomme firmaer"** (`office/views/crm-verktoj.js`,
+  ved siden af sammenlægnings-guiden, admin-only). Tre grupper, afkrydsning,
+  søgning og "Læg de valgte væk". Rækkerne **deaktiveres**, slettes aldrig.
+
+  > ⚠️ **`POST /empty-companies/deactivate` gentjekker HVERT id mod reglen.**
+  > Listen i browseren kan være timer gammel, og i mellemtiden kan en bon være
+  > landet på rækken — fx fordi nogen tastede firmanavnet i bestillingsformularen.
+  > Rækker der ikke længere er tomme springes over og **rapporteres tilbage**;
+  > ellers ville der stå "42 lagt væk" på en liste hvor man valgte 43.
+  > Efterprøvet: bon lagt på kandidaten mellem hentning og POST →
+  > `{deactivated: 1, skipped: 1}`, og rækken forbliver aktiv.
+
+  Reglen bor i **`services/companyCleanup.js`** og deles af siden og scriptet.
+  To kopier ville skride fra hinanden, og så ville siden vise noget andet end
+  kommandolinjen fjerner.
+
+- **`scripts/audit-empty-companies.js`** — den generelle regel fra drift: en
+  firma-række beholdes hvis der er **en bon, en kontaktperson eller en mail**
+  på den. Ellers er den et artefakt fra formularens fri-tekst-felt eller fra
+  v1-importen (de fire Per Aarsleff-rækker er oprettet i samme sekund,
+  2026-04-08 11:16:29, og har ingen af delene). Fire værn oveni: e-conomic-nr,
+  `is_internal`, påmindelser og fremmednøgler fra events/kampagner/booking-tokens.
+  Rækker **deaktiveres**, slettes aldrig — en changelog-linje kan pege på dem år
+  efter. Dry-run default, `VACUUM INTO`-backup, transaktion der ruller tilbage
+  hvis antal bons flytter sig.
+
+  > ⚠️ **`rfm_scores` er bevidst IKKE et værn.** Tabellen er beregnet og har en
+  > række for stort set hvert firma (1.346 af 1.452 i drift). Bruges den som
+  > bevis på en relation, freder den alt: 377 kandidater → 0. Fanget under
+  > afprøvning, hvor scriptet meldte "intet at rydde op" på et kartotek hvor
+  > hver tredje række var tom.
+
+  Rapporten viser også hvad der blev **fredet** og hvorfor (`37 med
+  e-conomic-nummer · 3 med en note`). Et værktøj der kun viser hvad der ryger,
+  er svært at stole på — man kan ikke se om reglen greb for bredt.
+
+  Målt mod driftsdata: **1.361 → 987 aktive firmaer** (374 deaktiveret, 240 af
+  dem med CVR fra berigelse). 0 bons rørt, 0 bons efterladt på en inaktiv række.
+  Kør forhandler-oprydningen FØRST — ellers står dens fire rækker stadig med
+  bons og bliver fredet.
+
+  Rapporten grupperer i tre — **dubletter af et firma der handler** (kan lægges
+  væk uden videre), **har CVR men ingen tvilling med bons** (ægte organisationer
+  der aldrig blev til en ordre), og **uden CVR og uden spor** (noter og
+  engangstekster tastet i formularens firma-felt: `Barnedåb`, `Zoo kort dag prep`,
+  `ff`). `--csv` skriver hele listen til en fil med en tom `beslutning`-kolonne;
+  374 linjer i en terminal kan ikke gennemgås, og en liste man ikke kan gennemgå
+  bliver enten kørt i blinde eller slet ikke.
+
+  Rapporten markerer hver kandidat der er **dublet af et aktivt firma med bons**
+  (samme CVR). Det er den mest brugbare oplysning når 374 navne skal skimmes:
+  `Akademisk Arkitektforening` ser ud som en rigtig kunde man ikke må røre —
+  indtil man ser at `Arkitektforeningen` (samme CVR 62572310) står med 112 bons
+  ved siden af. 106 af de 374 er sådan nogen.
+
+  > ⚠️ **Skriv `firma #2490`, ikke `#2490`.** Bon-numre ser ud som `cafe-2490`
+  > og `B4224`, så et bart `#2490` i en terminal læses som en bon. Det skete i
+  > drift: listens `#2490 Akademisk Arkitektforening` blev slået op som bonnen
+  > `cafe-2490`, som ligger på et helt andet firma (Danner, #2548) — og så ser
+  > oprydningen ud til at ville fjerne et firma der handler.
+
+  > Tre referencer blev fundet FØR første kørsel i drift, ikke bagefter:
+  > `attachments` og `crm_custom_values` (begge `entity_type='company'`) er tomme
+  > i dag, men referencerne findes — værnet skal være der før nogen begynder at
+  > bruge dem. Og `companies.notes`: tre rækker bar en note. Alle tre viste sig
+  > at være EAN-merge-stubbe (`--- Tidligere navne (EAN-merge) ---`), men reglen
+  > freder dem alligevel og siger det højt, frem for at bygge en heuristik der
+  > skal kende forskel på maskinens tekst og menneskets.
+
+**Bredere fund, ikke løst her:** af 114 web-bestillinger i drift ligger **39** på et
+andet firma end kundens eget — `University of Copenhagen` mod `Københavns
+Universitet`, `ATV` mod `Akademiet for de tekniske videnskaber`, `Stromma` mod
+`Stromma Danmark A/S`. Fri tekst i et firma-felt er en dubletmaskine: 246 firmaer i
+basen har hverken CVR, EAN, kundenummer eller mere end én bon. Forhandler-reglen
+rører kun de firmaer der er markeret; den generelle sag er
+[#567](https://github.com/liffez/bon-v2/issues/567).
 
 
 ## Næste opgave
@@ -5929,6 +6133,7 @@ POST   /api/payment-types                                routes/payment_types.js
 PATCH  /api/payment-types/:id                            routes/payment_types.js (admin)
 GET    /api/invoices/queue?include_done=1                routes/invoices.js
 PATCH  /api/companies/:id/economic                       routes/companies.js
+PATCH  /api/companies/:id/commercial                     routes/companies.js (stående rabat + forhandler-markering)
 GET    /api/companies/:id/enrich-preview                 routes/companies.js (CVR diff uden gem)
 POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
 POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)

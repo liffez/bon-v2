@@ -558,6 +558,9 @@ function mapApiBonToCardData(apiBon) {
     const customer = {
         name:          (apiBon.contact_name_full || '').trim() || 'Ukendt',
         company:       apiBon.company_name || '',
+        // Slutkunde på forhandler-ordrer (migration 167) — hvem maden er til,
+        // når firmaet på bonnen er den der betaler.
+        end_customer:  apiBon.end_customer_name || '',
         address:       addr,
         phone:         apiBon.contact_phone || '',
         company_phone: apiBon.company_phone || '',
@@ -724,6 +727,39 @@ function dateToISO(d) {
     var dt = (d instanceof Date) ? d : new Date(d);
     if (isNaN(dt.getTime())) return '';
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(dt);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   STATUS-BADGE
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Status-mærkat med BON_CONFIG's egne farver.
+ *
+ * En status skal se ens ud uanset hvilken skærm man står på. Skærme der
+ * hardkoder deres egen kulør (grå, blegblå …) ligner ikke resten af huset og
+ * gør det umuligt at scanne en liste på farven — det var netop fejlen der blev
+ * rettet i ugeoversigten, web-ordrer og kalenderen 19. maj 2026, og som stadig
+ * sad i Firma 360° og Kunde 360°.
+ *
+ * Falder tilbage på grå + koden hvis BonConfig ikke er loadet, så en skærm uden
+ * den viser noget forkert frem for ingenting.
+ *
+ * @param {string} statusCode  backend-koden ('LEVERET', 'FAKTURERET', …)
+ * @param {object} [opts]      { label, className, title }
+ */
+function statusBadgeHtml(statusCode, opts = {}) {
+    const _e = (typeof esc === 'function') ? esc : (s) => String(s ?? '');
+    const code = String(statusCode || '').trim();
+    let cfg = {};
+    if (typeof statusToFrontend === 'function' && typeof BON_CONFIG !== 'undefined') {
+        cfg = (BON_CONFIG.statuses || {})[statusToFrontend(code)] || {};
+    }
+    const label = opts.label || cfg.label || code || '—';
+    const cls   = opts.className ? ' ' + opts.className : '';
+    const title = opts.title ? ` title="${_e(opts.title)}"` : '';
+    return `<span class="status-badge${cls}" style="background:${cfg.color || '#999'};`
+         + `color:${cfg.text || '#fff'}"${title}>${_e(label)}</span>`;
 }
 
 /* ══════════════════════════════════════════════════════════════

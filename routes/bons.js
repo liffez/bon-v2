@@ -146,8 +146,12 @@ router.get('/', handle((req, res) => {
             args.push(`%${q}%`);
         } else {
             const like = `%${q}%`;
-            where.push("(b.bon_number LIKE ? OR c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ?)");
-            args.push(like, like, like);
+            // end_customer_name er med, fordi det er DET navn office leder efter
+            // på en forhandler-ordre — bonnen ligger jo på forhandleren (Able),
+            // ikke på slutkunden (Systematic), så hverken kunde- eller firmanavn
+            // finder den.
+            where.push("(b.bon_number LIKE ? OR c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ? OR COALESCE(b.end_customer_name,'') LIKE ?)");
+            args.push(like, like, like, like);
         }
     }
 
@@ -171,7 +175,7 @@ router.get('/', handle((req, res) => {
             b.courier_arrival_time,
             b.pax, b.total_units, b.total_co2e, b.total_price, b.event_role,
             b.payment_type, b.delivery_type, b.delivery_method, b.kitchen_selects,
-            b.price_category_id,
+            b.price_category_id, b.end_customer_name,
             pc.code  AS price_category_code,
             pc.label AS price_category_label,
             sd.code  AS status_code,
@@ -785,6 +789,7 @@ router.patch('/:id', handle((req, res) => {
         'payment_type', 'kitchen_selects', 'customer_collects',
         'kitchen_info', 'customer_wishes', 'internal_notes', 'invoice_info',
         'day_contact_name', 'day_contact_phone',
+        'end_customer_name',
         'is_internal'
     ];
 
