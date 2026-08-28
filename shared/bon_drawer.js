@@ -241,6 +241,11 @@ class BonDrawer {
                         <div class="drawer-field-group">
                             <label class="drawer-sublabel">Betaling</label>
                             <select class="drawer-field" data-field="payment_type"></select>
+                            <!-- Nogle betalingstyper giver ingen omsætning (Modregning,
+                                 Sponsorat). Det står ikke i navnet, og forskellen til
+                                 "intern bon" er let at tage fejl af — derfor siges den
+                                 hvor valget træffes, ikke kun i Settings. -->
+                            <span class="drawer-pay-hint" hidden></span>
                         </div>
                     </div>
                     <!-- Intern bon. Et regnskabsflag, ikke en køkken-detalje: sat
@@ -253,7 +258,7 @@ class BonDrawer {
                             <input type="checkbox" class="drawer-field" data-field="is_internal">
                             <span>Intern bon</span>
                         </label>
-                        <span class="drawer-internal-hint">holdes ude af omsætning, driftsregnskab og rapporter &mdash; enheder og pax tæller stadig</span>
+                        <span class="drawer-internal-hint">bonnen tælles slet ikke med &mdash; hverken omsætning, enheder eller pax. Skal maden tælle i produktionen, men uden penge, så vælg betalingen <em>Modregning</em> i stedet.</span>
                     </div>
                 </div>
 
@@ -703,6 +708,10 @@ class BonDrawer {
         this._setCheckbox('is_internal', d.is_internal);
         this._setFieldValue('price_category_id', d.price_category_id || '');
         this._setFieldValue('payment_type', d.payment_type || '');
+        // _setFieldValue udløser ikke 'change', så forbeholdet skal sættes
+        // eksplicit ved indlæsning — ellers dukker det først op når nogen
+        // rører dropdownen, og en gemt Modregning ville stå uden forklaring.
+        this._updatePayHint();
 
         // Firma
         this._renderFirma(d.company_name);
@@ -2448,6 +2457,24 @@ class BonDrawer {
        DROPDOWNS
        ══════════════════════════════════════════════════════ */
 
+    /** Forbehold ved en betalingstype der ikke giver omsætning. */
+    _updatePayHint() {
+        const sel  = this.el.querySelector('[data-field="payment_type"]');
+        const hint = this.el.querySelector('.drawer-pay-hint');
+        if (!sel || !hint) return;
+        const pt = (this.paymentTypes || []).find(x => x.code === sel.value);
+        // counts_as_revenue mangler på ældre svar → antag at den tæller.
+        // Et manglende felt må ikke få en almindelig faktura til at se ud som
+        // en giveaway.
+        const tællerIkke = pt && Number(pt.counts_as_revenue) === 0;
+        hint.hidden = !tællerIkke;
+        if (tællerIkke) {
+            hint.innerHTML = 'Giver <strong>ingen omsætning</strong> &mdash; men enheder og pax '
+                + 'tæller stadig, for maden blev lavet. Skal bonnen slet ikke tælle med, '
+                + 'så sæt <em>Intern bon</em> i stedet.';
+        }
+    }
+
     async _loadDropdowns() {
         try {
             const [cats, types] = await Promise.all([
@@ -2468,6 +2495,15 @@ class BonDrawer {
             for (const pt of types) {
                 ptSel.innerHTML += `<option value="${pt.code}">${esc(pt.label)}</option>`;
             }
+            // "Modregning" og "Sponsorat" ser ud som enhver anden betalingsmåde
+            // i listen, men nulstiller omsætningen. Forskellen til "intern bon"
+            // er let at tage fejl af — den ene fjerner ALT, den anden kun
+            // kronerne. Sig det hvor valget træffes.
+            if (!ptSel._hintWired) {
+                ptSel._hintWired = true;
+                ptSel.addEventListener('change', () => this._updatePayHint());
+            }
+            this._updatePayHint();
         } catch (err) {
             console.error('Kunne ikke hente dropdown-data:', err);
         }
