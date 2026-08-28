@@ -14,6 +14,7 @@
 //
 // Kør:  node --experimental-sqlite scripts/check-labor-gaps.js
 //       ... --since 2026-06-01     (default: 180 dage tilbage)
+//       ... --bons                 (vis HVILKE bons der lå på hulldagene)
 // ============================================================
 
 const { openDb } = require('../db/compat');
@@ -29,6 +30,7 @@ const dk = (offset = 0) => {
 };
 
 const SINCE = arg('--since', dk(-180));
+const VIS_BONS = argv.includes('--bons');
 const TODAY = dk(0);
 
 const db = openDb(DB_PATH);
@@ -147,9 +149,69 @@ if (!huller.length) {
     for (const s of striber) {
         console.log(`    ${s.fra}${s.til !== s.fra ? ' → ' + s.til : ''}`);
     }
-    console.log('\n  Ret op i Smartplan: godkend vagtplanen for perioden bagudrettet.');
-    console.log('  Timerne dukker op ved næste synkronisering — og FØRST derefter');
-    console.log('  giver "Genberegn dagen" i Driftsregnskab mening.\n');
+    if (VIS_BONS) {
+        // Hvad VAR det for dage? Et event-prep-hul og en glemt lørdagsvagt er to
+        // forskellige ting: den ene flytter et eventregnskab, den anden er en
+        // vane. Uden bonnerne kan de ikke skelnes, og så bliver rådet det samme
+        // til begge — hvilket er forkert for mindst den ene.
+        const bons = db.prepare(`
+            SELECT b.delivery_date AS dato, b.bon_number, sd.code AS status,
+                   e.name AS event, b.event_role,
+                   pc.code AS priskategori,
+                   COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
+                            co.name, '—') AS kunde,
+                   b.total_price,
+                   COALESCE(SUM(bl.quantity), 0) AS stk
+              FROM bons b
+              JOIN bon_lines bl ON bl.bon_id = b.id
+              JOIN status_definitions sd ON sd.id = b.status_id
+              LEFT JOIN events e ON e.id = b.event_id
+              LEFT JOIN price_categories pc ON pc.id = b.price_category_id
+              LEFT JOIN customers c ON c.id = b.customer_id
+              LEFT JOIN companies co ON co.id = b.company_id
+             WHERE b.delivery_date = ?
+               AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0
+               AND sd.code NOT IN ('AFLYST','NY','VENTER')
+             GROUP BY b.id
+             ORDER BY b.bon_number
+        `);
+        console.log('\n  ── Bons på de dage ──');
+        for (const d of huller) {
+            console.log(`\n  ${d.dato}`);
+            for (const b of bons.all(d.dato)) {
+                const rolle = b.event
+                    ? `${b.event}${b.event_role ? ' · ' + b.event_role : ''}`
+                    : (b.priskategori === 'produktion' ? '(produktion, uden event)' : '');
+                console.log(`    ${String(b.bon_number).padEnd(10)} ${String(Math.round(b.stk)).padStart(4)} stk  `
+                    + `${String(Math.round(b.total_price || 0)).padStart(7)} kr  ${b.status.padEnd(10)} `
+                    + `${b.kunde.slice(0, 26).padEnd(26)} ${rolle}`);
+            }
+        }
+        console.log();
+    }
+
+    // To mønstre, to handlinger. Målt i drift 28. august: fem enkeltstående
+    // weekenddage med små tal (10-148 stk) og to hverdage i træk med 970 stk,
+    // hvoraf den ene var første dag på et event. Ét fælles råd ville være
+    // forkert for mindst det ene.
+    const ugedag = (d) => new Date(d + 'T12:00:00').getDay();
+    const weekend = huller.filter(d => [0, 6].includes(ugedag(d.dato)));
+    const hverdag = huller.filter(d => ![0, 6].includes(ugedag(d.dato)));
+
+    console.log('\n  ── Hvad gør man ──');
+    if (hverdag.length) {
+        console.log(`  ${hverdag.length} hverdag(e): ${hverdag.map(d => d.dato).join(', ')}`);
+        console.log('    Her var der sandsynligvis planlagte vagter. Godkend vagtplanen for');
+        console.log('    perioden bagudrettet i Smartplan — timerne dukker op ved næste');
+        console.log('    synkronisering, og FØRST derefter giver "Genberegn dagen" mening.');
+    }
+    if (weekend.length) {
+        console.log(`  ${weekend.length} weekenddag(e): ${weekend.map(d => d.dato).join(', ')}`);
+        console.log('    Weekendarbejde lægges ofte ikke i vagtplanen. Er der ingen vagt at');
+        console.log('    godkende, kan timerne ikke hentes — så skal vagten skrives ind i');
+        console.log('    Smartplan, hvis dagen skal have sin løn.');
+    }
+    console.log();
 }
 
 db.close();
