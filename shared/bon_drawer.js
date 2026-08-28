@@ -243,6 +243,18 @@ class BonDrawer {
                             <select class="drawer-field" data-field="payment_type"></select>
                         </div>
                     </div>
+                    <!-- Intern bon. Et regnskabsflag, ikke en køkken-detalje: sat
+                         forsvinder bonnen ud af omsætning, driftsregnskab og
+                         rapporter. Derfor står konsekvensen ved siden af feltet —
+                         "intern" alene siger ikke hvad det gør. Kun i office;
+                         køkkenet skal ikke kunne flytte tal ved et uheld. -->
+                    <div class="drawer-row drawer-internal-row">
+                        <label class="drawer-internal">
+                            <input type="checkbox" class="drawer-field" data-field="is_internal">
+                            <span>Intern bon</span>
+                        </label>
+                        <span class="drawer-internal-hint">holdes ude af omsætning, driftsregnskab og rapporter &mdash; enheder og pax tæller stadig</span>
+                    </div>
                 </div>
 
                 <!-- VARER -->
@@ -688,6 +700,7 @@ class BonDrawer {
         this._setCheckbox('kitchen_selects', d.kitchen_selects);
         this._setFieldValue('pax', d.pax || '');
         this._setFieldValue('total_units', d.total_units || '');
+        this._setCheckbox('is_internal', d.is_internal);
         this._setFieldValue('price_category_id', d.price_category_id || '');
         this._setFieldValue('payment_type', d.payment_type || '');
 
@@ -2129,7 +2142,8 @@ class BonDrawer {
             'kitchen_selects',
             'day_contact_name', 'day_contact_phone',
             'end_customer_name',
-            'customer_wishes', 'invoice_info', 'kitchen_info', 'internal_notes'
+            'customer_wishes', 'invoice_info', 'kitchen_info', 'internal_notes',
+            'is_internal'
         ];
 
         for (const name of fieldNames) {

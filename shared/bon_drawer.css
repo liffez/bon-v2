@@ -1265,3 +1265,13 @@
 .drawer-co2-acc-badge.hi  { background: #d9ecdd; color: #2f7a41; }
 .drawer-co2-acc-badge.mid { background: #f6e6c8; color: #986c14; }
 .drawer-co2-acc-badge.lo  { background: #f3d9d2; color: #a5341f; }
+
+/* Intern bon — regnskabsflag, ikke en køkken-detalje.
+   Køkkenet ser den ikke: de skal ikke kunne flytte omsætningstal ved et uheld,
+   og flaget siger intet om hvad der skal laves mad af. Kontoret ejer det. */
+.zone-kitchen .drawer-internal-row { display: none; }
+.drawer-internal-row   { align-items: center; gap: 10px; }
+.drawer-internal       { display: inline-flex; align-items: center; gap: 6px;
+                         cursor: pointer; white-space: nowrap; }
+.drawer-internal input { cursor: pointer; }
+.drawer-internal-hint  { font-size: 12px; color: var(--color-text-dim, #888); line-height: 1.35; }
