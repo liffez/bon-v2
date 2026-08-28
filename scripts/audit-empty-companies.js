@@ -116,10 +116,17 @@ function main() {
         console.log(`\n  ${g.rows.length}  ${g.navn}`);
         console.log(`      ${g.note}`);
         for (const r of g.rows.slice(0, LIMIT)) {
-            // "firma #2490" — IKKE bare "#2490". Bon-numre ser ud som
-            // "cafe-2490", og et bart #2490 læses derfor som en bon.
-            const dup = r.twin ? `  ⤷ firma #${r.twin.id} "${r.twin.name}" (${r.twin.bons} bons)` : '';
-            console.log(`      firma #${String(r.id).padEnd(5)} ${r.name.slice(0, 46).padEnd(48)}${dup}`);
+            // To linjer, ikke én. "firma #2490 Akademisk Arkitektforening ⤷
+            // firma #2932 Arkitektforeningen (112 bons)" blev læst som om de 112
+            // hørte til den første række — den stik modsatte konklusion af den
+            // pilen skulle give. Rækkens EGNE tal står nu på dens egen linje.
+            //
+            // Og "firma #2490", ikke bare "#2490": bon-numre ser ud som
+            // "cafe-2490", så et bart tal læses som en bon.
+            console.log(`      firma #${String(r.id).padEnd(5)} ${r.name.slice(0, 44).padEnd(46)} ${r.own_bons} bons · ${r.own_contacts} kontakter`);
+            if (r.twin) {
+                console.log(`             ↳ kunden findes stadig: firma #${r.twin.id} "${r.twin.name}" har de ${r.twin.bons} bons`);
+            }
         }
         if (g.rows.length > LIMIT) console.log(`      … og ${g.rows.length - LIMIT} mere`);
     }

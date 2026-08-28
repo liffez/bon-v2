@@ -96,13 +96,20 @@ function _cvInjectCleanupStyles() {
     .cvc-group-note { font-size:12px; color:var(--color-text-dim); font-style:italic; }
     .cvc-group-body { display:none; max-height:420px; overflow-y:auto; }
     .cvc-group.open .cvc-group-body { display:block; }
-    .cvc-row { display:flex; align-items:center; gap:10px; padding:7px 14px; border-top:1px solid var(--color-border); font-size:13px; }
+    .cvc-row { display:flex; align-items:flex-start; gap:10px; padding:8px 14px; border-top:1px solid var(--color-border); font-size:13px; cursor:pointer; }
     .cvc-row:hover { background:#fdfbf3; }
-    .cvc-row input { flex-shrink:0; cursor:pointer; }
-    .cvc-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .cvc-id { color:var(--color-text-dim); font-size:11px; font-family:monospace; flex-shrink:0; }
-    .cvc-cvr { color:var(--color-text-dim); font-size:11px; font-family:monospace; flex-shrink:0; }
-    .cvc-twin { font-size:11px; color:var(--brand-primary); flex-shrink:0; max-width:38%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cvc-row input { flex-shrink:0; cursor:pointer; margin-top:3px; }
+    .cvc-main { flex:1; min-width:0; }
+    .cvc-line1 { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+    .cvc-name { font-weight:600; color:var(--color-text); text-decoration:none; border-bottom:1px dotted var(--color-border); }
+    .cvc-name:hover { color:var(--brand-primary); border-bottom-color:var(--brand-primary); }
+    .cvc-meta { font-size:11px; color:var(--color-text-dim); font-family:monospace; }
+    .cvc-meta b { color:var(--color-text); }
+    .cvc-line2 { font-size:11.5px; color:var(--color-text-dim); margin-top:2px; }
+    .cvc-line2 a { color:var(--brand-primary); font-weight:600; text-decoration:none; }
+    .cvc-line2 a:hover { text-decoration:underline; }
+    .cvc-forklaring { font-size:12.5px; line-height:1.55; color:var(--color-text-dim); background:var(--color-background); border:1px solid var(--color-border); border-radius:8px; padding:11px 14px; margin-bottom:14px; }
+    .cvc-forklaring b { color:var(--color-text); }
     .cvc-bar { position:sticky; bottom:0; display:flex; align-items:center; gap:14px; padding:12px 16px; background:#fff; border:1px solid var(--color-border); border-radius:8px; box-shadow:0 -2px 10px rgba(0,0,0,.06); }
     .cvc-bar-count { flex:1; font-size:13px; }
     .cvc-spared { font-size:12px; color:var(--color-text-dim); margin-bottom:14px; }
@@ -168,14 +175,27 @@ function _cvcRender(container) {
         const list = rows.filter(r => r.group === key);
         const meta = _CVC_GROUP_META[key];
         if (!list.length) return '';
+        // To linjer pr. række, fordi ÉN linje ikke kan bære to firmaer uden at
+        // blive misforstået: da tvillingens bon-tal stod umiddelbart efter
+        // navnet, blev det læst som rækkens eget ("Akademisk Arkitektforening
+        // har jo 112 bons"). Det er den stik modsatte konklusion af den pilen
+        // skulle give. Nu står rækkens EGNE tal på dens egen linje, og
+        // tvillingen på sin.
         const items = list.map(r => `
-            <label class="cvc-row">
+            <div class="cvc-row" data-cvc-row="${r.id}">
                 <input type="checkbox" data-cvc-id="${r.id}"${_cvcState.selected.has(r.id) ? ' checked' : ''}>
-                <span class="cvc-id">firma&nbsp;#${r.id}</span>
-                <span class="cvc-name">${esc(r.name)}</span>
-                ${r.cvr ? `<span class="cvc-cvr">CVR ${esc(r.cvr)}</span>` : ''}
-                ${r.twin ? `<span class="cvc-twin" title="Alle bons ligger på den række">⤷ firma #${r.twin.id} ${esc(r.twin.name)} (${r.twin.bons} bons)</span>` : ''}
-            </label>`).join('');
+                <div class="cvc-main">
+                    <div class="cvc-line1">
+                        <a href="#" class="cvc-name" data-cvc-open="${r.id}"
+                           title="Åbn Firma 360° og se selv">${esc(r.name)}</a>
+                        <span class="cvc-meta">firma #${r.id} · <b>${r.own_bons} bons</b> · ${r.own_contacts} kontakter${r.cvr ? ' · CVR ' + esc(r.cvr) : ' · uden CVR'}</span>
+                    </div>
+                    ${r.twin ? `
+                    <div class="cvc-line2">
+                        Kunden findes stadig: <a href="#" data-cvc-open="${r.twin.id}">firma #${r.twin.id} «${esc(r.twin.name)}»</a> har de ${r.twin.bons} bons
+                    </div>` : ''}
+                </div>
+            </div>`).join('');
         return `
         <div class="cvc-group${meta.open ? ' open' : ''}" data-cvc-group="${key}">
             <div class="cvc-group-h">
@@ -194,6 +214,12 @@ function _cvcRender(container) {
             <div><b>${_cvcState.rows.length}</b> uden bon, kontakt eller mail</div>
         </div>
         ${fredet.length ? `<div class="cvc-spared">Fredet trods tom række: ${fredet.join(' · ')}. Rækker med påmindelse, vedhæftning, event, kampagne eller booking-token står heller ikke på listen.</div>` : ''}
+        <div class="cvc-forklaring">
+            <b>Hvad sker der når du lægger en række væk?</b>
+            Den forsvinder fra firmalisten, fra søgning og fra kunde-vælgeren, når du opretter en bon.
+            <b>Intet slettes.</b> Rækkerne på listen har hverken bons, kontaktpersoner eller mails — der er
+            ikke noget at miste — og historikken kan stadig læses. Fortryd er ét klik væk i changeloggen.
+        </div>
         <div class="cvc-toolbar">
             <input type="search" class="cvc-search" placeholder="Søg navn, CVR eller firma-id…" value="${esc(_cvcState.search)}">
         </div>
@@ -242,6 +268,30 @@ function _cvcWire(container) {
         _cvcUpdateBar(container);
     }));
 
+    // Firma 360° åbnes i NY FANE. Åbnede den i samme, ville man miste alle sine
+    // afkrydsninger i det øjeblik man ville kontrollere én af rækkerne — og så
+    // ville ingen kontrollere noget.
+    container.querySelectorAll('[data-cvc-open]').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Bygges fra bunden, ikke fra den nuværende URL: ellers slæbes
+        // `pill=verktoj` med over på et view der ikke har den pille.
+        const url = new URL(window.location.pathname, window.location.origin);
+        url.searchParams.set('view', 'kontakter');
+        url.searchParams.set('tab', 'firmaer');
+        url.searchParams.set('company', a.dataset.cvcOpen);
+        window.open(url.toString(), '_blank', 'noopener');
+    }));
+
+    // Hele rækken kan klikkes — men ikke når man rammer et link eller selve
+    // afkrydsningsfeltet (det håndterer sig selv).
+    container.querySelectorAll('[data-cvc-row]').forEach(row => row.addEventListener('click', (e) => {
+        if (e.target.closest('a') || e.target.matches('input[data-cvc-id]')) return;
+        const cb = row.querySelector('input[data-cvc-id]');
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+    }));
+
     container.querySelector('#cvc-clear')?.addEventListener('click', () => {
         _cvcState.selected.clear();
         container.querySelectorAll('input[data-cvc-id]').forEach(cb => { cb.checked = false; });
@@ -267,7 +317,9 @@ async function _cvcDeactivate(container) {
     if (!window.confirm(
         `Læg ${ids.length} firma${ids.length === 1 ? '' : 'er'} væk?\n\n` +
         navne.join('\n') + (ids.length > 5 ? `\n… og ${ids.length - 5} mere` : '') +
-        `\n\nDe deaktiveres — intet slettes, og de kan sættes aktive igen.`)) return;
+        `\n\nDe forsvinder fra firmalisten, fra søgning og fra kunde-vælgeren.`
+        + `\nIngen af dem har bons, kontaktpersoner eller mails — intet slettes,`
+        + `\nog de kan sættes aktive igen.`)) return;
 
     const go = container.querySelector('#cvc-go');
     if (go) { go.disabled = true; go.textContent = 'Lægger væk…'; }

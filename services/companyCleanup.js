@@ -81,6 +81,11 @@ function findEmptyCompanies(db, opts = {}) {
     const extra = opts.keepCvr ? "AND COALESCE(c.cvr,'') = ''" : '';
     const rows = db.prepare(`
         SELECT c.id, c.name, COALESCE(c.cvr,'') cvr, COALESCE(c.created_at,'') created_at,
+               -- Altid 0 pr. definition (reglen kræver det), men de SKAL med ud
+               -- til skærmen: brugeren skal kunne læse på rækken at den er tom,
+               -- ikke tage vores ord for det.
+               (SELECT COUNT(*) FROM bons b       WHERE b.company_id  = c.id) own_bons,
+               (SELECT COUNT(*) FROM customers cu WHERE cu.company_id = c.id AND cu.is_active = 1) own_contacts,
                (${TWIN}) AS dup_id
           FROM companies c
          WHERE ${EMPTY_PREDICATE} ${extra}
@@ -106,6 +111,8 @@ function findEmptyCompanies(db, opts = {}) {
             id: r.id,
             name: r.name,
             cvr: r.cvr,
+            own_bons: r.own_bons,
+            own_contacts: r.own_contacts,
             created_at: r.created_at ? r.created_at.slice(0, 10) : '',
             group: t ? 'duplicate' : (r.cvr ? 'dormant' : 'unknown'),
             twin: t ? { id: t.id, name: t.name, bons: t.bons } : null,
