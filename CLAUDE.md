@@ -169,7 +169,7 @@ bon-v2/
 │   ├── seed.js          ← Testdata (11 bons, 7 kunder, 5 firmaer)
 │   └── migrations/      ← 001_core.sql, ...
 ├── shared/
-│   ├── sse.js        ← SSE router + broadcast(), sendTo() — named events
+│   ├── sse.js        ← SSE router + broadcast(), sendTo() — named events. 'connected' bærer serverens build-id
 │   ├── tokens.css    ← Design tokens
 │   ├── components.css
 │   ├── bon_kort.js          ← Adfærd og state (status, DnD, select, groups, editing)
@@ -197,7 +197,7 @@ bon-v2/
 │   ├── flag_strip.js                          ← Påmindelses-strip i bon-drawer (CLAUDE_KUNDE_FLAGS.md)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
-│   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
+│   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
 │   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
 │   ├── bon_lines.js  ← mergeLines() — slår ens bon-linjer sammen til visning/eksport, eksponeres som window.BonLines
 │   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
@@ -213,6 +213,9 @@ bon-v2/
 │   └── views/        ← bons.js, modtag.js, lager.js, crm.js, oversigt.js, levering.js (courier-mobil)
 ├── settings/         ← index.html (eget shell)
 ├── assets/           ← logo.svg, icons/, fonts/
+├── utils/
+│   ├── buildId.js             ← Build-id ud fra nyeste mtime i klient-mapperne (driver "ny version"-beskeden)
+│   └── mail-parser.js         ← PO-tag parsing + buildTag
 ├── scripts/
 │   ├── set-password.js        ← Sæt password for bruger (engangsbrug)
 │   ├── sync-v1.js             ← Daglig sync fra Bon v1 (cron)
