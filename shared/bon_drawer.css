@@ -1302,3 +1302,212 @@
    netop dét man skal kunne se forskel på. */
 .drawer-pay-hint { margin-top: 4px; font-size: 12px; line-height: 1.35;
                    color: var(--color-text-dim, #888); }
+
+/* ══════════════════════════════════════════════════════════════
+   MENU-GRUPPER I DRAWEREN
+   Samme grupper som køkkenets bon-kort viser — bon_menu_groups.
+   ══════════════════════════════════════════════════════════════ */
+
+.drawer-lines-tools {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-drawer-gruppe {
+    padding: 4px 12px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    background: var(--color-surface, #fff);
+    color: var(--color-text-dim, #8a8580);
+    font-size: var(--font-size-s, 13px);
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+}
+.btn-drawer-gruppe:hover {
+    border-color: var(--brand-primary, #8e631f);
+    color: var(--brand-primary, #8e631f);
+}
+.btn-drawer-gruppe.active {
+    background: var(--brand-primary, #8e631f);
+    border-color: var(--brand-primary, #8e631f);
+    color: #fff;
+}
+
+/* Kvittering ved auto-gem */
+.dg-saved {
+    font-size: var(--font-size-xs, 11px);
+    font-weight: 600;
+    color: #2e7d32;
+    margin-right: 4px;
+    white-space: nowrap;
+}
+.dg-saved.failed { color: #c62828; }
+
+/* ── Vælg-tilstand ─────────────────────────────────────── */
+
+.drawer-select-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s, 8px);
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    background: var(--brand-primary-light, #f1e6b2);
+    font-size: var(--font-size-s, 13px);
+}
+.drawer-select-toolbar .dst-count {
+    flex: 1;
+    font-weight: 600;
+    color: var(--color-text, #1a1917);
+}
+.drawer-select-toolbar button {
+    padding: 3px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--brand-primary, #8e631f);
+    background: var(--color-surface, #fff);
+    color: var(--brand-primary, #8e631f);
+    font-size: var(--font-size-xs, 12px);
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+}
+.drawer-select-toolbar button:hover:not(:disabled) {
+    background: var(--brand-primary, #8e631f);
+    color: #fff;
+}
+.drawer-select-toolbar button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.drawer-line-item.selectable { cursor: pointer; }
+.drawer-line-item.selectable:hover {
+    background: var(--brand-primary-light, #f1e6b2);
+}
+.drawer-line-check {
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+    border: 2px solid var(--color-border, #d7d1ca);
+    border-radius: 4px;
+    background: var(--color-surface, #fff);
+}
+.drawer-line-check.checked {
+    border-color: var(--brand-primary, #8e631f);
+    background: var(--brand-primary, #8e631f);
+    position: relative;
+}
+.drawer-line-check.checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 0;
+    width: 4px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* ── Gruppe ────────────────────────────────────────────── */
+
+.drawer-line-group {
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    margin-bottom: var(--space-s, 8px);
+    overflow: hidden;
+}
+
+.drawer-group-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px 5px 10px;
+    background: var(--brand-primary-light, #f1e6b2);
+}
+.drawer-group-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 700;
+    font-size: var(--font-size-s, 13px);
+    color: var(--color-text, #1a1917);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 1px 4px;
+}
+.drawer-group-title:hover { background: rgba(255,255,255,.6); }
+.drawer-group-title .dg-untitled {
+    color: var(--color-text-dim, #8a8580);
+    font-weight: 500;
+}
+.drawer-group-title .dg-title-input {
+    width: 100%;
+    border: 1px solid var(--brand-primary, #8e631f);
+    border-radius: 4px;
+    padding: 1px 4px;
+    font: inherit;
+    font-weight: 700;
+    background: #fff;
+}
+.drawer-group-count {
+    flex: 0 0 auto;
+    font-size: var(--font-size-xs, 11px);
+    font-weight: 600;
+    color: var(--color-text-dim, #8a8580);
+    padding: 0 4px;
+}
+.dg-btn {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-text-dim, #8a8580);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    font-family: inherit;
+}
+.dg-btn:hover {
+    background: rgba(255,255,255,.75);
+    color: var(--color-text, #1a1917);
+}
+.dg-btn.dg-dissolve { font-size: 15px; }
+.dg-btn.dg-dissolve:hover { color: #c62828; }
+.dg-btn.dg-note.has-note { color: var(--brand-primary, #8e631f); }
+
+.drawer-group-note {
+    padding: 6px 10px;
+    background: var(--color-background, #f5f4f2);
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+.dg-note-input {
+    width: 100%;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: var(--font-size-s, 13px);
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.drawer-line-group .drawer-line-item {
+    padding-left: 10px;
+    padding-right: 6px;
+}
+.drawer-line-group .drawer-line-item:last-child { border-bottom: none; }
+
+/* Emballage / service / levering dæmpes — som på bon-kortet */
+.drawer-line-item.is-bottom .drawer-line-name,
+.drawer-line-item.is-bottom .drawer-line-qty,
+.drawer-line-item.is-bottom .drawer-line-price {
+    color: var(--color-text-dim, #8a8580);
+    font-weight: 400;
+}

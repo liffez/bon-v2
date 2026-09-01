@@ -716,13 +716,40 @@ function _buildBonInfoHtml(bon) {
     // info-modalen skal vise det samme.
     const lines = BonLines.mergeLines(bon.lines || []);
     if (lines.length > 0) {
-        const mainLines = lines.filter(l => !l.is_accessory);
-        const accLines  = lines.filter(l => l.is_accessory);
+        // Rækkefølge som på bon-kortet: kager/drikke øverst, emballage →
+        // service → levering nederst. Tidligere delte modalen op på
+        // `is_accessory`, men det flag er i praksis aldrig sat, så emballage
+        // og levering landede midt i maden. Kategorien er den kilde der
+        // faktisk bærer data — se sortMenuLines i shared/utils.js.
+        const _sortLines = (arr) => (typeof sortMenuLines === 'function') ? sortMenuLines(arr) : arr;
+        const _isBottom  = (l)   => (typeof isBottomMenuLine === 'function') ? isBottomMenuLine(l) : !!l.is_accessory;
+
+        // Menu-grupper (samme som køkkenets bon-kort) vises først, i sort_order
+        const groups = (bon.menu_groups || []).slice()
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const linesByGroup = new Map(groups.map(g => [g.id, []]));
+        const loose = [];
+        for (const l of lines) {
+            const bucket = l.menu_group_id != null ? linesByGroup.get(l.menu_group_id) : null;
+            if (bucket) bucket.push(l);
+            else loose.push(l);
+        }
 
         html += '<div class="info-section">';
         html += '<div class="info-section-title">Menulinjer</div>';
         html += '<div class="info-lines">';
 
+        for (const g of groups) {
+            const glines = _sortLines(linesByGroup.get(g.id) || []);
+            if (!glines.length) continue;
+            html += '<div class="info-line-group-title">' + _esc(g.title || 'Gruppe') + '</div>';
+            if (g.note) html += '<div class="info-line-group-note">' + _esc(g.note) + '</div>';
+            for (const l of glines) html += _buildInfoLine(l, _esc);
+        }
+
+        const sortedLoose = _sortLines(loose);
+        const mainLines   = sortedLoose.filter(l => !_isBottom(l));
+        const accLines    = sortedLoose.filter(l => _isBottom(l));
         for (const l of mainLines) {
             html += _buildInfoLine(l, _esc);
         }

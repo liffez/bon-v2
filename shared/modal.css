@@ -338,6 +338,23 @@
     margin: 6px 0;
 }
 
+/* Menu-grupper — samme grupper som køkkenets bon-kort viser */
+.info-line-group-title {
+    font-weight: 700;
+    font-size: var(--font-size-s, 13px);
+    color: var(--brand-primary, #8e631f);
+    margin: 8px 0 2px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+.info-line-group-title:first-child { margin-top: 0; }
+.info-line-group-note {
+    font-size: var(--font-size-xs, 12px);
+    color: var(--color-text-dim, #8a8580);
+    font-style: italic;
+    margin: 0 0 3px;
+}
+
 /* Totals */
 .info-totals {
     margin-top: 8px;

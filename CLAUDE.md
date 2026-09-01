@@ -5762,6 +5762,83 @@ hash-vejen tænder VIS LEVEREDE og viser kortet. Klikkene blev sendt som `MouseE
 gennem de ægte lyttere — browser-panelet var frosset (viewport 0×0), så fysiske museklik
 var ikke mulige.
 
+### Menu-rækkefølge og grupper i draweren (1. september 2026)
+
+Bon-draweren og info-modalen viste emballage og levering **midt i maden**.
+Køkkenets bon-kort har altid sorteret dem nederst — de to andre flader kendte
+bare ikke reglen. Info-modalen *forsøgte* at skille tilbehør fra på
+`bon_lines.is_accessory`, men det flag er aldrig sat (0 af ~8.200
+emballage-linjer i drift), så opdelingen var reelt død kode. Draweren
+sorterede slet ikke.
+
+- **Én regel, tre flader**: `sortMenuLines` · `isBottomMenuLine` ·
+  `menuLinePriority` · `normalizeMenuCategory` i [shared/utils.js](shared/utils.js).
+  `_sortAndMergeMenu` (bon-kortet) bruger dem nu i stedet for sin egen kopi —
+  kortets adfærd er uændret, låst fast af tests.
+  Rækkefølgen er som hidtil: `03`/`05` (kager, drikke) → mad →
+  `06 Emballage` → `x- Service` → `x-Levering`.
+- **Kategorien afgør, ikke flaget.** Kategorierne i drift er rene efter
+  normaliseringen (`06 Emballage`, `x-Levering`, `x- Service`), og de bærer
+  data. `is_accessory` og kort-items' `style` beholdes som ekstra signal,
+  aldrig som eneste — ellers ville reglen dø samme død som info-modalens.
+- **Draweren merger stadig ikke.** Den er en editor: rå rækker, så man kan
+  slette den enkelte. Kun *rækkefølgen* er ændret, og sorteringen er stabil,
+  så to ens rå rækker beholder deres indbyrdes orden.
+
+**Grupper kan nu laves i draweren** — samme grupper som køkkenets bon-kort
+viser. Bonen bygges i draweren, så det er dér grupperingen hører hjemme.
+Ingen migration og intet nyt endpoint: `bon_menu_groups` +
+`bon_lines.menu_group_id` + `PUT /bons/:id/menu-groups` fandtes i forvejen
+(migration 072).
+
+- "Gruppér" → checkbokse på linjerne → "Saml i gruppe" → navnefeltet åbner
+  af sig selv. Gruppen har titel, note, ▲▼ og opløs. Opløsning fjerner kun
+  gruppen; linjerne bliver liggende.
+- **Flytning mellem grupper** virker uden drag-drop: en allerede grupperet
+  linje kan vælges og samles i en ny gruppe. Kortet kan kun gruppere løse
+  linjer, så draweren kan her lidt mere end kortet.
+- Auto-gem (600 ms debounce) som på kortet, med `✓ Gemt`-kvittering.
+  **Flush før reload og før luk** — ellers ville en gruppe oprettet lige
+  inden man tilføjer en vare (eller lukker) forsvinde uden en lyd.
+- Serveren reconciler på `line_ids`, ikke på gruppe-id, så lokale nøgler må
+  gerne blive stale mellem gem. Nye grupper får derfor bare en lokal nøgle
+  (`n1`, `n2`, …) indtil serveren tildeler rigtige id'er.
+
+> ⚠️ **Vores eget gem lukkede gruppér-tilstanden.** `PUT menu-groups`
+> broadcaster `bon_updated`, draweren genindlæser ved det event, og `load()`
+> nulstiller select-mode. Uden en vagt lukkede tilstanden sig selv 600 ms
+> efter at brugeren havde oprettet en gruppe. `_groupBusy()` blokerer reload
+> mens der er select-mode, ugemte ændringer eller fokus i varelisten — samme
+> slags vagt som køkkenkortene fik i migration 072-runden.
+
+En linje der peger på en slettet gruppe falder ned som **løs** frem for at
+blive usynlig — den slags rækker findes, og en vare der forsvinder fra en bon
+er værre end en vare der ligger forkert.
+
+**Tests**: `npm run test:menu-order` — 59 asserts. Browser-kode kan ikke
+`require`s, så `utils.js` og `bon_drawer.js` køres i en vm-sandkasse og de
+rigtige funktioner kaldes direkte. **Mutations-testet:** syv kerneregler
+rulles hver især tilbage og fælder navngivne asserts.
+
+> Første udgave af sorteringstesten bestod delvist af den forkerte grund:
+> B4165's kategorinavne er tilfældigvis næsten alfabetisk ordnede, så en ren
+> `localeCompare` gav næsten samme svar (mutationen fældede kun 1 assert).
+> Fixturen bruger nu fem ægte driftskategorier hvor alfabetisk og korrekt
+> peger hver sin vej — `Tilbehør & Bokse` er mad og skal *over* `06 Emballage`,
+> men sorterer alfabetisk under. Samme mutation fælder nu 3.
+
+Browser-verificeret ende-til-ende mod en kopi af driftsdata (B4165, den bon
+fejlen blev meldt på): emballage + levering nederst og dæmpet, gruppe oprettet
+og navngivet, note gemt, rækkefølge flyttet, opløsning uden tab af linjer,
+og gruppen bevaret da en vare blev slettet inden debouncen nåede at gemme.
+De samme grupper vises i info-modalen og på køkkenets bon-kort. Kopien og
+`.env` er slettet efter brug.
+
+**Ikke bygget:** drag-drop af linjer mellem grupper i draweren (kortet har
+det; ▲▼ + vælg-og-saml dækker behovet med mus), og rækkefølgen af *løse*
+linjer persisteres fortsat ikke — den er altid den sorterede. Sidstnævnte er
+en pre-eksisterende begrænsning fra migration 072.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
