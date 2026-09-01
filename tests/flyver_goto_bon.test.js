@@ -23,6 +23,7 @@ const fs     = require('node:fs');
 const path   = require('node:path');
 
 const FLYVER = fs.readFileSync(path.join(__dirname, '..', 'shared', 'flyver.js'), 'utf8');
+const UTILS  = fs.readFileSync(path.join(__dirname, '..', 'shared', 'utils.js'), 'utf8');
 const TODAY  = fs.readFileSync(path.join(__dirname, '..', 'kitchen', 'today.js'), 'utf8');
 
 /* ── Minimal DOM ─────────────────────────────────────────────── */
@@ -81,9 +82,15 @@ function makeDom(cards) {
  * Kører flyver.js (og valgfrit today.js, som ejer revealBonCard) i én
  * sandkasse, så knappen og filtrene ses gennem samme DOM.
  */
-function setup({ cards = [], pathname = '/kitchen/today.html', withToday = true, drawer = false } = {}) {
+const I_DAG = '2026-09-01';
+
+function setup({ cards = [], pathname = '/kitchen/today.html', withToday = true,
+                 drawer = false, zone = 'zone-kitchen', bons = {} } = {}) {
     const dom  = makeDom(cards);
-    const kald = { drawer: [], reload: 0, href: [], closeModal: 0 };
+    const kald = { drawer: [], reload: 0, href: [], closeModal: 0, fetchBon: [] };
+    const bonSvar = id => (bons[id]
+        ? Promise.resolve(bons[id])
+        : Promise.reject(new Error('ukendt bon ' + id)));
 
     // Styrbare timere: fade-timeren er 8 sekunder, og pointen er netop at den
     // IKKE må nå at skjule kortet igen efter at man er hoppet til det.
@@ -106,7 +113,8 @@ function setup({ cards = [], pathname = '/kitchen/today.html', withToday = true,
         openModal() {},
         esc: s => s,
         getClientId: () => 'test-klient',
-        fetchBon: () => Promise.resolve({}),
+        fetchBon: id => { kald.fetchBon.push(id); return bonSvar(id); },
+        todayISO: () => I_DAG,
         markNotificationRead: () => Promise.resolve(),
         fetchUnreadNotifications: () => Promise.resolve([]),
         postFlyver: () => Promise.resolve({}),
@@ -123,6 +131,8 @@ function setup({ cards = [], pathname = '/kitchen/today.html', withToday = true,
     });
     sandbox.window = sandbox;
     sandbox.globalThis = sandbox;
+
+    if (zone) dom.body.classList.add(zone);
 
     const ctx = vm.createContext(sandbox);
     vm.runInContext(FLYVER, ctx);
@@ -202,39 +212,154 @@ test('side uden filtre (fx Senere): scroll virker stadig uden revealBonCard', ()
 
 /* ── Bonen er slet ikke på siden ─────────────────────────────── */
 
-test('bon på en anden dag: draweren åbnes i stedet for en død hash-navigation', () => {
-    const { ctx, kald } = setup({ cards: [kort('bon3', 'igang')], drawer: true });
+test('bon i morgen set fra I dag: der navigeres til Senere — ikke draweren', async () => {
+    const { ctx, kald } = setup({
+        cards: [kort('bon3', 'igang')], drawer: true,
+        pathname: '/kitchen/today.html',
+        bons: { 9: { delivery_date: '2026-09-03' } },
+    });
 
-    ctx._gotoFlyverBon(9);
+    await ctx._gotoFlyverBon(9);
 
-    assert.deepEqual(kald.drawer, [9], 'bonen skal åbnes i draweren');
-    assert.equal(kald.reload, 0, 'ingen genindlæsning når draweren kan vise bonen');
-    assert.deepEqual(kald.href, [], 'ingen navigation');
+    assert.deepEqual(kald.href, ['/kitchen/later.html#bon9'], 'køkkenet vil se kortet, ikke draweren');
+    assert.deepEqual(kald.drawer, [], 'draweren er ikke svaret i køkkenet');
 });
 
-test('ingen drawer og allerede på I dag: siden genindlæses (hash alene er ikke en navigation)', () => {
-    const { ctx, kald } = setup({ cards: [], drawer: false, pathname: '/kitchen/today.html' });
+test('bon i dag set fra Senere: der navigeres til I dag', async () => {
+    const { ctx, kald } = setup({
+        cards: [], drawer: true, pathname: '/kitchen/later.html',
+        bons: { 9: { delivery_date: I_DAG } },
+    });
 
-    ctx._gotoFlyverBon(9);
+    await ctx._gotoFlyverBon(9);
+
+    assert.deepEqual(kald.href, ['/kitchen/today.html#bon9']);
+});
+
+test('samme side, kortet mangler: siden genindlæses (hash alene er ikke en navigation)', async () => {
+    const { ctx, kald } = setup({
+        cards: [], drawer: false, pathname: '/kitchen/today.html',
+        bons: { 9: { delivery_date: I_DAG } },
+    });
+
+    await ctx._gotoFlyverBon(9);
 
     assert.equal(kald.reload, 1, 'et hash-skift alene henter ikke bonen');
 });
 
-test('ingen drawer og en anden side: der navigeres til I dag med hash', () => {
-    const { ctx, kald } = setup({ cards: [], drawer: false, pathname: '/kitchen/planning.html' });
+test('bon i fortiden: draweren, for kortet står hverken i I dag eller Senere', async () => {
+    const { ctx, kald } = setup({
+        cards: [], drawer: true, bons: { 9: { delivery_date: '2026-08-20' } },
+    });
 
-    ctx._gotoFlyverBon(9);
+    await ctx._gotoFlyverBon(9);
 
-    assert.equal(kald.reload, 0);
-    assert.deepEqual(kald.href, ['/kitchen/today.html#bon9']);
+    assert.deepEqual(kald.drawer, [9]);
+    assert.deepEqual(kald.href, [], 'ingen navigation til en side hvor kortet ikke er');
 });
 
-test('modalen lukkes uanset hvilken vej der tages', () => {
+test('bonen kan ikke hentes: draweren frem for at gætte på en side', async () => {
+    const { ctx, kald } = setup({ cards: [], drawer: true, bons: {} });
+
+    await ctx._gotoFlyverBon(9);
+
+    assert.deepEqual(kald.drawer, [9]);
+    assert.deepEqual(kald.href, []);
+});
+
+test('office: draweren — der er ingen kort-side at navigere til', async () => {
+    const { ctx, kald } = setup({
+        cards: [], drawer: true, zone: 'zone-office',
+        pathname: '/office/index.html', bons: { 9: { delivery_date: '2026-09-03' } },
+    });
+
+    await ctx._gotoFlyverBon(9);
+
+    assert.deepEqual(kald.drawer, [9], 'office skal blive i office');
+    assert.deepEqual(kald.href, [], 'ingen navigation væk fra office');
+    assert.deepEqual(kald.fetchBon, [], 'datoen er uinteressant når vi bliver på siden');
+});
+
+test('modalen lukkes uanset hvilken vej der tages', async () => {
     const a = setup({ cards: [kort('bon6', 'lev')] });
-    a.ctx._gotoFlyverBon(6);
+    await a.ctx._gotoFlyverBon(6);
     assert.equal(a.kald.closeModal, 1);
 
-    const b = setup({ cards: [], drawer: true });
-    b.ctx._gotoFlyverBon(9);
+    const b = setup({ cards: [], drawer: true, bons: { 9: { delivery_date: '2026-09-03' } } });
+    await b.ctx._gotoFlyverBon(9);
     assert.equal(b.kald.closeModal, 1);
+});
+
+/* ── Hash-vejen: den anden halvdel af den samme rejse ────────── */
+//
+// _gotoFlyverBon navigerer til `…#bon<id>`, og så er det scrollToBonHash der
+// skal finde kortet i den anden ende. Kunne den ikke det, ville navigationen
+// bare flytte den døde knap over på næste side.
+
+function setupHash({ cards = [], hash = '#bon9', drawer = true, withToday = true } = {}) {
+    const dom  = makeDom(cards);
+    const kald = { drawer: [], replaceState: [] };
+
+    let nextTimer = 1;
+    const timers = new Map();
+    const sandbox = {
+        console: { log(){}, warn(){}, error(){} },
+        setTimeout: fn => { const id = nextTimer++; timers.set(id, fn); return id; },
+        clearTimeout: id => timers.delete(id),
+        setInterval: fn => { const id = nextTimer++; timers.set(id, fn); return id; },
+        clearInterval: id => timers.delete(id),
+        Promise, Error, JSON, Object, Array, String, Number, Boolean, Date, Math, RegExp, Intl,
+        AbortController,
+        document: dom.document,
+        location: { pathname: '/kitchen/later.html', hash },
+        history: { replaceState: (...a) => kald.replaceState.push(a) },
+        getSelection: () => null,
+        fetch: () => Promise.reject(new Error('ikke brugt her')),
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    const ctx = vm.createContext(sandbox);
+    vm.runInContext(UTILS, ctx);
+    if (withToday) vm.runInContext(TODAY, ctx);
+    if (drawer) sandbox._bonInfoEditHandler = id => kald.drawer.push(id);
+
+    kald.koerTimere = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
+    return { ctx, dom, kald };
+}
+
+test('hash-vejen: et filtreret kort gøres synligt, ikke bare scrollet til', () => {
+    const c = kort('bon9', 'lev');
+    const { ctx, dom, kald } = setupHash({ cards: [c], hash: '#bon9' });
+
+    ctx.scrollToBonHash();
+    kald.koerTimere();
+
+    assert.equal(dom.body.classList.contains('show-lev'), true, 'VIS LEVEREDE skal tændes');
+    assert.equal(c.scrolled, true);
+    assert.equal(c.classList.contains('bon-highlight'), true);
+});
+
+test('hash-vejen: står bonen slet ikke på siden, åbnes draweren', () => {
+    const { ctx, kald } = setupHash({ cards: [kort('bon3', 'igang')], hash: '#bon9' });
+
+    ctx.scrollToBonHash();
+
+    assert.deepEqual(kald.drawer, ['9'], 'Senere viser fx ikke terminale bons');
+    assert.equal(kald.replaceState.length, 1, 'hash ryddes så et refresh ikke gentager det');
+});
+
+test('hash-vejen: uden drawer sker der intet — men det kaster ikke', () => {
+    const { ctx, kald } = setupHash({ cards: [], hash: '#bon9', drawer: false });
+
+    assert.doesNotThrow(() => ctx.scrollToBonHash());
+    assert.deepEqual(kald.drawer, []);
+});
+
+test('hash-vejen: andre hashes røres ikke', () => {
+    const { ctx, kald } = setupHash({ cards: [], hash: '#top', drawer: true });
+
+    ctx.scrollToBonHash();
+
+    assert.deepEqual(kald.drawer, [], 'kun #bon-hashes er bon-navigation');
+    assert.deepEqual(kald.replaceState, []);
 });

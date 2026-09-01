@@ -5733,22 +5733,28 @@ Og hørte bonen til en anden dag, var today.html alligevel den forkerte side.
   Fade-afbrydelsen er ikke kosmetik: uden `clearTimeout` ville 8-sekunders-timeren
   skjule kortet igen kort efter at man var hoppet til det.
 - **`shared/flyver.js`** kalder den (via `typeof`, så sider uden filtre — fx Senere —
-  er upåvirkede) og har fået en rigtig faldrække når kortet ikke findes:
-  sidens drawer (`_bonInfoEditHandler` i køkkenet, `openDrawer` i office/kalender),
-  ellers navigation — med **reload** når stien er den samme, for et hash-skift alene
-  henter ikke bonen.
+  er upåvirkede). Er kortet ikke på siden, afgør **leveringsdatoen** hvor man skal hen:
+  i dag → I dag, senere → Senere. Køkkenet vil se *kortet*; draweren er en
+  redigeringsflade og er derfor kun svaret i office (`zone-kitchen` skiller de to) eller
+  når kortet ikke står nogen steder — en bon i fortiden, eller en bon vi ikke kunne
+  hente. Navigation til samme sti gør et **reload**, for et hash-skift alene henter
+  ikke bonen.
+- **`scrollToBonHash()` i `shared/utils.js`** er den anden halvdel af rejsen og havde
+  samme to huller: den scrollede til et filtreret kort uden at vise det, og gjorde intet
+  når bonen ikke var på siden. Den kalder nu `revealBonCard` og falder tilbage til
+  draweren. Det gælder også kalenderens "Gå til bon →", som bruger samme hash.
 - Scroll + highlight kaldes direkte, ikke i `requestAnimationFrame`: rAF fyrer ikke i
   en skjult fane, og en køkkenskærm der lige er vækket ville så stå med samme døde knap.
 
-**Tests**: `npm run test:flyver` — 21 (serverside, uændret) + **8 nye** i
-`tests/flyver_goto_bon.test.js`, hvor de rigtige `shared/flyver.js` og `kitchen/today.js`
-køres i en vm-sandkasse med en lille DOM og styrbare timere (browserkode kan ikke
-`require`s). **Mutations-testet:** fem kerneregler rulles hver især tilbage og fælder
-hver sin navngivne assert. Browser-verificeret på alle tre veje mod en frisk lokal DB:
-leveret kort (`display:none` → synligt, VIS LEVEREDE låst op), kort skjult af
-IGANG-filteret, og en bon på en anden dag (draweren åbner med den rigtige bon).
-Klikkene blev sendt som `MouseEvent` gennem de ægte lyttere — browser-panelet var
-frosset (viewport 0×0), så fysiske museklik var ikke mulige.
+**Tests**: `npm run test:flyver` — 21 (serverside, uændret) + **15 nye** i
+`tests/flyver_goto_bon.test.js`, hvor de rigtige `shared/flyver.js`, `kitchen/today.js`
+og `shared/utils.js` køres i en vm-sandkasse med en lille DOM og styrbare timere
+(browserkode kan ikke `require`s). **Mutations-testet:** ni kerneregler rulles hver især
+tilbage og fælder hver sin navngivne assert. Browser-verificeret mod en frisk lokal DB,
+inkl. hele kæden i ét forløb: fra Senere → en leveret bon i dag → navigation til I dag →
+hash-vejen tænder VIS LEVEREDE og viser kortet. Klikkene blev sendt som `MouseEvent`
+gennem de ægte lyttere — browser-panelet var frosset (viewport 0×0), så fysiske museklik
+var ikke mulige.
 
 ## Næste opgave
 

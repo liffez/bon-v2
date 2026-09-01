@@ -22,6 +22,7 @@
 let _unreadQueue = [];     // Array af notification-objekter
 let _bannerEl    = null;   // Banner DOM-element (persistent)
 let _flyverIndex = 0;      // Aktuel position i kø (detail-modal)
+let _flyverBonCache = {};  // bon_id → bon (hentet til detail-modalen)
 
 /* ══════════════════════════════════════════════════════════════
    SEND FLYVER (action-button handler)
@@ -200,6 +201,7 @@ async function _renderFlyverDetail() {
     if (notif.bon_id) {
         try {
             const bon = await fetchBon(notif.bon_id);
+            _flyverBonCache[notif.bon_id] = bon;
             const overlay = document.querySelector('.modal-overlay:last-of-type') || document.querySelector('.modal-overlay');
             const bonEl = overlay && overlay.querySelector('#flyverBonData');
             if (bonEl) bonEl.innerHTML = _buildFlyverBonSummary(bon);
@@ -236,7 +238,7 @@ function _buildFlyverBonSummary(bon) {
         + '</div>';
 }
 
-function _gotoFlyverBon(bonId) {
+async function _gotoFlyverBon(bonId) {
     closeModal();
 
     var card = document.getElementById('bon' + bonId);
@@ -251,18 +253,51 @@ function _gotoFlyverBon(bonId) {
         return;
     }
 
-    // Bonen findes ikke på denne side — åbn den i sidens drawer hvis der er en
-    if (typeof window._bonInfoEditHandler === 'function') { window._bonInfoEditHandler(bonId); return; }
-    if (typeof window.openDrawer === 'function') { window.openDrawer(bonId); return; }
+    // Bonen er ikke på denne side.
+    // Office har ingen kort-side — dér er draweren stedet at gå hen.
+    if (!document.body.classList.contains('zone-kitchen')) { _openBonElsewhere(bonId); return; }
 
-    // Sidste udvej: køkkenets I dag-side. Står vi allerede der, er et hash-skift
-    // alene ikke en navigation — siden skal genindlæses for at hente bonen.
-    if (window.location.pathname === '/kitchen/today.html') {
+    // I køkkenet vil man se KORTET. Leveringsdatoen afgør hvilken side det står på.
+    var bon = _flyverBonCache[bonId];
+    if (!bon) {
+        try { bon = await fetchBon(bonId); _flyverBonCache[bonId] = bon; } catch (err) { bon = null; }
+    }
+    var page = _kitchenPageForBon(bon);
+    if (page) { _navigateToBon(page, bonId); return; }
+
+    // Ukendt dato, eller en bon i fortiden som hverken står i I dag eller Senere
+    _openBonElsewhere(bonId);
+}
+
+/** Hvilken køkken-side står bonens kort på? null hvis ingen af dem. */
+function _kitchenPageForBon(bon) {
+    var dato = bon && bon.delivery_date;
+    if (!dato || typeof todayISO !== 'function') return null;
+    var iDag = todayISO();
+    if (dato === iDag) return '/kitchen/today.html';
+    if (dato >  iDag)  return '/kitchen/later.html';
+    return null;   // fortiden findes hverken i I dag eller Senere
+}
+
+/**
+ * Naviger til en bon på en anden side.
+ * Er vi allerede på siden, er et hash-skift ikke en navigation — så skal der
+ * genindlæses, ellers sker der ingenting.
+ */
+function _navigateToBon(page, bonId) {
+    if (window.location.pathname === page) {
         window.location.hash = 'bon' + bonId;
         window.location.reload();
     } else {
-        window.location.href = '/kitchen/today.html#bon' + bonId;
+        window.location.href = page + '#bon' + bonId;
     }
+}
+
+/** Sidste udvej: vis bonen i sidens drawer. */
+function _openBonElsewhere(bonId) {
+    if (typeof window._bonInfoEditHandler === 'function') { window._bonInfoEditHandler(bonId); return; }
+    if (typeof window.openDrawer === 'function') { window.openDrawer(bonId); return; }
+    _navigateToBon('/kitchen/today.html', bonId);
 }
 
 function _flyverPrev() {
