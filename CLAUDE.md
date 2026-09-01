@@ -4480,6 +4480,49 @@ linjerne på den?"). Bevidst udskudt: Enter-fælden var kilden til de observered
 dubletter, så værnet ville kun fange det tilfælde hvor nogen bevidst åbner modalen to
 gange. Tages op hvis det viser sig i drift alligevel.
 
+### Et tilbud bærer nu sit eget mail-tag (1. september 2026)
+
+Et tilbud blev sendt med emnet **"#b-28 Tilbud T-28"** — bonnens tag på et
+tilbud. Et tilbud ER en bon (`is_offer = 1`), og alle mail-veje satte derfor
+`type: 'bon'` på den uden at se på rækken.
+
+**Det er ikke kosmetik — det er routingen.** `matchBonByTagNumber` afgrænser
+bevidst et bon-tag til `is_offer = 0`, så kundens svar blev slået op blandt de
+rigtige bons, fandt ingenting og faldt ud i den ufordelte indbakke. Og fandtes
+der en rigtig bon med de samme cifre, ville svaret lande på **DEN**. Laveste bon
+i drift er `cafe-64`, så kollisionen begynder ved T-64 — tilbudsnummeret står
+ved 28.
+
+> Hele `#t-`-siden fandtes i forvejen: settingen `mail_tag_offer_prefix`,
+> `parseSubject`'s `offerMatch` og offer-grenen i `matchBonByTagNumber`.
+> Den var bare uden for rækkevidde, fordi `type: 'offer'` ikke optrådte ét
+> eneste sted i produktionskoden. Modtageren var bygget, afsenderen ringede aldrig.
+
+- **`mailService.bonMailContext(db, bonId)`** udleder typen af rækken. Ét sted,
+  fordi de to kaldesteder — `POST /api/bons/:id/mail` (tilbudswizardens
+  "Send til kunde" går gennem den) og `threadReplyContext` i indbakken — havde
+  hver sin kopi af det samme hardkodede gæt.
+- **Gamle tags bliver ikke hjemløse.** Rammer et `#b-`-tag ingen rigtig bon,
+  prøves tilbuddene, og fallbacken logges. Rækkefølgen er det der gør det
+  sikkert: rigtige bons vinder altid, så et gyldigt bon-tag kan aldrig
+  omdirigeres til et tilbud — kun det tomme opslag falder igennem.
+
+**Det lille `#b-` ved siden af det store `B4229` er ikke en dublet.** `#b-` er
+routing-tagget (`mail_tag_bon_prefix`), `B` er bon-nummerets visnings-præfiks
+(`bon_number_prefix`) — to adskilte settings, ingen af dem hardkodede. Ligger
+`{{tag}}` i skabelonens emne, står tagget hvor man har sat det (som i
+`booking_confirmation`); mangler det, sætter serveren det forrest. Vil man have
+det til at fylde mindre, er det skabelonen der skal rettes — tagget selv skal
+blive, for det er dét der får kundens svar hjem i den rigtige tråd.
+
+**Tests**: `npm run test:offer-tag` — 20 asserts. Afsendelsen rammer den ægte
+rute over HTTP (typen udledes dér), routingen kalder `processInboundMail`
+direkte. Fixturen har et tilbud **og** en bon med samme cifre — det par er hele
+pointen. **Mutations-testet:** fem tilbagerulninger fælder hver sine navngivne
+asserts, heriblandt en hvor fallbacken får forrang og dermed stjæler et gyldigt
+bon-tag. Regression grøn: inbox-learn 53, inbox_handling 29, inbox-link 21,
+mail-send-truth 17, mail-tid 20, mail-parser 49.
+
 ### Indbakken: en kobling lærer afsenderen, og et arkiv kan findes igen (#478 + #479, 18. august 2026)
 
 Lærke skrev to mails 11. august — den ene med selve bestillingen (43 kuverter,

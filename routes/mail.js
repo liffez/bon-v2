@@ -3,7 +3,7 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 const { handle, getUserId, transaction } = require('../db/helpers');
 const { requireAuth, requireModule } = require('../shared/auth');
-const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../services/mailService');
+const { sendFromTemplate, sendMail, refetchUnmatchedMail, bonMailContext } = require('../services/mailService');
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
 const { isInternalEmail } = require('../services/internalIdentity');
@@ -454,11 +454,9 @@ router.get('/threads/:id', requireAuth(), handle((req, res) => {
 
 // Byg reply-context (tag) for en tråd
 function threadReplyContext(db, t) {
-    if (t.bon_id) {
-        const b = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(t.bon_id);
-        const num = b ? parseInt(String(b.bon_number).replace(/\D/g, '')) : null;
-        return num ? { type: 'bon', number: num } : null;
-    }
+    // bonMailContext skelner tilbud (#t-) fra bon (#b-) — et svar fra
+    // indbakken på en tilbudstråd skal bære tilbuddets eget tag.
+    if (t.bon_id) return bonMailContext(db, t.bon_id);
     if (t.customer_id) return { type: 'customer', number: t.customer_id };
     return null;
 }

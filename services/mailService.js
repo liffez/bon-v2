@@ -622,6 +622,30 @@ function matchBonByTagNumber(db, num, opts = {}) {
     return exact[0];
 }
 
+/**
+ * Mail-tag-kontekst for en bon — hvilket tag skal emnet bære?
+ *
+ * Et tilbud ER en bon (is_offer = 1), og derfor satte alle mail-veje hidtil
+ * `type: 'bon'` på den. T-28 fik dermed tagget #b-28, og to ting fulgte med:
+ *
+ *   1. Kundens svar blev slået op blandt de RIGTIGE bons — matchBonByTagNumber
+ *      filtrerer på is_offer = 0 — og faldt derfor ud i den ufordelte indbakke
+ *      i stedet for at lande på tilbuddet.
+ *   2. Fandtes der en rigtig bon med samme cifre, ville svaret lande på DEN.
+ *      Laveste bon i drift er cafe-64, så kollisionen begynder ved T-64.
+ *
+ * Hele #t--siden fandtes i forvejen — settingen `mail_tag_offer_prefix`,
+ * parseSubject's offerMatch og matchBonByTagNumber's offer-gren. Den var bare
+ * uden for rækkevidde, fordi ingen afsender nogensinde satte type: 'offer'.
+ */
+function bonMailContext(db, bonId) {
+    const b = db.prepare('SELECT bon_number, is_offer FROM bons WHERE id = ?').get(bonId);
+    if (!b) return null;
+    const num = parseInt(String(b.bon_number).replace(/\D/g, ''));
+    if (!num) return null;
+    return { type: b.is_offer ? 'offer' : 'bon', number: num };
+}
+
 // Slå kunde op via afsender-email — contact_points (autoritativ) + customers.email
 // (cache). Bruges til at route mail fra en KENDT kunde uden emne-tag direkte ind i
 // en tråd (CLAUDE_INDBAKKE.md §4 pkt. 3) i stedet for den ufordelte indbakke.
@@ -720,7 +744,22 @@ async function processInboundMail(parsed, uid, mailbox) {
     // 2. Tag matching
     if (!threadId) {
         if (tagResult.routing === 'bon' || tagResult.routing === 'bon+customer') {
-            const bon = matchBonByTagNumber(db, tagResult.bonNumber);
+            let bon = matchBonByTagNumber(db, tagResult.bonNumber);
+            // De tilbud der allerede er sendt ud, bærer et #b--tag (se
+            // bonMailContext). Rammer et bon-tag ingen rigtig bon, prøver vi
+            // tilbuddene — ellers ville svaret på et tilbud sendt før denne
+            // rettelse falde ud i den ufordelte indbakke for altid.
+            //
+            // Rækkefølgen er det der gør det sikkert: rigtige bons vinder
+            // altid, så et gyldigt bon-tag kan aldrig omdirigeres til et
+            // tilbud. Kun det tomme opslag falder igennem, og det logges.
+            if (!bon) {
+                const asOffer = matchBonByTagNumber(db, tagResult.bonNumber, { offer: true });
+                if (asOffer) {
+                    console.warn(`[mail] bon-tag #${tagResult.bonNumber} matchede ingen bon — routet til tilbud ${asOffer.bon_number} (gammelt tag fra før #t- blev taget i brug)`);
+                    bon = asOffer;
+                }
+            }
             if (bon) {
                 bonId = bon.id;
                 // Verificér kunden findes før vi sætter FK'en — ellers fejler
@@ -1111,6 +1150,7 @@ module.exports = {
     getPollState,
     processInboundMail,
     findCustomerByEmail,
+    bonMailContext,
     // Test-mode-guard (kun til runner-brug)
     _setMockTransport,
     _clearMockTransport,
