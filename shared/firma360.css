@@ -342,6 +342,23 @@
     color: var(--color-text, #1f2024);
 }
 
+/* Forhandler-markering (migration 167) — checkbox + forklaring under.
+   Forklaringen er nødvendig: markeringen ændrer hvor FREMTIDIGE web-ordrer
+   lander, og det kan man ikke gætte ud fra ordet "forhandler". */
+.f3-reseller-val { display: block; }
+.f3-reseller-lbl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+.f3-reseller-hint {
+    display: block;
+    font-size: 11px;
+    line-height: 1.35;
+    margin-top: 2px;
+}
+
 /* Redigerbare stamdata-rækker (CVR / EAN / juridisk navn) */
 .f3-row-editable .f3-edit-btn {
     opacity: 0;
@@ -355,15 +372,28 @@
     transition: opacity 0.12s, color 0.12s;
 }
 .f3-row-editable:hover .f3-edit-btn { opacity: 1; }
+/* Tom række: blyanten står fremme (dæmpet), og hele rækken kan klikkes.
+   Ellers ser et tomt felt ud som om det slet ikke kan redigeres. */
+.f3-row-editable.f3-row-empty .f3-edit-btn { opacity: .5; }
+.f3-row-editable.f3-row-empty { cursor: pointer; }
+.f3-row-editable.f3-row-empty:hover .f3-val { color: var(--brand-primary, #8e631f); }
 .f3-row-editable .f3-edit-btn:hover { color: var(--brand-primary, #8e631f); }
+/* `min-width: 0` er ikke pynt: en flex-item har som standard `min-width: auto`
+   og kan derfor ikke krympe under sit indholds min-bredde. Uden den skød
+   redigerings-rækken 59 px ud over kortkanten, og "Annullér" blev klippet af
+   (målt i Firma 360°: kortet slutter ved 626, wrap'en endte ved 668). */
 .f3-edit-wrap {
     flex: 1;
+    min-width: 0;
     display: flex;
     gap: 6px;
     align-items: center;
 }
+/* Knapperne beholder deres bredde — det er feltet der skal give plads. */
+.f3-edit-wrap .f3-btn-sm { flex-shrink: 0; }
 .f3-edit-input {
-    flex: 1;
+    /* 70 px basis, så feltet ikke krymper til ulæselighed i en smal kolonne */
+    flex: 1 1 70px;
     min-width: 0;
     padding: 4px 8px;
     border: 1px solid var(--brand-primary, #8e631f);
@@ -526,10 +556,24 @@
     text-transform: none;
     font-weight: 500;
 }
+/* Tilbuds-status (kladde/sendt/vundet) — IKKE bon-status. Bon-statusser
+   farves af statusBadgeHtml ud fra BON_CONFIG, så de ser ud som alle andre
+   steder i huset. */
 .f3-pill-status {
     background: #e6eef3;
     color: #3d6a87;
     text-transform: none;
+}
+
+/* Bon-status i tabellerne: formen her, farven fra BON_CONFIG. */
+.f3-table .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    white-space: nowrap;
 }
 .f3-pill-stage-vip { background: #f3ece1; color: #7c5d3c; }
 .f3-pill-stage-active { background: #e3f0e6; color: #2f6e3f; }

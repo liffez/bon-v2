@@ -279,6 +279,12 @@
   border-top: 1px solid var(--color-border, #d7d1ca);
 }
 
+/* Rabat-række (migration 111). Ligger mellem moms og total, så regnestykket
+   kan læses ovenfra og ned — uden den ser fakturaen bare uforklarligt lavere ud. */
+.fakt-sum-row-discount {
+  color: var(--brand-primary, #8e631f);
+}
+
 .fakt-sum-row-total {
   padding: 12px 16px;
   font-size: 16px;

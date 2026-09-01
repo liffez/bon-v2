@@ -411,6 +411,36 @@ function endPeek(f) {
     if (!filterLocked[f]) btn.classList.remove('on-' + f);
 }
 
+/**
+ * Gør et bon-kort synligt uanset hvilket filter der er slået til.
+ *
+ * Et filtreret kort ligger stadig i DOM'en med `display:none`, så et rent
+ * scrollIntoView rammer noget usynligt. Bruges af flyver-modalens
+ * "Gå til bon" — se shared/flyver.js.
+ */
+window.revealBonCard = function(card) {
+    if (!card) return;
+
+    // Kortet kan være midt i leveret-fade (inline display:none + opacity 0)
+    cancelLeveretFade(card);
+
+    // Sluk de filtre der ville skjule kortet, og tænd VIS LEVEREDE hvis nødvendigt
+    const isLev = card.dataset.status === 'lev';
+    ['igang', 'klar', 'lev'].forEach(f => {
+        const on = (f === 'lev') && isLev;
+        if (filterPeek[f]) { clearInterval(peekTimers[f]); filterPeek[f] = false; }
+        filterLocked[f] = on;
+        applyFilter(f, on);
+        const btn = btnId(f);
+        if (btn) {
+            btn.classList.remove('peek-' + f, 'peek');
+            btn.classList.toggle('locked', on);
+        }
+    });
+
+    updateCount();
+};
+
 /* ══════════════════════════════════════════════════════════════
    COUNT BADGE
    ══════════════════════════════════════════════════════════════ */

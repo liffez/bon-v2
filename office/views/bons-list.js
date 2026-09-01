@@ -30,6 +30,11 @@ if (!_blSort.col) { _blSort = { col: 'delivery_time', dir: 'asc' }; }
 var _blColumns = JSON.parse(localStorage.getItem('office_listview_columns') || 'null') || {
     customer: true,
     company: true,
+    // Slutkunde er default FRA: den er kun udfyldt på forhandler-ordrer, og en
+    // altid-synlig kolonne ville give alle andre en tom spalte. Gemte
+    // kolonne-valg mangler nøglen og læses som false — ingen ændring for dem
+    // der allerede har en indstilling liggende.
+    end_customer: false,
     pax: true,
     phone: false,
     email: false,
@@ -50,6 +55,7 @@ var BL_COLUMN_DEFS = {
     // Fixed columns are rendered separately
     customer:        { label: 'Kunde',          sortKey: 'customer_name' },
     company:         { label: 'Firma',          sortKey: 'company_name' },
+    end_customer:    { label: 'Slutkunde',      sortKey: null },
     pax:             { label: 'Pax / Enh.',     sortKey: 'pax',                  align: 'right' },
     phone:           { label: 'Telefon',        sortKey: null },
     email:           { label: 'Email',          sortKey: null },
@@ -722,7 +728,18 @@ function _blRenderTable() {
                     }
                     break;
                 case 'company':
+                    // Forhandler-ordre: vis begge dele, så det er tydeligt at
+                    // firmaet er den der betaler og ikke den maden er til.
+                    // Kun når slutkunden findes — alle andre rækker er uændrede.
                     td1.textContent = bon.company_name || '';
+                    if (bon.end_customer_name) {
+                        td1.textContent += ' → ' + bon.end_customer_name;
+                        td1.title = (bon.company_name || '') + ' bestiller for ' + bon.end_customer_name;
+                    }
+                    td1.classList.add('bl-td-dim');
+                    break;
+                case 'end_customer':
+                    td1.textContent = bon.end_customer_name || '';
                     td1.classList.add('bl-td-dim');
                     break;
                 case 'pax':

@@ -203,6 +203,12 @@ class BonDrawer {
                 <div class="drawer-section" data-drawer-section="kunde">
                     <label class="drawer-label">Kunde</label>
                     <div class="drawer-kunde-container"></div>
+                    <!-- Slutkunde: hvem maden er til, når kunden ovenfor bestiller
+                         for en anden (forhandler-ordrer, migration 167). Kunden
+                         ovenfor er den der får fakturaen. -->
+                    <label class="drawer-sublabel" style="margin-top:12px">Slutkunde <span class="drawer-hint-inline">(hvis der bestilles for en anden)</span></label>
+                    <input type="text" class="drawer-field" data-field="end_customer_name"
+                           placeholder="Fx Systematic — firmaet maden skal ud til">
                     <label class="drawer-sublabel" style="margin-top:12px">Dagskontakt</label>
                     <div class="drawer-row">
                         <input type="text" class="drawer-field" data-field="day_contact_name" placeholder="Kontaktperson på dagen">
@@ -235,7 +241,24 @@ class BonDrawer {
                         <div class="drawer-field-group">
                             <label class="drawer-sublabel">Betaling</label>
                             <select class="drawer-field" data-field="payment_type"></select>
+                            <!-- Nogle betalingstyper giver ingen omsætning (Modregning,
+                                 Sponsorat). Det står ikke i navnet, og forskellen til
+                                 "intern bon" er let at tage fejl af — derfor siges den
+                                 hvor valget træffes, ikke kun i Settings. -->
+                            <span class="drawer-pay-hint" hidden></span>
                         </div>
+                    </div>
+                    <!-- Intern bon. Et regnskabsflag, ikke en køkken-detalje: sat
+                         forsvinder bonnen ud af omsætning, driftsregnskab og
+                         rapporter. Derfor står konsekvensen ved siden af feltet —
+                         "intern" alene siger ikke hvad det gør. Kun i office;
+                         køkkenet skal ikke kunne flytte tal ved et uheld. -->
+                    <div class="drawer-row drawer-internal-row">
+                        <label class="drawer-internal">
+                            <input type="checkbox" class="drawer-field" data-field="is_internal">
+                            <span>Intern bon</span>
+                        </label>
+                        <span class="drawer-internal-hint">bonnen tælles slet ikke med &mdash; hverken omsætning, enheder eller pax. Skal maden tælle i produktionen, men uden penge, så vælg betalingen <em>Modregning</em> i stedet.</span>
                     </div>
                 </div>
 
@@ -360,7 +383,7 @@ class BonDrawer {
             </div>
 
             <div class="drawer-footer">
-                <button type="button" class="btn-drawer-slet">Slet bon</button>
+                <button type="button" class="btn-drawer-slet">Aflys / slet</button>
                 <button type="button" class="btn-drawer-gem" disabled>Gem</button>
             </div>
         `;
@@ -626,6 +649,7 @@ class BonDrawer {
 
         // Status bar
         this._renderStatusBar();
+        this._renderDeleteButton();
         this._renderInvoiceWarning();
 
         // Levering
@@ -682,6 +706,10 @@ class BonDrawer {
             this.kundeSoeg.clear();
         }
 
+        // Slutkunde (forhandler-ordrer). Ingen pre-fill — tom betyder "ingen
+        // slutkunde", og et gæt ville se ud som noget nogen havde skrevet.
+        this._setFieldValue('end_customer_name', d.end_customer_name || '');
+
         // Dagskontakt — pre-fill fra kunde hvis tom
         this._setFieldValue('day_contact_name', d.day_contact_name || d.contact_name_full || '');
         this._setFieldValue('day_contact_phone', d.day_contact_phone || d.contact_phone || '');
@@ -690,8 +718,13 @@ class BonDrawer {
         this._setCheckbox('kitchen_selects', d.kitchen_selects);
         this._setFieldValue('pax', d.pax || '');
         this._setFieldValue('total_units', d.total_units || '');
+        this._setCheckbox('is_internal', d.is_internal);
         this._setFieldValue('price_category_id', d.price_category_id || '');
         this._setFieldValue('payment_type', d.payment_type || '');
+        // _setFieldValue udløser ikke 'change', så forbeholdet skal sættes
+        // eksplicit ved indlæsning — ellers dukker det først op når nogen
+        // rører dropdownen, og en gemt Modregning ville stå uden forklaring.
+        this._updatePayHint();
 
         // Firma
         this._renderFirma(d.company_name);
@@ -1620,6 +1653,20 @@ class BonDrawer {
         }
     }
 
+    /**
+     * Slet-knappen er to-trins: en aktiv bon aflyses, en allerede aflyst slettes
+     * permanent. Etiketten fulgte ikke med, så knappen lovede altid det farligste.
+     */
+    _renderDeleteButton() {
+        const btn = this.el.querySelector('.btn-drawer-slet');
+        if (!btn) return;
+        const isAflyst = (this.data && this.data.status_code) === 'AFLYST';
+        btn.textContent = isAflyst ? 'Slet permanent' : 'Aflys bon';
+        btn.title = isAflyst
+            ? 'Fjerner bonen med linjer, historik og mails. Kan ikke fortrydes.'
+            : 'Sætter status til AFLYST. Bonen bliver stående og kan findes igen.';
+    }
+
     _renderStatusBar() {
         const bar = this.el.querySelector('.drawer-status-bar');
         bar.innerHTML = '';
@@ -1660,10 +1707,22 @@ class BonDrawer {
     }
 
     async _setStatus(statusKey, force, confirmNoInvoice) {
-        if (!this.data) return;
+        if (!this.data) return false;
         const curStatus = statusToFrontend(this.data.status_code || '');
-        if (statusKey === curStatus) return;
+        if (statusKey === curStatus) return false;
         const backendCode = statusToBackend(statusKey);
+
+        // Aflysning spørger først. `status_transitions.requires_confirmation`
+        // findes i databasen for netop denne vej, men INGEN frontend læser det
+        // felt — serveren returnerer det først i svaret, altså efter skiftet er
+        // sket. Uden dette ville AFLYST-knappen være ét klik uden varsel, mens
+        // "Aflys / slet"-knappen nedenfor spørger. Samme ord begge steder.
+        if (statusKey === 'aflyst' && !force) {
+            if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\n'
+                + 'Den holdes ude af omsætning og produktion, men bliver stående '
+                + 'så den kan findes igen. Vil du fjerne den helt, så tryk '
+                + '"Slet permanent" bagefter.')) return false;
+        }
         const fromLabel = (BON_CONFIG.statuses[curStatus] || {}).label || curStatus;
         const toLabel = (BON_CONFIG.statuses[statusKey] || {}).label || statusKey;
         try {
@@ -1674,8 +1733,10 @@ class BonDrawer {
             // Bekræftede vi, er bonnen nu faktureret uden faktura → mærke.
             this.data.missing_invoice = (confirmNoInvoice && ['FAKTURERET', 'AFSLUTTET'].includes(backendCode)) ? 1 : 0;
             this._renderStatusBar();
+            this._renderDeleteButton();
             this._renderInvoiceWarning();
             this._showStatusFlash();
+            return true;
         } catch (err) {
             // Fakturavagt (#319): bonnen markeres faktureret uden at der findes
             // en kladde eller bogført faktura. Vi spørger ÉN gang — blokerer ikke.
@@ -1687,19 +1748,31 @@ class BonDrawer {
                 )) {
                     return this._setStatus(statusKey, force, true);
                 }
-                return;
+                return false;
             }
-            // Admin-override: en ellers ugyldig status-vej kan tvinges igennem.
-            // Backenden afviser med code='TRANSITION_NOT_ALLOWED' + can_force=true
-            // når den indloggede session er admin. Vi spørger om bekræftelse og
-            // prøver igen med force:true.
+            // Override af en status-vej der ikke findes i flowet. Backenden
+            // afviser med code='TRANSITION_NOT_ALLOWED' + can_force=true når
+            // der er en session at skrive i auditsporet. Vi spørger om
+            // bekræftelse og prøver igen med force:true.
+            //
+            // Alle indloggede kan overstyre, ikke kun admin: virkeligheden
+            // følger ikke altid flow-diagrammet (en kunde aflyser efter
+            // levering), og den der står med sagen skal kunne rette op.
+            // Derfor er advarslen det der bærer beslutningen — den skal sige
+            // hvad der springes over, og at det kan ses bagefter.
             if (!force && err.code === 'TRANSITION_NOT_ALLOWED' && err.body && err.body.can_force) {
-                if (confirm(`"${fromLabel}" → "${toLabel}" er ikke en normal status-vej.\n\nVil du overstyre som admin? (Springer normal valideringsrækkefølge over.)`)) {
+                if (confirm(
+                    `"${fromLabel}" → "${toLabel}" er ikke en normal status-vej.\n\n`
+                    + 'Skift den alligevel? Kontroller og automatik der hører til de '
+                    + 'normale trin springes over — fx lagertræk og afbestilling af bud.\n\n'
+                    + 'Skiftet noteres i bonnens historik med dit navn.'
+                )) {
                     return this._setStatus(statusKey, true);
                 }
-                return;
+                return false;
             }
             alert(err.message || 'Kunne ikke skifte status');
+            return false;
         }
     }
 
@@ -1844,10 +1917,38 @@ class BonDrawer {
         if (typeof window !== 'undefined' && window.Moms && typeof window.Moms.momsOfIncl === 'function') {
             momsTxt = ' · heraf moms ' + Math.round(window.Moms.momsOfIncl(totalIncl)) + ' kr';
         }
+        // Stående rabat (migration 111). Uden de to rækker her er bonens total
+        // lavere end linjesummen uden at NOGEN skærm forklarer hvorfor — feltet
+        // findes i basen, men blev ikke vist ét eneste sted.
+        //
+        // Vi opfinder ikke rabatbeløbet: serveren regner den af linjesum PLUS
+        // levering (recalcBonTotal), og hvornår levering tælles med afhænger af
+        // en regel der bor på serveren. Så vi viser satsen (et faktum på bonen)
+        // og serverens egen total (et andet faktum) — ikke et mellemregnet tal
+        // der kan komme til at modsige fakturaen.
+        var discountHtml = '';
+        var pct = Number(this.data && this.data.offer_discount_percent) || 0;
+        if (pct > 0) {
+            var bonTotal = Number(this.data.total_price);
+            var pctTxt = pct.toLocaleString('da-DK', { maximumFractionDigits: 2 });
+            discountHtml =
+                '<div class="drawer-line-discount">' +
+                    '<span class="drawer-line-total-label">Rabat ' + pctTxt + ' %</span>' +
+                    '<span class="drawer-line-total-amount">trukket fra</span>' +
+                '</div>' +
+                (isFinite(bonTotal)
+                    ? '<div class="drawer-line-total drawer-line-total-final"' +
+                        ' title="Linjesum minus rabat — plus levering, hvis leveringen ikke står som en varelinje.">' +
+                        '<span class="drawer-line-total-label">Bonens total (inkl. moms)</span>' +
+                        '<span class="drawer-line-total-amount">' + bonTotal.toLocaleString('da-DK', { maximumFractionDigits: 0 }) + ' kr</span>' +
+                      '</div>'
+                    : '');
+        }
+
         html += '<div class="drawer-line-total">' +
                 '<span class="drawer-line-total-label">I alt (inkl. moms)' + momsTxt + '</span>' +
                 '<span class="drawer-line-total-amount">' + totalIncl.toLocaleString('da-DK', { maximumFractionDigits: 0 }) + ' kr</span>' +
-            '</div>';
+            '</div>' + discountHtml;
 
         list.innerHTML = html;
         this._bindLineHandlers(list);
@@ -2410,7 +2511,9 @@ class BonDrawer {
             'price_category_id', 'payment_type',
             'kitchen_selects',
             'day_contact_name', 'day_contact_phone',
-            'customer_wishes', 'invoice_info', 'kitchen_info', 'internal_notes'
+            'end_customer_name',
+            'customer_wishes', 'invoice_info', 'kitchen_info', 'internal_notes',
+            'is_internal'
         ];
 
         for (const name of fieldNames) {
@@ -2450,15 +2553,19 @@ class BonDrawer {
             return;
         }
 
-        if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\nTip: åbn den aflyste bon og tryk "Slet bon" igen for at slette den permanent.')) return;
-        try {
-            await patchBonStatus(this.bonId, 'AFLYST');
-            // Bonen er aflyst — spørg ikke om at gemme eventuelle felt-ændringer.
-            this.dirty = false;
-            this._doHide();
-        } catch (err) {
-            alert(err.message || 'Kunne ikke slette/aflyse bon');
-        }
+        // Samme vej som AFLYST-knappen i status-baren. Knappen kaldte tidligere
+        // patchBonStatus direkte og havde derfor hverken bekræftelse eller tilbud
+        // om at overstyre en vej der ikke findes — fra en terminal status (fx
+        // AFSLUTTET → AFLYST, bevidst blokeret, se BON_V2_PRINCIPPER §4) endte
+        // den bare i en blank fejlbesked. To veje til samme handling skrider fra
+        // hinanden; nu deler de kode.
+        //
+        // Draweren lukker IKKE længere bagefter: aflysning er ikke en fjernelse,
+        // og nu hvor AFLYST er en synlig status kan man se at det virkede — og
+        // "Slet permanent" står klar hvis den skal væk helt.
+        const ok = await this._setStatus('aflyst');
+        // Bonen er aflyst — spørg ikke om at gemme eventuelle felt-ændringer.
+        if (ok) this.dirty = false;
     }
 
     /* ══════════════════════════════════════════════════════
@@ -2727,6 +2834,24 @@ class BonDrawer {
        DROPDOWNS
        ══════════════════════════════════════════════════════ */
 
+    /** Forbehold ved en betalingstype der ikke giver omsætning. */
+    _updatePayHint() {
+        const sel  = this.el.querySelector('[data-field="payment_type"]');
+        const hint = this.el.querySelector('.drawer-pay-hint');
+        if (!sel || !hint) return;
+        const pt = (this.paymentTypes || []).find(x => x.code === sel.value);
+        // counts_as_revenue mangler på ældre svar → antag at den tæller.
+        // Et manglende felt må ikke få en almindelig faktura til at se ud som
+        // en giveaway.
+        const tællerIkke = pt && Number(pt.counts_as_revenue) === 0;
+        hint.hidden = !tællerIkke;
+        if (tællerIkke) {
+            hint.innerHTML = 'Giver <strong>ingen omsætning</strong> &mdash; men enheder og pax '
+                + 'tæller stadig, for maden blev lavet. Skal bonnen slet ikke tælle med, '
+                + 'så sæt <em>Intern bon</em> i stedet.';
+        }
+    }
+
     async _loadDropdowns() {
         try {
             const [cats, types] = await Promise.all([
@@ -2747,6 +2872,15 @@ class BonDrawer {
             for (const pt of types) {
                 ptSel.innerHTML += `<option value="${pt.code}">${esc(pt.label)}</option>`;
             }
+            // "Modregning" og "Sponsorat" ser ud som enhver anden betalingsmåde
+            // i listen, men nulstiller omsætningen. Forskellen til "intern bon"
+            // er let at tage fejl af — den ene fjerner ALT, den anden kun
+            // kronerne. Sig det hvor valget træffes.
+            if (!ptSel._hintWired) {
+                ptSel._hintWired = true;
+                ptSel.addEventListener('change', () => this._updatePayHint());
+            }
+            this._updatePayHint();
         } catch (err) {
             console.error('Kunne ikke hente dropdown-data:', err);
         }

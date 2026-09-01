@@ -88,7 +88,36 @@ app.get('/', (req, res) => {
   res.redirect('/login.html');
 });
 
-app.use(express.static(path.join(__dirname)));
+/* ──────────────────────────────────────────────────────────────
+   STATISK SERVERING
+
+   Her stod `express.static(path.join(__dirname))` — HELE projektmappen,
+   uden login. Det gjorde ikke bare frontend-koden offentlig, men også
+   `routes/`, `services/`, `db/`, `utils/`, `scripts/` og `deploy/`.
+   `.env` slap alene fri fordi express.static som standard ignorerer
+   dotfiles; det var held, ikke design.
+
+   Nu serveres kun de mapper browseren rent faktisk henter fra, plus de få
+   løse filer i roden. En ny mappe i projektet er dermed lukket indtil nogen
+   skriver den ind her — det er den rigtige vej rundt: man skal aktivt
+   åbne noget, ikke huske at lukke det.
+   ────────────────────────────────────────────────────────────── */
+const PUBLIC_DIRS = [
+    'assets',                                   // logo, ikoner, fonte, leaflet
+    'shared',                                   // fælles JS/CSS på tværs af zoner
+    'office', 'kitchen', 'mobile', 'settings',  // zone-shells
+    'views',                                    // /views/delivery/note.{js,css} — leveringsvinduet
+];
+for (const dir of PUBLIC_DIRS) {
+    app.use('/' + dir, express.static(path.join(__dirname, dir)));
+}
+
+// Løse filer i roden som siderne henter direkte. Alt andet i roden
+// (package.json, CLAUDE.md, state-filer, arkiver) er ikke længere offentligt.
+const PUBLIC_ROOT_FILES = ['login.html', 'favicon.ico', 'BonConfig.js', 'BonConfigBar.js'];
+for (const file of PUBLIC_ROOT_FILES) {
+    app.get('/' + file, (req, res) => res.sendFile(path.join(__dirname, file)));
+}
 
 // ─── ROUTES ────────────────────────────────────────────────────────────────
 
@@ -190,6 +219,7 @@ app.use('/api/flags',      require('./routes/flags'));
 app.use('/api/campaigns',  require('./routes/campaigns'));
 app.use('/api/admin/merge-companies', require('./routes/admin-merge'));
 app.use('/api/admin/batch-enrich', require('./routes/admin-batch-enrich'));
+app.use('/api/admin/cleanup', require('./routes/admin-cleanup'));
 app.use('/api/cvr',        require('./routes/cvr'));
 app.use('/api/settings',   require('./routes/settings'));
 app.use('/api/wage-rates', require('./routes/wage_rates'));
@@ -237,8 +267,28 @@ app.use('/api/nav',              require('./routes/nav'));
 // Statisk serving af receipt-fotos (for Whiteboard link-only access)
 app.use('/uploads/receipts', express.static(path.join(__dirname, 'data', 'uploads', 'receipts')));
 
-// Statisk serving af CVR review-data (kun JSON-filer i data/)
-app.use('/data', express.static(path.join(__dirname, 'data'), { extensions: ['json'] }));
+// CVR review-data til tools/cvr-review.html.
+//
+// Her stod `express.static('data', { extensions: ['json'] })`, og kommentaren
+// sagde "kun JSON-filer". Det gør `extensions` ikke: den er en FALLBACK for
+// URL'er UDEN endelse, ikke et filter. Hele data/ blev serveret som den lå —
+// og `GET /data/bon.db` hentede produktionsdatabasen ned uden login.
+//
+// Nu: de to filer værktøjet bruger, og kun for den der er logget ind.
+const CVR_REVIEW_FILES = new Set(['cvr-virk-review.json', 'cvr-unmatched.json']);
+app.get('/data/:file', _gateAuth(), (req, res) => {
+    if (!CVR_REVIEW_FILES.has(req.params.file)) return res.status(404).end();
+    res.sendFile(path.join(__dirname, 'data', req.params.file));
+});
+
+// Interne værktøjssider (CVR-review m.fl.). De er arbejdsredskaber, ikke
+// offentlige flader — og tools/horkram-opret-helper.html indeholder
+// leverandørpriser. Derfor bag login, med redirect så en HTML-side lander
+// på login i stedet for en rå 401.
+app.use('/tools', (req, res, next) => {
+    if (req.session?.userId) return next();
+    res.redirect('/login.html?next=' + encodeURIComponent(req.originalUrl));
+}, express.static(path.join(__dirname, 'tools')));
 
 // ─── MAIL POLLING ───────────────────────────────────────────────────────────
 

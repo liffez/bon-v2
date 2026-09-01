@@ -57,7 +57,7 @@ Vigtige navne at huske (tidligere kilde til forvirring):
 Status-transitions i databasen definerer det **normale flow** og hvad der vises af knapper til køkkenet.
 
 **Men:**
-- En admin kan altid sætte en hvilken som helst status med `force: true` i API-kaldet.
+- Enhver **indlogget** bruger kan sætte en hvilken som helst status med `force: true` i API-kaldet (admin-kravet faldt aug 2026 — auth er rolle-baseret med delte konti, så det ramte roller og ikke ansvar). Frontenden advarer og beder om bekræftelse først, og skiftet skrives i `changelog` med `was_forced` + brugerens id fra **sessionen**.
 - Virkeligheden kræver fleksibilitet: en bon kan hoppe fra VENTER til IGANG og tilbage, eller springe direkte til LEVERET.
 - POS-ordrer (Zettle) sættes direkte til BETALT — det er en lovlig operation.
 - Transitions er ikke sikkerhed — de er UX-hjælp.
@@ -74,7 +74,7 @@ Statusser `FAKTURERET`, `BETALT` og `AFSLUTTET` er **terminale** — de kan ikke
 - "Skal den med i året-til-dato regnskab?"
 - "Skal momsen tilbage?"
 
-**Hvis det alligevel skal gøres** (sjælden datafejl der kræver manuel rettelse): admin kan bruge `{force: true, user_id: <admin>}` på PATCH-endpointet eller direkte SQL-UPDATE. Begge logger automatisk i `changelog` så audit-trailen forbliver komplet.
+**Hvis det alligevel skal gøres** (sjælden datafejl der kræver manuel rettelse): en indlogget bruger kan sende `{force: true}` på PATCH-endpointet, eller man kan rette direkte med SQL-UPDATE. Begge logger automatisk i `changelog` så audit-trailen forbliver komplet. `user_id` i body bruges IKKE til auditsporet ved force — det kommer fra sessionen, så det ikke kan skrives af afsenderen.
 
 ---
 

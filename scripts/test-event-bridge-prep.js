@@ -223,6 +223,31 @@ async function main() {
     eq(again.action, 'updated', 'salg: andet push → updated');
     eq(again.bonId, sSale.bonId, 'salg: samme bon (ingen dublet)');
 
+    // ── Varianten skal kunne LÆSES på linjen ────────────────────────────────
+    // "10 × Glutenfri Bolle" fortæller ikke køkkenet hvilke retter bollerne
+    // hører til. Broen sender derfor retten to gange — én almindelig og én med
+    // variantens navn — og teksten lander i special_request, som aldrig slås
+    // sammen med andre linjer (shared/bon_lines.js).
+    const { lines: rVar } = await resolvePrepLines([
+        { grocy_recipe_id: 91, antal: 113 },
+        { grocy_recipe_id: 91, antal: 1, variant: 'Glutenfri Bolle' },
+    ], mockGrocy);
+    eq(rVar.length, 2, 'variant: samme ret to gange bliver to linjer');
+    ok(!rVar[0].special_request, 'variant: den almindelige linje har ingen tekst');
+    eq(rVar[1].special_request, 'Glutenfri Bolle', 'variant: teksten sidder på den rigtige linje');
+    eq(rVar[1].product_name, 'Grisen på Rug', 'variant: linjen er stadig den samme ret');
+
+    const cVar = applyPrepPush(db, { event, date: '2026-08-30', resolved: rVar });
+    const varLines = db.prepare(
+        `SELECT quantity, special_request FROM bon_lines WHERE bon_id=? ORDER BY sort_order`
+    ).all(cVar.bonId);
+    eq(varLines.length, 2, 'variant: begge linjer skrevet til bonnen');
+    eq(varLines[0].special_request, null, 'variant: almindelig linje uden tekst i databasen');
+    eq(varLines[1].special_request, 'Glutenfri Bolle', 'variant: teksten gemt på bonnens linje');
+    eq(Number(varLines[1].quantity), 1, 'variant: antallet følger med');
+    eq(Number(db.prepare(`SELECT total_units FROM bons WHERE id=?`).get(cVar.bonId).total_units), 114,
+       'variant: begge linjer tæller med i total_units');
+
     console.log(`\nFase 3 (event-bro prep): ${pass} PASS · ${fail} FAIL`);
     process.exit(fail ? 1 : 0);
 }

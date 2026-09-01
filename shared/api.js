@@ -58,7 +58,7 @@ function deleteBon(id) {
 
 function patchBonStatus(id, statusCode, userId, force, confirmNoInvoice) {
     const payload = { status_code: statusCode, user_id: userId };
-    if (force) payload.force = true;   // admin-override af ellers ugyldig status-vej
+    if (force) payload.force = true;   // override af ellers ugyldig status-vej (kræver login)
     // Fakturavagt (#319): bekræft at bonnen bevidst markeres faktureret uden faktura
     if (confirmNoInvoice) payload.confirm_no_invoice = true;
     return apiFetch('/bons/' + id + '/status', {
@@ -1065,6 +1065,18 @@ function patchCompanyEconomic(companyId, economicCustomerId) {
 function patchCompanyIdentifiers(companyId, fields) {
     // fields: { name?, cvr?, legal_name?, ean? } — kun medsendte felter opdateres
     return apiFetch('/companies/' + companyId + '/identifiers', {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+/**
+ * Handelsvilkår på et firma: stående rabat + forhandler-markering.
+ * Egen route (ikke /identifiers) fordi felterne rører penge og bon-routing.
+ */
+function patchCompanyCommercial(companyId, fields) {
+    // fields: { discount_percent?, is_reseller? } — kun medsendte felter opdateres
+    return apiFetch('/companies/' + companyId + '/commercial', {
         method: 'PATCH',
         body: JSON.stringify(fields),
     });

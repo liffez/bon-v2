@@ -49,7 +49,7 @@ Hver test opretter eller bruger T_BD_-prefix på `bon_number`. Cleanup via prefi
 ### 2.3 Auth-roller
 
 Test-user-konti der allerede er seeded eller skabes:
-- `T_BD_admin` (role='admin') — for force-mode-tests (skal være lukket via patch D)
+- `T_BD_admin` (role='admin') — historisk til force-mode-tests. Force kræver siden aug 2026 kun login, ikke admin; rollen bruges stadig til at skelne auditsporet i T_BON_API_FORCE_02/03
 - `T_BD_user` (role='user' eller 'kitchen') — for normal-flow
 
 ---
@@ -126,7 +126,7 @@ For status-tests:
 
 ### 4.5 PATCH /api/bons/:id/status (8)
 
-Force-mode (force=true + admin) er fuldt dækket af T_BON_API_FORCE_01-07 fra patch D. T_BD_C_STATUS tester resten.
+Force-mode (force=true + login) er fuldt dækket af T_BON_API_FORCE_01-07 fra patch D. T_BD_C_STATUS tester resten.
 
 | ID | Action | Forventet |
 |----|--------|-----------|

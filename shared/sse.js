@@ -16,6 +16,7 @@
 
 const express = require('express');
 const router  = express.Router();
+const { buildId } = require('../utils/buildId');
 
 // Alle forbindelser (til broadcast)
 const allClients = new Set();
@@ -148,7 +149,11 @@ router.get('/', (req, res) => {
     res.on('close', cleanup);
 
     write(res, `retry: ${CLIENT_RETRY_MS}\n\n`);
-    write(res, `event: connected\ndata: ${JSON.stringify({ userId })}\n\n`);
+    // `build` fortæller klienten hvilken frontend-kode serveren udleverer lige
+    // nu. Streamen cykler af sig selv hvert ~10. minut (se ovenfor), så en fane
+    // der har stået åben siden i går får et nyt 'connected' uden at nogen rører
+    // den — og opdager dermed en deploy af sig selv.
+    write(res, `event: connected\ndata: ${JSON.stringify({ userId, build: buildId() })}\n\n`);
 
     const sinceId = parseLastId(req.headers['last-event-id'] || req.query.last_event_id);
     const replayed = sinceId ? replayFor(res, userId, sinceId) : 0;

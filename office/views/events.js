@@ -68,10 +68,75 @@ async function _evFetch(path, opts) {
 
 // ── ENTRY ────────────────────────────────────────────────────────────────
 
+// Skift mellem liste (id = null) og detalje. Ét sted der ejer BÅDE state og
+// URL — holdes de adskilt, driver de fra hinanden, og så peger et kopieret
+// link et andet sted hen end det skærmen viser.
+function _evGoto(id) {
+    _evCurrentId = id;
+    const url = new URL(window.location);
+    if (id == null) url.searchParams.delete('event');
+    else url.searchParams.set('event', id);
+    history.replaceState({}, '', url);
+    _evRender();
+}
+
+// Bon-URL der åbner PRÆCIS dette event. Bygges ud fra den aktuelle adresse, så
+// den er rigtig uanset hvilken sti office er udstillet på. Tavlen gemmer den i
+// `bon_event_ref` og linker direkte til den — indtil nu kunne den kun sende
+// folk til Events-LISTEN, hvor man selv skulle finde eventet igen.
+function _evSelfUrl(id) {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('view', 'events');
+    url.searchParams.set('event', id);
+    return url.toString();
+}
+
+// Whiteboards adresse. Hentes én gang og genbruges — den ændrer sig ikke
+// midt i en session. Er den ikke sat, skjules tavle-knappen: en knap der ikke
+// kan virke er værre end ingen knap. Samme lydløse degradering som Sidekick.
+let _evWbBasePromise = null;
+function _evWhiteboardBase() {
+    if (!_evWbBasePromise) {
+        _evWbBasePromise = fetch('/api/sidekick/config', { credentials: 'same-origin' })
+            .then(r => r.ok ? r.json() : {})
+            .then(cfg => {
+                const base = (cfg.whiteboardBase || '').trim();
+                // Kun http(s) — feltet kommer fra .env, men en href er en href.
+                if (base && !/^https?:\/\//i.test(base)) {
+                    console.warn('[events] whiteboardBase er ikke en http(s)-URL — tavle-knap skjult');
+                    return '';
+                }
+                if (!base) console.warn('[events] WHITEBOARD_BASE_URL er ikke sat — tavle-knap skjult');
+                return base;
+            })
+            .catch(() => '');
+    }
+    return _evWbBasePromise;
+}
+
+// Deep-link til tavlens "Nyt arrangement", udfyldt med det Bon allerede ved.
+// Skabelonvalget sender vi bevidst IKKE — hvilket grej der skal med denne gang
+// er tavlens (og menneskets) beslutning, ikke vores.
+function _evArrangementUrl(base, ev) {
+    const url = new URL(base.replace(/\/+$/, '') + '/');
+    url.searchParams.set('open', 'arrangement');
+    url.searchParams.set('name', ev.name || '');
+    if (ev.start_date) url.searchParams.set('start', ev.start_date);
+    if (ev.end_date)   url.searchParams.set('end', ev.end_date);
+    // Reference tilbage som URL frem for navn: tavlen linker en URL direkte til
+    // selve eventet, mens et navn kun kan lande på Events-listen.
+    url.searchParams.set('ref', _evSelfUrl(ev.id));
+    return url.toString();
+}
+
 window.initEvents = function initEvents(containerEl, opts) {
     _evContainer = containerEl;
     _evOpts = opts || {};
-    _evCurrentId = null;
+    // ?event=N åbner eventet direkte (deep-link fra tavlen, eller et delt link).
+    const evId = parseInt(new URLSearchParams(window.location.search).get('event'), 10);
+    _evCurrentId = Number.isFinite(evId) && evId > 0 ? evId : null;
     _evRender();
 };
 
@@ -132,7 +197,7 @@ async function _evRender() {
             </div>`;
         _evContainer.querySelectorAll('[data-act="new-event"]').forEach(b => b.addEventListener('click', _evOpenNewModal));
         _evContainer.querySelectorAll('[data-event-id]').forEach(el => {
-            el.addEventListener('click', () => { _evCurrentId = parseInt(el.dataset.eventId); _evRender(); });
+            el.addEventListener('click', () => _evGoto(parseInt(el.dataset.eventId)));
         });
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente events: ${_evEsc(err.message)}</div>`;
@@ -187,7 +252,10 @@ function _evContactLine(ev, missing) {
 async function _evRenderDetail(id) {
     _evContainer.innerHTML = `<div class="ev-loading">Henter event…</div>`;
     try {
-        const data = await _evFetch(`/events/${id}/overview`);
+        const [data, wbBase] = await Promise.all([
+            _evFetch(`/events/${id}/overview`),
+            _evWhiteboardBase()
+        ]);
         const ev = data.event;
         // Event-ordre-admin-link (event-broen). Kun http(s) — undgå javascript:-URL'er.
         const _adminRaw = (data.event_order_admin_url || '').trim();
@@ -202,8 +270,13 @@ async function _evRenderDetail(id) {
         _evState.days = days;
         _evState.categories = categories;
         _evState.prepped = data.prepped || {};   // "date|category" → allerede prepped
+        // Heraf FORUDBESTILT (migration 166) — broens egne prep-bons. Delmængde
+        // af prepped, ikke noget der lægges til. Uden den kan tabellen ikke vise
+        // forskellen på "vi har preppet 732" og "400 af dem er allerede solgt".
+        _evState.bridgePrepped = data.bridge_prepped || {};
         // Dage pakket med af en tidligere dags prep-bon (migration 156).
         _evState.coveredDays = data.covered_days || {};
+        _evState.bons = bons;   // forecast-rækken skal kunne finde dagens prep-bon
         _evState.event = ev;
         // Bogførte returer (#536) — så Retur-sektionen kan vise at den er gjort
         // uden at man først skal trykke "beregn".
@@ -228,6 +301,7 @@ async function _evRenderDetail(id) {
                     </div>
                     <div class="ev-detail-actions">
                         ${adminUrl && ev.event_order_enabled ? `<a class="ev-btn ev-btn-small" href="${_evEsc(adminUrl)}" target="_blank" rel="noopener" title="Åbn event-ordre-forudbestilling (admin)">🔗 Event-ordre-admin</a>` : ''}
+                        ${wbBase ? `<a class="ev-btn ev-btn-small" href="${_evEsc(_evArrangementUrl(wbBase, ev))}" target="_blank" rel="noopener" title="Åbner tavlens &quot;Nyt arrangement&quot; med navn, datoer og link tilbage hertil udfyldt. Du vælger selv skabelon(er).">📋 Pakkeliste på tavlen</a>` : ''}
                         <button class="ev-btn ev-btn-small" data-act="edit-event">✎ Redigér</button>
                         <button class="ev-btn ev-btn-small ev-btn-danger" data-act="delete-event">🗑 Slet</button>
                     </div>
@@ -316,7 +390,7 @@ async function _evRenderDetail(id) {
             </div>`;
 
         _evContainer.querySelector('[data-act="back"]')
-            .addEventListener('click', () => { _evCurrentId = null; _evRender(); });
+            .addEventListener('click', () => _evGoto(null));
         // querySelectorAll: "Redigér" findes både i headeren og som "Tilføj"
         // i kontaktlinjen — begge skal åbne modalen.
         _evContainer.querySelectorAll('[data-act="edit-event"]').forEach(btn =>
@@ -351,7 +425,7 @@ async function _evRenderDetail(id) {
         _evLoadLabor(ev);
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
-        _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
+        _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => _evGoto(null));
     }
 }
 
@@ -1006,6 +1080,29 @@ async function _evRenderCurve(eventId) {
     // travl ud som festivalens spidsbelastning.
     const maxOrders = Math.max(...dage.flatMap(d => d.hours.map(h => h.orders)), 1);
 
+    // Fælles x-akse på tværs af eventets dage. `hours` fra serveren rummer KUN
+    // timer med salg, så to dage med forskellig åbningstid fik hver sin akse og
+    // søjlerne stod ikke over hinanden — man kunne ikke sammenligne kl. 14 med
+    // kl. 14. Aksen er derfor sammenhængende fra eventets tidligste til dets
+    // seneste time, målt i forretningsdøgnets rækkefølge (0 = skæringstimen, så
+    // en aften der trækker over midnat ikke springer tilbage til venstre).
+    // Samme `pos()` som hourlyCurve i services/posSales.js.
+    const cutoffHour = Number(String(data.cutoff || '04:00').slice(0, 2)) || 0;
+    const pos = h => (h - cutoffHour + 24) % 24;
+    const allPos = dage.flatMap(d => d.hours.map(h => pos(h.hour)));
+    const axis = [];
+    for (let p = Math.min(...allPos); p <= Math.max(...allPos); p++) {
+        axis.push((p + cutoffHour) % 24);
+    }
+
+    // Timer uden salg findes ikke i dataene — de skal alligevel optage deres
+    // plads på aksen, ellers skrider justeringen mellem dagene igen.
+    const barsFor = d => {
+        const byHour = new Map(d.hours.map(h => [h.hour, h]));
+        return axis.map(hour => byHour.get(hour)
+            || { hour, orders: 0, items: 0, gross_incl: 0, label: String(hour).padStart(2, '0') + ':00' });
+    };
+
     const dagBlok = d => `
         <div class="ev-curve-day">
             <div class="ev-curve-head">
@@ -1014,10 +1111,10 @@ async function _evRenderCurve(eventId) {
                 ${d.peak ? `<span class="ev-curve-peak">travlest ${_evEsc(d.peak.label)} · ${d.peak.orders} ordrer / ${d.peak.items} varer</span>` : ''}
             </div>
             <div class="ev-curve-bars">
-                ${d.hours.map(h => `
-                    <div class="ev-curve-bar" title="${_evEsc(h.label)} · ${h.orders} ordrer · ${h.items} varer · ${kr(h.gross_incl)}">
-                        <div class="ev-curve-fill${d.peak && h.hour === d.peak.hour ? ' is-peak' : ''}"
-                             style="height:${Math.max(2, Math.round(h.orders / maxOrders * 100))}%"></div>
+                ${barsFor(d).map(h => `
+                    <div class="ev-curve-bar${h.orders ? '' : ' is-empty'}" title="${_evEsc(h.label)} · ${h.orders ? `${h.orders} ordrer · ${h.items} varer · ${kr(h.gross_incl)}` : 'intet salg'}">
+                        ${h.orders ? `<div class="ev-curve-fill${d.peak && h.hour === d.peak.hour ? ' is-peak' : ''}"
+                             style="height:${Math.max(2, Math.round(h.orders / maxOrders * 100))}%"></div>` : ''}
                         <span class="ev-curve-h">${_evEsc(h.label.slice(0, 2))}</span>
                     </div>`).join('')}
             </div>
@@ -1407,10 +1504,57 @@ function _evBindPlanToggle() {
     });
 }
 
-function _evForecastTable(ev, days, categories, forecast) {
+// Hvilken bon kan overtage resten for en dag? Office' egen prep-bon (ikke
+// broens), stadig mutérbar. Er der flere kandidater, gætter vi IKKE — så
+// henvises der til listen, hvor man selv kan se hvilken man vælger.
+function _evRestCandidate(date) {
+    const c = (_evState.bons || []).filter(b =>
+        b.delivery_date === date && b.role === 'prep' && !b.is_bridge &&
+        !b.event_prep_auto_rest && b.inventory_deducted !== 1 &&
+        (!b.status_code || ['NY', 'GODKENDT'].includes(b.status_code)));
+    return c.length === 1 ? c[0] : null;
+}
+
+function _evForecastTable(ev, days, categoriesFromGrocy, forecast) {
+    // Kategorierne kommer fra Grocy, men en forecast der ALLEREDE er gemt skal
+    // kunne ses selvom Grocy er nede — ellers forsvinder både tallene og
+    // over-preppet-advarslen præcis når man ikke kan se hvorfor. Vi opfinder
+    // ingen kategorier; vi tager dem der faktisk står på eventet med.
+    const _extraCats = new Set();
+    for (const f of forecast) if (f.category) _extraCats.add(f.category);
+    for (const k of Object.keys(_evState.prepped || {})) _extraCats.add(k.slice(k.indexOf('|') + 1));
+    const categories = [...new Set([...(categoriesFromGrocy || []), ..._extraCats])];
+
     const map = {};
-    for (const f of forecast) map[_evForecastKey(f.forecast_date, f.category)] = f.expected_qty;
+    const origMap = {};   // kun udfyldt hvor forecasten FAKTISK er blevet rettet
+    for (const f of forecast) {
+        map[_evForecastKey(f.forecast_date, f.category)] = f.expected_qty;
+        if (f.original_qty != null && f.original_qty !== f.expected_qty) {
+            origMap[_evForecastKey(f.forecast_date, f.category)] = f.original_qty;
+        }
+    }
     const openHours = _evParseOpenHours(ev);
+    const preppedMap = _evState.prepped || {};
+    const bridgeMap  = _evState.bridgePrepped || {};
+
+    // Dagens regnskab: mål = max(forecast, forudbestilt) pr. kategori, summeret.
+    // Pr. KATEGORI og ikke på dagstotalen — ellers kunne en kategori hvor
+    // ordrerne har overhalet blive udlignet af en hvor de ikke har.
+    function dayAccounting(d) {
+        let target = 0, bridge = 0, prepped = 0;
+        const cats = new Set([...categories]);
+        for (const k of Object.keys(bridgeMap)) if (k.startsWith(d + '|')) cats.add(k.slice(d.length + 1));
+        for (const k of Object.keys(preppedMap)) if (k.startsWith(d + '|')) cats.add(k.slice(d.length + 1));
+        for (const cat of cats) {
+            const key = _evForecastKey(d, cat);
+            const fc = map[key] || 0;
+            const br = bridgeMap[key] || 0;
+            target  += Math.max(fc, br);
+            bridge  += br;
+            prepped += preppedMap[key] || 0;
+        }
+        return { target, bridge, prepped, over: Math.max(0, prepped - target) };
+    }
 
     // Tomt event uden Grocy-kategorier: vis info-tekst
     if (categories.length === 0) {
@@ -1459,14 +1603,44 @@ function _evForecastTable(ev, days, categories, forecast) {
         const cells = categories.map(cat => {
             const qty = map[_evForecastKey(d, cat)] || 0;
             rowTotal += qty;
+            const orig = origMap[_evForecastKey(d, cat)];
+            // En rettet forecast markeres, så "hvad gættede vi egentlig på?"
+            // ikke går tabt i det øjeblik tallet rettes (migration 166).
+            const origAttr = orig != null
+                ? ` title="Oprindeligt forecastet: ${orig}" class="ev-fc-input ev-fc-edited"`
+                : ' class="ev-fc-input"';
             return `<td><input type="number" min="0" step="1" value="${qty || ''}" placeholder="0"
-                    data-fc-date="${d}" data-fc-cat="${_evEsc(cat)}" class="ev-fc-input"></td>`;
+                    data-fc-date="${d}" data-fc-cat="${_evEsc(cat)}"${origAttr}></td>`;
         }).join('');
         const covNote = cov
             ? `<div class="ev-fc-covered" title="Varerne til denne dag kørte med prep-bonnen fra ${_evFmtDate(cov.from)}. Skal der hentes mere, er det en top-up.">✓ pakket med ${_evEsc(cov.bon_number)}</div>`
             : '';
+
+        // Regnestykket der før kun stod som fritekst i køkkeninfoen: hvor meget
+        // af dagen er allerede solgt, og hænger det preppede sammen med målet?
+        const acc = dayAccounting(d);
+        let accNote = '';
+        if (acc.bridge > 0 || acc.prepped > 0) {
+            const parts = [];
+            if (acc.bridge > 0) parts.push(`🔗 ${acc.bridge} forudbestilt`);
+            parts.push(`${acc.prepped} preppet`);
+            if (acc.over > 0) {
+                // Handlingen hører hjemme dér hvor problemet opdages. Uden den
+                // står advarslen som en konstatering man selv skal finde vej ud af,
+                // og prep-listen ligger langt nede på siden.
+                const cand = _evRestCandidate(d);
+                const fix = cand
+                    ? ` <button class="ev-btn ev-btn-small ev-fc-fix" data-act="rest-on" data-bon-id="${cand.id}"
+                         title="${_evEsc(cand.bon_number)} holder resten op til dagens mål og retter sig selv når nye forudbestillinger kommer ind.">⟳ Ret ${_evEsc(cand.bon_number)}</button>`
+                    : ` <span class="ev-fc-fix-hint">— sæt "⟳ Hold resten" på dagens prep-bon nedenfor</span>`;
+                accNote = `<div class="ev-fc-acc ev-fc-acc-over"
+                    title="Broens forudbestillinger og forecast-prep-bonnen tæller begge fuldt med — i ugeoversigt, kapacitet, top-up, retur og HQ-lagertrækket.">⚠ ${acc.prepped} preppet mod mål ${acc.target} — ${acc.over} for meget${fix}</div>`;
+            } else {
+                accNote = `<div class="ev-fc-acc" title="Mål = max(forecast, forudbestilt). Forecasten styrer, indtil de faktiske ordrer løber fra den.">${parts.join(' · ')} · mål ${acc.target}</div>`;
+            }
+        }
         html += `<tr${cov ? ' class="ev-fc-row-covered"' : ''}>
-            <td class="ev-fc-day">${_evFmtDate(d)}${covNote}</td>
+            <td class="ev-fc-day">${_evFmtDate(d)}${covNote}${accNote}</td>
             <td class="ev-fc-oh"><input type="text" class="ev-oh-input" maxlength="40"
                 value="${_evEsc(openHours[d] || '')}" placeholder="fx 10–18" data-oh-date="${d}"
                 title="Åbningstid på pladsen denne dag — vises også i prep-modalen"></td>
@@ -1778,6 +1952,43 @@ function _evBindForecastHandlers(ev) {
             _evOpenGenModal(_evState.event, 'topup', { forecastDate: btn.dataset.fcDate });
         });
     });
+
+    // Rest-prep til/fra (migration 166). Slår man det TIL, genberegnes bonnen
+    // med det samme — konsekvensen skal kunne ses, ikke gættes.
+    _evContainer.querySelectorAll('[data-act="rest-on"], [data-act="rest-off"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const on = btn.dataset.act === 'rest-on';
+            const bonId = btn.dataset.bonId;
+            if (!on && !confirm('Bonnen holder op med at rette sig selv mod forudbestillingerne.\n\nTallene bliver dine, og de kan komme til at tælle dobbelt med broens bon. Fortsæt?')) return;
+            btn.disabled = true;
+            try {
+                _evMarkLocalAction();
+                const res = await _evFetch(`/events/${_evCurrentId}/bons/${bonId}/rest-prep`, {
+                    method: 'POST', body: JSON.stringify({ enabled: on }),
+                });
+                _evMarkLocalAction();
+                await _evRender();
+                const st = _evContainer.querySelector('#ev-fc-status');
+                if (st) {
+                    const r = res.rest_prep;
+                    if (!on) {
+                        st.textContent = 'Bonnen retter sig ikke længere selv.';
+                        st.className = 'ev-fc-status';
+                    } else if (r && r.action === 'frozen') {
+                        st.textContent = `Slået til — men bonnen er ${r.status === undefined ? 'frosset' : r.status.toLowerCase()} og genberegnes først hvis den går tilbage til GODKENDT.`;
+                        st.className = 'ev-fc-status err';
+                    } else if (r) {
+                        st.textContent = `${r.bon_number}: holder nu resten — ${r.rest_total} ud over ${r.bridge_total} forudbestilte.`
+                            + (r.warnings && r.warnings.length ? ' ⚠ ' + r.warnings.join(' ') : '');
+                        st.className = 'ev-fc-status ok';
+                    }
+                }
+            } catch (err) {
+                alert(err.message || 'Kunne ikke ændre rest-prep.');
+                btn.disabled = false;
+            }
+        });
+    });
 }
 
 function _evRecalcForecastTotals() {
@@ -1816,6 +2027,20 @@ function _evBonStatusPill(b) {
     return `<span class="ev-bon-status" style="${style}">${_evEsc(label)}</span>`;
 }
 
+// Rest-prep til/fra (migration 166). Vises kun på en prep-bon office selv
+// ejer: broens bon ER forudbestillingerne, og en frosset bon kan alligevel
+// ikke genberegnes — en knap der kun kan fejle er værre end ingen knap.
+function _evRestPrepBtn(b) {
+    if (b.role !== 'prep' || b.is_bridge) return '';
+    if (b.status_code && !['NY', 'GODKENDT'].includes(b.status_code)) return '';
+    if (b.inventory_deducted === 1) return '';
+    return b.event_prep_auto_rest
+        ? `<button class="ev-btn ev-btn-small ev-btn-ghost" data-act="rest-off" data-bon-id="${b.id}"
+             title="Bonnen holder op med at rette sig selv. Tallene bliver dine.">Slå fra</button>`
+        : `<button class="ev-btn ev-btn-small" data-act="rest-on" data-bon-id="${b.id}"
+             title="Lad bonnen holde resten op til dagens mål og rette sig selv når nye forudbestillinger kommer ind.">⟳ Hold resten</button>`;
+}
+
 function _evRoleSection(role, bons) {
     if (!bons || bons.length === 0) {
         return `
@@ -1827,7 +2052,9 @@ function _evRoleSection(role, bons) {
     const rows = bons.map(b => `
         <tr data-bon-id="${b.id}" data-deduct="${b.inventory_deduct_status || ''}">
             <td class="ev-bon-num">${_evEsc(b.bon_number)}${b.is_bridge
-                ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. En prep-bon herfra er ALLEREDE SOLGT og indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.">🔗 forudbestilt</span>`
+                ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. Den er ALLEREDE SOLGT — ikke ekstra produktion.">🔗 forudbestilt</span>`
+                : ''}${b.event_prep_auto_rest
+                ? ` <span class="ev-bon-rest" title="Holder RESTEN op til dagens mål: max(forecast, forudbestilt) minus det der allerede er preppet. Retter sig selv når nye ordrer kommer ind — indtil køkkenet går i gang.">⟳ holder resten</span>`
                 : ''}</td>
             <td>${_evBonStatusPill(b)}</td>
             <td>${_evFmtDate(b.delivery_date)}${b.event_covers_until
@@ -1836,12 +2063,13 @@ function _evRoleSection(role, bons) {
             <td class="ev-num">${b.total_units || 0}</td>
             <td class="ev-num">${_evFmtKr(b.total_price)}</td>
             <td class="ev-bon-flag">${_evDeductLabel(b)}</td>
+            <td class="ev-bon-act">${_evRestPrepBtn(b)}</td>
         </tr>`).join('');
     return `
         <div class="ev-role-section">
             <div class="ev-role-head">${_EV_ROLE_ICON[role]} ${_EV_ROLE_LABEL[role]} <span class="ev-role-count">(${bons.length})</span></div>
             <table class="ev-bon-table">
-                <thead><tr><th>Bon</th><th>Status</th><th>Dato</th><th>Enheder</th><th>Total</th><th></th></tr></thead>
+                <thead><tr><th>Bon</th><th>Status</th><th>Dato</th><th>Enheder</th><th>Total</th><th></th><th></th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>
         </div>`;
@@ -1965,7 +2193,7 @@ function _evOpenEventModal(ev) {
             const created = await _evFetch('/events', { method: 'POST', body: JSON.stringify(body) });
             _evCurrentId = created.id;
         }
-        _evRender();
+        _evGoto(_evCurrentId);
     });
 
     // Kontaktperson — samme søgekomponent som bon-draweren, så kunden vælges
@@ -2071,8 +2299,7 @@ async function _evDeleteEvent(ev) {
     try {
         const res = await _evFetch(`/events/${ev.id}`, { method: 'DELETE' });
         const n = res.unlinked_bons || 0;
-        _evCurrentId = null;
-        _evRender();
+        _evGoto(null);
         // Lille kvittering
         setTimeout(() => {
             const tb = _evContainer && _evContainer.querySelector('.ev-toolbar');
@@ -2193,6 +2420,23 @@ async function _evOpenGenModal(event, role, opts) {
     const stripInner = initialDates.length ? _evTargetStripHtml(initialDates) : '';
     const targetStrip = `<div class="ev-target-strip" id="evm-targets"${stripInner ? '' : ' style="display:none"'}>${stripInner}</div>`;
 
+    // Rest-prep (migration 166). Kun prep, og kun når der FAKTISK er
+    // forudbestillinger den dag — ellers ville fluebenet være et tilbud om at
+    // løse et problem man ikke har.
+    const _bridgeMap = _evState.bridgePrepped || {};
+    const bridgeOnDates = initialDates.reduce((sum, d) => sum + Object.keys(_bridgeMap)
+        .filter(k => k.startsWith(d + '|'))
+        .reduce((a, k) => a + (_bridgeMap[k] || 0), 0), 0);
+    const restToggle = (role === 'prep' && bridgeOnDates > 0) ? `
+        <label class="ev-rest-toggle">
+            <input type="checkbox" id="evm-auto-rest" checked>
+            <span>
+                <strong>Hold opdateret mod forudbestillingerne</strong>
+                <span class="ev-rest-sub">Der er ${bridgeOnDates} forudbestilte. Bonnen holder <em>resten</em> op til dagens mål
+                og retter sig selv når nye ordrer kommer ind — indtil køkkenet går i gang. Uden fluebenet tælles begge bons fuldt med.</span>
+            </span>
+        </label>` : '';
+
     // Dags-checkbokse. Én prep-bon der dækker flere dage er ÉN pakning: én
     // pakkeliste, ét lagertræk ved LEVERET. Derfor er "hvilke dage" et valg
     // her og ikke noget der udledes bagefter.
@@ -2222,6 +2466,7 @@ async function _evOpenGenModal(event, role, opts) {
         </div>
         ${dayPicker}
         ${targetStrip}
+        ${restToggle}
         <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${defaultDate}"></label>
         ${isTopup ? '<div id="evm-topup" class="ev-topup-strip"></div>' : ''}
         <div class="ev-modal-oh" id="evm-oh" style="display:none"></div>
@@ -2249,6 +2494,11 @@ async function _evOpenGenModal(event, role, opts) {
         linesEl.querySelectorAll('tr[data-line]').forEach(row => {
             const name = row.querySelector('[data-f=name]').value.trim();
             if (!name) return;
+            // Antal 0 = varen blev ikke solgt/pakket den dag. Feltet må gerne stå
+            // på 0 (pre-fill'et kommer fra prep-bonnerne og skal kunne nulstilles
+            // linje for linje), men linjen hører så ikke hjemme på bonnen.
+            const qty = Number(row.querySelector('[data-f=qty]').value);
+            if (!Number.isFinite(qty) || qty <= 0) return;
             // Prod-bons: pris-feltet ER kostprisen (kolonnen hedder "Kostpris ex").
             // unit_price tvinges til 0 (prep/top-up = 0 kr, spec §3) og feltet
             // snapshottes som cost_price så vareforbrug/P&L får rigtige tal.
@@ -2258,7 +2508,7 @@ async function _evOpenGenModal(event, role, opts) {
                 product_name: name,
                 grocy_recipe_id: row.dataset.recipeId ? parseInt(row.dataset.recipeId) : null,
                 category: row.dataset.category || null,
-                quantity: Number(row.querySelector('[data-f=qty]').value) || 1,
+                quantity: qty,
                 unit: row.querySelector('[data-f=unit]').value || 'stk',
                 unit_price: isProd ? 0 : fieldVal,
                 cost_price: isProd ? fieldVal : (row.dataset.cost ? Number(row.dataset.cost) : null),
@@ -2268,7 +2518,7 @@ async function _evOpenGenModal(event, role, opts) {
                 moms_included: momsSel ? Number(momsSel.value) : 1,
             });
         });
-        if (lines.length === 0) throw new Error('Tilføj mindst én linje');
+        if (lines.length === 0) throw new Error('Tilføj mindst én linje med antal over 0');
         const body = {
             role,
             delivery_date: document.getElementById('evm-date').value,
@@ -2285,6 +2535,8 @@ async function _evOpenGenModal(event, role, opts) {
         }
         // Salg/udgift på et event sælges til festivalpris (matcher pre-fill + priceMode).
         if (!isProd && !isExpense) body.price_category_code = 'festival';
+        const restEl = document.getElementById('evm-auto-rest');
+        if (restEl && restEl.checked) body.event_prep_auto_rest = 1;
         await _evFetch(`/events/${event.id}/bons`, { method: 'POST', body: JSON.stringify(body) });
         _evRender();
     }, { submitLabel: _EV_SUBMIT_LABEL[role] || 'Gem' });
@@ -2329,7 +2581,7 @@ async function _evOpenGenModal(event, role, opts) {
         const momsVal = String(data.momsIncluded ?? 0);
         tr.innerHTML = `
             <td><input type="text" data-f="name" value="${_evEsc(data.name || '')}" placeholder="Navn"></td>
-            <td><input type="number" data-f="qty" value="${data.qty || 1}" min="1" step="1" style="width:60px"></td>
+            <td><input type="number" data-f="qty" value="${data.qty ?? 1}" min="0" step="1" style="width:60px"></td>
             <td><input type="text" data-f="unit" value="${_evEsc(data.unit || 'stk')}" style="width:50px"></td>
             <td><input type="number" data-f="price" value="${data.price ?? 0}" step="0.01" style="width:80px"></td>
             ${isExpense ? `<td><select data-f="moms" class="ev-moms-sel"><option value="0">uden moms</option><option value="1">med moms</option></select></td>` : ''}
@@ -2373,14 +2625,16 @@ async function _evOpenGenModal(event, role, opts) {
     // Knappen fortæller hvad der sker, og hvor meget der er i kurven. Ved 0
     // linjer er den slået fra — så et fejlklik ikke kan oprette en tom bon.
     function _evSyncSubmit() {
-        const n = linesEl.querySelectorAll('tr[data-line]').length;
+        const rows = Array.from(linesEl.querySelectorAll('tr[data-line]'));
+        // Linjer med antal 0 bliver ikke oprettet — tæl kun dem der gør.
+        const n = rows.filter(r => (Number(r.querySelector('[data-f=qty]').value) || 0) > 0).length;
         const emptyRow = document.getElementById('evm-empty-row');
-        if (emptyRow) emptyRow.style.display = n ? 'none' : '';
+        if (emptyRow) emptyRow.style.display = rows.length ? 'none' : '';
         const btn = overlay.querySelector('button[type=submit]');
         if (!btn) return;
         btn.disabled = n === 0;
         btn.textContent = n === 0
-            ? 'Tilføj mindst én linje'
+            ? (rows.length ? 'Sæt antal på mindst én linje' : 'Tilføj mindst én linje')
             : `${_EV_SUBMIT_LABEL[role] || 'Gem'} (${n} ${n === 1 ? 'linje' : 'linjer'})`;
     }
 

@@ -169,7 +169,7 @@ bon-v2/
 │   ├── seed.js          ← Testdata (11 bons, 7 kunder, 5 firmaer)
 │   └── migrations/      ← 001_core.sql, ...
 ├── shared/
-│   ├── sse.js        ← SSE router + broadcast(), sendTo() — named events
+│   ├── sse.js        ← SSE router + broadcast(), sendTo() — named events. 'connected' bærer serverens build-id
 │   ├── tokens.css    ← Design tokens
 │   ├── components.css
 │   ├── bon_kort.js          ← Adfærd og state (status, DnD, select, groups, editing)
@@ -197,7 +197,7 @@ bon-v2/
 │   ├── flag_strip.js                          ← Påmindelses-strip i bon-drawer (CLAUDE_KUNDE_FLAGS.md)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
-│   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
+│   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
 │   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
 │   ├── bon_lines.js  ← mergeLines() — slår ens bon-linjer sammen til visning/eksport, eksponeres som window.BonLines
 │   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
@@ -213,6 +213,9 @@ bon-v2/
 │   └── views/        ← bons.js, modtag.js, lager.js, crm.js, oversigt.js, levering.js (courier-mobil)
 ├── settings/         ← index.html (eget shell)
 ├── assets/           ← logo.svg, icons/, fonts/
+├── utils/
+│   ├── buildId.js             ← Build-id ud fra nyeste mtime i klient-mapperne (driver "ny version"-beskeden)
+│   └── mail-parser.js         ← PO-tag parsing + buildTag
 ├── scripts/
 │   ├── set-password.js        ← Sæt password for bruger (engangsbrug)
 │   ├── sync-v1.js             ← Daglig sync fra Bon v1 (cron)
@@ -237,6 +240,9 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Grocy læses via adapter** — skriv aldrig direkte til Grocy's database
 - **SSE på `/api/sse`** — named events via `addEventListener`, aldrig `onmessage`
 - **Route-filer bruger `getDb()`** — aldrig global `db`-variabel
+- **Statisk serving er en allowlist** — nye offentlige mapper skrives ind i
+  `PUBLIC_DIRS` i server.js. Mount aldrig en mappe der også indeholder kode
+  eller data (`express.static(__dirname)` lagde engang `data/bon.db` frit)
 - **Standalone scripts bruger `openDb()`** fra `db/compat.js` — aldrig `DatabaseSync` direkte
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
@@ -320,14 +326,24 @@ Tidligere lå det spredt i denne fils "Åbne afhængigheder", MEMORY.md og docs/
 - **Board:** GitHub Projects "Bon v2" — <https://github.com/users/liffez/projects/3>
   - Kolonner (Status-felt): `Backlog` · `Klar` · `I gang` · `Review` · `Done`
 - **Labels:** `deploy`, `afventer-ekstern`, `bug`, `sikkerhed`, `tech-debt`, `test`, `feature`, `projekt` (epic)
-- **Epics** (`projekt`-label) = store projekter med spec-mapper i `docs/`, hver med fase-checkliste:
+- **Epics** (`projekt`-label) = store projekter, hver med fase-checkliste. De fleste har
+  en spec i `docs/` — enten en mappe eller en enkelt fil:
   - #81 Festival / multi-lokation (`docs/festival/`)
   - #82 Form Builder (`docs/formbuilder/`)
   - #83 Kunde-portal (`docs/kunde-portal/`)
-  - #88 CO₂-aftryk pr. bon + ESG-datagrundlag (`docs/co2/`)
+  - #88 CO₂-aftryk pr. bon + ESG-datagrundlag (`docs/CLAUDE_CO2.md` + `docs/co2/`)
+  - #232 CRM-triks — top-of-mind køer (`docs/CLAUDE_CRM_TRIKS.md`)
   - #259 Leverings- & adressedata-oprydning (`docs/delivery/`)
-  - #471 Indkøb Fase A — salgsenhed, pris, leveringsdato (`docs/indkob/`)
+  - #264 Aggregerede vare-egenskaber på bon — allergener + diæt + øko% (ingen samlet
+    spec; trackes via sub-issues #260–262)
+  - #272 Mellemprodukter — forecast (RR) vs. lav-hvis-mangler (`docs/CLAUDE_HURTIG_PRODUKTION.md`)
+  - #471 Indkøb Fase A — salgsenhed, pris, leveringsdato (`docs/indkob/CLAUDE_INDKOB_FASE_A.md`)
+  - #555 Køkken-kiosk — fastmonteret touchskærm med dagsrytme (`docs/CLAUDE_KIOSK.md`)
   - docs/-specs forbliver source-of-truth; epics linker til dem og tracker fremdrift via checkbokse.
+  - Listen her går let bagud. Den aktuelle er:
+    `gh issue list --state open --limit 200 --json number,title,labels --jq '.[] | select(.labels|map(.name)|index("projekt")) | "#\(.number) \(.title)"'`
+    (`--label projekt` og `--search` returnerer pt. tomt — GitHubs søgeindeks svarer ikke
+    for dette repo, mens direkte listning virker.)
 
 **Arbejdsgang:**
 - Ny bug/opgave dukker op → opret et issue (ikke kun en note i chat eller docs)
@@ -4470,6 +4486,49 @@ linjerne på den?"). Bevidst udskudt: Enter-fælden var kilden til de observered
 dubletter, så værnet ville kun fange det tilfælde hvor nogen bevidst åbner modalen to
 gange. Tages op hvis det viser sig i drift alligevel.
 
+### Et tilbud bærer nu sit eget mail-tag (1. september 2026)
+
+Et tilbud blev sendt med emnet **"#b-28 Tilbud T-28"** — bonnens tag på et
+tilbud. Et tilbud ER en bon (`is_offer = 1`), og alle mail-veje satte derfor
+`type: 'bon'` på den uden at se på rækken.
+
+**Det er ikke kosmetik — det er routingen.** `matchBonByTagNumber` afgrænser
+bevidst et bon-tag til `is_offer = 0`, så kundens svar blev slået op blandt de
+rigtige bons, fandt ingenting og faldt ud i den ufordelte indbakke. Og fandtes
+der en rigtig bon med de samme cifre, ville svaret lande på **DEN**. Laveste bon
+i drift er `cafe-64`, så kollisionen begynder ved T-64 — tilbudsnummeret står
+ved 28.
+
+> Hele `#t-`-siden fandtes i forvejen: settingen `mail_tag_offer_prefix`,
+> `parseSubject`'s `offerMatch` og offer-grenen i `matchBonByTagNumber`.
+> Den var bare uden for rækkevidde, fordi `type: 'offer'` ikke optrådte ét
+> eneste sted i produktionskoden. Modtageren var bygget, afsenderen ringede aldrig.
+
+- **`mailService.bonMailContext(db, bonId)`** udleder typen af rækken. Ét sted,
+  fordi de to kaldesteder — `POST /api/bons/:id/mail` (tilbudswizardens
+  "Send til kunde" går gennem den) og `threadReplyContext` i indbakken — havde
+  hver sin kopi af det samme hardkodede gæt.
+- **Gamle tags bliver ikke hjemløse.** Rammer et `#b-`-tag ingen rigtig bon,
+  prøves tilbuddene, og fallbacken logges. Rækkefølgen er det der gør det
+  sikkert: rigtige bons vinder altid, så et gyldigt bon-tag kan aldrig
+  omdirigeres til et tilbud — kun det tomme opslag falder igennem.
+
+**Det lille `#b-` ved siden af det store `B4229` er ikke en dublet.** `#b-` er
+routing-tagget (`mail_tag_bon_prefix`), `B` er bon-nummerets visnings-præfiks
+(`bon_number_prefix`) — to adskilte settings, ingen af dem hardkodede. Ligger
+`{{tag}}` i skabelonens emne, står tagget hvor man har sat det (som i
+`booking_confirmation`); mangler det, sætter serveren det forrest. Vil man have
+det til at fylde mindre, er det skabelonen der skal rettes — tagget selv skal
+blive, for det er dét der får kundens svar hjem i den rigtige tråd.
+
+**Tests**: `npm run test:offer-tag` — 20 asserts. Afsendelsen rammer den ægte
+rute over HTTP (typen udledes dér), routingen kalder `processInboundMail`
+direkte. Fixturen har et tilbud **og** en bon med samme cifre — det par er hele
+pointen. **Mutations-testet:** fem tilbagerulninger fælder hver sine navngivne
+asserts, heriblandt en hvor fallbacken får forrang og dermed stjæler et gyldigt
+bon-tag. Regression grøn: inbox-learn 53, inbox_handling 29, inbox-link 21,
+mail-send-truth 17, mail-tid 20, mail-parser 49.
+
 ### Indbakken: en kobling lærer afsenderen, og et arkiv kan findes igen (#478 + #479, 18. august 2026)
 
 Lærke skrev to mails 11. august — den ene med selve bestillingen (43 kuverter,
@@ -5193,6 +5252,516 @@ mod grocytest i begge faner; intet blev trukket fra lageret undervejs.
 > Serveren bruger DB'ens URL, så en frisk dev-opsætning kan ikke nå grocytest.
 > CLAUDE.md's egen Grocy-instans-sektion har samme gamle værdi.
 
+### En unormal status-vej kan overstyres af alle indloggede (27. august 2026)
+
+En kunde aflyste, og bonen skulle lukkes: `AFLYST → AFSLUTTET`. Vejen findes ikke i
+`status_transitions` (AFLYST er terminal), så skiftet blev afvist — og tilbuddet om at
+overstyre blev kun givet til **admin**. Enhver anden stod med en blank fejlbesked og
+ingen vej videre.
+
+Kravet stammer fra Patch D (maj 2026), hvor det rigtige problem var *privilege
+escalation*: `body.user_id` kunne bestemme rolle-tjekket. Værnet — at både rolle og
+audit-user-id skal komme fra sessionen — var korrekt. Admin-kravet der fulgte med, var
+det ikke: **auth her er rolle-baseret med delte PIN-konti**, så det ramte roller frem
+for ansvar, mens virkeligheden ikke følger flow-diagrammet.
+
+- **Force kræver nu login, ikke admin.** Login-kravet står ved magt af en grund der er
+  værd at holde fast i: uden en session er der ingen at skrive i auditsporet. `can_force`
+  følger derfor `!!sessionUser`, ikke rollen.
+- **`body.user_id` bestemmer stadig aldrig hvem historikken siger det var.** Efter at
+  rolle-tjekket er væk, er auditsporet det **eneste** der peger på et menneske — så det
+  må ikke kunne skrives af afsenderen. D-3-værnet er dermed vigtigere end før, ikke
+  mindre.
+- **Advarslen bærer beslutningen** i stedet for rollen: den siger nu hvad der springes
+  over (kontroller og automatik i de normale trin — lagertræk, afbestilling af bud) og
+  at skiftet noteres i historikken med brugerens navn.
+- **Historikken markerer det.** `was_forced` lå allerede i `changelog.payload`, men blev
+  ikke vist nogen steder — et forceret skift så ud præcis som et almindeligt. Nu står der
+  et dæmpet `OVERSTYRET` på entryen. Uden det ville advarslens løfte kun være halvt sandt,
+  og netop dét mærke er hvad man leder efter når man bagefter spørger hvorfor lagertrækket
+  ikke skete.
+
+> ⚠️ **T_BON kunne ikke køre — brudt af auth-gaten (#316), ikke af denne ændring**
+> (efterprøvet mod `git stash`: samme 401 på baseline). Runneren lavede rå `fetch` uden
+> session, så den døde i preflight. Den logger nu ind som køkken-rollen; force-casene
+> laver stadig deres egne logins, fordi de netop skal skelne roller. Samme efterslæb som
+> CLAUDE.md's deploy-afsnit beskriver — flere runnere kan have det.
+
+**Tests:** T_BON 25/25 (FORCE_01–07 alle PASS, ingen SKIP). FORCE_02 er vendt fra
+"non-admin afvises" til "non-admin kan, og auditsporet peger på hende"; FORCE_03 tester
+nu det den hele tiden burde: at `body.user_id` ikke kan skrive en anden bruger i
+historikken. **Mutations-testet** — genindføres admin-kravet, falder FORCE_02+03; lader
+man `body.user_id` vinde i auditsporet, falder FORCE_03. Den anden mutation er den
+interessante: med det gamle 403-svar var D-3 aldrig reelt efterprøvet, fordi afvisningen
+skjulte audit-hullet. Regression grøn: T_BON_DRAWER_CORE 61/61, T_BONS_LIST 77/78·1 SKIP,
+moms-audit + bon_lines + dato 36/36. Browser-verificeret som **kitchen-rolle** (ikke
+admin) på bon 4004: advarsel → bekræft → AFSLUTTET, `changelog.user_id = 2` med
+`was_forced: true`, og `OVERSTYRET` synligt i historikken.
+
+
+### AFLYST var en status man ikke kunne se eller vælge (27. august 2026)
+
+Opfølgning på ovenstående. Kontoret spurgte om AFLYST var det samme som AFSLUTTET.
+Det er det ikke — og forvekslingen er dyr: en aflyst ordre holdes ude af omsætning,
+workload og kapacitet (`EXCLUDE_CANCELLED_SQL`), mens en afsluttet **tæller med**.
+Sætter man en aflyst bon til AFSLUTTET, flytter man den ind i regnskabet.
+
+Grunden til at nogen ville gøre det: `aflyst` stod ikke i `BON_CONFIG.statuses`
+(bevidst — den er ikke et trin i sekvensen). Men drawerens status-bar bygges af
+netop den liste, så tre ting fulgte:
+
+1. **Aflysning kunne kun ske gennem knappen der hed "Slet bon"** — to-trins, hvor
+   første tryk aflyser og andet sletter permanent. Navnet lovede kun det ene, og
+   det farligste. Knappen hedder nu **"Aflys bon"** / **"Slet permanent"** efter
+   hvad et tryk faktisk gør, med tooltip der siger konsekvensen.
+2. **En aflyst bon viste INGEN aktiv status** — `curStatus = 'aflyst'` matchede
+   ingen knap, så bonen så statusløs ud i draweren.
+3. **Kalenderen havde måttet holde sin egen kopi** af label og farve for at kunne
+   filtrere på den. Den er fjernet; farven bor ét sted nu.
+
+- `aflyst` er tilføjet med **grå** `#8a8a8a`, ikke DB'ens røde `#bc181b`: rød er
+  allerede AFSLUTTET, og grå siger "ude af spil".
+- Nyt felt **`cardButton: false`**: statussen har label og farve, men vises ikke som
+  knap på bon-kortet i views der ellers viser alle statusser. Køkkenkortene skal
+  ikke have et aflys-klik ved siden af KLAR. Det er skrevet som en **undtagelse**,
+  ikke en hvidliste, så en ny status fortsat dukker op af sig selv.
+  (I dag rammer `'all'`-fallbacken ingen kort — kun `kitchen-today`/`kitchen-later`
+  bruger `createCard`, og begge har eksplicitte lister. Flaget er et værn fremad.)
+- `BON_CONFIG.sequence` er urørt: aflyst er ikke et trin frem. Feltet bruges i
+  øvrigt ikke af noget i dag.
+
+> ⚠️ **`status_transitions.requires_confirmation` er dødt i frontenden.** Feltet er
+> udfyldt i seed for alle → AFLYST, men **ingen** frontend læser det: serveren
+> returnerer det først i svaret, altså efter skiftet er sket. En rå AFLYST-knap ville
+> derfor være ét klik uden varsel, hvor "Slet bon" i dag spørger. `_setStatus` har
+> fået en eksplicit bekræftelse for `aflyst` med samme ord som slet-vejen. At vække
+> feltet til live ville aktivere ~10 sovende bekræftelser på én gang og hører til sin
+> egen opgave.
+
+**Verificeret** som køkken-rolle mod testserveren: AFLYST står sidst i drawerens
+status-bar, bekræftelsen kommer, statussen bliver aktiv (bugfix 2), og slet-knappen
+skifter til "Slet permanent" uden genindlæsning. `buildStatusBar` kaldt direkte med
+`view: 'all'` giver alle statusser **uden** AFLYST — **mutations-testet**: fjernes
+`cardButton`, dukker den op. Kalenderens filterbar er uændret (samme knap, samme
+`#8a8a8a`), nu fra ét sted. Regression: T_BON 25/25, drawer 61/61, bons-list
+77/78·1 SKIP.
+
+> Browser-panelet frøs undervejs (viewport 0×0 — se memory `project_browser_panel_freezes`),
+> så klikkene er sendt gennem de ægte lyttere frem for som fysiske museklik. Layout er
+> derfor ikke efterprøvet visuelt; adfærd og markup er.
+
+**Efterspil samme dag: knappen lærte det ikke.** Fra en terminal status gav "Aflys bon"
+en blank `Transition AFSLUTTET → AFLYST er ikke tilladt` uden tilbud om at overstyre —
+mens AFLYST i status-baren virkede. `_handleDelete` kaldte `patchBonStatus` **direkte**
+og havde hverken bekræftelse eller force-gren; kun `_setStatus` fik dem. To veje til
+samme handling, hvor den ene lærte det nye. Knappen delegerer nu til `_setStatus('aflyst')`,
+så de deler kode og ikke kan skride fra hinanden igen — samme lære som `_tOpenQuote`
+vs. `_tCopyBon` (#428).
+
+`_setStatus` returnerer nu `true`/`false`. Uden det kunne kalderen ikke skelne "aflyst"
+fra "brugeren sagde nej i override-dialogen", og ville have nulstillet `dirty` på en bon
+der aldrig blev aflyst.
+
+Draweren **lukker ikke længere** efter aflysning fra knappen (det gjorde den før):
+aflysning er ikke en fjernelse, AFLYST er nu synlig i status-baren, og "Slet permanent"
+står klar hvis den skal væk helt. At blive er også det samme som status-bar-vejen gør.
+
+Verificeret på en BETALT bon: aflys-bekræftelse → override-dialog → AFLYST, knappen
+skifter til "Slet permanent", draweren bliver. Nej til override og nej til aflysning
+lader begge bonen stå på BETALT uden fejlbesked. "Slet permanent" sletter stadig
+(`GET /api/bons/4008` → 404 bagefter). En udløbet session giver "Ikke logget ind" i
+stedet for override-tilbuddet, hvilket er rigtigt: uden bruger er der intet auditspor.
+
+### Rest-prep: to prep-bons på samme event-dag tælles ikke længere dobbelt (27. august 2026)
+> Spec: `docs/CLAUDE_EVENT.md §19`. Migration 166.
+
+Køkkenet kunne ikke se hvor meget der skulle laves til Ungdommens folkemøde: der lå **to**
+prep-bons på hver dag — broens forudbestillinger (B4166, vokser ved hver ordre) og office'
+egen fra forecasten (B4147). Forecasten ER dagens total og indeholder de forudbestilte,
+men det stod kun som fritekst i broens køkkeninfo: *"indgår disse i den (lav dem ikke oveni)"*.
+
+Det var ikke kun forvirring. Målt i drift 2. sep: forecast 400, forudbestilt 332,
+registreret produktion **732**. Fire konsekvenser, hvoraf den første er den alvorlige:
+
+1. **HQ-lageret ville blive trukket dobbelt.** Let-event prep-bons er undtaget §5-gaten og
+   trækker uanset det globale flag ([db/helpers.js](db/helpers.js) `autoConsumeBonInventory`).
+   Begge bons på LEVERET = råvarer for 732 ud af huset, mens der forlod huset 400. Fejlen
+   dukker først op ved næste optælling som en uforklarlig difference.
+2. `computeTopupSuggestion` + `computeReturnSuggestion` summerer alt prep → retur ville
+   bogføre 332 for meget tilbage på HQ.
+3. Ugeoversigt og kapacitet: 732 enh onsdag → falsk "Understaffed".
+4. Køkkenet så to kort og skulle selv regne.
+
+Samme fejlklasse som #305/#319 (memory `project_silent_sideeffect_failures`): to systemer
+er uenige, og uenigheden er usynlig.
+
+**Reglen** (Leif): `mål = max(forecast, forudbestilt)` pr. kategori pr. dag; office' bon
+holder **resten** op til målet. `max()` er *"forecasten styrer, med mindre den bliver
+overhalet af de faktiske ordrer"* — så behøver forecasten aldrig blive rettet bag ryggen på
+nogen. Pr. dag og ikke på summen: ellers kunne en presset dag blive udlignet af en rolig.
+
+**Den genberegnes frem for at blive rettet i hånden**, fordi forudbestillinger kan komme ind
+helt frem til bestillingsfristen (30. aug for eventet 2.–3. sep). Der findes ikke noget godt
+tidspunkt at rette på: for tidligt bliver forkert igen, for sent efterlader køkkenet uden
+grundlag. Tre triggere: broens prep-push · `PUT /:id/forecast` · oprettelse/toggle.
+
+**Værn:**
+- **Opt-in pr. bon** (`bons.event_prep_auto_rest`) — en bon office har sammensat i hånden må
+  ikke pludselig flytte sig. Fluebenet vises kun når dagen faktisk har forudbestillinger.
+- **Frysen** stopper genberegningen når bonnen forlader `NY`/`GODKENDT` eller har trukket
+  lager. Listen spejler broens `BRIDGE_ROLES.prep.reconcile` med vilje — gik de fra hinanden,
+  kunne broen opdatere SIN bon på en dag hvor resten er frosset. Derefter er nye ordrer en top-up.
+- **Kun kategorier med et mål røres** (`Tilbehør & Bokse` står urørt), og vi opfinder aldrig
+  produkter — mangler der linjer i en kategori med et mål, rapporteres det.
+- **Mixet bevares proportionalt**: det er office' valg af hvad der laves ekstra og må ikke
+  overskrives af hvad kunderne tilfældigvis har bestilt.
+- **Én rest-bon pr. (event, dag)** (partielt unique-indeks) — to ville trække hinanden fra.
+- **En fejlet genberegning må aldrig koste kundens ordre**: broen kalder i try/catch og
+  rapporterer fejlen i svaret. Samme princip som `goodsReceiptWebhook`.
+
+**Rest = 0**: bonnen bliver **stående** med linjer på 0 og teksten *"⟳ 0 — hele dagens mål er
+forudbestilt. Det er B4166 I skal lave efter."* Beslutning (Leif): *"de har set på 2 bonner i
+lang tid, så det vil nok være mærkeligt hvis den pludselig forsvandt."* Automatisk aflysning
+ville også være en destruktiv bivirkning af at en kunde bestilte. 0-mængde-linjer skjules på
+køkkenkortet (`mapApiBonToCardData`) — de er ikke arbejde, og der findes **nul** 0-linjer i
+driftshistorikken, så filteret kan ikke skjule noget der plejede at være synligt.
+
+**Den oprindelige forecast bevares** (`event_forecast.original_qty`). Forecasten korrigeres
+løbende; uden feltet gik "hvad gættede vi egentlig på?" tabt i samme øjeblik tallet blev
+rettet. `PUT /forecast` sletter og genindsætter alt, så værdien bæres eksplicit med over.
+**NULL = aldrig korrigeret** — eksisterende rækker backfilles bevidst ikke; vi ved ikke om de
+er rettet, og et gæt ville se ud som en måling.
+
+**Synligt for office:** forecast-tabellen viser `🔗 332 forudbestilt · 400 preppet · mål 400`
+pr. dag, og `⚠ 732 preppet mod mål 400 — 332 for meget · ⟳ Ret B4147` når det er skredet —
+**handlingen ligger i advarslen**, ikke kun i bon-listen langt nede på siden. Er der flere
+office-prep-bons på dagen, gætter vi ikke hvilken der skal holde resten, men henviser til listen. Advarslen bygger
+kun på SQL, ikke på Grocy — derfor falder tabellen nu tilbage på de kategorier der allerede
+står på eventet når Grocy er nede; før forsvandt hele tabellen, og dermed advarslen, præcis
+når man ikke kunne se hvorfor. Bon-listen mærker rollerne og har en `⟳ Hold resten`-knap på
+en prep-bon der ikke er koblet (vises kun når den kan virke).
+
+**Tests:** `npm run test:event-rest-prep` (59) + `test:event-rest-prep-http` (36) — den første
+kører også den ÆGTE `/webhook/event-prep`-route med Grocy stubbet i require-cachen, så
+bro-triggeren er efterprøvet og ikke bare inspiceret. **Mutations-testet:** 12 mutationer
+(syv kerneregler + fem wiring-punkter) rulles hver især tilbage og fælder hver sin navngivne
+assert; to af dem producerer drifts-tallet 732 igen. Regression grøn: event-bridge-prep 69
+(inkl. "broen må ALDRIG røre en prep-bon office selv har lavet" — den holder, fordi rest-prep
+er opt-in), event-menu 42, event-contact 26, event-labor 101, topup 35, prep-covers 33,
+retur-trace 40, event-cancelled 26, event-polish 27, event-gate 15, prep-packing 12.
+Browser-verificeret ende-til-ende mod syntetisk event i dev-DB; testdata ryddet.
+
+> ⚠️ **Drift 2.–3. september:** B4147 og B4148 står stadig med hele forecasten. Slå
+> `⟳ Hold resten` til på dem efter deploy — så retter de sig selv frem mod
+> bestillingsfristen 30. august. Sker det ikke, skal de rettes ned i hånden **efter**
+> den 30., før de sættes til LEVERET; ellers trækkes HQ-lageret for meget.
+
+### Pakkeliste på tavlen — event i Bon ↔ arrangement i Whiteboard (27.–28. august 2026)
+> bon-v2 [#563](https://github.com/liffez/bon-v2/pull/563) · whiteboard #25, #27, #28.
+> Tavlens side er dokumenteret i `whiteboard/CLAUDE_arrangementer.md`.
+
+Et event har to sider, og de ligger i hver sin app: **varerne** her (prep-bon, salg,
+retur, lager, P&L — §5 i `CLAUDE_EVENT.md`) og **driften** på tavlen, hvor det hedder et
+**arrangement** ("event" er optaget dér til CCP-hændelser). Tavlen kunne allerede klone en
+pakke-skabelon til et arrangement; det der manglede, var at de to vidste om hinanden.
+
+Navn, datoer og en reference tilbage står allerede i eventet. At skrive dem af i hånden på
+tavlen var dobbeltarbejde — og en oplagt kilde til datoer der ikke stemte mellem
+systemerne.
+
+- **📋 Pakkeliste på tavlen** i event-hovedet åbner tavlens "Nyt arrangement" udfyldt:
+  `<tavle>/?open=arrangement&name=&start=&end=&ref=`. Samme mønster som det eksisterende
+  `?open=varemodtagelse`. Adressen kommer fra `/api/sidekick/config`
+  (`WHITEBOARD_BASE_URL`); er den ikke sat, skjules knappen.
+- **Skabelonvalget sendes bevidst ikke med.** Hvilket grej der skal med denne gang er det
+  menneskelige valg — og det eneste Bon ikke kan vide.
+- **`?event=N` åbner et event direkte.** Fandtes ikke før; alle events delte
+  `?view=events`, så tavlens link kunne kun lande på listen. `_evGoto()` i
+  [office/views/events.js](office/views/events.js) ejer nu både `_evCurrentId` og URL'en
+  ét sted — holdes de adskilt, driver de fra hinanden, og et kopieret link peger et andet
+  sted hen end skærmen viser.
+- `ref` sendes som **URL**, ikke som navn: tavlen linker en URL direkte til målet, mens et
+  navn kun kan blive til et opslag i Events-listen.
+
+> **Hvorfor ingen API-kobling mellem apperne.** Brugeren ER transporten: hun klikker, ser
+> tavlens dialog, og trykker selv opret. Derfor intet delt secret, ingen nginx-undtagelse,
+> ingen ny migration — og ingen bivirkning der kan lykkes eller fejle bag ryggen på nogen.
+> Det er præcis den fejlklasse der bed os i #305 og #319. Prisen er at Bon ikke får at vide
+> at arrangementet blev oprettet, så knappen ser ens ud hver gang. Ved ~9 events om året er
+> det til at leve med; vil vi have status, kan et rigtigt kald lægges ovenpå senere.
+
+**På tavlens side** (kort, se dens egen CLAUDE-fil for detaljer): `PATCH
+/api/arrangements/:id` tager nu også `name`/`event_start`/`event_end`/`bon_event_ref`, så
+et forkert link kan rettes bagefter (**✎ Redigér**) i stedet for at være støbt fast — og
+`scripts/link-arrangements-to-bon.js` koblede de gamle arrangementer, der kun bar et navn.
+Det script **matcher på startdato, ikke navn**: navnene er menneskeskrevne og stemmer ikke
+("Vig festival 2026" mod "Vig Festival", "Kultursalonerne gisselfeld" mod "Gisselfelt").
+
+> ⚠️ **Tavlens database må aldrig skrives direkte mens dens server kører.** Whiteboard
+> bruger sql.js — databasen ligger i hukommelsen og gemmes til fil ved ændringer, så en
+> fil-skrivning bliver overskrevet ved næste gemning. Skriv gennem
+> `http://localhost:3847/api/...` fra serveren selv (nginx-gaten rammer kun udefra); det
+> validerer også og logger til `item_log`. At LÆSE filen er fint.
+
+**Konvention:** et arrangements `event_start` er eventets **første dag** — ikke pakkedagen.
+Pakning udtrykkes som `day_offset = -1` på opgaven. (De syv seedede skabeloner har alle
+`day_offset = NULL`, altså udaterede tjekliste-opgaver, så en ændret arrangement-dato river
+ikke forfaldsdatoer skæve.)
+
+**Bevidst udeladt:** Bon viser ikke om der findes et arrangement på tavlen. Det kræver at
+Bon spørger tavlen — altså den API-kobling der er valgt fra ovenfor.
+### Forhandler-ordrer: hvem betaler, og hvem er maden til? (27. august 2026)
+
+Able er et frokostbestillings-firma. De lægger ordren ind på **vores egen**
+bestillingsformular for deres kunder — og skriver slutkundens navn i formularens
+**Firma-felt**, fordi der ikke er noget andet felt at skrive det i.
+
+Webhooken matcher firma på **eksakt navn** og opretter en ny firma-række når navnet
+ikke findes. Hver skrivemåde blev derfor sit eget firma: `Systematic / able`,
+`Systematic  (Able)` (dobbelt mellemrum — en anden streng), `Cisco / able`,
+`Brunata / able`, `able ApS` … **otte rækker** i drift. Bonnen landede på den række,
+og så fulgte hverken e-conomic-kundenummeret (733), omsætningen eller den stående
+rabat med — de sidder på Able.
+
+Kunden blev derimod slået op på **email**, så `care@able.dk` ramte altid den rigtige
+person. Resultatet var en bon med **Ables medarbejder som kunde og en skraldespand
+som firma**.
+
+- **Migration 167**: `companies.is_reseller` + `bons.end_customer_name` (+ partielt
+  indeks). Ingen bagudfyldning: vi kan ikke vide hvilke gamle bons der havde en
+  slutkunde, og et gæt ud fra fri tekst i `customer_wishes` ville være netop den
+  slags data ingen bagefter kan skelne fra noget nogen har skrevet.
+- **Webhooken** slår nu bestilleren op FØR firmaet afgøres. Er bestillerens eget
+  firma markeret som forhandler, lander bonnen på **forhandleren**, og det tastede
+  navn gemmes som slutkunde. Kender vi ikke bestilleren (ny medarbejder), falder vi
+  tilbage til den gamle adfærd — vi gætter ikke på hvem der er forhandler ud fra et
+  navn nogen har tastet. Changelog-linjen forklarer hvorfor bonnen ikke ligger på
+  det navn der blev skrevet.
+- **EAN skrives ikke på en forhandlers firma-række.** Et EAN i en forhandler-ordre
+  hører til slutkunden; skrev vi det på Able, ville deres næste faktura gå til en
+  fremmed EAN-modtager.
+
+> ⚠️ **Routingen er en forudsætning for rabatten, ikke et pyntearbejde.**
+> Triggeren `bons_seed_standing_discount` (migration 111) læser `discount_percent`
+> fra **det firma bonnen ligger på**. Så længe bonnen landede på `Systematic / able`
+> (rabat 0), kunne Ables 12,5 % ikke virke — uanset hvad der stod på Able-rækken.
+
+**Rabatten var bygget, men usynlig.** `companies.discount_percent` har eksisteret
+siden 001, triggeren siden 111, og `recalcBonTotal` + e-conomic-adapteren har hele
+tiden regnet med den. Men **0 af 1.448 firmaer havde den sat**, og ordet "rabat"
+fandtes ikke i én eneste skærm uden for tilbuds-wizarden. Sat via SQL ville bons
+bare være 12,5 % billigere uden at nogen kunne se hvorfor — samme fejlklasse som
+memory'ens `silent_sideeffect_failures`.
+
+- **Firma 360° → Stamdata** har nu **Rabat** (dansk komma, `12,5 %`) og
+  **Forhandler** (afkrydsning med forklaring + bekræftelse ved tilslag).
+- **`PATCH /api/companies/:id/commercial`** — egen route frem for `/identifiers`,
+  fordi de to felter ikke er identifikation men handelsvilkår. Afviser < 0 og ≥ 100:
+  100 % er ikke en rabat, og et negativt tal ville lægge TIL fakturaen.
+- **Bon-draweren** viser `Rabat 12,5 %` + `Bonens total (inkl. moms)` under
+  linjesummen. Beløbet opfindes bevidst **ikke**: serveren regner rabatten af
+  linjesum PLUS levering, og hvornår levering tælles med afhænger af en regel der
+  bor på serveren. Vi viser satsen (et faktum) og serverens egen total (et andet).
+- **Faktureringen** viser rabatlinjen med beløb — dér ER summen kun varelinjerne,
+  og e-conomic trækker satsen pr. linje. Samtidig regner **KPI'en og listen** efter
+  rabat; ellers stod der 520 kr to steder og 455 kr et tredje.
+
+**Slutkunden kan findes.** Feltet er med i bon-listens søgeudtryk (bonnen ligger jo
+på Able — hverken kunde- eller firmanavn indeholder "Systematic"), som valgfri
+kolonne (**default fra** — den er kun udfyldt på forhandler-ordrer), og inline i
+Firma-kolonnen som `Able → Systematic`. Vises også på bon-kortet (`Til: …`, altid —
+også i today-context hvor adressen er foldet væk, for ordren afhentes ofte), i
+info-modalen, i bon-draweren, på mobilen og i faktureringen.
+
+> **Hvorfor tekst og ikke en FK til `companies`:** formularen giver os en streng, og
+> et FK ville kræve at nogen manuelt koblede hver bon. Teksten er nok til at søge og
+> filtrere på fra dag ét. Skal der senere aggregeres rigtig omsætning pr. slutkunde,
+> lægges en kobling ved siden af — samme mønster som indbakkens
+> `parsed_email` → kontaktpunkt.
+
+**Tests**: `npm run test:forhandler` — 22 asserts mod de ægte endpoints over HTTP,
+med skemaet bygget af de rigtige migrations i `:memory:`. **Mutations-testet:** syv
+kerneregler rulles hver især tilbage og fælder navngivne asserts (forhandler-routing
+8, slutkunde-navnet 2, EAN-værnet 1, eget-navn-checket 1, søgefeltet 1,
+rabat-valideringen 1, `createBon`-feltet 2). Kontrolprøven `uden forhandler-markering
+ville rabatten IKKE ramme` er selve pointen skrevet som en test. Regression grøn:
+quote_convert 10, moms_audit 18, bon_lines 10, auto_fees 18, crm_companies 8,
+migrate 6, fakturering-render 18, economic-invoice 103, web-order-lines 12.
+Browser-verificeret ende-til-ende på en tom dev-DB: web-ordre → bon på Able med
+slutkunde + 12,5 % rabat + ingen ny firma-række, kort, drawer, liste, søgning,
+info-modal, mobil og fakturering. Kontrolprøve med en almindelig kunde: uændret.
+Testdata ryddet.
+
+> **Deploy — rækkefølgen betyder noget.** Migrationen er inert indtil nogen sætter
+> flaget: `is_reseller` defaulter til 0, så alle 1.448 firmaer opfører sig præcis som
+> før. Efter deploy: markér Able som forhandler og sæt 12,5 % i Firma 360°. Rabatten
+> **snapshottes ved oprettelsen** — den rammer kun bons oprettet derefter, aldrig de
+> eksisterende. De otte gamle `able`-rækker er ikke ryddet op her; det er data, ikke
+> kode, og hører til stamdata-værktøjerne (`npm run audit:dubletter`).
+
+**Efterspil fra første drifttest (28. august).** Fire ting kom retur:
+
+- **Blyanten på et tomt stamdata-felt var usynlig** (`opacity: 0` indtil hover).
+  For CVR og EAN går det, fordi der som regel står en værdi man sigter efter —
+  men en ny `Rabat —`-række så ud som om den manglede en knap, så flaget blev
+  sat og rabatten kunne ikke findes. Tomme rækker viser nu blyanten dæmpet, og
+  hele rækken kan klikkes. Gælder alle de redigerbare felter.
+- **Redigerings-rækken skød ud over kortet.** `.f3-edit-wrap` manglede
+  `min-width: 0`; en flex-item har `min-width: auto` og kan derfor ikke krympe
+  under sit indholds min-bredde. Målt: kortet slutter ved 626 px, wrap'en endte
+  ved 668, og "Annullér" blev klippet af. Pre-eksisterende, men først synligt da
+  rabat-feltet gav en grund til at åbne editoren.
+- **Bon-statusser var farveløse i Firma 360° og Kunde 360°** — hardkodet
+  `#e6eef3` og `#f0f0f0` i stedet for BON_CONFIG. Samme fejl som blev rettet i
+  ugeoversigt/web-ordrer/kalender 19. maj; de to 360°-skærme blev overset.
+  Ny `statusBadgeHtml(code, opts)` i `shared/utils.js` er nu ét sted at hente
+  farve + etiket, med grå fallback hvis BonConfig ikke er loadet.
+- **`scripts/merge-reseller-junk-companies.js`** rydder op i de rækker der nåede
+  at blive oprettet før migrationen. **Ikke** en almindelig sammenlægning:
+  rækkens NAVN er den eneste oplysning om hvem slutkunden var, så navnet skrives
+  over i `bons.end_customer_name` FØR bonnen flyttes. Rækkerne udpeges én ad
+  gangen med `expect_name` som spærre — en søgning på "able" fanger også
+  **`A Table Story ApS`** (CVR 44129485), som intet har med Able at gøre.
+  Per Aarsleff (3652/3654) og Brunata (3703) bærer ægte CVR og kontaktpunkter og
+  har 0 bons; de skal **omdøbes**, ikke slettes, og det er et menneskes
+  beslutning. Dry-run default, `VACUUM INTO`-backup, transaktion der ruller
+  tilbage hvis antal bons eller omsætning flytter sig, idempotent.
+
+  Kørt mod en kopi af driftsdata: Able 58 → **62 bons**, `Cisco` og `Systematic`
+  bevaret som slutkunder, ni able-agtige rækker → fem aktive (Able + de fire vi
+  bevidst ikke rører). B4194 (16.435 kr, VENTER) lå på en række uden
+  e-conomic-nummer og kunne ikke faktureres — den kan den nu.
+
+  **Slutkunden får ikke sin egen firma-række.** Systematic har kun handlet
+  gennem Able og er derfor ikke kunde hos os; navnet hører til på bonnen.
+  Cisco HAR handlet direkte, men findes allerede tre gange (CVR 20456493) —
+  en omdøbning ville give den fjerde. `rename_to` findes i planen til den dag
+  en slutkunde viser sig at handle direkte og ikke findes i forvejen.
+
+- **CRM → Værktøjer → "Ryd tomme firmaer"** (`office/views/crm-verktoj.js`,
+  ved siden af sammenlægnings-guiden, admin-only). Tre grupper, afkrydsning,
+  søgning og "Læg de valgte væk". Rækkerne **deaktiveres**, slettes aldrig.
+
+  > ⚠️ **`POST /empty-companies/deactivate` gentjekker HVERT id mod reglen.**
+  > Listen i browseren kan være timer gammel, og i mellemtiden kan en bon være
+  > landet på rækken — fx fordi nogen tastede firmanavnet i bestillingsformularen.
+  > Rækker der ikke længere er tomme springes over og **rapporteres tilbage**;
+  > ellers ville der stå "42 lagt væk" på en liste hvor man valgte 43.
+  > Efterprøvet: bon lagt på kandidaten mellem hentning og POST →
+  > `{deactivated: 1, skipped: 1}`, og rækken forbliver aktiv.
+
+  Reglen bor i **`services/companyCleanup.js`** og deles af siden og scriptet.
+  To kopier ville skride fra hinanden, og så ville siden vise noget andet end
+  kommandolinjen fjerner.
+
+- **`scripts/audit-empty-companies.js`** — den generelle regel fra drift: en
+  firma-række beholdes hvis der er **en bon, en kontaktperson eller en mail**
+  på den. Ellers er den et artefakt fra formularens fri-tekst-felt eller fra
+  v1-importen (de fire Per Aarsleff-rækker er oprettet i samme sekund,
+  2026-04-08 11:16:29, og har ingen af delene). Fire værn oveni: e-conomic-nr,
+  `is_internal`, påmindelser og fremmednøgler fra events/kampagner/booking-tokens.
+  Rækker **deaktiveres**, slettes aldrig — en changelog-linje kan pege på dem år
+  efter. Dry-run default, `VACUUM INTO`-backup, transaktion der ruller tilbage
+  hvis antal bons flytter sig.
+
+  > ⚠️ **`rfm_scores` er bevidst IKKE et værn.** Tabellen er beregnet og har en
+  > række for stort set hvert firma (1.346 af 1.452 i drift). Bruges den som
+  > bevis på en relation, freder den alt: 377 kandidater → 0. Fanget under
+  > afprøvning, hvor scriptet meldte "intet at rydde op" på et kartotek hvor
+  > hver tredje række var tom.
+
+  Rapporten viser også hvad der blev **fredet** og hvorfor (`37 med
+  e-conomic-nummer · 3 med en note`). Et værktøj der kun viser hvad der ryger,
+  er svært at stole på — man kan ikke se om reglen greb for bredt.
+
+  Målt mod driftsdata: **1.361 → 987 aktive firmaer** (374 deaktiveret, 240 af
+  dem med CVR fra berigelse). 0 bons rørt, 0 bons efterladt på en inaktiv række.
+  Kør forhandler-oprydningen FØRST — ellers står dens fire rækker stadig med
+  bons og bliver fredet.
+
+  Rapporten grupperer i tre — **dubletter af et firma der handler** (kan lægges
+  væk uden videre), **har CVR men ingen tvilling med bons** (ægte organisationer
+  der aldrig blev til en ordre), og **uden CVR og uden spor** (noter og
+  engangstekster tastet i formularens firma-felt: `Barnedåb`, `Zoo kort dag prep`,
+  `ff`). `--csv` skriver hele listen til en fil med en tom `beslutning`-kolonne;
+  374 linjer i en terminal kan ikke gennemgås, og en liste man ikke kan gennemgå
+  bliver enten kørt i blinde eller slet ikke.
+
+  Rapporten markerer hver kandidat der er **dublet af et aktivt firma med bons**
+  (samme CVR). Det er den mest brugbare oplysning når 374 navne skal skimmes:
+  `Akademisk Arkitektforening` ser ud som en rigtig kunde man ikke må røre —
+  indtil man ser at `Arkitektforeningen` (samme CVR 62572310) står med 112 bons
+  ved siden af. 106 af de 374 er sådan nogen.
+
+  > ⚠️ **Skriv `firma #2490`, ikke `#2490`.** Bon-numre ser ud som `cafe-2490`
+  > og `B4224`, så et bart `#2490` i en terminal læses som en bon. Det skete i
+  > drift: listens `#2490 Akademisk Arkitektforening` blev slået op som bonnen
+  > `cafe-2490`, som ligger på et helt andet firma (Danner, #2548) — og så ser
+  > oprydningen ud til at ville fjerne et firma der handler.
+
+  > Tre referencer blev fundet FØR første kørsel i drift, ikke bagefter:
+  > `attachments` og `crm_custom_values` (begge `entity_type='company'`) er tomme
+  > i dag, men referencerne findes — værnet skal være der før nogen begynder at
+  > bruge dem. Og `companies.notes`: tre rækker bar en note. Alle tre viste sig
+  > at være EAN-merge-stubbe (`--- Tidligere navne (EAN-merge) ---`), men reglen
+  > freder dem alligevel og siger det højt, frem for at bygge en heuristik der
+  > skal kende forskel på maskinens tekst og menneskets.
+
+**Bredere fund, ikke løst her:** af 114 web-bestillinger i drift ligger **39** på et
+andet firma end kundens eget — `University of Copenhagen` mod `Københavns
+Universitet`, `ATV` mod `Akademiet for de tekniske videnskaber`, `Stromma` mod
+`Stromma Danmark A/S`. Fri tekst i et firma-felt er en dubletmaskine: 246 firmaer i
+basen har hverken CVR, EAN, kundenummer eller mere end én bon. Forhandler-reglen
+rører kun de firmaer der er markeret; den generelle sag er
+[#567](https://github.com/liffez/bon-v2/issues/567).
+
+### Flyver: "Gå til bon" førte ingen steder hen (1. september 2026)
+
+Knappen i flyver-modalen så død ud. To veje, begge stille:
+
+**Kortet var på siden, men filtreret væk.** Et bon-kort forsvinder ikke fra DOM'en
+når et filter er slået til — det får `display:none !important`
+(`body:not(.show-lev) .bon-card[data-status="lev"]` m.fl. i `kitchen/today.html`).
+`_gotoFlyverBon` fandt kortet med `getElementById`, scrollede til det og satte
+highlight-klassen — alt sammen på noget usynligt. Det er den almindelige situation:
+en flyver sendt om formiddagen ligger stadig i køen når bonen er leveret og
+VIS LEVEREDE er slukket.
+
+**Kortet var der slet ikke.** Fallbacken var
+`window.location.href = '/kitchen/today.html#bon' + bonId`. Står man allerede på
+`today.html`, er det kun et hash-skift — ingen navigation, ingen genindlæsning, og
+`scrollToBonHash()` kaldes kun ved page load. Der skete bogstavelig talt ingenting.
+Og hørte bonen til en anden dag, var today.html alligevel den forkerte side.
+
+- **`kitchen/today.js` fik `window.revealBonCard(card)`** — den ejer filtrene, så den
+  rydder dem: slukker `filter-igang`/`filter-klar`, tænder VIS LEVEREDE hvis kortet er
+  leveret, opdaterer knappernes låse-tilstand og afbryder en igangværende leveret-fade.
+  Fade-afbrydelsen er ikke kosmetik: uden `clearTimeout` ville 8-sekunders-timeren
+  skjule kortet igen kort efter at man var hoppet til det.
+- **`shared/flyver.js`** kalder den (via `typeof`, så sider uden filtre — fx Senere —
+  er upåvirkede). Er kortet ikke på siden, afgør **leveringsdatoen** hvor man skal hen:
+  i dag → I dag, senere → Senere. Køkkenet vil se *kortet*; draweren er en
+  redigeringsflade og er derfor kun svaret i office (`zone-kitchen` skiller de to) eller
+  når kortet ikke står nogen steder — en bon i fortiden, eller en bon vi ikke kunne
+  hente. Navigation til samme sti gør et **reload**, for et hash-skift alene henter
+  ikke bonen.
+- **`scrollToBonHash()` i `shared/utils.js`** er den anden halvdel af rejsen og havde
+  samme to huller: den scrollede til et filtreret kort uden at vise det, og gjorde intet
+  når bonen ikke var på siden. Den kalder nu `revealBonCard` og falder tilbage til
+  draweren. Det gælder også kalenderens "Gå til bon →", som bruger samme hash.
+- Scroll + highlight kaldes direkte, ikke i `requestAnimationFrame`: rAF fyrer ikke i
+  en skjult fane, og en køkkenskærm der lige er vækket ville så stå med samme døde knap.
+
+**Tests**: `npm run test:flyver` — 21 (serverside, uændret) + **15 nye** i
+`tests/flyver_goto_bon.test.js`, hvor de rigtige `shared/flyver.js`, `kitchen/today.js`
+og `shared/utils.js` køres i en vm-sandkasse med en lille DOM og styrbare timere
+(browserkode kan ikke `require`s). **Mutations-testet:** ni kerneregler rulles hver især
+tilbage og fælder hver sin navngivne assert. Browser-verificeret mod en frisk lokal DB,
+inkl. hele kæden i ét forløb: fra Senere → en leveret bon i dag → navigation til I dag →
+hash-vejen tænder VIS LEVEREDE og viser kortet. Klikkene blev sendt som `MouseEvent`
+gennem de ægte lyttere — browser-panelet var frosset (viewport 0×0), så fysiske museklik
+var ikke mulige.
+
 ### Menu-rækkefølge og grupper i draweren (1. september 2026)
 
 Bon-draweren og info-modalen viste emballage og levering **midt i maden**.
@@ -5429,7 +5998,7 @@ en pre-eksisterende begrænsning fra migration 072.
 > - **Delivery popout (19. maj 2026)**: Bud-bestilling er flyttet fra overlay-modal til **separat popup-vindue** (`window.open` med target `rr-delivery-note-${bonId}` så flere bookings kan håndteres parallelt). Hvert felt i popoutet er en mini-template med `{variabel}`-syntaks — sammensatte felter (`{bon_id} · {total_boxes} kasser`) tillader at pakke flere variabler i ét chip-klik. By-expressen bruger `step`-property til at gruppere felter pr. Lobo-wizard-trin. Bagudkompatibilitet: vehicles uden `booking_fields_json` viser kun "Samlet tekst"-mode. Frontend bruger `Array.isArray(payload.fields)` til at detecte konfiguration — ingen separat `_configured`-flag. `services/booking_template.js` har en intern `_renderWithMeta(template, vars)` der returnerer `{ text, hasMissing }`; `renderTemplate()` (eksisterende public API) er uændret signatur men implementeret via samme helper. Auth: separat `requireAuthRedirect` middleware i `routes/delivery_views.js` fordi `shared/auth.js`'s `requireAuth` er JSON-orienteret — HTML-popout redirecter til `/login.html?next=…` ved manglende session. Den gamle `shared/manual_booking_modal.js` er slettet uden feature-flag-periode — popoutet er funktionelt superset af modalen.
 > - **Kunde-flags (19. maj 2026)**: Polymorf datamodel `entity_flags(entity_type, entity_id)` matcher contact_points-mønstret. To handlinger: `ack` (per-bon, lever videre — "Forstået"-knap) og `dismiss` (permanent — "Færdig — fjern"-knap). UI-wording bevidst valgt klarere end spec'ens "Set"/"Gjort". Strip auto-collapse: 1 flag = open, 2+ = collapsed. Bevarer brugerens åbnede tilstand ved ack/dismiss — nulstilles kun ved bon-skift via `setBonId`. Firma-flag vises på ALLE bons under firmaet (bevidst — fx "Fakturaer til Anne" skal popoppe overalt). Strippen vises på alle bon-statusser uanset om bonen er aktiv eller afsluttet — status-filter (`b.status_code IN (aktive)`) kan tilføjes senere hvis støj bliver et problem. Dismissed flag bliver synlige som læse-only items i Kunde 360° Aktivitet-tab; Firma 360° Aktivitet-tab er ikke implementeret endnu (kræver firma-aggregering af crm_activities).
 > - **SSE-event-konvention (13. maj 2026)**: alle `bon_*`-events bruger `{id, ...metadata}`. Polymorfe events (`mail_*`, `po_*`, `supplier_*`) bevarer semantiske FK-navne (`bon_id`, `customer_id` etc.) fordi de kan referere flere entiteter. Frontend skal IKKE bruge fallback-pattern `data.id || data.bon_id` — vælg én eller den anden afhængigt af event-type.
-> - **Force-mode auth (13. maj 2026)**: rolle-tjek mod `req.session.userId` (IKKE body.user_id). Body bruges KUN til audit-felter. Privilege-escalation-vektor lukket i Patch D.
+> - **Force-mode auth (13. maj 2026, revideret aug 2026)**: force kræver en gyldig session — men ikke længere admin-rolle. Audit-user-id kommer fra `req.session.userId`, ALDRIG fra `body.user_id`: efter at rollekravet er væk, er auditsporet det eneste der peger på et menneske, så afsenderen må ikke kunne skrive en anden i historikken. Privilege-escalation-vektoren fra Patch D er stadig lukket.
 > - **Partially approved (13. maj 2026)**: ny status-værdi på `goods_receipts` når mindst én item-Grocy-fejl. Bevidste skips (missing-status, no-pid) tæller ikke. UI-rendering kommer i Fase 3 varemodtagelses-listview.
 > - **Tilbud-status convert-only (13. maj 2026, revideret 13. august 2026)**: `offer_status='won'` kan KUN sættes via `POST /api/quotes/:id/convert` — som nu opretter en NY bon (`source_quote_id`) og låser bilaget i stedet for at flippe `is_offer`. PATCH `/:id/status` accepterer kun draft/sent/lost/expired, og afvises helt (409) mens tilbuddet er låst.
 > - **Test-spec-format**: Hver track har spec i `tests/specs/T_*.md` med 11 sektioner (formål, forudsætninger, strategi, cases, eksempel, fejlsignaler, filer, hvad-vi-ved, næste, status, findings). Findings nummereret F* (track-lokale), observations #NNN (globale i TEST_OBSERVATIONS.md).
@@ -5736,6 +6305,7 @@ POST   /api/payment-types                                routes/payment_types.js
 PATCH  /api/payment-types/:id                            routes/payment_types.js (admin)
 GET    /api/invoices/queue?include_done=1                routes/invoices.js
 PATCH  /api/companies/:id/economic                       routes/companies.js
+PATCH  /api/companies/:id/commercial                     routes/companies.js (stående rabat + forhandler-markering)
 GET    /api/companies/:id/enrich-preview                 routes/companies.js (CVR diff uden gem)
 POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
 POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)
@@ -5906,7 +6476,7 @@ NY → VENTER → GODKENDT → IGANG → KLAR → LEVERET → FAKTURERET → AFS
 Fra alle: → AFLYST
 ```
 
-Med `force: true` kan admin sætte hvilken som helst status.
+Med `force: true` kan enhver **indlogget** bruger sætte hvilken som helst status — efter bekræftelse i UI'et, og skiftet skrives i historikken med `was_forced` + brugerens id fra sessionen. Admin-kravet faldt aug 2026: auth er rolle-baseret med delte konti, så det ramte roller og ikke ansvar.
 POS-ordrer (Zettle) sættes direkte til BETALT.
 
 ---

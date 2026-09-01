@@ -585,10 +585,13 @@ Svaret bærer `price_source: 'menu' | 'grocy'`.
   bagudkompatibelt for events oprettet inden menuen fandtes.
 - Menupunkter **uden** prep (typisk en ret fundet på pladsen) kommer med i prefillen
   med antal 0, så de ikke skal tastes som fritekst hver dag.
-  **API'et siger 0, modalen viser 1** — gen-modalens `addLine` har `min="1"`. Det er
-  et bevidst valg (Leif, juli 2026): du satte retten på menuen fordi du regner med at
-  sælge den, og alle prefill-tal er i forvejen START-gæt der justeres inden bonnen
-  gemmes. 0 i API'et er den ærlige "der er ikke preppet noget til den".
+  **API'et siger 0, og modalen viser nu også 0** — gen-modalens `addLine` har `min="0"`
+  (ændret sept. 2026, Leif). Der er dage hvor en vare simpelthen ikke bliver solgt, og
+  `min="1"` gjorde det umuligt at nulstille en prefill-linje: browseren afviste feltet
+  med "Værdien skal være større end eller lig med 1". Rækken bliver stående som
+  huskeseddel, men **linjer med antal 0 sendes ikke med** når bonnen oprettes — knappen
+  tæller kun de linjer der faktisk bliver til noget ("Opret salgsbon (4 linjer)"), og
+  står alle på 0 hedder den "Sæt antal på mindst én linje" og er slået fra.
 - Kostpris og CO₂ er stadig Grocy-snapshots; menuen holder kun salgsprisen.
 
 ### 16.7 Endpoints
@@ -1329,3 +1332,163 @@ lokations-toggle'et.
 
 *Grundlag: design-session Leif, 22. august 2026. Tal verificeret mod en kopi af driftsdata
 (kopien slettet efter brug). Ingen kode ændret.*
+
+---
+
+## 19. Rest-prep — to prep-bons må ikke tælles dobbelt (august 2026) ✅ implementeret
+
+> Migration 166. Driftsfeedback fra Ungdommens folkemøde (2.–3. sep 2026): køkkenet
+> kunne ikke se hvor meget der skulle laves, fordi der lå **to** prep-bons på samme dag.
+
+### 19.1 Problemet
+
+På et event med event-ordre-kobling (§ broen, `docs/CLAUDE_EVENT_BON_BRIDGE.md`) findes
+der to prep-bons pr. dag:
+
+| Bon | Kilde | Karakter |
+|-----|-------|----------|
+| B4166 | event-broen | kundernes **forudbestillinger** — allerede solgt, vokser ved hver ordre |
+| B4147 | office' `+ Prep` | **forecasten** for dagen |
+
+Forecasten er dagens **totale** forventede salg og indeholder altså de forudbestilte.
+Men overlappet stod kun som fritekst i broens køkkeninfo — *"indgår disse i den (lav dem
+ikke oveni)"*. Ingen kolonne, intet flag, ingen beregning kendte det.
+
+Målt i drift 2. sep: forecast 400, forudbestilt 332, registreret produktion **732**.
+
+Fire konsekvenser, i rækkefølge efter alvor:
+
+1. **HQ-lageret trækkes dobbelt.** `autoConsumeBonInventory` undtager let-event prep-bons
+   fra §5-gaten — de trækker uanset det globale flag. Begge bons sat til LEVERET trak
+   råvarer for 732 mens der forlod huset 400. Fejlen dukker først op ved næste optælling.
+2. **Top-up og retur regner forkert.** `computeTopupSuggestion` og `computeReturnSuggestion`
+   summerer `prepped` over alle produktion-bons. Retur ville bogføre 332 for meget tilbage.
+3. **Ugeoversigt og kapacitet lyver.** 732 enh onsdag → falsk "Understaffed".
+4. **Køkkenet ser to kort** og skal selv regne ud at det ene er en delmængde af det andet.
+
+Fejlklassen er den kendte (memory `project_silent_sideeffect_failures`, jf. #305/#319):
+to systemer er uenige, uenigheden er usynlig, og intet sted mødes de to.
+
+### 19.2 Reglen
+
+```
+mål for dagen  =  max(forecast, forudbestilt)      ← pr. KATEGORI, pr. DAG
+rest-bonnen    =  mål − alt andet preppet den dag
+```
+
+`max()` er Leifs egen formulering: *"forecasten styrer, med mindre den bliver overhalet af
+de faktiske ordrer."* Så behøver forecasten aldrig blive rettet automatisk bag office' ryg.
+
+**Pr. dag og ikke på summen.** Summerede man først, kunne en dag hvor ordrerne har
+overhalet blive udlignet af en dag hvor de ikke har — og målet ville være for lavt netop
+på den dag der er presset.
+
+### 19.3 Hvorfor det genberegnes frem for at blive rettet i hånden
+
+Forudbestillinger kan komme ind helt frem til bestillingsfristen (30. aug for eventet
+2.–3. sep). En manuel rettelse er forældet dagen efter, og så gentager præcis den drift
+der skabte problemet. Der findes ikke noget godt tidspunkt at rette på: for tidligt bliver
+forkert igen, for sent efterlader køkkenet uden grundlag.
+
+Derfor holder office' bon **resten**, og den genberegnes hver gang målet flytter sig.
+Summen af de to bons er altid dagens mål.
+
+### 19.4 Værn
+
+- **Opt-in pr. bon** (`bons.event_prep_auto_rest`). En prep-bon office har sammensat i
+  hånden må ikke pludselig begynde at flytte sig. Fluebenet i prep-modalen er slået til
+  når dagen faktisk har forudbestillinger — ellers vises det ikke.
+- **Frys.** Genberegningen stopper når bonnen forlader `NY`/`GODKENDT` eller har trukket
+  lager. Listen spejler broens egen `BRIDGE_ROLES.prep.reconcile` med vilje: gik de fra
+  hinanden, kunne broen opdatere SIN bon på en dag hvor resten er frosset. Efter frysen er
+  bonnen køkkenets, og nye ordrer bliver til en **top-up** — hvilket er den rigtige historie.
+- **Kun kategorier med et mål røres.** `Tilbehør & Bokse` (ingen forecast) er office' egen
+  linje og står urørt. Vi opfinder heller aldrig produkter: har en kategori et mål men
+  ingen linjer på rest-bonnen, rapporteres det som en advarsel.
+- **Mixet bevares proportionalt** (`allocateInteger`). Det er office' valg af *hvad* der
+  laves ekstra og må ikke overskrives af hvad kunderne tilfældigvis har bestilt. Er alt
+  nulstillet, findes der intet forhold at bevare, og en jævn fordeling er det ærligste gæt.
+- **Kun ÉN rest-bon pr. (event, pakkedag)** — partielt unique-indeks. To overlappende ville
+  trække hinanden fra og kunne svinge frem og tilbage.
+- **En fejlet genberegning må aldrig koste kundens ordre.** Broen kalder den i try/catch og
+  rapporterer fejlen i svaret; forudbestillingen er allerede landet. Samme princip som
+  `goodsReceiptWebhook`.
+
+### 19.5 Rest = 0
+
+Når forudbestillingerne dækker hele målet, bliver bonnen **stående** med sine linjer på 0
+og en køkkentekst der peger på den bon der skal laves efter:
+
+> `⟳ 0 — hele dagens mål er forudbestilt. Det er B4166 I skal lave efter.`
+
+Beslutning (Leif): *"de har set på 2 bonner i lang tid, så det vil nok være mærkeligt hvis
+den pludselig forsvandt."* At aflyse den automatisk ville også være en destruktiv bivirkning
+af at en kunde bestilte — og annulleres ordren, skal tallet kunne komme op igen.
+
+0-mængde-linjer skjules på køkkenkortet (`mapApiBonToCardData`): de er ikke arbejde, og
+"0 × Tunen" tre gange er støj. Der findes **nul** 0-linjer i driftshistorikken, så filteret
+kan ikke skjule noget der plejede at være synligt.
+
+### 19.6 Den oprindelige forecast bevares
+
+`event_forecast.original_qty`. Forecasten korrigeres løbende efterhånden som rigtige ordrer
+kommer ind; uden feltet gik *"hvad gættede vi egentlig på?"* tabt i samme øjeblik tallet
+blev rettet, og eventet kunne ikke evalueres bagefter.
+
+`PUT /:id/forecast` sletter og genindsætter alt, så værdien bæres eksplicit med over.
+**NULL = aldrig korrigeret** — vi backfiller ikke eksisterende rækker, for vi ved ikke om
+de er rettet, og et gæt ville se ud som en måling. Feltet fyldes første gang et tal
+*faktisk* ændrer sig, og overskrives aldrig af den næste rettelse.
+
+### 19.7 Synligt for office
+
+Forecast-tabellen viser regnestykket pr. dag under datoen:
+
+- normalt: `🔗 332 forudbestilt · 400 preppet · mål 400`
+- skredet: `⚠ 732 preppet mod mål 400 — 332 for meget`
+
+Advarslen bygger udelukkende på SQL (`prepped` + `bridge_prepped`), ikke på Grocy. Derfor
+falder forecast-tabellen nu tilbage på de kategorier der allerede står på eventet når Grocy
+er nede — før forsvandt hele tabellen, og dermed også advarslen, præcis når man ikke kunne
+se hvorfor.
+
+**Handlingen ligger i selve advarslen**, ikke kun i bon-listen: `⚠ 732 preppet mod mål 400 —
+332 for meget · ⟳ Ret B4147`. Prep-listen ligger langt nede på siden, og en advarsel uden
+vej videre er bare en konstatering. Findes der flere office-prep-bons på dagen, gætter vi
+IKKE hvilken der skal holde resten — så henvises der til listen.
+
+Bon-listen mærker rollerne (`🔗 forudbestilt` / `⟳ holder resten`) og har sin egen
+`⟳ Hold resten`-knap. Begge knapper deler handler. De vises kun når de kan virke — broens
+egen bon og en frosset bon får dem ikke; en knap der kun kan fejle er værre end ingen knap.
+
+### 19.8 Filer
+
+| Fil | Rolle |
+|-----|-------|
+| `db/migrations/166_event_rest_prep.sql` | `bons.event_prep_auto_rest` + unique-indeks + `event_forecast.original_qty` |
+| `routes/events.js` | `computeDayTargets`, `preppedExcept`, `reconcileRestBon`, `reconcileRestBonsForEvent`, `restKitchenText`, `applyKitchenMark` + `POST /:id/bons/:bonId/rest-prep` |
+| `routes/event-bridge.js` | genberegner efter hver prep-push (try/catch) |
+| `office/views/events.{js,css}` | dagsregnskab, flueben, mærker, knap |
+| `shared/utils.js` | 0-mængde-linjer skjules på kortet |
+
+**Tre triggere:** broens prep-push · `PUT /:id/forecast` · oprettelse/toggle af rest-bonnen.
+
+### 19.9 Tests
+
+`npm run test:event-rest-prep` (59 in-process, inkl. den ægte `/webhook/event-prep`-route
+med Grocy stubbet) + `npm run test:event-rest-prep-http` (36 over HTTP mod en spawnet
+server). **Mutations-testet:** 12 mutationer — de syv kerneregler og de fem wiring-punkter
+— rulles hver især tilbage og fælder hver sin navngivne assert.
+
+### 19.10 Kendte afgrænsninger
+
+- **Fritekst-linjer uden kategori genberegnes ikke.** Vi ved ikke hvilket mål de hører til.
+- **Flerdags-pakning:** en bon tælles med hvis dens `delivery_date` ligger i intervallet.
+  En bon der rækker ud over intervallet tælles fuldt med — vi kender ikke fordelingen pr.
+  dag (samme grund som `computeCoveredDays` ikke fordeler mængder), og et pro-rata-gæt
+  ville forplante sig ind i målet som var det en måling.
+- **Sættes en forecast-kategori til 0, slettes rækken** (eksisterende PUT-semantik), og
+  dermed også dens `original_qty`.
+
+*Grundlag: driftsfeedback + design-session Leif, 26.–27. august 2026. Tal verificeret mod
+en kopi af driftsdata; syntetisk testdata i dev-DB oprettet og ryddet igen.*

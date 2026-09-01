@@ -146,8 +146,12 @@ router.get('/', handle((req, res) => {
             args.push(`%${q}%`);
         } else {
             const like = `%${q}%`;
-            where.push("(b.bon_number LIKE ? OR c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ?)");
-            args.push(like, like, like);
+            // end_customer_name er med, fordi det er DET navn office leder efter
+            // på en forhandler-ordre — bonnen ligger jo på forhandleren (Able),
+            // ikke på slutkunden (Systematic), så hverken kunde- eller firmanavn
+            // finder den.
+            where.push("(b.bon_number LIKE ? OR c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ? OR COALESCE(b.end_customer_name,'') LIKE ?)");
+            args.push(like, like, like, like);
         }
     }
 
@@ -171,7 +175,7 @@ router.get('/', handle((req, res) => {
             b.courier_arrival_time,
             b.pax, b.total_units, b.total_co2e, b.total_price, b.event_role,
             b.payment_type, b.delivery_type, b.delivery_method, b.kitchen_selects,
-            b.price_category_id,
+            b.price_category_id, b.end_customer_name,
             pc.code  AS price_category_code,
             pc.label AS price_category_label,
             sd.code  AS status_code,
@@ -785,6 +789,7 @@ router.patch('/:id', handle((req, res) => {
         'payment_type', 'kitchen_selects', 'customer_collects',
         'kitchen_info', 'customer_wishes', 'internal_notes', 'invoice_info',
         'day_contact_name', 'day_contact_phone',
+        'end_customer_name',
         'is_internal'
     ];
 
@@ -857,27 +862,36 @@ router.patch('/:id/status', handle((req, res) => {
     const newStatus = db.prepare(`SELECT id, code FROM status_definitions WHERE code = ?`).get(status_code);
     if (!newStatus) return res.status(400).json({ error: `Ukendt status: ${status_code}` });
 
-    // Patch D: force-mode. Rolle-tjek mod SESSION (ikke body) for at undgå
-    // privilege escalation. Også audit-user-id kommer fra session — body.user_id
-    // accepteres ikke til auth eller audit (D-2b fix).
+    // Force-mode: overstyr en status-vej der ikke findes i status_transitions.
+    //
+    // Kræver en gyldig session — men IKKE admin (Patch D var admin-only indtil
+    // aug 2026). Virkeligheden følger ikke altid flow-diagrammet: en kunde
+    // aflyser efter levering, en bon skal lukkes fra en terminal status. Den
+    // der står med sagen skal kunne rette op, og auth her er rolle-baseret med
+    // delte konti — så admin-kravet ramte roller, ikke ansvar. Frontenden
+    // advarer og beder om bekræftelse; changelog viser bagefter hvem det var.
+    //
+    // Login-kravet står ved magt: det gør IKKE force til noget et
+    // uautentificeret kald kan lave, og det er dét der sikrer at der er en
+    // bruger at skrive i auditsporet.
+    //
+    // D-2b/D-3 er uændret: både rolle-tjek og audit-user-id kommer fra
+    // SESSION, aldrig fra body.user_id — ellers kunne afsenderen skrive en
+    // anden brugers navn i historikken.
     const isForce = force === true;
     const sessionUserId = req.session?.userId ?? null;
-    // Slå session-brugerens rolle op ALTID (ikke kun ved force) — så can_force kan
+    // Slå session-brugeren op ALTID (ikke kun ved force) — så can_force kan
     // beregnes korrekt allerede på den første ikke-force-request der afvises, og
-    // frontenden ved om admin-override er en mulighed.
+    // frontenden ved om override overhovedet er en mulighed.
     const sessionUser = sessionUserId
         ? db.prepare(`SELECT role FROM users WHERE id = ? AND is_active = 1`).get(sessionUserId)
         : null;
-    const isAdmin = !!(sessionUser && sessionUser.role === 'admin');
     if (isForce) {
         if (!sessionUserId) {
             return res.status(401).json({ error: 'Force-mode kræver login' });
         }
         if (!sessionUser) {
             return res.status(401).json({ error: 'Session-bruger ikke gyldig' });
-        }
-        if (!isAdmin) {
-            return res.status(403).json({ error: 'Force-mode kræver admin-rolle' });
         }
     }
 
@@ -890,14 +904,15 @@ router.patch('/:id/status', handle((req, res) => {
         WHERE from_sd.code = ? AND to_sd.code = ? AND st.is_active = 1
     `).get(bon.current_code, status_code);
 
-    if (!transition && !(isForce && isAdmin)) {
+    if (!transition && !isForce) {
         return res.status(400).json({
             error: `Transition ${bon.current_code} → ${status_code} er ikke tilladt`,
             code: 'TRANSITION_NOT_ALLOWED',
-            // Maskinlæsbart flag så frontenden kan tilbyde admin-override (force:true)
+            // Maskinlæsbart flag så frontenden kan tilbyde override (force:true)
             // præcist når en normal status-vej afvises — uden at matche på dansk tekst.
-            can_force: isAdmin,
-            hint: 'Admins kan overstyre med {force: true}'
+            // Uden session er der ingen at skrive i auditsporet, og så tilbydes det ikke.
+            can_force: !!sessionUser,
+            hint: 'Kan overstyres med {force: true} af en indlogget bruger'
         });
     }
 
@@ -925,7 +940,7 @@ router.patch('/:id/status', handle((req, res) => {
     //   - Ikke-force: behold eksisterende mønster (body.user_id eller null) —
     //     endpointet er stadig uautentificeret for ikke-force-flow, så kitchen-
     //     tablets der sender user_id i body får audit-værdien som hidtil.
-    const auditUserId = (isForce && isAdmin)
+    const auditUserId = isForce
         ? sessionUserId
         : (user_id ?? sessionUserId ?? null);
     logChange({
@@ -936,7 +951,7 @@ router.patch('/:id/status', handle((req, res) => {
         oldValue: bon.current_code,
         newValue: status_code,
         userId: auditUserId,
-        wasForced: isForce && isAdmin
+        wasForced: isForce
     });
 
     broadcast('bon_status', { id, old: bon.current_code, new: status_code });
@@ -1558,7 +1573,7 @@ router.post('/:id/mail', handle(async (req, res) => {
     }
 
     // Validate attachments
-    const { sendMail, sendFromTemplate, validateAttachments } = require('../services/mailService');
+    const { sendMail, sendFromTemplate, validateAttachments, bonMailContext } = require('../services/mailService');
     const att = validateAttachments(attachments);
     if (att.error) return res.status(400).json({ error: att.error });
     const validatedAttachments = att.list;
@@ -1567,7 +1582,10 @@ router.post('/:id/mail', handle(async (req, res) => {
     const bon = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(bonId);
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
-    const context = { type: 'bon', number: parseInt(bon.bon_number.replace(/\D/g, '')) };
+    // Tilbud sendes gennem denne rute (de ER bons med is_offer = 1), så typen
+    // skal udledes af rækken — ikke antages. Hardkodet 'bon' gav T-28 tagget
+    // #b-28, og kundens svar kunne dermed ikke finde tilbuddet igen.
+    const context = bonMailContext(db, bonId);
     const userId = req.session?.userId || null;
 
     let result;

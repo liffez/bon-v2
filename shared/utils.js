@@ -422,6 +422,16 @@ function _buildSSE(url, handlers, opts) {
         });
     }
 
+    // ── Ny version i drift ────────────────────────────────────────────────
+    // Registreres HER og ikke i den enkelte shell: en fane der har stået åben
+    // hele dagen kører gammel JS uanset hvilken zone den er i, så beskeden skal
+    // gælde office, kitchen, mobile og planlægning på én gang.
+    es.addEventListener('connected', (e) => {
+        try {
+            _sseCheckBuild(JSON.parse(e.data).build);
+        } catch (err) { /* stille — en manglende version-besked må ikke vælte SSE */ }
+    });
+
     // Office bruger sin egen samlede "Nyt"-toast + topbar-indikator, så den
     // undertrykker de generiske mail-toasts her (undgår dobbelt-toast).
     // Kitchen-zonen sender ikke flaget og beholder de generiske toasts.
@@ -455,6 +465,83 @@ function _buildSSE(url, handlers, opts) {
         console.warn('SSE forbindelse tabt — genopkobler automatisk…');
     };
     return es;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NY VERSION I DRIFT
+
+   Statiske filer serveres med `Cache-Control: max-age=0` + ETag, så en
+   genindlæsning henter altid ny kode. Problemet er fanen der ALDRIG bliver
+   genindlæst: den kører videre på den JS den fik i går, uden at brugeren
+   kan se det. Et versions-stempel på script-tagget løser ikke det — URL'en
+   læses jo først når siden hentes igen.
+
+   Derfor: serveren sender sit build-id med hvert 'connected', og vi siger
+   til når det ændrer sig. Der genindlæses ALDRIG af sig selv — man kan stå
+   midt i en bon, og en genindlæsning ville koste det der er tastet.
+   ══════════════════════════════════════════════════════════════ */
+
+var _sseBuild        = null;   // det id vi startede på
+var _sseBuildIgnored = null;   // id brugeren har afvist beskeden for
+
+function _sseCheckBuild(build) {
+    if (!build) return;                        // ældre server uden build-id
+    if (_sseBuild === null) { _sseBuild = build; return; }   // første forbindelse
+    if (build === _sseBuild) return;
+    if (build === _sseBuildIgnored) return;    // allerede afvist for netop denne version
+    _sseShowReloadBar(build);
+}
+
+function _sseShowReloadBar(build) {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('sse-version-bar')) return;
+
+    // Stilen ligger inline med vilje: bjælken skal se ens ud i office, kitchen,
+    // mobile og settings, og de har hver sit stylesheet. Fire kopier af den
+    // samme CSS ville skride fra hinanden.
+    var bar = document.createElement('div');
+    bar.id = 'sse-version-bar';
+    bar.style.cssText = [
+        'position:fixed', 'left:50%', 'transform:translateX(-50%)',
+        'bottom:20px', 'z-index:2147483000',
+        'display:flex', 'align-items:center', 'gap:14px',
+        'padding:12px 14px 12px 18px', 'border-radius:10px',
+        'background:#2f2a24', 'color:#fff',
+        'font:500 14px/1.3 system-ui,-apple-system,sans-serif',
+        'box-shadow:0 6px 24px rgba(0,0,0,.28)',
+        'max-width:calc(100vw - 32px)'
+    ].join(';');
+
+    var text = document.createElement('span');
+    text.textContent = 'Ny version af Bon v2 er klar.';
+
+    var reload = document.createElement('button');
+    reload.type = 'button';
+    reload.textContent = 'Genindlæs';
+    reload.style.cssText = [
+        'cursor:pointer', 'border:0', 'border-radius:7px',
+        'padding:7px 14px', 'background:#c8a24a', 'color:#241f19',
+        'font:600 14px/1 system-ui,-apple-system,sans-serif'
+    ].join(';');
+    reload.onclick = function () { window.location.reload(); };
+
+    var dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.textContent = '×';
+    dismiss.title = 'Skjul — beskeden kommer igen ved næste version';
+    dismiss.style.cssText = [
+        'cursor:pointer', 'border:0', 'background:transparent',
+        'color:#cfc6b8', 'font:400 20px/1 system-ui,sans-serif', 'padding:0 4px'
+    ].join(';');
+    dismiss.onclick = function () {
+        _sseBuildIgnored = build;
+        bar.remove();
+    };
+
+    bar.appendChild(text);
+    bar.appendChild(reload);
+    bar.appendChild(dismiss);
+    document.body.appendChild(bar);
 }
 
 function _showMailToast(data) {
@@ -601,6 +688,9 @@ function mapApiBonToCardData(apiBon) {
     const customer = {
         name:          (apiBon.contact_name_full || '').trim() || 'Ukendt',
         company:       apiBon.company_name || '',
+        // Slutkunde på forhandler-ordrer (migration 167) — hvem maden er til,
+        // når firmaet på bonnen er den der betaler.
+        end_customer:  apiBon.end_customer_name || '',
         address:       addr,
         phone:         apiBon.contact_phone || '',
         company_phone: apiBon.company_phone || '',
@@ -610,7 +700,12 @@ function mapApiBonToCardData(apiBon) {
     // Menu-linjer — med kategori + special_request, sorteret og sammenlagt.
     // Linjer med menu_group_id samles i deres persisterede gruppe (titel + note);
     // grupper rendres øverst i sort_order, løse linjer kategori-sorteret nedenunder.
-    const allLines = apiBon.lines || [];
+    // 0-mængde-linjer vises ikke: de er ikke arbejde. De opstår kun på en
+    // rest-prep-bon hvor forudbestillingerne har dækket hele dagens mål
+    // (migration 166) — bonnen bliver stående med sin køkkentekst, men "0 ×
+    // Tunen" tre gange er støj. Der findes ingen 0-linjer i historikken, så
+    // filteret kan ikke skjule noget der plejede at være synligt.
+    const allLines = (apiBon.lines || []).filter(l => Number(l.quantity) !== 0);
     const lineToRaw = (line) => ({
         type:            'item',
         qty:             `${line.quantity}`,
@@ -710,10 +805,22 @@ function scrollToBonHash() {
     if (!hash || !hash.startsWith('#bon')) return;
 
     var el = document.getElementById(hash.slice(1));
-    if (!el) return;
+    if (!el) {
+        // Bonen står ikke på siden — uden for Senere-vinduet, eller filtreret
+        // helt bort (Senere renderer slet ikke terminale statusser). Draweren
+        // er bedre end at der ikke sker noget.
+        if (typeof window._bonInfoEditHandler === 'function') {
+            history.replaceState(null, '', window.location.pathname);
+            window._bonInfoEditHandler(hash.slice(4));
+        }
+        return;
+    }
 
     // Scroll med offset for sticky headers
     setTimeout(function() {
+        // Kortet kan ligge i DOM'en men være skjult af et filter (leveret,
+        // IGANG/KLAR). Så ville scroll ramme noget usynligt.
+        if (typeof window.revealBonCard === 'function') window.revealBonCard(el);
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.classList.add('bon-highlight');
         setTimeout(function() { el.classList.remove('bon-highlight'); }, 4500);
@@ -762,6 +869,39 @@ function dateToISO(d) {
     var dt = (d instanceof Date) ? d : new Date(d);
     if (isNaN(dt.getTime())) return '';
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(dt);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   STATUS-BADGE
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Status-mærkat med BON_CONFIG's egne farver.
+ *
+ * En status skal se ens ud uanset hvilken skærm man står på. Skærme der
+ * hardkoder deres egen kulør (grå, blegblå …) ligner ikke resten af huset og
+ * gør det umuligt at scanne en liste på farven — det var netop fejlen der blev
+ * rettet i ugeoversigten, web-ordrer og kalenderen 19. maj 2026, og som stadig
+ * sad i Firma 360° og Kunde 360°.
+ *
+ * Falder tilbage på grå + koden hvis BonConfig ikke er loadet, så en skærm uden
+ * den viser noget forkert frem for ingenting.
+ *
+ * @param {string} statusCode  backend-koden ('LEVERET', 'FAKTURERET', …)
+ * @param {object} [opts]      { label, className, title }
+ */
+function statusBadgeHtml(statusCode, opts = {}) {
+    const _e = (typeof esc === 'function') ? esc : (s) => String(s ?? '');
+    const code = String(statusCode || '').trim();
+    let cfg = {};
+    if (typeof statusToFrontend === 'function' && typeof BON_CONFIG !== 'undefined') {
+        cfg = (BON_CONFIG.statuses || {})[statusToFrontend(code)] || {};
+    }
+    const label = opts.label || cfg.label || code || '—';
+    const cls   = opts.className ? ' ' + opts.className : '';
+    const title = opts.title ? ` title="${_e(opts.title)}"` : '';
+    return `<span class="status-badge${cls}" style="background:${cfg.color || '#999'};`
+         + `color:${cfg.text || '#fff'}"${title}>${_e(label)}</span>`;
 }
 
 /* ══════════════════════════════════════════════════════════════

@@ -64,6 +64,10 @@ router.get('/today', handle((req, res) => {
             c.phone  AS contact_phone,
             co.name  AS company_name,
             co.phone AS company_phone,
+            -- Slutkunde på forhandler-ordrer (migration 167). Køkkenet skal kunne
+            -- se hvem maden er til — især ved afhentning, hvor der ikke er nogen
+            -- adresse at gætte ud fra.
+            b.end_customer_name,
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
             a.postal_code AS delivery_postal,
@@ -123,6 +127,10 @@ router.get('/later', handle((req, res) => {
             c.phone  AS contact_phone,
             co.name  AS company_name,
             co.phone AS company_phone,
+            -- Slutkunde på forhandler-ordrer (migration 167). Køkkenet skal kunne
+            -- se hvem maden er til — især ved afhentning, hvor der ikke er nogen
+            -- adresse at gætte ud fra.
+            b.end_customer_name,
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
             a.postal_code AS delivery_postal,

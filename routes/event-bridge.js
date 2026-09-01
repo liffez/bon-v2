@@ -21,7 +21,7 @@ const {
 } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { resolveMenuItemLines } = require('../services/menuItemsToLines');
-const { eventContactFields, resolveActiveOrderEvent } = require('./events');
+const { eventContactFields, resolveActiveOrderEvent, reconcileRestBonsForEvent } = require('./events');
 const grocyAdapter = require('../services/grocyAdapter');
 
 // ─── Secret (optionel — som web-orders) ────────────────────────────────────
@@ -238,11 +238,24 @@ router.get('/event-menu', async (req, res) => {
 async function resolvePrepLines(lines, deps = grocyAdapter) {
     const recipes = await deps.getRecipes();
     const recipesById = new Map(recipes.map(r => [r.id, r]));
-    const menuItems = (lines || []).map(l => ({
-        id: 'r' + Number(l.grocy_recipe_id),
-        count: Number(l.antal ?? l.count ?? 0)
-    }));
-    return resolveMenuItemLines({ menuItems, recipesById, priceCategory: 'produktion' });
+
+    // Én ad gangen, så `variant` kan følge med den linje den hører til.
+    // Broen sender fx to linjer på samme ret: "Tunen" 113 og "Tunen" 1 med
+    // varianten "Glutenfri Bolle". Uden teksten kunne køkkenet kun se at der
+    // et sted skulle bruges ti glutenfri boller — ikke til hvilke retter.
+    // Teksten lander i special_request, og linjer med den slås aldrig sammen
+    // (shared/bon_lines.js) — samme mekanik som "uden nødder" på en almindelig bon.
+    const out = [], unmatched = [];
+    for (const l of (lines || [])) {
+        const variant = String(l.variant ?? '').trim().slice(0, 120);
+        const r = resolveMenuItemLines({
+            menuItems: [{ id: 'r' + Number(l.grocy_recipe_id), count: Number(l.antal ?? l.count ?? 0) }],
+            recipesById, priceCategory: 'produktion',
+        });
+        for (const line of r.lines) out.push(variant ? { ...line, special_request: variant } : line);
+        unmatched.push(...r.unmatched);
+    }
+    return { lines: out, unmatched };
 }
 
 // Kontaktfelterne joines med, så broens bons arver eventets kontaktperson
@@ -318,12 +331,13 @@ function insertPrepLines(db, bonId, resolved, sign = 1) {
         db.prepare(`
             INSERT INTO bon_lines (
                 bon_id, grocy_recipe_id, product_name, category, quantity, unit,
-                unit_price, line_total, cost_price, co2e, moms_included, sort_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                unit_price, line_total, cost_price, co2e, moms_included, special_request, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             bonId, line.grocy_recipe_id ?? null, line.product_name, line.category ?? null,
             qty, line.unit ?? 'stk', sign * unitPrice, lineTotal,
-            line.cost_price ?? null, line.co2e ?? null, momsIncluded, i
+            line.cost_price ?? null, line.co2e ?? null, momsIncluded,
+            line.special_request || null, i
         );
     });
     db.prepare(`UPDATE bons SET total_price = ?, total_with_delivery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
@@ -472,6 +486,22 @@ router.post('/event-prep', async (req, res) => {
             });
         }
 
+        // 4) REST-PREP — de forudbestilte er steget, så office' rest-bon skal
+        //    ned tilsvarende (migration 166). Uden det tælles begge bons fuldt
+        //    med i ugeoversigt, kapacitet, top-up, retur OG lagertrækket.
+        //
+        //    Må ALDRIG vælte forudbestillingen: kundens ordre er landet, og en
+        //    fejl her er en efterfølgende justering — ikke en grund til at
+        //    svare 500 og få event-order-3 til at prøve igen. Samme princip som
+        //    goodsReceiptWebhook: bivirkningen rapporteres, den blokerer ikke.
+        let restPrep = null;
+        try {
+            restPrep = reconcileRestBonsForEvent(db, event.id, null);
+        } catch (err) {
+            console.error('[event-bridge] rest-prep genberegning fejlede:', err);
+            restPrep = { error: String(err.message || err) };
+        }
+
         const status = prep.action === 'created' ? 201 : 200;
         return res.status(status).json({
             ok: true,
@@ -482,6 +512,7 @@ router.post('/event-prep', async (req, res) => {
             sales: { action: sales.action, bon_id: sales.bonId, bon_number: sales.bonNumber, total: salesTotal },
             ...(fee ? { fee: { action: fee.action, bon_id: fee.bonId, bon_number: fee.bonNumber, pct: feePct } } : {}),
             lines: resolved.length,
+            rest_prep: restPrep,
             unmatched
         });
     } catch (err) {

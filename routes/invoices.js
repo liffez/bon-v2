@@ -62,6 +62,12 @@ router.get('/queue', handle((req, res) => {
             b.delivery_cost,
             b.economic_draft_number,
             b.economic_draft_at,
+            -- Stående/tilbuds-rabat (migration 111) og slutkunde på
+            -- forhandler-ordrer (migration 167). Begge er ting fakturøren skal
+            -- kunne se: rabatten forklarer hvorfor totalen er lavere end
+            -- linjesummen, slutkunden hvem fakturaen dækker.
+            b.offer_discount_percent,
+            b.end_customer_name,
             sd.code AS status_code,
             CAST(julianday(?) - julianday(b.delivery_date) AS INTEGER) AS days_since_delivery,
             -- Customer
@@ -153,7 +159,14 @@ router.get('/queue', handle((req, res) => {
     }
 
     // Summary
-    const pendingAmount = pending.reduce((sum, b) => sum + (b.line_total || 0), 0);
+    //
+    // Rabatten trækkes fra her. `line_total` er varelinjernes sum FØR rabat, og
+    // et KPI-tal der siger 520 kr lige ved siden af en bon der faktureres til
+    // 455 kr, er ikke et afrundingsspørgsmål — det er to forskellige påstande om
+    // det samme beløb.
+    const invoiceableTotal = (b) =>
+        (b.line_total || 0) * (1 - (Number(b.offer_discount_percent) || 0) / 100);
+    const pendingAmount = pending.reduce((sum, b) => sum + invoiceableTotal(b), 0);
     const eanCount = pending.filter(b => b.company_ean).length;
     // Kladder sendt til e-conomic men endnu ikke faktureret (vises overstreget i køen).
     const draftsWaiting = pending.filter(b => b.economic_draft_number != null).length;
@@ -212,6 +225,8 @@ function formatBon(row) {
         delivery_cost:        row.delivery_cost,
         economic_draft_number: row.economic_draft_number,
         economic_draft_at:     row.economic_draft_at,
+        offer_discount_percent: row.offer_discount_percent,
+        end_customer_name:      row.end_customer_name,
         customer: {
             id:         row.customer_id,
             first_name: row.customer_first_name,
