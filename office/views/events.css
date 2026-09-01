@@ -562,6 +562,11 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-curve-fill { width: 100%; background: var(--brand-primary-light, #f1e6b2);
                  border-radius: 2px 2px 0 0; transition: height .2s; }
 .ev-curve-fill.is-peak { background: var(--brand-primary, #8e631f); }
+/* Time uden salg. Skal fylde sin plads på aksen — ellers holder dagene op med
+   at flugte — men må ikke ligne en søjle på 2 px. Kun en svag baseline. */
+.ev-curve-bar.is-empty::before { content: ''; width: 100%; height: 2px;
+                                background: var(--color-border, #d7d1ca); opacity: .5; border-radius: 1px; }
+.ev-curve-bar.is-empty .ev-curve-h { opacity: .45; }
 .ev-curve-h { font-size: 9px; color: var(--color-text-dim); margin-top: 3px; }
 .ev-curve-top { font-size: 11px; color: var(--color-text-dim); margin-top: 8px; line-height: 1.5; }
 
