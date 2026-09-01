@@ -473,7 +473,69 @@ function _showMailToast(data) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MENU SORT + MERGE
+   MENU-RÆKKEFØLGE — én regel, tre flader
+   ══════════════════════════════════════════════════════════════
+   Bon-kortet, bon-draweren og info-modalen skal vise linjerne i
+   SAMME rækkefølge: kager/drikke øverst, mad i midten, emballage
+   → service → levering nederst.
+
+   Reglen lå tidligere kun i _sortAndMergeMenu (bon-kortet), så
+   draweren og info-modalen viste rå DB-rækkefølge — emballage og
+   levering landede midt i maden.
+
+   Info-modalen forsøgte at skille tilbehør fra på `is_accessory`,
+   men det flag er i praksis aldrig sat (0 af ~8.200 emballage-
+   linjer i drift), så opdelingen var reelt død. Kategorien er den
+   kilde der faktisk bærer data — flaget beholdes kun som ekstra
+   signal, aldrig som eneste.
+   ══════════════════════════════════════════════════════════════ */
+
+// Fast bundrækkefølge: 06 Emballage → x-Service → x-Levering
+const MENU_BOTTOM_ORDER = { '06 emballage': 10, 'x-service': 11, 'x-levering': 12 };
+
+/** Normalisér kategori: lowercase, trim, "x- Service" → "x-service" (Grocy sender med mellemrum) */
+function normalizeMenuCategory(category) {
+    return String(category || '').toLowerCase().trim().replace(/^x-\s+/, 'x-');
+}
+
+/**
+ * Sorteringsprioritet for én linje. Lavere tal = højere oppe.
+ * Tager både bon_line-form (category/is_accessory) og kort-item-form (category/style).
+ */
+function menuLinePriority(line) {
+    const cat = normalizeMenuCategory(line && line.category);
+    const isAccessory = !!(line && (line.is_accessory || line.style === 'emballage'));
+    if (cat.startsWith('03') || cat.startsWith('05')) return 0;      // kager/drikke → top
+    if (MENU_BOTTOM_ORDER[cat] !== undefined) return MENU_BOTTOM_ORDER[cat];
+    if (isAccessory) return 10;                                      // flag → sammen med emballage
+    return 1;                                                        // mad → midt
+}
+
+/** True når linjen hører til bundgruppen (emballage/service/levering). */
+function isBottomMenuLine(line) {
+    return menuLinePriority(line) >= 10;
+}
+
+/**
+ * Sortér linjer efter prioritet → kategori → navn. Stabil, så to
+ * ens rå rækker beholder deres indbyrdes rækkefølge (draweren viser
+ * dem bevidst hver for sig, så man kan slette den enkelte).
+ * Muterer ikke input.
+ */
+function sortMenuLines(lines) {
+    if (!lines || lines.length === 0) return lines || [];
+    const nameOf = (l) => String((l && (l.product_name || l.name)) || '');
+    return [...lines].sort((a, b) => {
+        const pa = menuLinePriority(a), pb = menuLinePriority(b);
+        if (pa !== pb) return pa - pb;
+        const ca = (a.category || ''), cb = (b.category || '');
+        if (ca !== cb) return ca.localeCompare(cb, 'da');
+        return nameOf(a).localeCompare(nameOf(b), 'da');
+    });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MENU SORT + MERGE (bon-kortet)
    ══════════════════════════════════════════════════════════════
    Sorterer menu-items efter kategori-prioritet og samler ens varer.
    Items med special_request beholdes separate men placeres
@@ -483,31 +545,12 @@ function _showMailToast(data) {
 function _sortAndMergeMenu(items) {
     if (!items || items.length === 0) return items;
 
-    // Fast bundrækkefølge: 06 Emballage → x-service → x-levering
-    const BOTTOM_ORDER = { '06 emballage': 10, 'x-service': 11, 'x-levering': 12 };
-
-    function catPriority(item) {
-        // Normalisér: lowercase, trim, og fjern mellemrum efter "x-" (Grocy sender "x- Service")
-        const cat = (item.category || '').toLowerCase().trim().replace(/^x-\s+/, 'x-');
-        const isAccessory = item.style === 'emballage';
-        if (cat.startsWith('03') || cat.startsWith('05')) return 0;  // top
-        if (BOTTOM_ORDER[cat] !== undefined) return BOTTOM_ORDER[cat]; // fast bund
-        if (isAccessory) return 10;  // emballage-flag → sammen med 06
-        return 1;  // midt
-    }
-
-    // 1. Sortér: prioritet → kategori → navn
-    const sorted = [...items].sort((a, b) => {
-        const pa = catPriority(a), pb = catPriority(b);
-        if (pa !== pb) return pa - pb;
-        const ca = (a.category || ''), cb = (b.category || '');
-        if (ca !== cb) return ca.localeCompare(cb, 'da');
-        return (a.name || '').localeCompare(b.name || '', 'da');
-    });
+    // 1. Sortér: prioritet → kategori → navn (delt regel, se ovenfor)
+    const sorted = sortMenuLines(items);
 
     // 2. Giv bund-items emballage-styling (dim farve, normal font)
     for (const item of sorted) {
-        if (catPriority(item) >= 10) item.style = 'emballage';
+        if (isBottomMenuLine(item)) item.style = 'emballage';
     }
 
     // 3. Gruppér efter navn: saml qty for items UDEN special_request

@@ -243,7 +243,10 @@ class BonDrawer {
                 <div class="drawer-section">
                     <div class="drawer-label-row">
                         <label class="drawer-label">Varer</label>
-                        <button type="button" class="btn-drawer-tilfoej-vare">+ Tilføj vare</button>
+                        <div class="drawer-lines-tools">
+                            <button type="button" class="btn-drawer-gruppe">Gruppér</button>
+                            <button type="button" class="btn-drawer-tilfoej-vare">+ Tilføj vare</button>
+                        </div>
                     </div>
                     <div class="drawer-vare-picker-slot"></div>
                     <div class="drawer-lines-list"></div>
@@ -520,6 +523,8 @@ class BonDrawer {
 
         // Tilføj vare
         this.el.querySelector('.btn-drawer-tilfoej-vare').addEventListener('click', () => this.varePicker.toggle());
+        const grpBtn = this.el.querySelector('.btn-drawer-gruppe');
+        if (grpBtn) grpBtn.addEventListener('click', () => this._toggleSelectMode());
 
         // DAWA autocomplete
         this._bindDAWA();
@@ -537,9 +542,17 @@ class BonDrawer {
        ══════════════════════════════════════════════════════ */
 
     async load(bonId, opts) {
+        // Flush ventende gruppe-gem for den FORRIGE bon før vi skifter væk.
+        if (this.bonId && this.bonId !== bonId) { try { await this._flushGroupSave(); } catch (e) {} }
         this.bonId = bonId;
         this.dirty = false;
         this._pendingChanges = {};
+        // Gruppe-tilstand er per bon
+        this._groupsDirty = false;
+        this._selectMode = false;
+        this._selected = new Set();
+        this._groups = [];
+        this._lineGroup = {};
         // _render() populerer felterne — bl.a. KundeSoeg.select() der fyrer onSelect →
         // _updateField → _markDirty. _loading-vagten gør _markDirty til en no-op imens,
         // så draweren ikke fejlagtigt markeres som ændret ved hver åbning.
@@ -1714,47 +1727,162 @@ class BonDrawer {
     }
 
     /* ══════════════════════════════════════════════════════
-       BON LINES
+       BON LINES — rækkefølge og grupper
+
+       Draweren viser bevidst RÅ rækker (ingen mergeLines) — man
+       skal kunne slette den enkelte linje. Men rækkefølgen følger
+       nu samme regel som bon-kortet (sortMenuLines i utils.js), så
+       emballage/service/levering altid ligger nederst.
+
+       Grupper er de samme som køkkenets bon-kort viser:
+       bon_menu_groups + bon_lines.menu_group_id, gemt via det
+       eksisterende reconcile-endpoint PUT /bons/:id/menu-groups.
+       Serveren matcher på line_ids, ikke på gruppe-id, så lokale
+       id'er må gerne blive stale mellem gem.
        ══════════════════════════════════════════════════════ */
+
+    /** Sortér som bon-kortet. Falder tilbage til uændret orden hvis utils ikke er loadet. */
+    _sortLines(lines) {
+        return (typeof sortMenuLines === 'function') ? sortMenuLines(lines) : (lines || []);
+    }
+
+    _isBottomLine(l) {
+        return (typeof isBottomMenuLine === 'function') ? isBottomMenuLine(l) : false;
+    }
+
+    /**
+     * Byg den lokale gruppemodel fra serverdata. Springes over når
+     * brugeren har ugemte ændringer, så et baggrunds-reload ikke
+     * river en gruppe væk under hænderne på hende.
+     */
+    _syncGroupModel(lines) {
+        if (this._groupsDirty) return;
+        var serverGroups = (this.data && this.data.menu_groups) || [];
+        this._groups = serverGroups
+            .slice()
+            .sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); })
+            .map(function(g) {
+                return { key: 'g' + g.id, title: g.title || '', note: g.note || '' };
+            });
+        var byId = {};
+        this._groups.forEach(function(g) { byId[g.key] = true; });
+        this._lineGroup = {};
+        var self = this;
+        (lines || []).forEach(function(l) {
+            var key = l.menu_group_id ? 'g' + l.menu_group_id : null;
+            if (key && byId[key]) self._lineGroup[l.id] = key;
+        });
+    }
 
     _renderLines(lines) {
         var list = this.el.querySelector('.drawer-lines-list');
         if (!list) return;
-        if (!lines || lines.length === 0) {
+        lines = lines || [];
+
+        this._syncGroupModel(lines);
+        this._updateGroupBtn();
+
+        if (lines.length === 0) {
             list.innerHTML = '<div class="drawer-lines-empty">Ingen varer tilføjet</div>';
             return;
         }
+
+        var self = this;
         var _esc = typeof esc === 'function' ? esc : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-        var linesHtml = lines.map(function(l) {
-            var special = l.special_request
-                ? '<div class="drawer-line-special">' + _esc(l.special_request) + '</div>'
-                : '';
-            var price = l.line_total != null ? l.line_total + ' kr' : '';
-            return '<div class="drawer-line-item" data-line-id="' + l.id + '" data-unit-price="' + (l.unit_price != null ? l.unit_price : '') + '">' +
-                '<span class="drawer-line-qty qty-editable" title="Klik for at ændre antal">' + (l.quantity || 1) + '</span>' +
-                '<span class="drawer-line-name name-editable" title="Klik for at tilføje eller ændre hjælpetekst">' + _esc(l.product_name || '') + special + '</span>' +
-                '<span class="drawer-line-price">' + price + '</span>' +
-                '<button class="drawer-line-del" title="Fjern">&times;</button>' +
+
+        // Partitionér: hver gruppe får sine linjer, resten er løse
+        var byGroup = {};
+        (this._groups || []).forEach(function(g) { byGroup[g.key] = []; });
+        var loose = [];
+        lines.forEach(function(l) {
+            var key = self._lineGroup ? self._lineGroup[l.id] : null;
+            if (key && byGroup[key]) byGroup[key].push(l);
+            else loose.push(l);
+        });
+
+        var html = '';
+
+        // Select-toolbar (kun i gruppér-tilstand)
+        if (this._selectMode) {
+            var n = this._selected ? this._selected.size : 0;
+            html += '<div class="drawer-select-toolbar">' +
+                '<span class="dst-count">' + n + ' valgt</span>' +
+                '<button type="button" class="dst-group"' + (n ? '' : ' disabled') + '>Saml i gruppe</button>' +
+                '<button type="button" class="dst-done">Færdig</button>' +
             '</div>';
-        }).join('');
-        // Total (linje_total er INCL moms, jf. §6b) — vis sum + heraf moms via Moms-helper.
+        }
+
+        // Grupper først — samme rækkefølge som bon-kortet
+        (this._groups || []).forEach(function(g) {
+            var glines = self._sortLines(byGroup[g.key] || []);
+            if (!glines.length) return;   // tom gruppe vises ikke (og gemmes ikke)
+            html += '<div class="drawer-line-group" data-group-key="' + _esc(g.key) + '">' +
+                '<div class="drawer-group-header">' +
+                    '<span class="drawer-group-title" title="Klik for at omdøbe">' +
+                        (g.title ? _esc(g.title) : '<em class="dg-untitled">Uden navn</em>') +
+                    '</span>' +
+                    '<span class="drawer-group-count">' + glines.length + '</span>' +
+                    '<button type="button" class="dg-btn dg-up" title="Flyt gruppen op">&#9650;</button>' +
+                    '<button type="button" class="dg-btn dg-down" title="Flyt gruppen ned">&#9660;</button>' +
+                    '<button type="button" class="dg-btn dg-note' + (g.note ? ' has-note' : '') + '" title="Note til gruppen">&#9998;</button>' +
+                    '<button type="button" class="dg-btn dg-dissolve" title="Opløs gruppen (linjerne bliver liggende)">&times;</button>' +
+                '</div>' +
+                '<div class="drawer-group-note"' + (g.note ? '' : ' hidden') + '>' +
+                    '<textarea class="dg-note-input" rows="2" placeholder="Note til denne gruppe…">' + _esc(g.note) + '</textarea>' +
+                '</div>' +
+                glines.map(function(l) { return self._lineHtml(l, _esc); }).join('') +
+            '</div>';
+        });
+
+        // Løse linjer nedenunder
+        html += this._sortLines(loose).map(function(l) { return self._lineHtml(l, _esc); }).join('');
+
+        // Total (line_total er INCL moms, jf. §6b) — vis sum + heraf moms via Moms-helper.
         var totalIncl = lines.reduce(function(s, l) { return s + (Number(l.line_total) || 0); }, 0);
         totalIncl = Math.round(totalIncl * 100) / 100;
         var momsTxt = '';
         if (typeof window !== 'undefined' && window.Moms && typeof window.Moms.momsOfIncl === 'function') {
             momsTxt = ' · heraf moms ' + Math.round(window.Moms.momsOfIncl(totalIncl)) + ' kr';
         }
-        list.innerHTML = linesHtml +
-            '<div class="drawer-line-total">' +
+        html += '<div class="drawer-line-total">' +
                 '<span class="drawer-line-total-label">I alt (inkl. moms)' + momsTxt + '</span>' +
                 '<span class="drawer-line-total-amount">' + totalIncl.toLocaleString('da-DK', { maximumFractionDigits: 0 }) + ' kr</span>' +
             '</div>';
 
+        list.innerHTML = html;
+        this._bindLineHandlers(list);
+        this._bindGroupHandlers(list);
+    }
+
+    /** Én linje. Bundlinjer (emballage/service/levering) dæmpes som på bon-kortet. */
+    _lineHtml(l, _esc) {
+        var special = l.special_request
+            ? '<div class="drawer-line-special">' + _esc(l.special_request) + '</div>'
+            : '';
+        var price = l.line_total != null ? l.line_total + ' kr' : '';
+        var cls = 'drawer-line-item' + (this._isBottomLine(l) ? ' is-bottom' : '');
+        var check = '';
+        if (this._selectMode) {
+            var on = this._selected && this._selected.has(String(l.id));
+            check = '<span class="drawer-line-check' + (on ? ' checked' : '') + '"></span>';
+            cls += ' selectable';
+        }
+        return '<div class="' + cls + '" data-line-id="' + l.id + '" data-unit-price="' + (l.unit_price != null ? l.unit_price : '') + '">' +
+            check +
+            '<span class="drawer-line-qty qty-editable" title="Klik for at ændre antal">' + (l.quantity || 1) + '</span>' +
+            '<span class="drawer-line-name name-editable" title="Klik for at tilføje eller ændre hjælpetekst">' + _esc(l.product_name || '') + special + '</span>' +
+            '<span class="drawer-line-price">' + price + '</span>' +
+            '<button class="drawer-line-del" title="Fjern">&times;</button>' +
+        '</div>';
+    }
+
+    _bindLineHandlers(list) {
         var self = this;
 
         // Delete line handlers
         list.querySelectorAll('.drawer-line-del').forEach(function(btn) {
-            btn.addEventListener('click', function() {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
                 var lineId = btn.closest('.drawer-line-item').dataset.lineId;
                 self._deleteLine(lineId);
             });
@@ -1762,18 +1890,250 @@ class BonDrawer {
 
         // Qty edit handlers
         list.querySelectorAll('.drawer-line-qty.qty-editable').forEach(function(qtyEl) {
-            qtyEl.addEventListener('click', function() { self._openQtyEdit(qtyEl); });
+            qtyEl.addEventListener('click', function(e) {
+                if (self._selectMode) return;   // i gruppér-tilstand vælger klik linjen
+                e.stopPropagation();
+                self._openQtyEdit(qtyEl);
+            });
         });
 
         // Hjælpetekst (special_request) — klik på selve menulinjen (varenavnet) åbner editoren
         list.querySelectorAll('.drawer-line-name.name-editable').forEach(function(el) {
             el.addEventListener('click', function(e) {
+                if (self._selectMode) return;
                 // Ignorér klik mens editoren er åben (input + gem/annuller-knapper)
                 if (e.target.closest('.drawer-line-special-edit')) return;
                 e.stopPropagation();
                 self._openSpecialEdit(el.closest('.drawer-line-item'));
             });
         });
+
+        // Vælg linje (kun i gruppér-tilstand)
+        if (this._selectMode) {
+            list.querySelectorAll('.drawer-line-item.selectable').forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    if (e.target.closest('.drawer-line-del')) return;
+                    self._toggleSelect(item.dataset.lineId);
+                });
+            });
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       GRUPPE-HANDLINGER
+       ══════════════════════════════════════════════════════ */
+
+    _updateGroupBtn() {
+        var btn = this.el.querySelector('.btn-drawer-gruppe');
+        if (!btn) return;
+        btn.textContent = this._selectMode ? 'Færdig' : 'Gruppér';
+        btn.classList.toggle('active', !!this._selectMode);
+    }
+
+    _toggleSelectMode(on) {
+        this._selectMode = (on === undefined) ? !this._selectMode : !!on;
+        if (!this._selectMode) this._selected = new Set();
+        else if (!this._selected) this._selected = new Set();
+        this._renderLines((this.data && this.data.lines) || []);
+    }
+
+    _toggleSelect(lineId) {
+        if (!this._selected) this._selected = new Set();
+        var id = String(lineId);
+        if (this._selected.has(id)) this._selected.delete(id);
+        else this._selected.add(id);
+        this._renderLines((this.data && this.data.lines) || []);
+    }
+
+    /** Saml de valgte linjer i en ny gruppe. Linjer flyttes ud af en evt. tidligere gruppe. */
+    _groupSelected() {
+        if (!this._selected || !this._selected.size) return;
+        if (!this._groups) this._groups = [];
+        if (!this._lineGroup) this._lineGroup = {};
+
+        // Unik lokal nøgle — serveren tildeler rigtige id'er ved gem
+        this._groupSeq = (this._groupSeq || 0) + 1;
+        var key = 'n' + this._groupSeq;
+        this._groups.push({ key: key, title: '', note: '' });
+
+        var self = this;
+        this._selected.forEach(function(id) { self._lineGroup[id] = key; });
+        this._selected = new Set();
+        this._groupsDirty = true;
+
+        this._renderLines((this.data && this.data.lines) || []);
+        this._scheduleSaveGroups();
+
+        // Bed straks om et navn — en gruppe uden navn siger køkkenet ingenting
+        var header = this.el.querySelector('.drawer-line-group[data-group-key="' + key + '"] .drawer-group-title');
+        if (header) this._editGroupTitle(header);
+    }
+
+    _findGroup(key) {
+        return (this._groups || []).filter(function(g) { return g.key === key; })[0] || null;
+    }
+
+    /** Opløs: gruppen forsvinder, linjerne bliver liggende som løse. */
+    _dissolveGroup(key) {
+        this._groups = (this._groups || []).filter(function(g) { return g.key !== key; });
+        var self = this;
+        Object.keys(this._lineGroup || {}).forEach(function(lineId) {
+            if (self._lineGroup[lineId] === key) delete self._lineGroup[lineId];
+        });
+        this._groupsDirty = true;
+        this._renderLines((this.data && this.data.lines) || []);
+        this._scheduleSaveGroups();
+    }
+
+    _moveGroup(key, delta) {
+        var groups = this._groups || [];
+        var i = groups.findIndex(function(g) { return g.key === key; });
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= groups.length) return;
+        var tmp = groups[i]; groups[i] = groups[j]; groups[j] = tmp;
+        this._groupsDirty = true;
+        this._renderLines((this.data && this.data.lines) || []);
+        this._scheduleSaveGroups();
+    }
+
+    /** Inline-redigering af gruppenavn (klik på titlen). */
+    _editGroupTitle(titleEl) {
+        if (!titleEl || titleEl.classList.contains('editing')) return;
+        var groupEl = titleEl.closest('.drawer-line-group');
+        if (!groupEl) return;
+        var key = groupEl.dataset.groupKey;
+        var g = this._findGroup(key);
+        if (!g) return;
+
+        var self = this;
+        titleEl.classList.add('editing');
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'dg-title-input';
+        input.value = g.title || '';
+        input.placeholder = 'Gruppenavn…';
+        titleEl.innerHTML = '';
+        titleEl.appendChild(input);
+        input.focus();
+        input.select();
+
+        var done = false;
+        function finish(save) {
+            if (done) return;
+            done = true;
+            if (save) {
+                g.title = input.value.trim();
+                self._groupsDirty = true;
+                self._scheduleSaveGroups();
+            }
+            self._renderLines((self.data && self.data.lines) || []);
+        }
+        input.addEventListener('blur', function() { finish(true); });
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+            else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        });
+    }
+
+    _bindGroupHandlers(list) {
+        var self = this;
+
+        var toolbarGroup = list.querySelector('.dst-group');
+        if (toolbarGroup) toolbarGroup.addEventListener('click', function() { self._groupSelected(); });
+        var toolbarDone = list.querySelector('.dst-done');
+        if (toolbarDone) toolbarDone.addEventListener('click', function() { self._toggleSelectMode(false); });
+
+        list.querySelectorAll('.drawer-line-group').forEach(function(groupEl) {
+            var key = groupEl.dataset.groupKey;
+
+            var title = groupEl.querySelector('.drawer-group-title');
+            if (title) title.addEventListener('click', function() { self._editGroupTitle(title); });
+
+            var up = groupEl.querySelector('.dg-up');
+            if (up) up.addEventListener('click', function() { self._moveGroup(key, -1); });
+            var down = groupEl.querySelector('.dg-down');
+            if (down) down.addEventListener('click', function() { self._moveGroup(key, 1); });
+
+            var dissolve = groupEl.querySelector('.dg-dissolve');
+            if (dissolve) dissolve.addEventListener('click', function() {
+                if (confirm('Opløs gruppen? Varerne bliver liggende på bonen.')) self._dissolveGroup(key);
+            });
+
+            var noteBtn = groupEl.querySelector('.dg-note');
+            var noteArea = groupEl.querySelector('.drawer-group-note');
+            if (noteBtn && noteArea) noteBtn.addEventListener('click', function() {
+                noteArea.hidden = !noteArea.hidden;
+                if (!noteArea.hidden) {
+                    var ta = noteArea.querySelector('.dg-note-input');
+                    if (ta) ta.focus();
+                }
+            });
+
+            var noteInput = groupEl.querySelector('.dg-note-input');
+            if (noteInput) noteInput.addEventListener('input', function() {
+                var g = self._findGroup(key);
+                if (!g) return;
+                g.note = noteInput.value;
+                self._groupsDirty = true;
+                if (noteBtn) noteBtn.classList.toggle('has-note', !!g.note.trim());
+                self._scheduleSaveGroups();
+            });
+        });
+    }
+
+    /* ── Persistering ──────────────────────────────────────
+       Serveren reconciler hele strukturen ud fra line_ids, så
+       lokale gruppe-nøgler behøver ikke matche DB-id'er.
+       ────────────────────────────────────────────────────── */
+
+    _scheduleSaveGroups() {
+        var self = this;
+        clearTimeout(this._groupSaveTimer);
+        this._groupSaveTimer = setTimeout(function() { self._saveGroups(); }, 600);
+    }
+
+    /** Gem straks hvis der er ventende ændringer — kaldes før reload/luk. */
+    _flushGroupSave() {
+        if (!this._groupsDirty) return Promise.resolve();
+        clearTimeout(this._groupSaveTimer);
+        return this._saveGroups();
+    }
+
+    _buildGroupPayload() {
+        var self = this;
+        var lines = (this.data && this.data.lines) || [];
+        return (this._groups || []).map(function(g) {
+            var line_ids = lines
+                .filter(function(l) { return self._lineGroup && self._lineGroup[l.id] === g.key; })
+                .map(function(l) { return l.id; });
+            return { title: g.title || '', note: g.note || '', line_ids: line_ids };
+        }).filter(function(g) { return g.line_ids.length; });
+    }
+
+    _saveGroups() {
+        if (!this.bonId || typeof saveMenuGroups !== 'function') return Promise.resolve();
+        var self = this;
+        var bonId = this.bonId;
+        this._groupsDirty = false;
+        return saveMenuGroups(bonId, this._buildGroupPayload())
+            .then(function() { self._flashGroupSaved(false); })
+            .catch(function(err) {
+                console.error('Kunne ikke gemme grupper:', err);
+                self._groupsDirty = true;   // prøv igen ved næste ændring / flush
+                self._flashGroupSaved(true);
+            });
+    }
+
+    _flashGroupSaved(failed) {
+        var row = this.el.querySelector('.drawer-lines-tools');
+        if (!row) return;
+        var old = row.querySelector('.dg-saved');
+        if (old) old.remove();
+        var el = document.createElement('span');
+        el.className = 'dg-saved' + (failed ? ' failed' : '');
+        el.textContent = failed ? '⚠ Ikke gemt' : '✓ Gemt';
+        row.insertBefore(el, row.firstChild);
+        setTimeout(function() { el.remove(); }, failed ? 5000 : 1800);
     }
 
     _openQtyEdit(qtyEl) {
@@ -1937,6 +2297,7 @@ class BonDrawer {
     async _reloadLines() {
         if (!this.bonId) return;
         try {
+            await this._flushGroupSave();
             var bon = await fetchBon(this.bonId);
             this.data = bon;
             this._renderLines(bon.lines || []);
@@ -2148,6 +2509,10 @@ class BonDrawer {
     }
 
     _doHide() {
+        // Grupper gemmes debounced. Lukker man inden for de 600 ms, ville
+        // ændringen ellers gå tabt uden at nogen fik det at vide.
+        try { this._flushGroupSave(); } catch (e) { console.error('Gruppe-gem ved luk:', e); }
+        this._selectMode = false;
         this.el.classList.remove('open');
         this.overlayEl.classList.remove('open');
         document.body.style.overflow = '';
@@ -2219,11 +2584,23 @@ class BonDrawer {
        SSE
        ══════════════════════════════════════════════════════ */
 
+    /**
+     * Er brugeren midt i gruppearbejde? Gruppe-gem broadcaster selv
+     * bon_updated, og load() nulstiller select-mode — uden denne vagt
+     * ville vores eget ekko lukke gruppér-tilstanden 600 ms efter at
+     * brugeren har oprettet en gruppe.
+     */
+    _groupBusy() {
+        if (this._selectMode || this._groupsDirty) return true;
+        const a = document.activeElement;
+        return !!(a && this.el.contains(a) && a.closest && a.closest('.drawer-lines-list'));
+    }
+
     _bindSSE() {
         // Patch F: bon_updated + bon_status bruger nu konsistent {id} på payload
         window.addEventListener('sse:bon_updated', (e) => {
             const data = e.detail || {};
-            if (data.id == this.bonId && !this.dirty && !this._editingLineId) {
+            if (data.id == this.bonId && !this.dirty && !this._editingLineId && !this._groupBusy()) {
                 this.load(this.bonId);
             }
         });
