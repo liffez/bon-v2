@@ -1080,6 +1080,29 @@ async function _evRenderCurve(eventId) {
     // travl ud som festivalens spidsbelastning.
     const maxOrders = Math.max(...dage.flatMap(d => d.hours.map(h => h.orders)), 1);
 
+    // Fælles x-akse på tværs af eventets dage. `hours` fra serveren rummer KUN
+    // timer med salg, så to dage med forskellig åbningstid fik hver sin akse og
+    // søjlerne stod ikke over hinanden — man kunne ikke sammenligne kl. 14 med
+    // kl. 14. Aksen er derfor sammenhængende fra eventets tidligste til dets
+    // seneste time, målt i forretningsdøgnets rækkefølge (0 = skæringstimen, så
+    // en aften der trækker over midnat ikke springer tilbage til venstre).
+    // Samme `pos()` som hourlyCurve i services/posSales.js.
+    const cutoffHour = Number(String(data.cutoff || '04:00').slice(0, 2)) || 0;
+    const pos = h => (h - cutoffHour + 24) % 24;
+    const allPos = dage.flatMap(d => d.hours.map(h => pos(h.hour)));
+    const axis = [];
+    for (let p = Math.min(...allPos); p <= Math.max(...allPos); p++) {
+        axis.push((p + cutoffHour) % 24);
+    }
+
+    // Timer uden salg findes ikke i dataene — de skal alligevel optage deres
+    // plads på aksen, ellers skrider justeringen mellem dagene igen.
+    const barsFor = d => {
+        const byHour = new Map(d.hours.map(h => [h.hour, h]));
+        return axis.map(hour => byHour.get(hour)
+            || { hour, orders: 0, items: 0, gross_incl: 0, label: String(hour).padStart(2, '0') + ':00' });
+    };
+
     const dagBlok = d => `
         <div class="ev-curve-day">
             <div class="ev-curve-head">
@@ -1088,10 +1111,10 @@ async function _evRenderCurve(eventId) {
                 ${d.peak ? `<span class="ev-curve-peak">travlest ${_evEsc(d.peak.label)} · ${d.peak.orders} ordrer / ${d.peak.items} varer</span>` : ''}
             </div>
             <div class="ev-curve-bars">
-                ${d.hours.map(h => `
-                    <div class="ev-curve-bar" title="${_evEsc(h.label)} · ${h.orders} ordrer · ${h.items} varer · ${kr(h.gross_incl)}">
-                        <div class="ev-curve-fill${d.peak && h.hour === d.peak.hour ? ' is-peak' : ''}"
-                             style="height:${Math.max(2, Math.round(h.orders / maxOrders * 100))}%"></div>
+                ${barsFor(d).map(h => `
+                    <div class="ev-curve-bar${h.orders ? '' : ' is-empty'}" title="${_evEsc(h.label)} · ${h.orders ? `${h.orders} ordrer · ${h.items} varer · ${kr(h.gross_incl)}` : 'intet salg'}">
+                        ${h.orders ? `<div class="ev-curve-fill${d.peak && h.hour === d.peak.hour ? ' is-peak' : ''}"
+                             style="height:${Math.max(2, Math.round(h.orders / maxOrders * 100))}%"></div>` : ''}
                         <span class="ev-curve-h">${_evEsc(h.label.slice(0, 2))}</span>
                     </div>`).join('')}
             </div>
