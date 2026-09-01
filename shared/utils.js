@@ -422,6 +422,16 @@ function _buildSSE(url, handlers, opts) {
         });
     }
 
+    // ── Ny version i drift ────────────────────────────────────────────────
+    // Registreres HER og ikke i den enkelte shell: en fane der har stået åben
+    // hele dagen kører gammel JS uanset hvilken zone den er i, så beskeden skal
+    // gælde office, kitchen, mobile og planlægning på én gang.
+    es.addEventListener('connected', (e) => {
+        try {
+            _sseCheckBuild(JSON.parse(e.data).build);
+        } catch (err) { /* stille — en manglende version-besked må ikke vælte SSE */ }
+    });
+
     // Office bruger sin egen samlede "Nyt"-toast + topbar-indikator, så den
     // undertrykker de generiske mail-toasts her (undgår dobbelt-toast).
     // Kitchen-zonen sender ikke flaget og beholder de generiske toasts.
@@ -455,6 +465,83 @@ function _buildSSE(url, handlers, opts) {
         console.warn('SSE forbindelse tabt — genopkobler automatisk…');
     };
     return es;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NY VERSION I DRIFT
+
+   Statiske filer serveres med `Cache-Control: max-age=0` + ETag, så en
+   genindlæsning henter altid ny kode. Problemet er fanen der ALDRIG bliver
+   genindlæst: den kører videre på den JS den fik i går, uden at brugeren
+   kan se det. Et versions-stempel på script-tagget løser ikke det — URL'en
+   læses jo først når siden hentes igen.
+
+   Derfor: serveren sender sit build-id med hvert 'connected', og vi siger
+   til når det ændrer sig. Der genindlæses ALDRIG af sig selv — man kan stå
+   midt i en bon, og en genindlæsning ville koste det der er tastet.
+   ══════════════════════════════════════════════════════════════ */
+
+var _sseBuild        = null;   // det id vi startede på
+var _sseBuildIgnored = null;   // id brugeren har afvist beskeden for
+
+function _sseCheckBuild(build) {
+    if (!build) return;                        // ældre server uden build-id
+    if (_sseBuild === null) { _sseBuild = build; return; }   // første forbindelse
+    if (build === _sseBuild) return;
+    if (build === _sseBuildIgnored) return;    // allerede afvist for netop denne version
+    _sseShowReloadBar(build);
+}
+
+function _sseShowReloadBar(build) {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('sse-version-bar')) return;
+
+    // Stilen ligger inline med vilje: bjælken skal se ens ud i office, kitchen,
+    // mobile og settings, og de har hver sit stylesheet. Fire kopier af den
+    // samme CSS ville skride fra hinanden.
+    var bar = document.createElement('div');
+    bar.id = 'sse-version-bar';
+    bar.style.cssText = [
+        'position:fixed', 'left:50%', 'transform:translateX(-50%)',
+        'bottom:20px', 'z-index:2147483000',
+        'display:flex', 'align-items:center', 'gap:14px',
+        'padding:12px 14px 12px 18px', 'border-radius:10px',
+        'background:#2f2a24', 'color:#fff',
+        'font:500 14px/1.3 system-ui,-apple-system,sans-serif',
+        'box-shadow:0 6px 24px rgba(0,0,0,.28)',
+        'max-width:calc(100vw - 32px)'
+    ].join(';');
+
+    var text = document.createElement('span');
+    text.textContent = 'Ny version af Bon v2 er klar.';
+
+    var reload = document.createElement('button');
+    reload.type = 'button';
+    reload.textContent = 'Genindlæs';
+    reload.style.cssText = [
+        'cursor:pointer', 'border:0', 'border-radius:7px',
+        'padding:7px 14px', 'background:#c8a24a', 'color:#241f19',
+        'font:600 14px/1 system-ui,-apple-system,sans-serif'
+    ].join(';');
+    reload.onclick = function () { window.location.reload(); };
+
+    var dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.textContent = '×';
+    dismiss.title = 'Skjul — beskeden kommer igen ved næste version';
+    dismiss.style.cssText = [
+        'cursor:pointer', 'border:0', 'background:transparent',
+        'color:#cfc6b8', 'font:400 20px/1 system-ui,sans-serif', 'padding:0 4px'
+    ].join(';');
+    dismiss.onclick = function () {
+        _sseBuildIgnored = build;
+        bar.remove();
+    };
+
+    bar.appendChild(text);
+    bar.appendChild(reload);
+    bar.appendChild(dismiss);
+    document.body.appendChild(bar);
 }
 
 function _showMailToast(data) {
