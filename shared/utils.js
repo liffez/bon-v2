@@ -675,10 +675,22 @@ function scrollToBonHash() {
     if (!hash || !hash.startsWith('#bon')) return;
 
     var el = document.getElementById(hash.slice(1));
-    if (!el) return;
+    if (!el) {
+        // Bonen står ikke på siden — uden for Senere-vinduet, eller filtreret
+        // helt bort (Senere renderer slet ikke terminale statusser). Draweren
+        // er bedre end at der ikke sker noget.
+        if (typeof window._bonInfoEditHandler === 'function') {
+            history.replaceState(null, '', window.location.pathname);
+            window._bonInfoEditHandler(hash.slice(4));
+        }
+        return;
+    }
 
     // Scroll med offset for sticky headers
     setTimeout(function() {
+        // Kortet kan ligge i DOM'en men være skjult af et filter (leveret,
+        // IGANG/KLAR). Så ville scroll ramme noget usynligt.
+        if (typeof window.revealBonCard === 'function') window.revealBonCard(el);
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.classList.add('bon-highlight');
         setTimeout(function() { el.classList.remove('bon-highlight'); }, 4500);

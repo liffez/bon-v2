@@ -5709,6 +5709,52 @@ basen har hverken CVR, EAN, kundenummer eller mere end én bon. Forhandler-regle
 rører kun de firmaer der er markeret; den generelle sag er
 [#567](https://github.com/liffez/bon-v2/issues/567).
 
+### Flyver: "Gå til bon" førte ingen steder hen (1. september 2026)
+
+Knappen i flyver-modalen så død ud. To veje, begge stille:
+
+**Kortet var på siden, men filtreret væk.** Et bon-kort forsvinder ikke fra DOM'en
+når et filter er slået til — det får `display:none !important`
+(`body:not(.show-lev) .bon-card[data-status="lev"]` m.fl. i `kitchen/today.html`).
+`_gotoFlyverBon` fandt kortet med `getElementById`, scrollede til det og satte
+highlight-klassen — alt sammen på noget usynligt. Det er den almindelige situation:
+en flyver sendt om formiddagen ligger stadig i køen når bonen er leveret og
+VIS LEVEREDE er slukket.
+
+**Kortet var der slet ikke.** Fallbacken var
+`window.location.href = '/kitchen/today.html#bon' + bonId`. Står man allerede på
+`today.html`, er det kun et hash-skift — ingen navigation, ingen genindlæsning, og
+`scrollToBonHash()` kaldes kun ved page load. Der skete bogstavelig talt ingenting.
+Og hørte bonen til en anden dag, var today.html alligevel den forkerte side.
+
+- **`kitchen/today.js` fik `window.revealBonCard(card)`** — den ejer filtrene, så den
+  rydder dem: slukker `filter-igang`/`filter-klar`, tænder VIS LEVEREDE hvis kortet er
+  leveret, opdaterer knappernes låse-tilstand og afbryder en igangværende leveret-fade.
+  Fade-afbrydelsen er ikke kosmetik: uden `clearTimeout` ville 8-sekunders-timeren
+  skjule kortet igen kort efter at man var hoppet til det.
+- **`shared/flyver.js`** kalder den (via `typeof`, så sider uden filtre — fx Senere —
+  er upåvirkede). Er kortet ikke på siden, afgør **leveringsdatoen** hvor man skal hen:
+  i dag → I dag, senere → Senere. Køkkenet vil se *kortet*; draweren er en
+  redigeringsflade og er derfor kun svaret i office (`zone-kitchen` skiller de to) eller
+  når kortet ikke står nogen steder — en bon i fortiden, eller en bon vi ikke kunne
+  hente. Navigation til samme sti gør et **reload**, for et hash-skift alene henter
+  ikke bonen.
+- **`scrollToBonHash()` i `shared/utils.js`** er den anden halvdel af rejsen og havde
+  samme to huller: den scrollede til et filtreret kort uden at vise det, og gjorde intet
+  når bonen ikke var på siden. Den kalder nu `revealBonCard` og falder tilbage til
+  draweren. Det gælder også kalenderens "Gå til bon →", som bruger samme hash.
+- Scroll + highlight kaldes direkte, ikke i `requestAnimationFrame`: rAF fyrer ikke i
+  en skjult fane, og en køkkenskærm der lige er vækket ville så stå med samme døde knap.
+
+**Tests**: `npm run test:flyver` — 21 (serverside, uændret) + **15 nye** i
+`tests/flyver_goto_bon.test.js`, hvor de rigtige `shared/flyver.js`, `kitchen/today.js`
+og `shared/utils.js` køres i en vm-sandkasse med en lille DOM og styrbare timere
+(browserkode kan ikke `require`s). **Mutations-testet:** ni kerneregler rulles hver især
+tilbage og fælder hver sin navngivne assert. Browser-verificeret mod en frisk lokal DB,
+inkl. hele kæden i ét forløb: fra Senere → en leveret bon i dag → navigation til I dag →
+hash-vejen tænder VIS LEVEREDE og viser kortet. Klikkene blev sendt som `MouseEvent`
+gennem de ægte lyttere — browser-panelet var frosset (viewport 0×0), så fysiske museklik
+var ikke mulige.
 
 ## Næste opgave
 
