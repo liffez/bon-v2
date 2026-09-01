@@ -1558,7 +1558,7 @@ router.post('/:id/mail', handle(async (req, res) => {
     }
 
     // Validate attachments
-    const { sendMail, sendFromTemplate, validateAttachments } = require('../services/mailService');
+    const { sendMail, sendFromTemplate, validateAttachments, bonMailContext } = require('../services/mailService');
     const att = validateAttachments(attachments);
     if (att.error) return res.status(400).json({ error: att.error });
     const validatedAttachments = att.list;
@@ -1567,7 +1567,10 @@ router.post('/:id/mail', handle(async (req, res) => {
     const bon = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(bonId);
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
-    const context = { type: 'bon', number: parseInt(bon.bon_number.replace(/\D/g, '')) };
+    // Tilbud sendes gennem denne rute (de ER bons med is_offer = 1), så typen
+    // skal udledes af rækken — ikke antages. Hardkodet 'bon' gav T-28 tagget
+    // #b-28, og kundens svar kunne dermed ikke finde tilbuddet igen.
+    const context = bonMailContext(db, bonId);
     const userId = req.session?.userId || null;
 
     let result;
