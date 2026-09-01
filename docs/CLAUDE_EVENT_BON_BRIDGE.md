@@ -28,7 +28,10 @@ tælles aldrig to gange. Alt defaulter til **slukket** indtil deploy-config (§0
   - `GET /webhook/event-menu?menu=standard` — Ristet Rugs Grocy-menu i event-order-3-format
     (`id:'r<id>'`, navn, kategori, **festival-pris i øre** (incl moms), tags, allergener).
     Genbruger samme kategori/skjul/tags-logik som `routes/embed.js`.
-  - `POST /webhook/event-prep` — body `{ event_id, date, lines:[{grocy_recipe_id, antal}] }`.
+  - `POST /webhook/event-prep` — body `{ event_id, date, lines:[{grocy_recipe_id, antal, variant?}] }`.
+    `variant` er variantens læsbare navn (fx `"Glutenfri Bolle"`) og lander i linjens
+    `special_request` — linjer med den slås aldrig sammen (`shared/bon_lines.js`), så
+    køkkenet ser *hvilke* retter der er glutenfri, ikke bare hvor mange boller.
     Find-eller-opret **prep-bon** for `(event_id, delivery_date, event_role='prep')`:
     ingen → opret (produktion, GODKENDT, linjer via `resolveMenuItemLines`);
     findes + status NY/GODKENDT → **reconcile** (slet linjer, genindsæt — fuld-erstat);
@@ -65,7 +68,9 @@ tælles aldrig to gange. Alt defaulter til **slukket** indtil deploy-config (§0
   (ikke kun den nye linje), ellers ville bonnen blive nulstillet til én ordre.
 - **Ingen Grocy-id på JSON-menuen** ⇒ uden `menuFromGrocy` kan der ikke laves prep-bon
   (varianter mangler Grocy-kobling); den vendor bruger event-appens egen produktionsfane.
-  Grocy-varianter (brødvalg/glutenfri) kollapser til basis-opskriften på prep-bonnen.
+  Grocy-varianter (brødvalg/glutenfri) tæller på basis-opskriften, men bærer variantens
+  navn som linjetekst, så "1 × Tunen / Glutenfri Bolle" står for sig selv. Tilvalget
+  tælles desuden som sin egen vare (bollen skal bages og trækkes på lageret).
 
 ### 0.3 Deploy-checkliste (før live)
 1. **bon-v2:** sæt `settings.event_bridge_secret` (valgfri, men anbefalet — håndhæves kun hvis sat).
