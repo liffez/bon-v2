@@ -2471,6 +2471,11 @@ async function _evOpenGenModal(event, role, opts) {
         linesEl.querySelectorAll('tr[data-line]').forEach(row => {
             const name = row.querySelector('[data-f=name]').value.trim();
             if (!name) return;
+            // Antal 0 = varen blev ikke solgt/pakket den dag. Feltet må gerne stå
+            // på 0 (pre-fill'et kommer fra prep-bonnerne og skal kunne nulstilles
+            // linje for linje), men linjen hører så ikke hjemme på bonnen.
+            const qty = Number(row.querySelector('[data-f=qty]').value);
+            if (!Number.isFinite(qty) || qty <= 0) return;
             // Prod-bons: pris-feltet ER kostprisen (kolonnen hedder "Kostpris ex").
             // unit_price tvinges til 0 (prep/top-up = 0 kr, spec §3) og feltet
             // snapshottes som cost_price så vareforbrug/P&L får rigtige tal.
@@ -2480,7 +2485,7 @@ async function _evOpenGenModal(event, role, opts) {
                 product_name: name,
                 grocy_recipe_id: row.dataset.recipeId ? parseInt(row.dataset.recipeId) : null,
                 category: row.dataset.category || null,
-                quantity: Number(row.querySelector('[data-f=qty]').value) || 1,
+                quantity: qty,
                 unit: row.querySelector('[data-f=unit]').value || 'stk',
                 unit_price: isProd ? 0 : fieldVal,
                 cost_price: isProd ? fieldVal : (row.dataset.cost ? Number(row.dataset.cost) : null),
@@ -2490,7 +2495,7 @@ async function _evOpenGenModal(event, role, opts) {
                 moms_included: momsSel ? Number(momsSel.value) : 1,
             });
         });
-        if (lines.length === 0) throw new Error('Tilføj mindst én linje');
+        if (lines.length === 0) throw new Error('Tilføj mindst én linje med antal over 0');
         const body = {
             role,
             delivery_date: document.getElementById('evm-date').value,
@@ -2553,7 +2558,7 @@ async function _evOpenGenModal(event, role, opts) {
         const momsVal = String(data.momsIncluded ?? 0);
         tr.innerHTML = `
             <td><input type="text" data-f="name" value="${_evEsc(data.name || '')}" placeholder="Navn"></td>
-            <td><input type="number" data-f="qty" value="${data.qty || 1}" min="1" step="1" style="width:60px"></td>
+            <td><input type="number" data-f="qty" value="${data.qty ?? 1}" min="0" step="1" style="width:60px"></td>
             <td><input type="text" data-f="unit" value="${_evEsc(data.unit || 'stk')}" style="width:50px"></td>
             <td><input type="number" data-f="price" value="${data.price ?? 0}" step="0.01" style="width:80px"></td>
             ${isExpense ? `<td><select data-f="moms" class="ev-moms-sel"><option value="0">uden moms</option><option value="1">med moms</option></select></td>` : ''}
@@ -2597,14 +2602,16 @@ async function _evOpenGenModal(event, role, opts) {
     // Knappen fortæller hvad der sker, og hvor meget der er i kurven. Ved 0
     // linjer er den slået fra — så et fejlklik ikke kan oprette en tom bon.
     function _evSyncSubmit() {
-        const n = linesEl.querySelectorAll('tr[data-line]').length;
+        const rows = Array.from(linesEl.querySelectorAll('tr[data-line]'));
+        // Linjer med antal 0 bliver ikke oprettet — tæl kun dem der gør.
+        const n = rows.filter(r => (Number(r.querySelector('[data-f=qty]').value) || 0) > 0).length;
         const emptyRow = document.getElementById('evm-empty-row');
-        if (emptyRow) emptyRow.style.display = n ? 'none' : '';
+        if (emptyRow) emptyRow.style.display = rows.length ? 'none' : '';
         const btn = overlay.querySelector('button[type=submit]');
         if (!btn) return;
         btn.disabled = n === 0;
         btn.textContent = n === 0
-            ? 'Tilføj mindst én linje'
+            ? (rows.length ? 'Sæt antal på mindst én linje' : 'Tilføj mindst én linje')
             : `${_EV_SUBMIT_LABEL[role] || 'Gem'} (${n} ${n === 1 ? 'linje' : 'linjer'})`;
     }
 
