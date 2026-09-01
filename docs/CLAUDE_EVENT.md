@@ -585,10 +585,13 @@ Svaret bærer `price_source: 'menu' | 'grocy'`.
   bagudkompatibelt for events oprettet inden menuen fandtes.
 - Menupunkter **uden** prep (typisk en ret fundet på pladsen) kommer med i prefillen
   med antal 0, så de ikke skal tastes som fritekst hver dag.
-  **API'et siger 0, modalen viser 1** — gen-modalens `addLine` har `min="1"`. Det er
-  et bevidst valg (Leif, juli 2026): du satte retten på menuen fordi du regner med at
-  sælge den, og alle prefill-tal er i forvejen START-gæt der justeres inden bonnen
-  gemmes. 0 i API'et er den ærlige "der er ikke preppet noget til den".
+  **API'et siger 0, og modalen viser nu også 0** — gen-modalens `addLine` har `min="0"`
+  (ændret sept. 2026, Leif). Der er dage hvor en vare simpelthen ikke bliver solgt, og
+  `min="1"` gjorde det umuligt at nulstille en prefill-linje: browseren afviste feltet
+  med "Værdien skal være større end eller lig med 1". Rækken bliver stående som
+  huskeseddel, men **linjer med antal 0 sendes ikke med** når bonnen oprettes — knappen
+  tæller kun de linjer der faktisk bliver til noget ("Opret salgsbon (4 linjer)"), og
+  står alle på 0 hedder den "Sæt antal på mindst én linje" og er slået fra.
 - Kostpris og CO₂ er stadig Grocy-snapshots; menuen holder kun salgsprisen.
 
 ### 16.7 Endpoints
