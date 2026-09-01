@@ -238,13 +238,29 @@ function _buildFlyverBonSummary(bon) {
 
 function _gotoFlyverBon(bonId) {
     closeModal();
+
     var card = document.getElementById('bon' + bonId);
     if (card) {
+        // Kortet kan være filtreret væk — en leveret bon ligger stadig i DOM'en
+        // med display:none. Uden dette scroller vi til noget usynligt, og
+        // knappen ser ud som om den ikke gjorde noget.
+        if (typeof window.revealBonCard === 'function') window.revealBonCard(card);
         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         card.classList.add('flyver-highlight');
         setTimeout(function() { card.classList.remove('flyver-highlight'); }, 2000);
+        return;
+    }
+
+    // Bonen findes ikke på denne side — åbn den i sidens drawer hvis der er en
+    if (typeof window._bonInfoEditHandler === 'function') { window._bonInfoEditHandler(bonId); return; }
+    if (typeof window.openDrawer === 'function') { window.openDrawer(bonId); return; }
+
+    // Sidste udvej: køkkenets I dag-side. Står vi allerede der, er et hash-skift
+    // alene ikke en navigation — siden skal genindlæses for at hente bonen.
+    if (window.location.pathname === '/kitchen/today.html') {
+        window.location.hash = 'bon' + bonId;
+        window.location.reload();
     } else {
-        // Bon ikke på denne side — naviger til today med hash
         window.location.href = '/kitchen/today.html#bon' + bonId;
     }
 }
