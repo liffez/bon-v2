@@ -240,6 +240,9 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Grocy læses via adapter** — skriv aldrig direkte til Grocy's database
 - **SSE på `/api/sse`** — named events via `addEventListener`, aldrig `onmessage`
 - **Route-filer bruger `getDb()`** — aldrig global `db`-variabel
+- **Statisk serving er en allowlist** — nye offentlige mapper skrives ind i
+  `PUBLIC_DIRS` i server.js. Mount aldrig en mappe der også indeholder kode
+  eller data (`express.static(__dirname)` lagde engang `data/bon.db` frit)
 - **Standalone scripts bruger `openDb()`** fra `db/compat.js` — aldrig `DatabaseSync` direkte
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
