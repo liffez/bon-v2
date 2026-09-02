@@ -33,7 +33,7 @@ const { runMigrations } = require('../db/migrate');
 runMigrations(TEST_DB);
 
 const { getDb } = require('../db/database');
-const { findUndeducted, findPartial, findNothingToDeduct } =
+const { findUndeducted, findPartial, findNothingToDeduct, findGatedByEventPrep } =
     require('./check-inventory-deduct.js');
 
 let pass = 0, fail = 0;
@@ -49,21 +49,43 @@ const { offsetISO, todayISO } = require('../db/helpers');
 
 const LOCATION_ID = db.prepare('SELECT id FROM locations ORDER BY id LIMIT 1').get()?.id;
 
+const priceCatId = code =>
+    db.prepare('SELECT id FROM price_categories WHERE code = ?').get(code)?.id;
+
+// Et event oprettes med den ægte tabel, så §5-gaten (bonOwnsStockCostSql) læser
+// model og priskategori præcis som i drift.
+function mkEvent(model) {
+    return db.prepare(`
+        INSERT INTO events (name, location_id, model, start_date, end_date, status)
+        VALUES (?, ?, ?, ?, ?, 'active')
+    `).run(`T_WD_EV_${model}_${Date.now()}${Math.random()}`, LOCATION_ID, model,
+           offsetISO(-1), offsetISO(-1)).lastInsertRowid;
+}
+
 let seq = 0;
 function mkBon({ status = 'LEVERET', date, deducted = 0, deductStatus = null,
-                 isOffer = 0, withRecipeLine = true, sawLeveret = false, otherStatusChange = null }) {
+                 isOffer = 0, withRecipeLine = true, sawLeveret = false, otherStatusChange = null,
+                 lineQty = 1, eventId = null, priceCategory = null, extraProductId = null }) {
     const num = `T_WD_${++seq}`;
     const r = db.prepare(`
         INSERT INTO bons (bon_number, order_date, delivery_date, status_id,
-                          inventory_deducted, inventory_deduct_status, is_offer, location_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(num, todayISO(), date, statusId(status), deducted, deductStatus, isOffer, LOCATION_ID);
+                          inventory_deducted, inventory_deduct_status, is_offer, location_id,
+                          event_id, price_category_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(num, todayISO(), date, statusId(status), deducted, deductStatus, isOffer, LOCATION_ID,
+           eventId, priceCategory ? priceCatId(priceCategory) : null);
     const id = r.lastInsertRowid;
     if (withRecipeLine) {
         db.prepare(`
             INSERT INTO bon_lines (bon_id, product_name, quantity, grocy_recipe_id)
-            VALUES (?, 'Testvare', 1, 42)
-        `).run(id);
+            VALUES (?, 'Testvare', ?, 42)
+        `).run(id, lineQty);
+    }
+    if (extraProductId) {
+        db.prepare(`
+            INSERT INTO prep_packing_extras (bon_id, product_id, product_name, amount)
+            VALUES (?, ?, 'Ekstra mayo', 1.5)
+        `).run(id, extraProductId);
     }
     for (const v of [sawLeveret ? 'LEVERET' : null, otherStatusChange]) {
         if (!v) continue;
@@ -146,6 +168,81 @@ check(nums(findPartial(db, 3)).includes(delvis.num),
     'delvist træk fanges af findPartial');
 check(!nums(findUndeducted(db, 3)).includes(delvis.num),
     '… og dukker ikke også op som manglende træk (flaget er sat)');
+
+console.log('\n\x1b[1mUngdommens folkemøde 2. sep. 2026 — de to falske alarmer\x1b[0m');
+
+// Sådan ser et let event ud i drift: prep-bonnen (priskategori 'produktion')
+// trækker HQ-lageret, salgsbonnen (priskategori 'festival') bærer betalingen og
+// må ALDRIG trække. Salgsbonnen sættes direkte til BETALT, så §5-gaten i
+// autoConsumeBonInventory aldrig kører og flaget bliver stående på 0.
+const letEv = mkEvent('light');
+
+const salgsbon = mkBon({ status: 'BETALT', date: offsetISO(-1),
+                         eventId: letEv, priceCategory: 'festival', lineQty: 345 });
+check(!nums(findUndeducted(db, 3)).includes(salgsbon.num),
+    'let-event salgsbon alarmerer ikke — prep-bonnen ejer trækket (B4167)');
+check(nums(findGatedByEventPrep(db, 3)).includes(salgsbon.num),
+    '… men den TÆLLES som bevidst utrukket, så den ikke bare forsvinder');
+check(!nums(findNothingToDeduct(db, 3)).includes(salgsbon.num),
+    '… og lander ikke oveni i "intet at trække" — buckets må ikke overlappe');
+
+// Rest-prep ("holder resten"): hele dagens mål var forudbestilt, så linjerne står
+// bevidst på 0. Der er intet at trække — men bonen har opskriftskoblede linjer, så
+// den slap tidligere igennem som en manglende trækning.
+const restPrep = mkBon({ status: 'AFSLUTTET', date: offsetISO(-1),
+                         eventId: letEv, priceCategory: 'produktion', lineQty: 0 });
+check(!nums(findUndeducted(db, 3)).includes(restPrep.num),
+    'rest-prep med alle linjer på 0 alarmerer ikke — der er intet at trække (B4147)');
+check(nums(findNothingToDeduct(db, 3)).includes(restPrep.num),
+    '… men tælles som "intet at trække"');
+
+// En let-event UDGIFTSBON er BEGGE dele: den er gated OG har ingen linjer
+// (B4168/B4153 på samme event). Uden gaten i findNothingToDeduct ville den blive
+// talt to gange, og de to buckets ville ikke længere partitionere. Gaten er den
+// mere præcise grund, så den vinder.
+const udgift = mkBon({ status: 'BETALT', date: offsetISO(-1), withRecipeLine: false,
+                       eventId: letEv, priceCategory: 'festival' });
+check(nums(findGatedByEventPrep(db, 3)).includes(udgift.num),
+    'let-event udgiftsbon tælles som bevidst utrukket (B4168)');
+check(!nums(findNothingToDeduct(db, 3)).includes(udgift.num),
+    '… og tælles kun ÉN gang — gaten går forud for "intet at trække"');
+
+// Kontrolprøven: den prep-bon der FAKTISK skal trække, skal stadig frem hvis den
+// ikke gør det. Uden denne ville §5-udelukkelsen kunne gøres for bred og lukke
+// munden på hele event-modulet.
+const prepMedMaengde = mkBon({ status: 'AFSLUTTET', date: offsetISO(-1),
+                               eventId: letEv, priceCategory: 'produktion', lineQty: 345 });
+check(nums(findUndeducted(db, 3)).includes(prepMedMaengde.num),
+    'en let-event PREP-bon med mængder alarmerer stadig — den ejer trækket (B4166)');
+
+// Festival-modellen gates IKKE: dér trækker salgsbonnen fra sin egen lokation.
+const festEv = mkEvent('festival');
+const festSalg = mkBon({ status: 'BETALT', date: offsetISO(-1),
+                         eventId: festEv, priceCategory: 'festival', lineQty: 100 });
+check(nums(findUndeducted(db, 3)).includes(festSalg.num),
+    'festival-event salgsbon alarmerer stadig — den ejer sit eget træk');
+
+console.log('\n\x1b[1m"Intet at trække" må ikke blive for bredt\x1b[0m');
+
+// Negativ mængde er ikke arbejde (addAmount springer amount <= 0 over).
+const negativ = mkBon({ status: 'LEVERET', date: offsetISO(-1), lineQty: -3 });
+check(!nums(findUndeducted(db, 3)).includes(negativ.num),
+    'linje med negativ mængde tæller ikke som noget der kan trækkes');
+
+// Én linje på 0 og én med mængde: der ER arbejde. Ellers ville en enkelt
+// 0-linje kunne dække over resten af bonen.
+const blandet = mkBon({ status: 'LEVERET', date: offsetISO(-1), lineQty: 0 });
+db.prepare(`INSERT INTO bon_lines (bon_id, product_name, quantity, grocy_recipe_id)
+            VALUES (?, 'Rigtig vare', 12, 43)`).run(blandet.id);
+check(nums(findUndeducted(db, 3)).includes(blandet.num),
+    'en bon med både en 0-linje og en rigtig linje alarmerer stadig');
+
+// Ekstra pakke-varer kan tilføje et produkt der ikke står på nogen linje, så en
+// bon uden linjer men MED extras skal stadig frem.
+const kunExtras = mkBon({ status: 'LEVERET', date: offsetISO(-1),
+                          withRecipeLine: false, extraProductId: 77 });
+check(nums(findUndeducted(db, 3)).includes(kunExtras.num),
+    'bon uden linjer men med ekstra pakke-varer alarmerer — extras kan tilføje et produkt');
 
 // ── Exit-koden er selve alarmen ─────────────────────────────────────────────
 //

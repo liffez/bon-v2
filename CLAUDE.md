@@ -5839,6 +5839,70 @@ det; ▲▼ + vælg-og-saml dækker behovet med mus), og rækkefølgen af *løse
 linjer persisteres fortsat ikke — den er altid den sorterede. Sidstnævnte er
 en pre-eksisterende begrænsning fra migration 072.
 
+### Vagthunden råbte op om to bons der gjorde det rigtige (2. september 2026)
+
+Alarm-mailen kl. 06: *"Lagertræk fejlede på 2 bon(s)"* — #B4147 og #B4167 fra
+Ungdommens folkemøde. Ingen af dem havde fejlet.
+
+- **B4167** er dagens **salgsbon**. På et let event må en salgsbon per §5 ALDRIG
+  trække HQ-lager — prep-bonnen (B4166) ejer trækket, og den havde gjort sit.
+- **B4147** er en **rest-prep** ("holder resten"). Hele dagens mål var
+  forudbestilt, så linjerne står bevidst på 0. Der var intet at trække.
+
+Begge var altså den rigtige tilstand, meldt som en fejl. Og det er ikke uskyldigt:
+en alarm der melder det samme hver morgen om noget der ikke er galt, holder folk op
+med at læse — hvilket er præcis det svigt #305 blev bygget for at forhindre.
+
+**Vagthunden aflæste et flag i stedet for at regne reglen ud.**
+`autoConsumeBonInventory` markerer godt nok en gated salgsbon med
+`event_prep_owns_stock` — men **kun når bonen passerer LEVERET**. En salgsbon
+tastes og betales direkte (BETALT), så gaten kører aldrig, flaget bliver på 0, og
+bonen er ikke til at skelne fra en hvor trækket gik galt.
+
+> ⚠️ **Vi har været her før — og lappede symptomet.** Migration 164 (24. august)
+> løste nøjagtig samme alarm for #B4202/#B4207 ved at **bagudfylde flaget** på bons
+> med `payment_type = 'pos'`. Filteret var for smalt: Ungdommens folkemødes
+> salgsbons betalte **`cash`**, og alarmen kom igen ni dage senere med nye numre.
+> `bonOwnsStockCostSql`'s egen docstring sagde det allerede — *"Reglen skal
+> genberegnes, ikke aflæses"* — men vagthunden gjorde det modsatte.
+
+- **`bonOwnsStockCostSql('b')`** (§5-gaten som SQL, samme sted driftsregnskabet
+  henter den) bruges nu i vagthunden. Grænsen går ved event-**modellen**, ikke ved
+  betalingstypen: et **festival**-event trækker fra sin egen lokation, så dér ejer
+  salgsbonnen sit træk og skal stadig frem hvis det mangler.
+- **"Intet at trække" ser nu på mængden**, ikke kun på om linjen har en opskrift.
+  En rest-prep på 0 kan ikke trække noget. Ekstra pakke-varer tæller **med** (de kan
+  tilføje et produkt der ikke står på nogen linje); pakke-overrides tæller ikke — de
+  kan kun ændre en mængde der allerede findes.
+- **De tre opslag partitionerer nu bevisligt samme mængde**: `KANDIDAT`,
+  `EJER_TRAEKKET` og `HAR_NOGET_AT_TRAEKKE` står som fragmenter der bruges positivt
+  ét sted og negativt et andet. Skrevet ud hver for sig kunne de skride fra hinanden,
+  og så ville en bon falde ned mellem dem og hverken blive alarmeret eller talt.
+- **De tavse bons nævnes ved navn** i loggen (`#B4147` · `#B4167, #B4168`) frem for
+  at forsvinde. Ellers kan man ikke se forskel på "ingen problemer" og "kontrollen
+  kigger det forkerte sted" — samme princip som resten af scriptet.
+
+Migration 164's bagudfyldning bliver stående. Den skriver begrundelsen på selve
+bonen, så et menneske kan se hvorfor der ikke blev trukket; den er bare ikke
+længere dét der holder alarmen tavs.
+
+**Tests**: `npm run test:deduct-watchdog` — 24 → **36 asserts**, og
+`scripts/test-pos-bon-no-stock.js` 5 → **6**. Sidstnævnte fastholdt den gamle,
+for smalle regel (*"en almindelig event-salgsbon uden træk meldes STADIG"*) og er
+rettet til den der faktisk holder, med festival-kontrolprøven ved siden af.
+**Mutations-testet:** seks kerneregler rulles hver især tilbage og fælder hver sine
+navngivne asserts. Den sjette slap først igennem — testen dækkede ikke overlappet
+mellem "gated" og "intet at trække", som er præcis udgiftsbonnerne (B4168/B4153);
+hullet er lukket. Regression grøn: event-rest-prep 59, event-labor 101,
+drift-location 60, event-retur 40, event-return-cost 35, event-rest-prep-http 36,
+event-covers 33, autobatch-packing 14, drift-cost 13, drift-labor-gap 11.
+
+Verificeret mod en kopi af driftsdata sat i den tilstand skærmbilledet viser:
+**før** gengiver mailen ordret (begge bons, exit 1), **efter** siger loggen
+*"1 leveret bon(s) har intet at trække: #B4147"* + *"2 let-event bon(s) trækker med
+vilje ikke HQ-lager: #B4167, #B4168"* og exit 0. Kontrolprøve: fjernes B4166's træk,
+alarmerer den stadig med exit 1. Kopien er slettet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

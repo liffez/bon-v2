@@ -19,6 +19,11 @@
 //     usynlige her indtil da, så vagthunden meldte "alt i orden" om et halvt
 //     lagertræk. Begge logges, mail sendes hvis en modtager er sat, og der
 //     exit'es med kode 1 så cron's egen mail (MAILTO) også fanger det.
+//   • TÆLLER, men alarmerer ikke, de to slags bons der SKAL stå utrukne: dem
+//     hvor §5-gaten siger at prep-bonnen ejer trækket (let-event salg/udgift),
+//     og dem hvor der intet er at trække (alle linjer på 0 — fx en rest-prep).
+//     De nævnes ved navn, så man kan se forskel på "ingen problemer" og
+//     "kontrollen kigger det forkerte sted".
 //   • er alt trukket: exit 0, én rolig statuslinje.
 //
 // READ-ONLY på forretningsdata. Rører hverken bons eller Grocy.
@@ -57,31 +62,72 @@ const { getDb } = require('../db/database');
 // vagthunden holder op med at se dem. Den fejl er ramt fem gange før (#133), og
 // her rammer den netop dét stykke der skal fange manglende lagertræk.
 // todayISO()/offsetISO() er forankret i Europe/Copenhagen.
-const { todayISO, offsetISO } = require('../db/helpers');
+const { todayISO, offsetISO, bonOwnsStockCostSql } = require('../db/helpers');
 
 const DAYS = Math.max(1, parseInt(process.env.INVENTORY_CHECK_DAYS, 10) || 3);
 
 function logLine(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
 const getSetting = (db, k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? '';
 
+// ── Populationen, delt af alle tre opslag ───────────────────────────────────
+//
+// De tre funktioner nedenfor PARTITIONERER den samme mængde bons. Skrives
+// betingelserne ud i hver sin forespørgsel, kan de skride fra hinanden — og så
+// falder en bon ned mellem dem og bliver hverken alarmeret eller talt. Derfor
+// står de her som fragmenter der bruges positivt ét sted og negativt et andet.
+const KANDIDAT = `
+    sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
+    AND COALESCE(b.is_offer, 0) = 0
+    AND COALESCE(b.inventory_deducted, 0) = 0`;
+
+// "Ejer bonen sit eget lagertræk?" — §5-gaten (CLAUDE_EVENT.md §5) som SQL.
+// Reglen bor ét sted, i db/helpers.js, og bruges også af driftsregnskabet.
+//
+// En let-event SALGSBON må ALDRIG trække HQ-lager; prep-bonnen ejer trækket.
+// autoConsumeBonInventory sætter derfor flaget + 'event_prep_owns_stock' — men
+// KUN når bonen passerer LEVERET. En salgsbon der er sat direkte til BETALT
+// (det normale for et event: dagens salg tastes og betales) har aldrig kørt
+// gaten, så flaget står på 0, og vagthunden så den som en manglende trækning.
+// Ungdommens folkemøde 2. sep. 2026: B4166 trak lageret, B4167 bar betalingen —
+// og vagthunden råbte op om B4167 hver morgen.
+//
+// Reglen GENBEREGNES, den aflæses ikke af inventory_deduct_status: det felt er
+// NULL på alle event-salgsbons fra før migration 141 (samme forbehold som
+// helperens egen docstring).
+const EJER_TRAEKKET = bonOwnsStockCostSql('b');
+
+// "Er der overhovedet noget at trække?" En bon uden opskriftskoblede linjer kan
+// ikke trække noget — og det gælder også når linjerne findes men står på 0.
+// En rest-prep-bon ("holder resten", CLAUDE.md) står netop sådan når hele dagens
+// mål er forudbestilt: linjerne bliver bevidst stående på 0 så køkkenet kan se at
+// bonen er håndteret. B4147/B4148 på Ungdommens folkemøde var præcis det.
+//
+// Nye bons får 'empty' + flaget sat (db/helpers.js), men historiske rækker fra før
+// #359 står med flaget på 0 for evigt. Migration 141 valgte bevidst ikke at
+// bagudfylde — at gætte 'ok' bagud ville opfinde historik — så afgrænsningen hører
+// hjemme her i forespørgslen i stedet.
+//
+// Ekstra pakke-varer tæller MED: de kan tilføje et produkt der ikke står på nogen
+// linje (applyPackingAdjustments pusher et nyt item). Pakke-overrides tæller
+// derimod ikke — de kan kun ændre mængden på et item der allerede findes, aldrig
+// skabe et. Er der extras men ingen linjer, alarmerer vi hellere end at tie:
+// consumeRecipes returnerer i dag tomt FØR extras påføres, og dén uenighed skal
+// ses, ikke skjules.
+const HAR_NOGET_AT_TRAEKKE = `(
+    EXISTS (SELECT 1 FROM bon_lines l
+             WHERE l.bon_id = b.id AND l.grocy_recipe_id IS NOT NULL AND l.quantity > 0)
+    OR EXISTS (SELECT 1 FROM prep_packing_extras e
+                WHERE e.bon_id = b.id AND e.amount > 0)
+)`;
+
 // Eksporteret ren funktion så testen rammer den ægte SQL frem for at replikere den.
 //
-// To afgrænsninger, begge tilføjet fordi kontrollen ellers råber ulv — og en alarm
-// der melder det samme hver dag om noget der ikke er galt, bliver holdt op med at
-// blive læst. Det er samme svigt som #305 selv, bare i den anden retning.
-//
-//   ØVRE DATOGRÆNSE. Uden den fanger vinduet alt fra N dage siden og FREM, mens
-//   beskeden siger "de seneste N dage". En bon med leveringsdato i 2027, sat til
-//   BETALT i forvejen, blev rapporteret hver eneste dag indtil datoen indtraf.
-//   En fremtidig levering kan ikke have misset sit træk — den er ikke sket endnu.
-//   Undtagelse: status 'failed' betyder at trækket ER forsøgt og mislykkedes, og
-//   det skal frem uanset dato.
-//
-//   INTET AT TRÆKKE. En bon uden opskriftskoblede linjer kan aldrig trække noget.
-//   Nye bons får 'empty' + flaget sat (db/helpers.js), men historiske rækker fra
-//   før #359 står med flaget på 0 for evigt. Migration 141 valgte bevidst ikke at
-//   bagudfylde — at gætte 'ok' bagud ville opfinde historik — så afgrænsningen
-//   hører hjemme her i forespørgslen i stedet.
+// ØVRE DATOGRÆNSE. Uden den fanger vinduet alt fra N dage siden og FREM, mens
+// beskeden siger "de seneste N dage". En bon med leveringsdato i 2027, sat til
+// BETALT i forvejen, blev rapporteret hver eneste dag indtil datoen indtraf.
+// En fremtidig levering kan ikke have misset sit træk — den er ikke sket endnu.
+// Undtagelse: status 'failed' betyder at trækket ER forsøgt og mislykkedes, og
+// det skal frem uanset dato.
 function findUndeducted(db, days) {
     return db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code,
@@ -96,15 +142,11 @@ function findUndeducted(db, days) {
                           AND c.action = 'status_change' AND c.new_value = 'LEVERET') AS saw_leveret
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
-          AND COALESCE(b.is_offer, 0) = 0
-          AND COALESCE(b.inventory_deducted, 0) = 0
+        WHERE ${KANDIDAT}
+          AND ${EJER_TRAEKKET}
+          AND ${HAR_NOGET_AT_TRAEKKE}
           AND b.delivery_date >= ?
           AND (b.delivery_date <= ? OR b.inventory_deduct_status = 'failed')
-          AND EXISTS (
-              SELECT 1 FROM bon_lines l
-              WHERE l.bon_id = b.id AND l.grocy_recipe_id IS NOT NULL
-          )
         ORDER BY b.delivery_date, b.id
     `).all(offsetISO(-days), todayISO());
 }
@@ -118,15 +160,26 @@ function findNothingToDeduct(db, days) {
         SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
-          AND COALESCE(b.is_offer, 0) = 0
-          AND COALESCE(b.inventory_deducted, 0) = 0
+        WHERE ${KANDIDAT}
+          AND ${EJER_TRAEKKET}
+          AND NOT ${HAR_NOGET_AT_TRAEKKE}
           AND b.delivery_date >= ?
           AND b.delivery_date <= ?
-          AND NOT EXISTS (
-              SELECT 1 FROM bon_lines l
-              WHERE l.bon_id = b.id AND l.grocy_recipe_id IS NOT NULL
-          )
+        ORDER BY b.delivery_date, b.id
+    `).all(offsetISO(-days), todayISO());
+}
+
+// Let-event salgs- og udgiftsbons: prep-bonnen ejer trækket, så disse SKAL stå
+// utrukne. Ikke en fejl — men tælles og nævnes, af samme grund som ovenfor.
+function findGatedByEventPrep(db, days) {
+    return db.prepare(`
+        SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE ${KANDIDAT}
+          AND NOT ${EJER_TRAEKKET}
+          AND b.delivery_date >= ?
+          AND b.delivery_date <= ?
         ORDER BY b.delivery_date, b.id
     `).all(offsetISO(-days), todayISO());
 }
@@ -164,12 +217,19 @@ async function main() {
     const rows    = findUndeducted(db, DAYS);
     const partial = findPartial(db, DAYS);
     const nothing = findNothingToDeduct(db, DAYS);
+    const gated   = findGatedByEventPrep(db, DAYS);
 
     // Nævnes altid, også når alt er i orden — ellers kan man ikke se forskel på
     // "ingen problemer" og "kontrollen kigger det forkerte sted".
     if (nothing.length) {
         logLine(`[deduct-check] ${nothing.length} leveret bon(s) har intet at trække `
-              + `(ingen opskriftskoblede linjer) — ikke en fejl, ikke medregnet.`);
+              + `(ingen opskriftslinjer med mængde) — ikke en fejl, ikke medregnet: `
+              + nothing.map(r => `#${r.bon_number}`).join(', '));
+    }
+    if (gated.length) {
+        logLine(`[deduct-check] ${gated.length} let-event bon(s) trækker med vilje ikke HQ-lager `
+              + `(prep-bonnen ejer trækket, CLAUDE_EVENT.md §5) — ikke en fejl, ikke medregnet: `
+              + gated.map(r => `#${r.bon_number}`).join(', '));
     }
 
     if (rows.length === 0 && partial.length === 0) {
@@ -250,7 +310,7 @@ async function main() {
 }
 
 // Eksportér helpers til test uden at køre main().
-module.exports = { findUndeducted, findPartial, findNothingToDeduct };
+module.exports = { findUndeducted, findPartial, findNothingToDeduct, findGatedByEventPrep };
 
 if (require.main === module) {
     main()
