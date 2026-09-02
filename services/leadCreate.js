@@ -23,7 +23,20 @@ function findCustomerByEmail(db, email) {
 // Opret/genaktivér et contact_point. Returnerer true hvis et NYT punkt blev oprettet.
 // (053-triggerne fyrer KUN ved UPDATE af companies/customers, ikke ved INSERT —
 //  derfor oprettes kontaktpunkter eksplicit her.)
-function ensureContactPoint(db, entityType, entityId, kind, value) {
+//
+// `source` fortæller HVOR adressen kom fra, og det er ikke kosmetik: den er
+// afgørelsen i moveThreadOwner (routes/mail.js), som kun tager adresser med
+// source='mail' med når en fejlkoblet mailtråd flyttes. En manuelt indtastet
+// adresse står et menneske inde for og er ikke vores at flytte rundt på.
+//
+// Default 'manual' — rigtigt for bulk lead-import, hvor listen ER indtastet.
+// Opret-lead-fra-mail sender 'mail'; dér er adressen mailens afsender, altså
+// systemets eget aflæsning. Var den mærket 'manual', ville flytte-værktøjet
+// lade den blive på leadet, og kundens næste mail lande samme forkerte sted.
+//
+// En adresse der allerede findes beholder sin mærkning. Vi opgraderer aldrig
+// et menneskes indtastning til et systemgæt — kun genaktiverer.
+function ensureContactPoint(db, entityType, entityId, kind, value, source = 'manual') {
     const val = validateContactValue(kind, value);
     if (!val.ok) return false;
     const existing = db.prepare(`
@@ -45,8 +58,8 @@ function ensureContactPoint(db, entityType, entityId, kind, value) {
     db.prepare(`
         INSERT INTO contact_points
             (entity_type, entity_id, kind, value, source, is_public, is_primary, last_seen_at)
-        VALUES (?, ?, ?, ?, 'manual', 0, ?, CURRENT_TIMESTAMP)
-    `).run(entityType, entityId, kind, val.normalized, hasPrimary ? 0 : 1);
+        VALUES (?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+    `).run(entityType, entityId, kind, val.normalized, source, hasPrimary ? 0 : 1);
     return true;
 }
 
@@ -78,11 +91,12 @@ function setLeadStageIfNew(db, customerId, userId) {
 
 /**
  * Opret (eller genfind på email) en privat lead-kontakt — kunde uden firma.
+ * `contactSource` mærker de kontaktpunkter der oprettes (se ensureContactPoint).
  * Returnerer { customerId, created }.
  *   created = true  → ny kunde-række blev oprettet
  *   created = false → eksisterende kunde matchede på email (stadie kun sat hvis manglede)
  */
-function createPrivateLead(db, { firstName, lastName, email, phone, notes, userId, sourceLabel }) {
+function createPrivateLead(db, { firstName, lastName, email, phone, notes, userId, sourceLabel, contactSource = 'manual' }) {
     let customer = findCustomerByEmail(db, email);
     let created = false;
 
@@ -109,8 +123,8 @@ function createPrivateLead(db, { firstName, lastName, email, phone, notes, userI
         });
     }
 
-    if (email) ensureContactPoint(db, 'customer', customer.id, 'email', email);
-    if (phone) ensureContactPoint(db, 'customer', customer.id, 'phone', phone);
+    if (email) ensureContactPoint(db, 'customer', customer.id, 'email', email, contactSource);
+    if (phone) ensureContactPoint(db, 'customer', customer.id, 'phone', phone, contactSource);
     setLeadStageIfNew(db, customer.id, userId);
 
     return { customerId: customer.id, created };

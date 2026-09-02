@@ -5839,6 +5839,76 @@ det; ▲▼ + vælg-og-saml dækker behovet med mus), og rækkefølgen af *løse
 linjer persisteres fortsat ikke — den er altid den sorterede. Sidstnævnte er
 en pre-eksisterende begrænsning fra migration 072.
 
+### En kontaktperson kan flyttes til det rigtige firma (2. september 2026)
+
+En mail fra `Communication <communication@iuno.law>` blev koblet med **Opret som
+lead**. `createPrivateLead` giver aldrig et firma og tager navnet fra mailens
+afsenderfelt — så vi fik en kontakt ved navn "Communication" uden forbindelse til
+det IUNO-firma vi allerede havde i kartoteket, med kollegaen Jessica siddende på.
+
+Ingen af delene kunne rettes. Der fandtes **intet `PATCH /api/customers/:id`** —
+kun `/economic`, `/stage` og `/consent` — og `company_id` kunne kun ændres af
+merge-guiden (der kræver to *firmaer*; her var det ene en kunde-række) eller af et
+script. Eneste udvej var at oprette personen forfra og lade leadet ligge.
+
+- **`PATCH /api/customers/:id`** tager `first_name`, `last_name`, `company_id`
+  (`null` = privatkunde). `requireAuth()`, ikke admin — samme begrundelse som
+  mailtrådens `/move`: den der opdager at en kontakt sidder forkert, skal kunne
+  rette det med det samme. Changelog pr. felt, og kun for felter der faktisk
+  flytter sig; et Gem uden ændringer skriver ingenting.
+- **UI**: blyant i Kunde 360°s navneblok folder en editor ud med fornavn,
+  efternavn og en firmasøgning (`/api/companies?q=`). Søgningen skriver kun i sin
+  egen resultat-container — går den gennem `_k3RenderProfile()`, bygges inputtet
+  forfra og mister fokus efter hvert tastetryk (samme fælde som indkøbslistens
+  søgefelt havde).
+- **Et efterladt *personligt* firma lægges væk.** `ensurePersonalCompanies`
+  (`services/rfm.js`) laver ét pr. kunde uden firma, så uden det hober de sig op
+  som spøgelser med den flyttede persons navn. Reglen er `services/companyCleanup`s
+  egen `deactivateCompanies`, som gentjekker hele tom-reglen — en bon eller en
+  mailtråd på rækken freder den. **Kun `is_personal`:** et rigtigt firma må aldrig
+  forsvinde som bivirkning af at en kontaktperson flyttes; dertil findes
+  CRM → Værktøjer → "Ryd tomme firmaer", hvor det er en bevidst handling.
+
+**Omvejen virkede ikke, og det var en anden fejl.** Man kunne i princippet oprette
+personen under firmaet og flytte mailtråden — men `moveThreadOwner` tager kun
+adresser med `source = 'mail'` med, og `ensureContactPoint` hardkodede `'manual'`.
+Rækkefølgen inde i `create-lead` afgjorde mærkningen: `createPrivateLead` skrev
+adressen først som `'manual'`, hvorefter `learnSenderEmail` — som ville have sat
+`'mail'` — fandt den og returnerede `reason: 'findes'`. To funktioner var uenige om
+hvad adressen var, og den der skrev først vandt.
+
+- `ensureContactPoint(db, …, value, source = 'manual')` og
+  `createPrivateLead({ …, contactSource })`. Begge lead-veje i `routes/mail.js`
+  sender `'mail'`. Default er uændret, så **bulk lead-import er urørt** — dér ER
+  listen indtastet, og `'manual'` er rigtigt.
+- En adresse der allerede findes beholder sin mærkning. Vi opgraderer aldrig et
+  menneskes indtastning til et systemgæt.
+- **Ingen backfill.** De eksisterende `'manual'`-adresser kan ikke skelnes sikkert:
+  changelog-sporet (`notes LIKE 'opret-lead-fra%'`) giver **0 træffere** i dev-DB'en
+  mod 1.495 email-kontaktpunkter, så en heuristik ville gætte. Rettelsen gælder
+  fremadrettet; de gamle flyttes i hånden med den nye knap.
+
+**Tests**: `npm run test:kunde-flyt` — 21 asserts mod de ægte endpoints over HTTP,
+med skemaet bygget af de rigtige migrations i `:memory:`. **Mutations-testet:** syv
+kerneregler rulles hver især tilbage og fælder navngivne asserts. Den vigtigste
+assert er ikke `source = 'mail'` i sig selv, men at adressen *derfor* følger med når
+tråden flyttes — kolonneværdien alene beviser ingenting. Kontrolprøven holder fast i
+at en manuelt indtastet adresse fortsat **ikke** flyttes.
+
+> Fixturen blev rettet undervejs, ikke koden: den lod to kunder dele ét personligt
+> firma, hvilket `ensurePersonalCompanies` aldrig laver.
+
+Browser-verificeret ende-til-ende mod syntetiske rækker i dev-DB'en (oprettet og
+slettet igen): flytning + navneændring, changelog, det personlige firma lagt væk,
+det rigtige firma urørt, tomt fornavn afvist, Annullér, og ✕ → privatkunde.
+Panelet var frosset (viewport 0×0), så klikkene blev sendt gennem de ægte lyttere
+frem for som fysiske museklik.
+
+> ⚠️ **Editoren skød 18 px ud over kortets kant** — fundet ved at måle, ikke ved at
+> kigge. Siden er `content-box`, så `width: 100%` + padding + border overflyder;
+> `box-sizing: border-box` på felterne. Samme fælde som `.f3-edit-wrap` havde i
+> Firma 360°.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -6309,6 +6379,7 @@ PATCH  /api/companies/:id/commercial                     routes/companies.js (st
 GET    /api/companies/:id/enrich-preview                 routes/companies.js (CVR diff uden gem)
 POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
 POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)
+PATCH  /api/customers/:id       { first_name?, last_name?, company_id? }  routes/customers.js
 PATCH  /api/customers/:id/economic                       routes/customers.js
 GET    /api/contact-points?entity_type=&entity_id=       routes/contact-points.js
 POST   /api/contact-points                               routes/contact-points.js
