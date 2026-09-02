@@ -1404,6 +1404,10 @@ router.post('/unmatched/:id/create-lead', requireModule('crm'), handle((req, res
         const lead = createPrivateLead(db, {
             firstName, lastName, email: sender.email, notes,
             userId, sourceLabel: sender.forwardedBy ? 'opret-lead-fra-videresendt-mail' : 'opret-lead-fra-mail',
+            // Adressen ER mailens afsender. Mærkes den 'manual', tror
+            // moveThreadOwner at et menneske har indtastet den og lader den
+            // blive på leadet når tråden flyttes — se ensureContactPoint.
+            contactSource: 'mail',
         });
         customerId = lead.customerId;
         created = lead.created;
@@ -1446,6 +1450,7 @@ router.post('/unmatched/:id/reply', requireModule('crm'), handle(async (req, res
             const lead = createPrivateLead(db, {
                 firstName, lastName, email: sender.email,
                 userId, sourceLabel: 'svar-fra-indbakke',
+                contactSource: 'mail',
             });
             customerId = lead.customerId;
         });

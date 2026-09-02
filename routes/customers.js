@@ -1,7 +1,10 @@
 const express    = require('express');
 const router     = express.Router();
 const { getDb }  = require('../db/database');
-const { handle, getUserId, logChange } = require('../db/helpers');
+const { handle, getUserId, logChange, transaction } = require('../db/helpers');
+const { requireAuth } = require('../shared/auth');
+const { broadcast } = require('../shared/sse');
+const { deactivateCompanies } = require('../services/companyCleanup');
 
 // GET /api/customers?q=&company_id=
 router.get('/', handle((req, res) => {
@@ -80,6 +83,104 @@ router.get('/:id', handle((req, res) => {
     `).all(c.id);
 
     res.json(c);
+}));
+
+// PATCH /api/customers/:id   { first_name?, last_name?, company_id? }
+//
+// Retteventilen for en kontaktperson. Indtil nu kunne hverken navnet eller
+// firmaet ændres: der fandtes kun /economic, /stage og /consent, og company_id
+// kunne kun flyttes af merge-guiden (som kræver TO firmaer) eller af et script.
+//
+// Det ramte hver gang "Opret som lead" havde gættet — leadet får mailens
+// afsendernavn og INTET firma (createPrivateLead), så en mail fra
+// "Communication <communication@iuno.law>" blev til en kontakt ved navn
+// Communication uden forbindelse til det IUNO-firma vi allerede kendte.
+// Eneste udvej var at oprette personen forfra og lade leadet ligge.
+//
+// requireAuth() og ikke admin — samme begrundelse som mailtrådens /move: den
+// der opdager at en kontakt sidder forkert, skal kunne rette det med det samme.
+router.patch('/:id', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const userId = getUserId(req);
+
+    const cust = db.prepare(`
+        SELECT c.id, c.first_name, c.last_name, c.company_id, co.is_personal
+        FROM customers c LEFT JOIN companies co ON co.id = c.company_id
+        WHERE c.id = ? AND c.is_active = 1
+    `).get(id);
+    if (!cust) return res.status(404).json({ error: 'Kunde ikke fundet' });
+
+    // Feltnavnet interpoleres ind i UPDATE'en nedenfor. Nøglerne kan kun komme
+    // herfra og er dermed lukkede — men listen står eksplicit, så en fremtidig
+    // udvidelse ikke kan åbne hullet ved et uheld (samme greb som SORT_WHITELIST
+    // i routes/bons.js).
+    const EDITABLE = ['first_name', 'last_name', 'company_id'];
+
+    const b = req.body || {};
+    const patch = {};
+
+    if (b.first_name !== undefined) {
+        const v = String(b.first_name || '').trim();
+        // Fornavnet er kundens identitet i enhver liste og på enhver bon. Et tomt
+        // felt ville efterlade en navnløs række der kun kan findes på sit id.
+        if (!v) return res.status(400).json({ error: 'Fornavn må ikke være tomt' });
+        patch.first_name = v;
+    }
+    if (b.last_name !== undefined) patch.last_name = String(b.last_name || '').trim() || null;
+
+    if (b.company_id !== undefined) {
+        if (b.company_id === null || b.company_id === '') {
+            patch.company_id = null;                    // privatkunde
+        } else {
+            const cid = parseInt(b.company_id);
+            if (!Number.isFinite(cid)) return res.status(400).json({ error: 'Ugyldigt firma' });
+            const co = db.prepare('SELECT id FROM companies WHERE id = ? AND is_active = 1').get(cid);
+            if (!co) return res.status(400).json({ error: 'Firma ikke fundet' });
+            patch.company_id = cid;
+        }
+    }
+
+    // Kun felter der faktisk flytter sig. Ellers ville et Gem uden ændringer
+    // fylde historikken med rækker der intet fortæller.
+    const changed = Object.keys(patch).filter(k => (patch[k] ?? null) !== (cust[k] ?? null));
+    if (!changed.length) return res.json({ ok: true, changed: [], company_cleanup: null });
+
+    const oldCompanyId = cust.company_id;
+    let cleanup = null;
+
+    transaction(db, () => {
+        for (const field of changed) {
+            if (!EDITABLE.includes(field)) continue;   // kan ikke ske — se EDITABLE
+            db.prepare(`UPDATE customers SET ${field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+              .run(patch[field], id);
+            logChange({
+                entityType: 'customer', entityId: id, action: 'update',
+                fieldName: field,
+                oldValue: cust[field] == null ? null : String(cust[field]),
+                newValue: patch[field] == null ? null : String(patch[field]),
+                userId,
+                notes: field === 'company_id' ? 'flyttet til andet firma' : null,
+            });
+        }
+
+        // Efterlader vi et PERSONLIGT firma tomt, lægges det væk. De rækker er
+        // ikke tastet af nogen — ensurePersonalCompanies (services/rfm.js) laver
+        // et pr. kunde uden firma, så uden dette hober de sig op som spøgelser
+        // med den flyttede persons navn.
+        //
+        // Kun is_personal. Et RIGTIGT firma må aldrig forsvinde som bivirkning
+        // af at en kontaktperson flyttes — dertil findes CRM → Værktøjer →
+        // "Ryd tomme firmaer", hvor det er en bevidst handling. deactivateCompanies
+        // gentjekker desuden hele tom-reglen, så en bon eller en mailtråd på
+        // rækken freder den.
+        if (changed.includes('company_id') && oldCompanyId && cust.is_personal) {
+            cleanup = deactivateCompanies(db, [oldCompanyId], userId);
+        }
+    });
+
+    broadcast('customer_updated', { customer_id: id, changed });
+    res.json({ ok: true, changed, company_cleanup: cleanup });
 }));
 
 // PATCH /api/customers/:id/economic — opdater e-conomic kontakt/kunde-nr

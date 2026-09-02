@@ -1082,6 +1082,15 @@ function patchCompanyCommercial(companyId, fields) {
     });
 }
 
+// Ret en kontaktpersons navn eller flyt hende til et andet firma.
+// fields: { first_name?, last_name?, company_id? } — company_id: null = privatkunde
+function patchCustomer(customerId, fields) {
+    return apiFetch('/customers/' + customerId, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
 function patchCustomerEconomic(customerId, fields) {
     return apiFetch('/customers/' + customerId + '/economic', {
         method: 'PATCH',
