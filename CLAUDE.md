@@ -6076,9 +6076,19 @@ Kolonne-scrollet er verificeret med et **ægte musehjul-scroll** (0 → 500 af 5
 Syntetiske `wheel`-events flytter ikke scroll i Chrome, så en tidligere måling så ud som
 om intet virkede — det målbare dér er om eventet `preventDefault`-es, og det gør det ikke.
 
-> **Åbent:** `.content { max-width:1280px }` betyder at dashboardet fylder 67 % af en
-> 1920px skærm — 320px tomt i hver side. Ikke ændret; det er en bevidst læsbarhedsgrænse
-> der gælder alle skærme.
+**"Lav snart" viser alle varer.** Listen blev klippet ved 6 med et `+ N mere` nedenunder
+— men den tekst var ikke klikbar og førte ingen steder, så man kunne se AT der manglede
+noget uden at kunne få at vide hvad. Meldt i drift: *"det duer ikke at der står '1 mere'
+og man ikke kan få at se hvad det er."* Grænsen gav mening dengang kortet ikke kunne
+scrolles; nu scroller kolonnen, så der er intet at spare på. `.pa-foot` er død CSS og
+fjernet.
+
+Layoutet holder ved enhver længde — målt på 1366×728 med 7 (drift), 15 og 30 varer:
+intet klippes, og Prep-kortet er nåeligt ved scroll i alle tre tilfælde.
+
+> **Bevidst ikke ændret:** `.content { max-width:1280px }` betyder at dashboardet fylder
+> 67 % af en 1920px skærm — 320px tomt i hver side. Afklaret med Leif: det er en bevidst
+> læsbarhedsgrænse der gælder alle skærme, også kontorets, og der klippes intet.
 
 **Ikke gjort:** pakkelistens underopskrifter. Dér har hver række et redigerbart
 mængdefelt, som et link ville konkurrere med. Og "Lav snart" viser fortsat højst 6

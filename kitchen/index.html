@@ -287,7 +287,6 @@
         .pa-sub { font-size:11px; color:var(--color-text-dim,#8a8580); }
         /* Kan ikke laves: råvarerne mangler også → det er indkøb, ikke prep */
         .pa-row.pa-blocked .pa-name { color:#c62828; }
-        .pa-foot { margin-top:6px; font-size:11px; color:var(--color-text-dim,#8a8580); }
 
         .card-web-orders:active { transform:translateY(1px); }
         .wo-icon { font-size:22px; }
@@ -706,8 +705,13 @@
             const win = document.getElementById('prepAheadWindow');
             if (win) win.textContent = `· ${d.days} dage`;
 
+            // ALLE varer vises. Tidligere blev listen klippet ved 6 med et
+            // "+ N mere" nedenunder — men den tekst var ikke klikbar og førte
+            // ingen steder, så man kunne se AT der manglede noget uden at kunne
+            // få at vide hvad. Grænsen gav mening dengang kortet ikke kunne
+            // scrolles; nu scroller kolonnen, så der er intet at spare på.
             let html = '';
-            for (const it of items.slice(0, 6)) {
+            for (const it of items) {
                 const blocked = it.status !== 'kan_laves';
                 // Restbehovet — det der skal laves — ikke det samlede behov.
                 const amount = _paFmt(it.shortfall != null ? it.shortfall : it.needed) + ' ' + (it.unit || '');
@@ -726,9 +730,6 @@
                     <span class="pa-name">${_paEsc(it.product_name)}<br><span class="pa-sub">${_paEsc(sub)}</span></span>
                     <span class="pa-amount">${_paEsc(amount)}</span>
                 </${tag}>`;
-            }
-            if (items.length > 6) {
-                html += `<div class="pa-foot">+ ${items.length - 6} mere</div>`;
             }
             body.innerHTML = html;
             card.style.display = '';
