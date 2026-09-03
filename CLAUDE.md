@@ -5909,6 +5909,127 @@ frem for som fysiske museklik.
 > `box-sizing: border-box` på felterne. Samme fælde som `.f3-edit-wrap` havde i
 > Firma 360°.
 
+### Links til opskriften: tre steder, én regel (3. september 2026)
+
+Køkken-dashboardets "Lav snart" fortæller HVAD der skal laves, men man skulle selv
+finde opskriften bagefter — via Opskrifter, søgefelt og kategori-chip. Tre trin for
+noget der stod på skærmen.
+
+Hele maskineriet fandtes allerede. `?recipe=ID` har været i `recipe_viewer.js` siden
+CO₂-rapporten, og `prep-ahead` har altid leveret `recipe_id`. De to var bare aldrig
+koblet sammen. Ændringen er ren wiring: rækken er nu et `<a>` — hele rækken, ikke kun
+navnet, for dashboardet står på en touchskærm hvor et navn er et lille mål.
+
+**Batch-antallet følger med** (`&batches=N`), så vieweren åbner i den mængde der skal
+laves frem for på 1 portion. Omregningen bor i **vieweren**, ikke i dashboardet:
+`portioner = batches × base_servings`, og `base_servings` er en Grocy-egenskab som kun
+vieweren har hentet. (Ét batch er hele opskriften som den står i Grocy — ikke én
+portion; `collectRecipeNeedsFlat` ganger multiplieren direkte på råvarerne. I grocy-hq
+er `base_servings` 1 i dag, men den antagelse har kostet en fejl før, jf. #349.)
+
+> **Batch-tallet sendes KUN når udbyttet er oplyst i Grocy.** Er det ikke
+> (`make_status: 'ukendt'`), sætter resolveren `batches: 1` som fallback — og det tal
+> må ikke rejse videre som var det en måling, for så ville vieweren vise en mængde
+> ingen har regnet. Samme fejlklasse som #305/#319.
+
+**En blokeret række linker også.** Det viste sig stærkere end forudset: opskriften er
+netop dér man ser hvad der mangler (Æbler 0, Rosiner 0 — rødt, med indkøbskurv ved
+siden af hver). Fra "Lav snart" er man nu ét klik fra at lægge det manglende på
+indkøbslisten.
+
+Tooltip nævner opskriftens navn — men kun når det ikke allerede står i underteksten.
+På en blokeret række viser underteksten mangellisten, så navnet ER ny information dér;
+på en åben række ER underteksten netop navnet.
+
+#### Råvarer-modalens underopskrifter
+
+Samme rejse fra den anden ende: Produktion-fanens gyldne rækker viser hvad der skal
+blandes hjemmefra, men ikke hvordan.
+
+**Kun navnet er linket, ikke hele rækken.** Rækken har allerede en handling — den folder
+mangellisten ud (#349) — og de to må ikke kappes om samme klik. Derfor `stopPropagation`.
+
+**Mængden sendes som `?portions=N`, ikke `batches`.** `sub_recipes[].servings` ER antal
+portioner: resolveren regner `mult = scaledServings / base_servings`, præcis som
+vieweren. Der er intet at omregne, og dermed intet at regne forkert. De to parametre er
+ikke duplikering — de svarer på hver sit spørgsmål, fra hver sin kaldere, og ingen af
+dem skal gætte den andens tal.
+
+**Ny fane her, samme fane på dashboardet.** Modalen er noget man står midt i og skal
+kunne vende tilbage til; dashboardet er et sted man navigerer FRA. Samme mønster som
+varemodtagelsens og indkøbslistens genveje til "opret produkt".
+
+> ⚠️ **Undtagen i kiosk-mode.** `enterKiosk()` kalder `requestFullscreen()`, og uden
+> fanebjælke kan en køkkentablet ikke lukke en ny fane igen — brugeren strander.
+> `_subRecipeNav` sætter derfor `target` ved KLIK-tid (`kiosk`-klassen eller
+> `document.fullscreenElement`), ikke ved render: man kan trykke KIOSK efter at modalen
+> er åbnet. Den sætter kun `target` og lader browseren navigere, så cmd-/midterklik
+> virker uændret.
+
+> ⚠️ **`_esc` er en LOKAL const i `_buildRavarerHtml`, ikke en global.** En top-level
+> helper der bruger den kaster `ReferenceError` og brækker hele råvarer-modalen. Fanget
+> af testen, ikke af browseren — i produktion havde det været en tavs, total fejl.
+> Escaperen sendes derfor ind som parameter.
+
+> ⚠️ **En assert der kaster er et dårligere signal end en der fejler.** Mutationen der
+> fjernede `if (!rid) return ''` gav en stak-udskrift i stedet for en rød linje, så den
+> lignede et brudt testscript frem for en fanget fejl. Kaldene går nu gennem en wrapper
+> der fanger. Samme lære som i #481.
+
+> ⚠️ **En assert der måler startværdien måler ingenting.** `eq(nav().title, '…i ny fane')`
+> bestod fordi attrappen blev født med den værdi — ikke fordi handleren satte den. Med
+> forkerte startværdier faldt den, og så viste browseren fejlen: efter et kiosk-klik blev
+> "Åbn opskriften" hængende på et `_blank`-link, så tooltip'en lovede noget andet end der
+> skete. Attrapper starter nu på `IKKE-SAT`, og en sekvens-test (kiosk → ikke-kiosk på
+> SAMME element) låser rettelsen fast.
+
+#### Kan-laves-råvarerne i samme modal
+
+Tredje reference, samme rejse: "Langtids Stegt Gris · skal laves: Langtids stegt Gris"
+peger på præcis de opskrifter "Lav snart" viser (`make_recipe_id` + `make_batches`).
+
+**`make_recipe_id` er selv det rigtige filter.** En vare der ligger på hylden får aldrig
+et — grenen med dækning returnerer `{producible: true, make_status: null}` uden id. Så
+kun de rækker hvor der faktisk skal laves noget bliver links, og listen får ikke
+understregninger på hver anden linje. Efterprøvet i drift: Rødkål- og Rødløg-Sylt er
+producerbare og forbliver ren tekst, mens Langtids Stegt Gris og Æble chuthney linker.
+
+> **Navnet er PRODUKTETS, ikke opskriftens** — "Æble chuthney" mod "Æble chuthney
+> Produktion". Derfor navngiver tooltip'en opskriften: man skal kunne se hvor man
+> lander, når de to ikke hedder det samme.
+
+#### Reglen bor ét sted
+
+Tre kaldere peger nu på samme viewer, og de ved hver sit om mængden. Skrevet tre gange
+ville betingelsen "hvornår må et batch-tal sendes med" skride fra hinanden — nøjagtig
+sådan #428 opstod. `recipeUrl({recipeId, portions, batches, trustBatches})` i
+`shared/utils.js` ejer den; `_paHref` (dashboard), `_subRecipeLink` og `_makeRecipeLink`
+(modal) er tre kald til den. `utils.js` loades alle steder `modal.js` er — efterprøvet,
+ikke antaget.
+
+En test asserterer direkte at dashboardet og kan-laves-rækken bygger **samme URL af
+samme tal**, så divergens fælder en assert frem for at ligge og gemme sig. Bekræftet i
+drift: begge flader gav `?recipe=29&batches=1` for Æble chuthney.
+
+**Tests**: `npm run test:prep-ahead-link` — 70 asserts. `kitchen/index.html`,
+`shared/modal.js` og `shared/utils.js` er browser-kode og kan ikke `require`s, så
+funktionerne skæres ud af filerne og køres i en vm-sandkasse — de SAMME funktioner
+browseren bruger, ikke en kopi (samme mønster som `test-recipe-viewer-nested.js`).
+**Mutations-testet:** 25 kernerettelser rulles hver især tilbage og fælder hver sin
+navngivne assert. Regression grøn: menu-order-groups 59, modal_outside_click 30,
+safe_navigate 8, portioner 32, recipe-viewer-nested 12, subrecipe-status 16,
+yield-model 14, gram-chaining 6, resolver-graph 8, packing-units 18, prep-packing 12,
+recipe-factor 8.
+
+> ⚠️ **Handleren må ikke overskrive tooltip'en.** `_subRecipeNav` satte en fast tekst,
+> så et kan-laves-links "Åbn Langtids stegt Gris" blev til "Åbn opskriften" ved første
+> klik — navnet var tabt for altid. Etiketten bæres nu i `data-open-label`, og handleren
+> hæfter kun " i ny fane" på. Fundet ved at læse den nye kode op mod den eksisterende,
+> ikke af testen.
+
+**Ikke gjort:** pakkelistens underopskrifter. Dér har hver række et redigerbart
+mængdefelt, som et link ville konkurrere med.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
