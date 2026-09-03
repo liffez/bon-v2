@@ -15,7 +15,7 @@
 // ============================================================
 'use strict';
 const { resolveUnits, menuAmountStock, suggestUnitSize, resolveNamed,
-        checkReusableProduct } = require('./convert-blend-to-product');
+        checkReusableProduct, resolveMode } = require('./convert-blend-to-product');
 
 let pass = 0, fail = 0;
 const ok    = m => { console.log('  \x1b[32m✓\x1b[0m', m); pass++; };
@@ -168,6 +168,38 @@ head('Genbrug af et eksisterende produkt måles mod LAGER-enheden');
         'en almindelig blanding er upåvirket');
     check(typeof checkReusableProduct({ id: 228, name: 'X', qu_id_stock: 4 }, antal) === 'string',
         'og vagten virker begge veje');
+}
+
+head('Hele konverteringen vs. kun sidste tredjedel (#559)');
+{
+    const frisk  = { id: 110, name: 'Chili Mayo', product_id: null };
+    const nul    = { id: 110, name: 'Chili Mayo', product_id: '0' };
+    const koblet = { id: 110, name: 'Chili Mayo', product_id: '34' };
+
+    const m1 = resolveMode({ recipe: frisk, produktNavn: null, kunRewire: false });
+    check(m1.kunRewire === false && m1.productId === null,
+        'opskrift uden produkt + uden flag → almindelig konvertering');
+
+    // Grocy skriver "0" for "producerer intet". Læses det som et id, ville
+    // konverteringen tro at produktet fandtes og springe oprettelsen over.
+    const m2 = resolveMode({ recipe: nul, produktNavn: null, kunRewire: false });
+    check(m2.kunRewire === false && m2.productId === null,
+        'product_id "0" tælles som INTET produkt, ikke som id 0');
+
+    const m3 = resolveMode({ recipe: koblet, produktNavn: 'Chili Mayo', kunRewire: true });
+    check(m3.kunRewire === true && m3.productId === 34,
+        'opskrift der allerede producerer + --kun-rewire → rewire mod produkt 34');
+
+    check(kaster(() => resolveMode({ recipe: koblet, produktNavn: 'Chili Mayo', kunRewire: false }),
+        '--kun-rewire'),
+        'allerede koblet UDEN flag afvises — og beskeden peger på flaget');
+
+    check(kaster(() => resolveMode({ recipe: frisk, produktNavn: null, kunRewire: true }),
+        'intet at flytte'),
+        '--kun-rewire på en opskrift uden produkt afvises — der er intet at pege på');
+
+    check(kaster(() => resolveMode({ recipe: nul, produktNavn: null, kunRewire: true })),
+        'og "0" tæller heller ikke her som et produkt');
 }
 
 console.log(`\n${fail ? '\x1b[31m' : '\x1b[32m'}${pass} PASS · ${fail} FAIL\x1b[0m\n`);
