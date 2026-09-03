@@ -26,6 +26,22 @@
 //
 // Dry-run er default. `--apply` skriver.
 //
+// KUN DEN SIDSTE TREDJEDEL: `--kun-rewire`
+// Konverteringen er tre skridt: opret produktet, sæt opskriften til at producere
+// det, flyt menuerne fra nesting til produktlinje. Er de to første allerede gjort
+// — i hånden, eller fordi produktet fandtes i forvejen — nægtede scriptet at køre
+// ("producerer allerede X. Intet at konvertere."), og sidste skridt måtte klikkes
+// i Grocy uden gate og uden fortrydelse. Det var situationen i #559: Chili Mayo
+// fandtes både som produkt og som opskrift.
+//
+//   node --env-file=.env scripts/convert-blend-to-product.js \
+//     --recipe "Chili Mayo" --kun-rewire --state chili.json --apply
+//
+// `--kun-rewire` KRÆVER at opskriften allerede producerer et produkt, og opretter
+// intet. Derfor er `--location` og `--group` heller ikke påkrævede: de bestemmer
+// hvor et NYT produkt lander, og der oprettes ingen. Tilstandsfil, gate og
+// `--rollback` er de samme som ellers.
+//
 // LAGER-ENHED ≠ UDBYTTE-ENHED
 // Som standard lagerføres produktet i den enhed opskriften erklærer sit udbytte
 // i. Det holder for blandinger (1 kg mayo → produkt i Kilo), men ikke for en
@@ -56,6 +72,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const APPLY    = process.argv.includes('--apply');
+const KUN_REWIRE = process.argv.includes('--kun-rewire');
 const ROLLBACK = process.argv.includes('--rollback');
 const CONFIRM  = process.argv.includes('--confirm-hq');
 const STATE    = argOf('--state');
@@ -132,6 +149,34 @@ function resolveUnits({ recipe, units, conversions, productId, stockUnitArg, uni
         yieldUnit, stockUnit, factor: size,
         createConversion: { from_qu_id: yieldUnit.id, to_qu_id: stockUnit.id, factor: size },
     };
+}
+
+/**
+ * Hvilket skridt står vi ved — hele konverteringen, eller kun den sidste tredjedel?
+ *
+ * REN funktion. Vagten er den eneste ting der står mellem "flyt to menuer" og
+ * "opret et produkt oveni et der allerede er i brug" — netop dét greb fejl i
+ * #559 — så den skal kunne efterprøves uden at røre Grocy.
+ *
+ * @returns {{ kunRewire: boolean, productId: number|null }}
+ * @throws  når flaget og opskriftens tilstand ikke passer sammen
+ */
+function resolveMode({ recipe, produktNavn, kunRewire }) {
+    const harProdukt = recipe.product_id != null && String(recipe.product_id) !== '0';
+    if (kunRewire) {
+        if (!harProdukt) {
+            throw new Error(
+                `${recipe.id} "${recipe.name}" producerer ikke noget produkt endnu, så der er intet at `
+              + 'flytte menuerne over på. Kør uden --kun-rewire — så oprettes produktet først.');
+        }
+        return { kunRewire: true, productId: Number(recipe.product_id) };
+    }
+    if (harProdukt) {
+        throw new Error(
+            `${recipe.id} "${recipe.name}" producerer allerede "${produktNavn || recipe.product_id}". `
+          + 'Mangler kun menuerne, så brug --kun-rewire.');
+    }
+    return { kunRewire: false, productId: null };
 }
 
 /**
@@ -237,9 +282,20 @@ async function main() {
         if (byName.length > 1) die(`"${recipeArg}" matcher flere: ${byName.map(r => `${r.id} ${r.name}`).join(', ')}`);
         die(`Ingen opskrift matcher "${recipeArg}"`);
     }
-    if (recipe.product_id && String(recipe.product_id) !== '0') {
+    let tilstand;
+    try {
         const p = products.find(x => Number(x.id) === Number(recipe.product_id));
-        die(`${recipe.id} "${recipe.name}" producerer allerede "${p ? p.name : recipe.product_id}". Intet at konvertere.`);
+        tilstand = resolveMode({ recipe, produktNavn: p ? p.name : null, kunRewire: KUN_REWIRE });
+    } catch (err) {
+        die(err.message);
+    }
+    // Produktet der skal peges på. I --kun-rewire er det opskriftens eget; ellers
+    // findes det først når vi opretter det længere nede.
+    const eksisterendeProdukt = tilstand.kunRewire
+        ? products.find(x => Number(x.id) === tilstand.productId)
+        : null;
+    if (tilstand.kunRewire && !eksisterendeProdukt) {
+        die(`Opskriften peger på produkt ${tilstand.productId}, som ikke findes i Grocy.`);
     }
 
     // ── Udbyttet SKAL være erklæret ──
@@ -255,7 +311,7 @@ async function main() {
     let enheder;
     try {
         enheder = resolveUnits({
-            recipe, units, conversions, productId: null,
+            recipe, units, conversions, productId: tilstand.productId,
             stockUnitArg: STOCK_UNIT_ARG, unitSizeArg: UNIT_SIZE_ARG,
         });
     } catch (err) {
@@ -281,27 +337,41 @@ async function main() {
     // den landede i Fryseren og skulle stå på køl. Lokationen bestemmer hvilken
     // liste varen dukker op på ved den fysiske optælling, så en vare det forkerte
     // sted bliver aldrig talt — og lageret driver, uden at nogen ser hvorfor.
-    let lokation, gruppe;
-    try {
-        lokation = resolveNamed(locations, LOCATION_ARG, 'location');
-        gruppe   = resolveNamed(groups,    GROUP_ARG,    'group');
-    } catch (err) {
-        die(err.message);
+    // I --kun-rewire oprettes intet produkt, og så er der intet at placere.
+    // Krævede vi dem alligevel, ville operatøren skulle finde på en lokation
+    // for et produkt der allerede står et sted.
+    let lokation = null, gruppe = null, newProduct = null;
+    if (!tilstand.kunRewire) {
+        try {
+            lokation = resolveNamed(locations, LOCATION_ARG, 'location');
+            gruppe   = resolveNamed(groups,    GROUP_ARG,    'group');
+        } catch (err) {
+            die(err.message);
+        }
+        newProduct = {
+            name: recipe.name,
+            location_id:      lokation.id,
+            qu_id_purchase:   stockUnit.id,
+            qu_id_stock:      stockUnit.id,
+            product_group_id: gruppe.id,
+            active: 1,
+        };
+    } else {
+        // Samme vagt som ved genbrug: peger vi menuerne på et produkt med en
+        // anden lager-enhed, lander mængderne i den forkerte enhed (#360).
+        const enhedsfejl = checkReusableProduct(eksisterendeProdukt, stockUnit);
+        if (enhedsfejl) die(enhedsfejl);
     }
-
-    const newProduct = {
-        name: recipe.name,
-        location_id:      lokation.id,
-        qu_id_purchase:   stockUnit.id,
-        qu_id_stock:      stockUnit.id,
-        product_group_id: gruppe.id,
-        active: 1,
-    };
 
     console.log(`\nBlanding:  ${recipe.id} "${recipe.name}"  (base_servings ${base})`);
     console.log(`Udbytte:   ${perServing} ${yieldUnit.name} pr. portion  →  ${perServing * base} ${yieldUnit.name} pr. batch`);
-    console.log(`Nyt produkt: "${newProduct.name}" · lager-enhed ${stockUnit.name}`);
-    console.log(`Placering:  ${lokation.name} · gruppe ${gruppe.name}`);
+    if (tilstand.kunRewire) {
+        console.log(`Produkt:   ${eksisterendeProdukt.id} "${eksisterendeProdukt.name}" (findes — intet oprettes)`);
+        console.log(`Kun rewire: produkt og produces-kobling er på plads, kun menulinjerne mangler.`);
+    } else {
+        console.log(`Nyt produkt: "${newProduct.name}" · lager-enhed ${stockUnit.name}`);
+        console.log(`Placering:  ${lokation.name} · gruppe ${gruppe.name}`);
+    }
     if (factor !== 1) {
         console.log(`Omregning:  1 ${yieldUnit.name} = ${round(factor)} ${stockUnit.name}`
                   + (enheder.createConversion ? '  (oprettes)' : '  (findes i forvejen)'));
@@ -336,6 +406,7 @@ async function main() {
         recipe_id: Number(recipe.id),
         recipe_name: recipe.name,
         recipe_had_product_id: recipe.product_id || null,
+        kun_rewire: tilstand.kunRewire,
         created_product_id: null,
         // Oprettet enheds-omregning (fx 1 Antal = 0,06 Kilo). Skal med, ellers
         // efterlader en fortrydelse en omregning der peger på et slettet produkt.
@@ -357,10 +428,20 @@ async function main() {
         // rollback SLETTER ikke et produkt der har lager — den deaktiverer det.
         // Uden genbrug kan en konvertering der er rullet tilbage derfor ikke
         // køres igen: den falder på navnet. Fundet i generalprøven på test.
-        const eksisterende = products.find(x =>
+        const eksisterende = tilstand.kunRewire ? eksisterendeProdukt : products.find(x =>
             String(x.name || '').trim().toLowerCase() === String(newProduct.name).trim().toLowerCase());
 
-        if (eksisterende) {
+        if (tilstand.kunRewire) {
+            // Intet oprettes. Produktet registreres som GENBRUGT, så en
+            // fortrydelse hverken sletter eller deaktiverer et produkt der var
+            // her før os — og `recipe_had_product_id` bærer produces-koblingen
+            // tilbage, præcis som den stod.
+            state.created_product_id = Number(eksisterendeProdukt.id);
+            state.reused_product_id = Number(eksisterendeProdukt.id);
+            state.reused_product_was_active = String(eksisterendeProdukt.active);
+            save();
+            console.log(`\n✓ produkt ${eksisterendeProdukt.id} "${eksisterendeProdukt.name}" bruges som det er`);
+        } else if (eksisterende) {
             const enhedsfejl = checkReusableProduct(eksisterende, stockUnit);
             if (enhedsfejl) die(enhedsfejl);
             state.created_product_id = Number(eksisterende.id);
@@ -400,8 +481,12 @@ async function main() {
             console.log(`✓ omregning oprettet: 1 ${yieldUnit.name} = ${round(factor)} ${stockUnit.name}`);
         }
 
-        await grocy.updateRecipe(recipe.id, { product_id: state.created_product_id });
-        console.log(`✓ "${recipe.name}" producerer nu produktet`);
+        if (tilstand.kunRewire) {
+            console.log(`✓ "${recipe.name}" producerede produktet i forvejen — uændret`);
+        } else {
+            await grocy.updateRecipe(recipe.id, { product_id: state.created_product_id });
+            console.log(`✓ "${recipe.name}" producerer nu produktet`);
+        }
 
         for (const p of plan) {
             const pos = await grocy.createRecipePos({
@@ -440,7 +525,7 @@ if (ER_CLI) main().catch(err => die(err.stack || err.message));
 
 // Enheds-logikken eksporteres, så beslutningen kan efterprøves uden Grocy.
 // Et fejlgreb dér skriver et forkert tal ind i hver eneste menu på én gang.
-module.exports = { resolveUnits, menuAmountStock, suggestUnitSize, resolveNamed, checkReusableProduct };
+module.exports = { resolveUnits, menuAmountStock, suggestUnitSize, resolveNamed, checkReusableProduct, resolveMode };
 
 async function rollback(cfg) {
     if (!fs.existsSync(STATE)) die(`${STATE} findes ikke.`);
@@ -464,7 +549,9 @@ async function rollback(cfg) {
         console.log(`✓ produktlinje ${p.id} slettet fra ${p.recipe_id}`);
     }
     await grocy.updateRecipe(state.recipe_id, { product_id: state.recipe_had_product_id || null });
-    console.log(`✓ "${state.recipe_name}" producerer ikke længere et produkt`);
+    console.log(state.recipe_had_product_id
+        ? `✓ "${state.recipe_name}" producerer stadig produkt ${state.recipe_had_product_id} — som før`
+        : `✓ "${state.recipe_name}" producerer ikke længere et produkt`);
 
     // Omregningen hænger på produktet, så den skal væk først.
     if (state.created_conversion_id) {

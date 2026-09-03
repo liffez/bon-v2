@@ -215,6 +215,20 @@ node scripts/recipe-fingerprint.js --diff foer.json efter.json
 
 Rulles noget tilbage: `--rollback --apply` med samme tilstandsfil.
 
+Er de to første skridt allerede gjort — produktet findes, og opskriften producerer
+det — så nægter scriptet at køre hele konverteringen. Kør kun den sidste tredjedel:
+
+```bash
+node --env-file=.env scripts/convert-blend-to-product.js --recipe "<navn>" \
+     --kun-rewire --state <navn>.json --confirm-hq --apply
+```
+
+`--kun-rewire` opretter intet og rører ikke produces-koblingen; den flytter kun
+menuerne fra nesting til produktlinje. `--location` og `--group` er derfor ikke
+påkrævede. Det var situationen i #559, hvor Chili Mayo fandtes både som produkt
+og som opskrift, og sidste skridt ellers skulle klikkes i Grocy uden gate og
+uden fortrydelse.
+
 > Kun **Skære Slider Brød** har lager-enhed ≠ udbytte-enhed: lageret føres i kilo,
 > forbruget tælles i sliders (1 slider = ½ brød = 0,06 kg). Batchen er 32 brød =
 > ½ kasse = 64 sliders, sat via `base_servings` så de 12 menuers `servings=1`
