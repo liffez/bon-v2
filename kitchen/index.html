@@ -88,43 +88,27 @@
             max-width:1280px; width:100%; margin:0 auto;
         }
 
-        /* Right column stacks naturally */
+        /* ── Højre kolonne ────────────────────────────────────────────
+           Kortene står i deres fulde højde, og det er KOLONNEN der scroller.
+           Ét sted at skubbe i stedet for tre.
+
+           Kortene må ALDRIG klemmes: de har `overflow:hidden`, så et krympet
+           kort skjuler bare sit indhold — uden scrollbar, altså uden vej til
+           det. Det var den oprindelige fejl. Målt på 1366×728 tabte Vagtplan
+           221px, "Lav snart" 170px og Prep 147px, og `.content` scrollede
+           ikke, for kortene havde jo givet efter i stedet for at presse.
+
+           Prøvet og forkastet: scroll inde i hvert kort, som kategori-listen
+           i hero-kortet. Det holdt kortene på plads, men en vagtplan man
+           skal scrolle i for at se dagens hold er værre end en kolonne man
+           skubber én gang. */
         .right-col {
             grid-column:3; grid-row:1 / 4;
             display:flex; flex-direction:column; gap:12px;
             min-height:0;
-            /* Sikkerhedsnet. Hvert kort scroller internt (nedenfor), så denne
-               fyrer først når selv korthovederne + min-højderne ikke kan være
-               der — altså i et ekstremt lavt vindue. */
             overflow-y:auto;
         }
-
-        /* ── Kortene scroller hver for sig ──────────────────────────
-           Samme model som kategori-listen i hero-kortet: overskriften står
-           fast, kun kroppen glider. Dermed er alle kort altid synlige med
-           deres titel — man kan SE at Prep findes uden først at lede efter
-           det, og man scroller kun i det man kigger på. Layoutet står stille,
-           hvilket er hele pointen på en fastmonteret køkkenskærm.
-
-           Før dette krympede kortene (flex-shrink er 1 som standard) og
-           `.card { overflow:hidden }` klippede resten væk uden scrollbar, så
-           indholdet var end ikke til at nå. Målt på 1366×728: Vagtplan tabte
-           221px, "Lav snart" 170px, Prep 147px. */
-        /* Kortene klemmes ALDRIG. Det var dét der klippede: de gav efter, og
-           `.card { overflow:hidden }` skjulte resten uden en scrollbar. */
         .right-col > * { flex-shrink:0; }
-        .right-col > .card { display:flex; flex-direction:column; }
-        /* Overskrift og fodnote hører til kortet, ikke til det der scroller. */
-        .right-col > .card > .card-label,
-        .right-col > .card > .vagtplan-link-hint { flex:0 0 auto; }
-        /* Loft, ikke gulv. Kortet vokser med sit indhold indtil her og
-           scroller så indeni — så et langt kort ikke æder hele kolonnen.
-           ~200px er 4-5 rækker, og den halve række i kanten er i sig selv
-           beskeden om at der er mere. */
-        #vagtplanBody, #prepAheadBody, #prepBody {
-            max-height:200px;
-            overflow-y:auto;
-        }
 
         /* ══ CARDS ═════════════════════════════════════════════════ */
         .card {
@@ -290,7 +274,10 @@
         .pa-row:last-child { border-bottom:none; }
         /* Rækken er et link til opskriften når vi kender den. Hele rækken —
            dashboardet står på en touchskærm, hvor et navn er et lille mål. */
-        a.pa-row { color:inherit; text-decoration:none; cursor:pointer; padding-inline:4px; margin-inline:-4px; border-radius:4px; }
+        /* Ingen negativ margin: den gjorde rækken bredere end kortet, og så
+           snart kroppen fik en overflow-værdi, blev den anden akse implicit
+           `auto` — altså en sidelæns scrollbar i "Lav snart". */
+        a.pa-row { color:inherit; text-decoration:none; cursor:pointer; border-radius:4px; }
         a.pa-row:hover { background:rgba(0,0,0,0.05); }
         a.pa-row:hover .pa-name { text-decoration:underline; }
         a.pa-row:active { background:rgba(0,0,0,0.09); }

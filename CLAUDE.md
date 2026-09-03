@@ -6044,33 +6044,41 @@ og klippede resten — i stedet for at beholde deres højde og lade nogen scroll
 `.content` HAR `overflow-y:auto`, men fik aldrig noget at scrolle: kortene havde jo
 allerede krympet. Resultatet var indhold der hverken kunne ses eller nås.
 
-**To niveauer, efter driftsfeedback.** Første forsøg lod hele kolonnen scrolle. Det
-virkede, men Leif pegede på hero-kortets kategori-liste: *"her er en lidt bedre
-scrolling mulighed."* Den model er bedre, fordi kortene bliver stående med deres
-overskrift — man kan SE at Prep findes uden først at lede efter det.
+**Landede på: kortene i fuld højde, kolonnen scroller.** `.right-col > * {
+flex-shrink:0 }` — kortene klemmes aldrig, for de har `overflow:hidden`, så et krympet
+kort skjuler bare sit indhold uden scrollbar. Ét sted at skubbe i stedet for tre.
 
-- `.right-col > * { flex-shrink:0 }` — kortene klemmes aldrig. Det var dét der
-  klippede: de gav efter, og `overflow:hidden` skjulte resten uden scrollbar.
-- `#vagtplanBody, #prepAheadBody, #prepBody { max-height:200px; overflow-y:auto }` —
-  **loft, ikke gulv.** Kortet vokser med sit indhold indtil 200px (4–5 rækker) og
-  scroller så indeni, så ét langt kort ikke æder kolonnen. Den halve række i kanten
-  er i sig selv beskeden om at der er mere.
-- `.right-col { overflow-y:auto }` bliver stående som sikkerhedsnet, til når selv de
-  lofthøje kort ikke kan være der.
+Vejen dertil er værd at kende, for begge mellemstationer så rigtige ud:
 
-> ⚠️ **`min-height` var det forkerte værktøj, og det så rigtigt ud.** Et gulv på
-> kroppene fik kortene til at klippe igen: kortet selv havde intet gulv, så det krympede
-> under sit indhold. Et loft løser det de facto — kortet bliver aldrig højere end det
-> må, og behøver derfor ikke krympe. Fanget ved at måle `scrollHeight > clientHeight`
-> pr. kort, ikke ved at kigge.
+> **Scroll inde i hvert kort** (kategori-listens model, som Leif pegede på) holdt
+> kortene på plads med deres overskrift. Forkastet i drift: *"det er ikke rart at
+> vagtplanen og prep de scroller"* — en vagtplan man skal scrolle i for at se dagens
+> hold er værre end en kolonne man skubber én gang.
 
-Målt efter (1366×728): intet kort klippet, Vagtplan viser hele "I DAG", "Lav snart" 4 af
-6 rækker, og kolonnen scroller 294px for at nå Prep. På 1600×1200 scroller kolonnen
-slet ikke — alt er synligt på én gang. Ved 900×800 (row-layout) er intet klippet.
+> **`min-height` på kroppene** skulle sikre hvert kort en mindstehøjde. Det fik dem til
+> at klippe igen, fordi kortet SELV intet gulv havde og krympede under sit indhold.
+> Fanget ved at måle `scrollHeight > clientHeight` pr. kort, ikke ved at kigge.
+
+> ⚠️ **En negativ margin plus en overflow-værdi giver en sidelæns scrollbar.**
+> `a.pa-row { margin-inline:-4px }` (til at strække hover-fladen ud til kortets kant)
+> gjorde rækken 246px bred i en 242px container. Alene var det harmløst — men da
+> kroppen fik `overflow-y:auto`, blev `overflow-x` **implicit beregnet til `auto`**
+> (CSS-regel: er den ene akse ikke `visible`, bliver den anden `auto`), og "Lav snart"
+> kunne scrolles sidelæns. Meldt i drift. Marginen er væk; efterprøvet ved at genskabe
+> fejlen og fjerne præcis den ene ting.
+
+Målt efter (1366×728): intet klippet, ingen intern scroll, ingen sidelæns scroll, alle
+6 rækker i "Lav snart" synlige, og kolonnen scroller 558px. På **1920×1080** (Iiyama
+ProLite T2752MSC — den 27" touchskærm køkkenet får) scroller kolonnen 27px; alt andet
+er synligt på én gang. Ved 900×800 (row-layout) er intet klippet.
 
 Kolonne-scrollet er verificeret med et **ægte musehjul-scroll** (0 → 500 af 538).
 Syntetiske `wheel`-events flytter ikke scroll i Chrome, så en tidligere måling så ud som
 om intet virkede — det målbare dér er om eventet `preventDefault`-es, og det gør det ikke.
+
+> **Åbent:** `.content { max-width:1280px }` betyder at dashboardet fylder 67 % af en
+> 1920px skærm — 320px tomt i hver side. Ikke ændret; det er en bevidst læsbarhedsgrænse
+> der gælder alle skærme.
 
 **Ikke gjort:** pakkelistens underopskrifter. Dér har hver række et redigerbart
 mængdefelt, som et link ville konkurrere med. Og "Lav snart" viser fortsat højst 6
