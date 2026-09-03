@@ -1717,7 +1717,7 @@ function _buildRavarerHtml(data) {
 
             html += `<div class="ing-row ${st.cls}${foldable ? ' ing-sub-clickable' : ''}" data-ing-name="${key}"${rowTitle}${foldable ? ' onclick="_toggleSubRecipe(this)"' : ''}>
                 <span class="ing-dot">${st.dot}</span>
-                <span class="ing-name">${_esc(ing.product_name)}${note}</span>
+                <span class="ing-name">${_makeRecipeLink(ing, _esc)}${note}</span>
                 <span class="ing-amount">${_fmtNum(ing.amount_needed)}</span>
                 <span class="ing-unit">${_esc(ing.unit)}</span>
                 <span class="ing-stock">${_fmtNum(ing.amount_stock)}</span>
@@ -1779,7 +1779,7 @@ function _buildRavarerHtml(data) {
             html += `<div class="ing-row ing-sub-recipe ${st.cls}${short.length ? ' ing-sub-clickable' : ''}"
                 data-ing-name="${key}"${short.length ? ' onclick="_toggleSubRecipe(this)"' : ''}>
                 <span class="ing-dot">${st.dot}</span>
-                <span class="ing-name">${_esc(sr.recipe_name)}${warn}</span>
+                <span class="ing-name">${_subRecipeLink(sr, _esc)}${warn}</span>
                 <span class="ing-amount">${_esc(sr.amount)}</span>
                 <span class="ing-unit"></span>
                 <span class="ing-stock"></span>
@@ -1845,6 +1845,96 @@ function _filterIngredients(term) {
         // Skjul hele gruppen hvis ingen synlige rækker
         group.style.display = visibleCount > 0 ? '' : 'none';
     }
+}
+
+/**
+ * Underopskriftens navn som link til opskriften.
+ *
+ * Kun NAVNET er linket, ikke hele rækken: rækken har allerede en handling —
+ * den folder mangellisten ud — og de to må ikke kappes om samme klik. Derfor
+ * også stopPropagation, så et klik på navnet ikke folder ud i samme bevægelse.
+ *
+ * Mængden sendes som `portions`, fordi `servings` ER antal portioner: resolveren
+ * regner `mult = scaledServings / base_servings`, præcis som vieweren gør. Der
+ * er intet at omregne, og dermed intet at regne forkert.
+ *
+ * Ny fane, modsat køkken-dashboardets "Lav snart". Dashboardet er et sted man
+ * navigerer FRA; råvarer-modalen er noget man står midt i, og man skal kunne
+ * vende tilbage til listen. Samme mønster som varemodtagelsens og
+ * indkøbslistens genveje til "opret produkt".
+ *
+ * UNDTAGEN i kiosk-mode: den kalder `requestFullscreen()`, og uden fanebjælke
+ * kan en køkkentablet ikke lukke en ny fane igen. Dér navigerer vi i samme
+ * fane. Afgøres ved KLIK-tid, ikke ved render — brugeren kan trykke KIOSK
+ * efter at modalen er åbnet.
+ */
+function _subRecipeLink(sr, escFn) {
+    // Escaperen sendes ind: `_esc` er en LOKAL const inde i `_buildRavarerHtml`
+    // og findes IKKE i det scope denne funktion bor i. Defaulten evalueres ved
+    // hvert kald, så en sent indlæst utils.js stadig vinder over fallbacken.
+    const _e = escFn || (typeof esc === 'function' ? esc
+        : (t) => String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+    const name = _e((sr && sr.recipe_name) || '');
+    const href = recipeUrl({ recipeId: sr && sr.recipe_id, portions: sr && sr.servings });
+    if (!href) return name;
+    return `<a class="ing-sub-link" href="${href}"`
+         + ` target="_blank" rel="noopener" onclick="_subRecipeNav(event, this)"`
+         + ` data-open-label="Åbn opskriften" title="Åbn opskriften i ny fane">${name}</a>`;
+}
+
+/**
+ * Produktnavnet som link til den opskrift der laver varen.
+ *
+ * Gælder KUN kan-laves-råvarer — dem resolveren har fundet en producent til.
+ * En vare der ligger på hylden får aldrig et `make_recipe_id` (grenen med
+ * dækning returnerer uden), så feltet er i sig selv det rigtige filter: kun
+ * de rækker hvor der reelt skal laves noget bliver links.
+ *
+ * Bemærk at navnet er PRODUKTETS, ikke opskriftens ("Langtids Stegt Gris" mod
+ * "Langtids stegt Gris"). Derfor navngiver tooltip'en opskriften — man skal
+ * kunne se hvor man lander, når de to ikke hedder det samme.
+ *
+ * Samme klik-handler som underopskrifterne: rækken kan også folde en
+ * mangelliste ud, og de to må ikke kappes om klikket.
+ */
+function _makeRecipeLink(ing, escFn) {
+    const _e = escFn || (typeof esc === 'function' ? esc
+        : (t) => String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+    const name = _e((ing && ing.product_name) || '');
+    const href = recipeUrl({
+        recipeId: ing && ing.make_recipe_id,
+        batches:  ing && ing.make_batches,
+        // 'ukendt' = udbyttet mangler i Grocy, så batch-tallet er en fallback.
+        trustBatches: !ing || ing.make_status !== 'ukendt',
+    });
+    if (!href) return name;
+    // Etiketten uden "i ny fane" — handleren hæfter den på, når det ER en ny
+    // fane. Ellers ville et kiosk-klik smide opskriftens navn væk.
+    const rn = (ing && ing.make_recipe_name) || '';
+    const label = _e(rn ? `Åbn ${rn}` : 'Åbn opskriften');
+    return `<a class="ing-sub-link" href="${href}" target="_blank" rel="noopener"`
+         + ` onclick="_subRecipeNav(event, this)" data-open-label="${label}"`
+         + ` title="${label} i ny fane">${name}</a>`;
+}
+
+/**
+ * Klik på en underopskrifts navn.
+ *
+ * Sætter blot `target` og lader browseren udføre navigationen selv — så
+ * cmd-/ctrl-/midterklik og "åbn i ny fane" fra genvejsmenuen virker uændret.
+ * Ingen preventDefault, ingen manuel window.location.
+ */
+function _subRecipeNav(ev, a) {
+    ev.stopPropagation();   // rækken må ikke folde mangellisten ud i samme klik
+    const kiosk = document.body.classList.contains('kiosk') || !!document.fullscreenElement;
+    a.target = kiosk ? '_self' : '_blank';
+    // Begge grene sættes. Ellers bliver "Åbn opskriften" hængende efter at man
+    // har forladt kiosk, og tooltip'en lover så noget andet end der sker.
+    // Etiketten kommer fra linket selv, så en kan-laves-række beholder
+    // opskriftens navn ("Åbn Langtids stegt Gris") frem for at få en generisk
+    // tekst påtvunget ved første klik.
+    const base = (a.dataset && a.dataset.openLabel) || 'Åbn opskriften';
+    a.title = kiosk ? base : base + ' i ny fane';
 }
 
 /**

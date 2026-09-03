@@ -157,9 +157,36 @@ async function _rvLoadData() {
         _rvFilterRecipes();
 
         // Deep-link: ?recipe=ID åbner opskriften direkte (fx fra CO₂-rapporten).
+        //
+        // Mængden kan følge med, i to former — fordi de to kaldere ved to
+        // forskellige ting, og ingen af dem skal gætte den anden:
+        //
+        //   ?portions=N — direkte antal portioner. Råvarer-modalens
+        //       underopskrifter har netop dette tal (`sub_recipes[].servings`),
+        //       som resolveren regner med SAMME formel som herinde:
+        //       multiplier = portioner / base_servings.
+        //
+        //   ?batches=N  — N hele batches. Køkken-dashboardets "Lav snart" ved
+        //       hvor mange batches der skal laves, men ikke hvor mange
+        //       portioner ét batch er; det står i base_servings, som kun
+        //       vieweren har hentet. Derfor bor omregningen her.
+        //       (`collectRecipeNeedsFlat` ganger multiplieren direkte på
+        //       råvarerne, så ét batch ER hele opskriften som den står i Grocy
+        //       — ikke én portion. I grocy-hq er base_servings 1 i dag, men den
+        //       antagelse har kostet en fejl før, jf. #349.)
+        //
+        // `portions` vinder når begge er sat: den kræver ingen omregning, og et
+        // tal vi ikke har regnet på kan ikke være regnet forkert.
         try {
-            var _rvDeep = parseInt(new URLSearchParams(window.location.search).get('recipe'), 10);
-            if (_rvDeep && _rvRecipeMap[_rvDeep]) _rvOpenRecipe(_rvDeep, false);
+            var _rvQs   = new URLSearchParams(window.location.search);
+            var _rvDeep = parseInt(_rvQs.get('recipe'), 10);
+            if (_rvDeep && _rvRecipeMap[_rvDeep]) {
+                _rvOpenRecipe(_rvDeep, false);
+                var _rvP = _rvNum(_rvQs.get('portions'));
+                var _rvB = _rvNum(_rvQs.get('batches'));
+                if (_rvP > 0)      _rvSetPortions(_rvP);
+                else if (_rvB > 0) _rvSetPortions(_rvB * _rvBaseServings);
+            }
         } catch (_e) { /* ignore */ }
 
     } catch (err) {

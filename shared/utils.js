@@ -1150,3 +1150,41 @@ function clickedOutsideSelector(e, selector) {
     if (inside(_pressEndTarget)) return false;
     return true;
 }
+
+// ── Link til en opskrift i opskrift-vieweren ────────────────────────────────
+//
+// Tre steder peger på den samme opskrift-viewer: køkken-dashboardets "Lav
+// snart", råvarer-modalens underopskrifter, og dens kan-laves-råvarer. De ved
+// hver sit om mængden, men de deler ÉN regel om hvornår et tal må sendes med.
+// Skrevet tre gange ville de skride fra hinanden — nøjagtig sådan #428 opstod.
+//
+// Mængden angives på den form kalderen faktisk har:
+//   portions — direkte antal portioner. `sub_recipes[].servings` er præcis
+//              dette: resolveren regner `mult = servings / base_servings`,
+//              samme formel som vieweren. Intet at omregne.
+//   batches  — hele batches (`make_batches`). Vieweren omregner, for den
+//              kender `base_servings`; kalderen gør ikke.
+//
+// `trustBatches: false` betyder at batch-tallet er en FALLBACK og ikke en
+// måling — så sendes det ikke. Sker når Grocy ikke har oplyst opskriftens
+// udbytte (`make_status === 'ukendt'`), hvor resolveren sætter 1. Sendte vi
+// det videre, ville vieweren vise en mængde ingen har regnet.
+function recipeUrl(opts) {
+    var o   = opts || {};
+    var rid = Number(o.recipeId) || 0;
+    if (!rid) return '';
+
+    var url = '/kitchen/recipes.html?recipe=' + rid;
+
+    // Afrundet, så flydende-tal-støj (1.5599999999) ikke ender i URL'en.
+    var p = Math.round((Number(o.portions) || 0) * 1000) / 1000;
+    if (p > 0) return url + '&portions=' + p;
+
+    var trust = o.trustBatches !== false;
+    var b = Math.round((Number(o.batches) || 0) * 1000) / 1000;
+    if (trust && b > 0) return url + '&batches=' + b;
+
+    // Ingen brugbar mængde: vieweren viser opskriftens eget portionstal frem
+    // for at vi hælder et nul eller et gæt i den.
+    return url;
+}

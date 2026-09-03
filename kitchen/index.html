@@ -88,12 +88,27 @@
             max-width:1280px; width:100%; margin:0 auto;
         }
 
-        /* Right column stacks naturally */
+        /* ── Højre kolonne ────────────────────────────────────────────
+           Kortene står i deres fulde højde, og det er KOLONNEN der scroller.
+           Ét sted at skubbe i stedet for tre.
+
+           Kortene må ALDRIG klemmes: de har `overflow:hidden`, så et krympet
+           kort skjuler bare sit indhold — uden scrollbar, altså uden vej til
+           det. Det var den oprindelige fejl. Målt på 1366×728 tabte Vagtplan
+           221px, "Lav snart" 170px og Prep 147px, og `.content` scrollede
+           ikke, for kortene havde jo givet efter i stedet for at presse.
+
+           Prøvet og forkastet: scroll inde i hvert kort, som kategori-listen
+           i hero-kortet. Det holdt kortene på plads, men en vagtplan man
+           skal scrolle i for at se dagens hold er værre end en kolonne man
+           skubber én gang. */
         .right-col {
             grid-column:3; grid-row:1 / 4;
             display:flex; flex-direction:column; gap:12px;
             min-height:0;
+            overflow-y:auto;
         }
+        .right-col > * { flex-shrink:0; }
 
         /* ══ CARDS ═════════════════════════════════════════════════ */
         .card {
@@ -257,13 +272,21 @@
             padding:5px 0; border-bottom:1px solid var(--color-border);
         }
         .pa-row:last-child { border-bottom:none; }
+        /* Rækken er et link til opskriften når vi kender den. Hele rækken —
+           dashboardet står på en touchskærm, hvor et navn er et lille mål. */
+        /* Ingen negativ margin: den gjorde rækken bredere end kortet, og så
+           snart kroppen fik en overflow-værdi, blev den anden akse implicit
+           `auto` — altså en sidelæns scrollbar i "Lav snart". */
+        a.pa-row { color:inherit; text-decoration:none; cursor:pointer; border-radius:4px; }
+        a.pa-row:hover { background:rgba(0,0,0,0.05); }
+        a.pa-row:hover .pa-name { text-decoration:underline; }
+        a.pa-row:active { background:rgba(0,0,0,0.09); }
         .pa-dot { font-size:11px; line-height:1; }
         .pa-name { flex:1; font-weight:600; font-size:14px; }
         .pa-amount { font-variant-numeric:tabular-nums; font-size:14px; }
         .pa-sub { font-size:11px; color:var(--color-text-dim,#8a8580); }
         /* Kan ikke laves: råvarerne mangler også → det er indkøb, ikke prep */
         .pa-row.pa-blocked .pa-name { color:#c62828; }
-        .pa-foot { margin-top:6px; font-size:11px; color:var(--color-text-dim,#8a8580); }
 
         .card-web-orders:active { transform:translateY(1px); }
         .wo-icon { font-size:22px; }
@@ -682,8 +705,13 @@
             const win = document.getElementById('prepAheadWindow');
             if (win) win.textContent = `· ${d.days} dage`;
 
+            // ALLE varer vises. Tidligere blev listen klippet ved 6 med et
+            // "+ N mere" nedenunder — men den tekst var ikke klikbar og førte
+            // ingen steder, så man kunne se AT der manglede noget uden at kunne
+            // få at vide hvad. Grænsen gav mening dengang kortet ikke kunne
+            // scrolles; nu scroller kolonnen, så der er intet at spare på.
             let html = '';
-            for (const it of items.slice(0, 6)) {
+            for (const it of items) {
                 const blocked = it.status !== 'kan_laves';
                 // Restbehovet — det der skal laves — ikke det samlede behov.
                 const amount = _paFmt(it.shortfall != null ? it.shortfall : it.needed) + ' ' + (it.unit || '');
@@ -694,14 +722,14 @@
                     // ikke kan fortælle hvor meget ét batch giver.
                     ? [mangler, 'udbytte ikke oplyst'].filter(Boolean).join(' · ')
                     : (blocked ? mangler : `${it.batches > 1 ? it.batches + ' × ' : ''}${it.recipe_name}`);
-                html += `<div class="pa-row${blocked ? ' pa-blocked' : ''}" title="${_paEsc(sub)}">
+                const href = _paHref(it);
+                const tip  = _paTip(it, sub, href);
+                const tag  = href ? 'a' : 'div';
+                html += `<${tag} class="pa-row${blocked ? ' pa-blocked' : ''}"${href ? ` href="${href}"` : ''} title="${_paEsc(tip)}">
                     <span class="pa-dot">${blocked ? (it.missing.length ? '🔴' : '⚪') : '🔵'}</span>
                     <span class="pa-name">${_paEsc(it.product_name)}<br><span class="pa-sub">${_paEsc(sub)}</span></span>
                     <span class="pa-amount">${_paEsc(amount)}</span>
-                </div>`;
-            }
-            if (items.length > 6) {
-                html += `<div class="pa-foot">+ ${items.length - 6} mere</div>`;
+                </${tag}>`;
             }
             body.innerHTML = html;
             card.style.display = '';
@@ -709,6 +737,32 @@
             console.error('[prep-ahead]', err);
             card.style.display = 'none';
         }
+    }
+    // Link til opskriften. Også fra en blokeret række: opskriften er netop
+    // dér man ser HVAD der mangler at blive købt.
+    //
+    // Reglen om hvornår batch-tallet må sendes med bor i `recipeUrl`
+    // (shared/utils.js) — delt med råvarer-modalens to link-typer, så de tre
+    // ikke kan blive uenige om hvad et tal er værd.
+    function _paHref(it) {
+        if (!it) return '';
+        return recipeUrl({
+            recipeId: it.recipe_id,
+            batches:  it.batches,
+            // 'ukendt' = Grocy har ikke oplyst udbyttet, så resolverens
+            // `batches: 1` er en fallback og ikke en måling.
+            trustBatches: it.make_status !== 'ukendt',
+        });
+    }
+    // Nævn opskriftens navn — men kun når det ikke allerede står i
+    // underteksten. På en blokeret række viser `sub` mangellisten, så navnet
+    // ER ny information dér; på en åben række ER `sub` netop navnet, og en
+    // gentagelse ville kun være støj.
+    function _paTip(it, sub, href) {
+        if (!href) return sub;
+        const rn  = (it && it.recipe_name) || '';
+        const sep = sub ? ' · ' : '';
+        return rn && !sub.includes(rn) ? `${sub}${sep}Åbn ${rn}` : `${sub}${sep}Åbn opskriften`;
     }
     function _paEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function _paFmt(n) {

@@ -6031,6 +6031,192 @@ hvor mange bons de rammer.
 
 Testen voksende 47 → **54 asserts**; tretten mutationer i alt, alle fanget.
 
+### Links til opskriften: tre steder, én regel (3. september 2026)
+
+Køkken-dashboardets "Lav snart" fortæller HVAD der skal laves, men man skulle selv
+finde opskriften bagefter — via Opskrifter, søgefelt og kategori-chip. Tre trin for
+noget der stod på skærmen.
+
+Hele maskineriet fandtes allerede. `?recipe=ID` har været i `recipe_viewer.js` siden
+CO₂-rapporten, og `prep-ahead` har altid leveret `recipe_id`. De to var bare aldrig
+koblet sammen. Ændringen er ren wiring: rækken er nu et `<a>` — hele rækken, ikke kun
+navnet, for dashboardet står på en touchskærm hvor et navn er et lille mål.
+
+**Batch-antallet følger med** (`&batches=N`), så vieweren åbner i den mængde der skal
+laves frem for på 1 portion. Omregningen bor i **vieweren**, ikke i dashboardet:
+`portioner = batches × base_servings`, og `base_servings` er en Grocy-egenskab som kun
+vieweren har hentet. (Ét batch er hele opskriften som den står i Grocy — ikke én
+portion; `collectRecipeNeedsFlat` ganger multiplieren direkte på råvarerne. I grocy-hq
+er `base_servings` 1 i dag, men den antagelse har kostet en fejl før, jf. #349.)
+
+> **Batch-tallet sendes KUN når udbyttet er oplyst i Grocy.** Er det ikke
+> (`make_status: 'ukendt'`), sætter resolveren `batches: 1` som fallback — og det tal
+> må ikke rejse videre som var det en måling, for så ville vieweren vise en mængde
+> ingen har regnet. Samme fejlklasse som #305/#319.
+
+**En blokeret række linker også.** Det viste sig stærkere end forudset: opskriften er
+netop dér man ser hvad der mangler (Æbler 0, Rosiner 0 — rødt, med indkøbskurv ved
+siden af hver). Fra "Lav snart" er man nu ét klik fra at lægge det manglende på
+indkøbslisten.
+
+Tooltip nævner opskriftens navn — men kun når det ikke allerede står i underteksten.
+På en blokeret række viser underteksten mangellisten, så navnet ER ny information dér;
+på en åben række ER underteksten netop navnet.
+
+#### Råvarer-modalens underopskrifter
+
+Samme rejse fra den anden ende: Produktion-fanens gyldne rækker viser hvad der skal
+blandes hjemmefra, men ikke hvordan.
+
+**Kun navnet er linket, ikke hele rækken.** Rækken har allerede en handling — den folder
+mangellisten ud (#349) — og de to må ikke kappes om samme klik. Derfor `stopPropagation`.
+
+**Mængden sendes som `?portions=N`, ikke `batches`.** `sub_recipes[].servings` ER antal
+portioner: resolveren regner `mult = scaledServings / base_servings`, præcis som
+vieweren. Der er intet at omregne, og dermed intet at regne forkert. De to parametre er
+ikke duplikering — de svarer på hver sit spørgsmål, fra hver sin kaldere, og ingen af
+dem skal gætte den andens tal.
+
+**Ny fane her, samme fane på dashboardet.** Modalen er noget man står midt i og skal
+kunne vende tilbage til; dashboardet er et sted man navigerer FRA. Samme mønster som
+varemodtagelsens og indkøbslistens genveje til "opret produkt".
+
+> ⚠️ **Undtagen i kiosk-mode.** `enterKiosk()` kalder `requestFullscreen()`, og uden
+> fanebjælke kan en køkkentablet ikke lukke en ny fane igen — brugeren strander.
+> `_subRecipeNav` sætter derfor `target` ved KLIK-tid (`kiosk`-klassen eller
+> `document.fullscreenElement`), ikke ved render: man kan trykke KIOSK efter at modalen
+> er åbnet. Den sætter kun `target` og lader browseren navigere, så cmd-/midterklik
+> virker uændret.
+
+> ⚠️ **`_esc` er en LOKAL const i `_buildRavarerHtml`, ikke en global.** En top-level
+> helper der bruger den kaster `ReferenceError` og brækker hele råvarer-modalen. Fanget
+> af testen, ikke af browseren — i produktion havde det været en tavs, total fejl.
+> Escaperen sendes derfor ind som parameter.
+
+> ⚠️ **En assert der kaster er et dårligere signal end en der fejler.** Mutationen der
+> fjernede `if (!rid) return ''` gav en stak-udskrift i stedet for en rød linje, så den
+> lignede et brudt testscript frem for en fanget fejl. Kaldene går nu gennem en wrapper
+> der fanger. Samme lære som i #481.
+
+> ⚠️ **En assert der måler startværdien måler ingenting.** `eq(nav().title, '…i ny fane')`
+> bestod fordi attrappen blev født med den værdi — ikke fordi handleren satte den. Med
+> forkerte startværdier faldt den, og så viste browseren fejlen: efter et kiosk-klik blev
+> "Åbn opskriften" hængende på et `_blank`-link, så tooltip'en lovede noget andet end der
+> skete. Attrapper starter nu på `IKKE-SAT`, og en sekvens-test (kiosk → ikke-kiosk på
+> SAMME element) låser rettelsen fast.
+
+#### Kan-laves-råvarerne i samme modal
+
+Tredje reference, samme rejse: "Langtids Stegt Gris · skal laves: Langtids stegt Gris"
+peger på præcis de opskrifter "Lav snart" viser (`make_recipe_id` + `make_batches`).
+
+**`make_recipe_id` er selv det rigtige filter.** En vare der ligger på hylden får aldrig
+et — grenen med dækning returnerer `{producible: true, make_status: null}` uden id. Så
+kun de rækker hvor der faktisk skal laves noget bliver links, og listen får ikke
+understregninger på hver anden linje. Efterprøvet i drift: Rødkål- og Rødløg-Sylt er
+producerbare og forbliver ren tekst, mens Langtids Stegt Gris og Æble chuthney linker.
+
+> **Navnet er PRODUKTETS, ikke opskriftens** — "Æble chuthney" mod "Æble chuthney
+> Produktion". Derfor navngiver tooltip'en opskriften: man skal kunne se hvor man
+> lander, når de to ikke hedder det samme.
+
+#### Reglen bor ét sted
+
+Tre kaldere peger nu på samme viewer, og de ved hver sit om mængden. Skrevet tre gange
+ville betingelsen "hvornår må et batch-tal sendes med" skride fra hinanden — nøjagtig
+sådan #428 opstod. `recipeUrl({recipeId, portions, batches, trustBatches})` i
+`shared/utils.js` ejer den; `_paHref` (dashboard), `_subRecipeLink` og `_makeRecipeLink`
+(modal) er tre kald til den. `utils.js` loades alle steder `modal.js` er — efterprøvet,
+ikke antaget.
+
+En test asserterer direkte at dashboardet og kan-laves-rækken bygger **samme URL af
+samme tal**, så divergens fælder en assert frem for at ligge og gemme sig. Bekræftet i
+drift: begge flader gav `?recipe=29&batches=1` for Æble chuthney.
+
+**Tests**: `npm run test:prep-ahead-link` — 70 asserts. `kitchen/index.html`,
+`shared/modal.js` og `shared/utils.js` er browser-kode og kan ikke `require`s, så
+funktionerne skæres ud af filerne og køres i en vm-sandkasse — de SAMME funktioner
+browseren bruger, ikke en kopi (samme mønster som `test-recipe-viewer-nested.js`).
+**Mutations-testet:** 25 kernerettelser rulles hver især tilbage og fælder hver sin
+navngivne assert. Regression grøn: menu-order-groups 59, modal_outside_click 30,
+safe_navigate 8, portioner 32, recipe-viewer-nested 12, subrecipe-status 16,
+yield-model 14, gram-chaining 6, resolver-graph 8, packing-units 18, prep-packing 12,
+recipe-factor 8.
+
+> ⚠️ **Handleren må ikke overskrive tooltip'en.** `_subRecipeNav` satte en fast tekst,
+> så et kan-laves-links "Åbn Langtids stegt Gris" blev til "Åbn opskriften" ved første
+> klik — navnet var tabt for altid. Etiketten bæres nu i `data-open-label`, og handleren
+> hæfter kun " i ny fane" på. Fundet ved at læse den nye kode op mod den eksisterende,
+> ikke af testen.
+
+#### Højre kolonne kunne ikke scrolles (fundet ved drifttest)
+
+At gøre rækkerne klikbare afslørede en **pre-eksisterende** fejl: køkken-dashboardets
+højre kolonne klippede sit indhold uden nogen vej til det. Målt på 1366×728 (ThinkPad
+L14, baseline for kitchen-density) — og byte-identisk på `main`, så den er ikke ny:
+
+| Kort | Viste | Indhold | Skjult |
+|---|---|---|---|
+| Vagtplan | 184 px | 405 px | **221 px** |
+| Lav snart | 146 px | 316 px | **170 px** |
+| Prep · kommende dage | 130 px | 277 px | **147 px** |
+
+`.card` har `overflow:hidden`, og kortene arvede `flex-shrink: 1`. De gav derfor efter
+og klippede resten — i stedet for at beholde deres højde og lade nogen scrolle.
+`.content` HAR `overflow-y:auto`, men fik aldrig noget at scrolle: kortene havde jo
+allerede krympet. Resultatet var indhold der hverken kunne ses eller nås.
+
+**Landede på: kortene i fuld højde, kolonnen scroller.** `.right-col > * {
+flex-shrink:0 }` — kortene klemmes aldrig, for de har `overflow:hidden`, så et krympet
+kort skjuler bare sit indhold uden scrollbar. Ét sted at skubbe i stedet for tre.
+
+Vejen dertil er værd at kende, for begge mellemstationer så rigtige ud:
+
+> **Scroll inde i hvert kort** (kategori-listens model, som Leif pegede på) holdt
+> kortene på plads med deres overskrift. Forkastet i drift: *"det er ikke rart at
+> vagtplanen og prep de scroller"* — en vagtplan man skal scrolle i for at se dagens
+> hold er værre end en kolonne man skubber én gang.
+
+> **`min-height` på kroppene** skulle sikre hvert kort en mindstehøjde. Det fik dem til
+> at klippe igen, fordi kortet SELV intet gulv havde og krympede under sit indhold.
+> Fanget ved at måle `scrollHeight > clientHeight` pr. kort, ikke ved at kigge.
+
+> ⚠️ **En negativ margin plus en overflow-værdi giver en sidelæns scrollbar.**
+> `a.pa-row { margin-inline:-4px }` (til at strække hover-fladen ud til kortets kant)
+> gjorde rækken 246px bred i en 242px container. Alene var det harmløst — men da
+> kroppen fik `overflow-y:auto`, blev `overflow-x` **implicit beregnet til `auto`**
+> (CSS-regel: er den ene akse ikke `visible`, bliver den anden `auto`), og "Lav snart"
+> kunne scrolles sidelæns. Meldt i drift. Marginen er væk; efterprøvet ved at genskabe
+> fejlen og fjerne præcis den ene ting.
+
+Målt efter (1366×728): intet klippet, ingen intern scroll, ingen sidelæns scroll, alle
+6 rækker i "Lav snart" synlige, og kolonnen scroller 558px. På **1920×1080** (Iiyama
+ProLite T2752MSC — den 27" touchskærm køkkenet får) scroller kolonnen 27px; alt andet
+er synligt på én gang. Ved 900×800 (row-layout) er intet klippet.
+
+Kolonne-scrollet er verificeret med et **ægte musehjul-scroll** (0 → 500 af 538).
+Syntetiske `wheel`-events flytter ikke scroll i Chrome, så en tidligere måling så ud som
+om intet virkede — det målbare dér er om eventet `preventDefault`-es, og det gør det ikke.
+
+**"Lav snart" viser alle varer.** Listen blev klippet ved 6 med et `+ N mere` nedenunder
+— men den tekst var ikke klikbar og førte ingen steder, så man kunne se AT der manglede
+noget uden at kunne få at vide hvad. Meldt i drift: *"det duer ikke at der står '1 mere'
+og man ikke kan få at se hvad det er."* Grænsen gav mening dengang kortet ikke kunne
+scrolles; nu scroller kolonnen, så der er intet at spare på. `.pa-foot` er død CSS og
+fjernet.
+
+Layoutet holder ved enhver længde — målt på 1366×728 med 7 (drift), 15 og 30 varer:
+intet klippes, og Prep-kortet er nåeligt ved scroll i alle tre tilfælde.
+
+> **Bevidst ikke ændret:** `.content { max-width:1280px }` betyder at dashboardet fylder
+> 67 % af en 1920px skærm — 320px tomt i hver side. Afklaret med Leif: det er en bevidst
+> læsbarhedsgrænse der gælder alle skærme, også kontorets, og der klippes intet.
+
+**Ikke gjort:** pakkelistens underopskrifter. Dér har hver række et redigerbart
+mængdefelt, som et link ville konkurrere med. Og "Lav snart" viser fortsat højst 6
+rækker med "+ N mere" nedenunder — en blindgyde, for teksten er ikke klikbar. Nu hvor
+kolonnen kan scrolle, kunne grænsen hæves; det er en produktbeslutning, ikke en fejl.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
