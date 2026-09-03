@@ -5937,6 +5937,31 @@ Testen voksede 36 → **47 asserts**; elleve mutationer i alt, alle fanget.
 > stoppede derfor for tidligt — de fejlede mod en KORREKT besked. Segmentet skæres
 > nu ved næste bon-nummer.
 
+**Og så var spørgsmålet hvorfor.** Alarmen siger nu HVILKE produkter der fejlede,
+men ikke hvorfor — og uden det kan man ikke vide om lageret skal rettes i hånden,
+om en kobling mangler, eller om Grocy var nede i to sekunder. Svaret har hele tiden
+ligget i `changelog`: `consumeRecipes` gemmer hvert produkts `err.message` i
+`grocy_consume`-payloaden. Der var blot ingen måde at læse den uden at åbne hver
+bon i UI'et, én ad gangen. Tredje gang i samme runde at oplysningen fandtes uden
+at kunne ses.
+
+**`npm run diagnose:partial-consume`** (`--days N` / `--bon B4239`, read-only,
+intet `--apply`) lister fejlene pr. bon og **grupperer dem på besked**.
+Grupperingen ER værdien: fire bons der fejler på de samme produkter med den samme
+besked er ÉN årsag, ikke fire uheld — og det kan kun ses når de står ved siden af
+hinanden. Grocys tekster bærer mængder og id'er, så beskeden normaliseres (tal →
+`N`) før den grupperes; uden det bliver hver fejl sin egen gruppe, og rapporten
+viser "fire urelaterede problemer" om noget der er ét. Grupperne sorteres efter
+hvor mange bons de rammer.
+
+> **Hvad `success: false` betyder — værd at holde fast i.** Mængden er allerede
+> klampet til det der ER på lageret (`Math.min(needed, available)`), så det er
+> **ikke** "for lidt på lager": den situation giver `success: true` + `partial` +
+> en linje på indkøbslisten. En fejl her er selve Grocy-kaldet der svarede noget
+> andet end 2xx — stale stock-snapshot, en manglende kobling, eller Grocy nede.
+
+Testen voksende 47 → **54 asserts**; tretten mutationer i alt, alle fanget.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

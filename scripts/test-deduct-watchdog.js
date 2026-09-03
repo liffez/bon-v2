@@ -394,6 +394,34 @@ check(failedProductNames(JSON.stringify([
 check(failedProductNames(JSON.stringify([{ product_id: 9, success: false }]))[0] === 'produkt #9',
     'mangler navnet, bruges id — bedre end en tom streng');
 
+// ── Diagnostikken: grupperingen er hele værdien ─────────────────────────────
+//
+// `diagnose-partial-consume.js` grupperer fejlene på besked, fordi det er dén
+// gruppering der afgør noget: fire bons der fejler på de samme produkter med den
+// samme besked er ÉN årsag, ikke fire uheld. Grocys tekster bærer tal og id'er,
+// så uden normaliseringen bliver hver fejl sin egen gruppe — og så viser
+// rapporten "fire urelaterede problemer" om noget der er ét.
+console.log('\n\x1b[1mDiagnostik: fejl grupperes på besked\x1b[0m');
+
+const { normalizeError, parseResults } = require('./diagnose-partial-consume.js');
+
+const e1 = 'Amount to be consumed cannot be > current stock amount (12.5 > 0)';
+const e2 = 'Amount to be consumed cannot be > current stock amount (40 > 3)';
+check(normalizeError(e1) === normalizeError(e2),
+    'samme fejl med forskellige mængder grupperes sammen');
+check(normalizeError(e1) !== normalizeError('connect ETIMEDOUT 10.0.0.5:443'),
+    '… men to ægte forskellige årsager holdes adskilt');
+check(normalizeError('  dobbelt   mellemrum  ') === 'dobbelt mellemrum',
+    'mellemrum normaliseres, så samme besked ikke splittes af formatering');
+check(normalizeError(null) === '(ingen besked)' && normalizeError(undefined) === '(ingen besked)',
+    'manglende besked får en læsbar etiket i stedet for "undefined"');
+check(normalizeError('x'.repeat(500)).length <= 200,
+    'en meget lang besked afkortes — en rapport der drukner bliver ikke læst');
+
+check(parseResults(PAYLOAD).length === 3, 'diagnostikken læser {state,results}-formen');
+check(parseResults('ikke-json{{') === null && parseResults('event_prep_owns_stock') === null,
+    'ulæselig payload og sentinel giver null — rapporten siger "ingen læsbar post"');
+
 // Oprydning: temp-DB slettes uanset udfald.
 try { fs.unlinkSync(TEST_DB); } catch {}
 
