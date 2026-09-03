@@ -93,7 +93,19 @@
             grid-column:3; grid-row:1 / 4;
             display:flex; flex-direction:column; gap:12px;
             min-height:0;
+            /* Kolonnen scroller når kortene ikke kan være der.
+               Uden dette krympede kortene (flex-shrink er 1 som standard) og
+               `.card { overflow:hidden }` klippede resten væk — uden scrollbar,
+               så indholdet var end ikke til at nå. Målt på 1366×728: Vagtplan
+               tabte 221px, "Lav snart" 170px, Prep 147px. `.content` scrollede
+               ikke, for kortene havde jo givet efter i stedet for at presse. */
+            overflow-y:auto;
         }
+        /* Kortene beholder deres naturlige højde — det er kolonnen der scroller,
+           ikke kortene der klemmes sammen. Gælder kun søjle-layoutet; ved de
+           smalle breakpoints nedenfor ligger kortene på række med `flex:1`, og
+           dér er kolonnen ikke højdebegrænset. */
+        .right-col > * { flex-shrink:0; }
 
         /* ══ CARDS ═════════════════════════════════════════════════ */
         .card {

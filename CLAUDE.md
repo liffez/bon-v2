@@ -6027,8 +6027,40 @@ recipe-factor 8.
 > hæfter kun " i ny fane" på. Fundet ved at læse den nye kode op mod den eksisterende,
 > ikke af testen.
 
+#### Højre kolonne kunne ikke scrolles (fundet ved drifttest)
+
+At gøre rækkerne klikbare afslørede en **pre-eksisterende** fejl: køkken-dashboardets
+højre kolonne klippede sit indhold uden nogen vej til det. Målt på 1366×728 (ThinkPad
+L14, baseline for kitchen-density) — og byte-identisk på `main`, så den er ikke ny:
+
+| Kort | Viste | Indhold | Skjult |
+|---|---|---|---|
+| Vagtplan | 184 px | 405 px | **221 px** |
+| Lav snart | 146 px | 316 px | **170 px** |
+| Prep · kommende dage | 130 px | 277 px | **147 px** |
+
+`.card` har `overflow:hidden`, og kortene arvede `flex-shrink: 1`. De gav derfor efter
+og klippede resten — i stedet for at beholde deres højde og lade nogen scrolle.
+`.content` HAR `overflow-y:auto`, men fik aldrig noget at scrolle: kortene havde jo
+allerede krympet. Resultatet var indhold der hverken kunne ses eller nås.
+
+`.right-col { overflow-y:auto }` + `.right-col > * { flex-shrink:0 }`. Kolonnen
+scroller nu; venstre side (hero + graf) står fast, så kiosk-følelsen holder.
+
+> Gælder kun søjle-layoutet. Ved de smalle breakpoints ligger kortene på række med
+> `flex:1`, som overskriver `flex-shrink:0` (senere i filen, samme specificitet) — og
+> dér er kolonnen ikke højdebegrænset, så `.content` scroller i forvejen. Efterprøvet
+> ved 900×800: `flex-shrink` er 1 og intet er klippet.
+
+Verificeret med et **ægte musehjul-scroll** (0 → 500 af 538), hvorefter hele Prep-kortet
+og quick-nav'en er nåelige. Syntetiske `wheel`-events flytter ikke scroll i Chrome, så
+en tidligere måling så ud som om intet virkede — det målbare dér er om eventet
+`preventDefault`'es, og det gør det ikke.
+
 **Ikke gjort:** pakkelistens underopskrifter. Dér har hver række et redigerbart
-mængdefelt, som et link ville konkurrere med.
+mængdefelt, som et link ville konkurrere med. Og "Lav snart" viser fortsat højst 6
+rækker med "+ N mere" nedenunder — en blindgyde, for teksten er ikke klikbar. Nu hvor
+kolonnen kan scrolle, kunne grænsen hæves; det er en produktbeslutning, ikke en fejl.
 
 ## Næste opgave
 
