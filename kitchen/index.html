@@ -93,19 +93,38 @@
             grid-column:3; grid-row:1 / 4;
             display:flex; flex-direction:column; gap:12px;
             min-height:0;
-            /* Kolonnen scroller når kortene ikke kan være der.
-               Uden dette krympede kortene (flex-shrink er 1 som standard) og
-               `.card { overflow:hidden }` klippede resten væk — uden scrollbar,
-               så indholdet var end ikke til at nå. Målt på 1366×728: Vagtplan
-               tabte 221px, "Lav snart" 170px, Prep 147px. `.content` scrollede
-               ikke, for kortene havde jo givet efter i stedet for at presse. */
+            /* Sikkerhedsnet. Hvert kort scroller internt (nedenfor), så denne
+               fyrer først når selv korthovederne + min-højderne ikke kan være
+               der — altså i et ekstremt lavt vindue. */
             overflow-y:auto;
         }
-        /* Kortene beholder deres naturlige højde — det er kolonnen der scroller,
-           ikke kortene der klemmes sammen. Gælder kun søjle-layoutet; ved de
-           smalle breakpoints nedenfor ligger kortene på række med `flex:1`, og
-           dér er kolonnen ikke højdebegrænset. */
+
+        /* ── Kortene scroller hver for sig ──────────────────────────
+           Samme model som kategori-listen i hero-kortet: overskriften står
+           fast, kun kroppen glider. Dermed er alle kort altid synlige med
+           deres titel — man kan SE at Prep findes uden først at lede efter
+           det, og man scroller kun i det man kigger på. Layoutet står stille,
+           hvilket er hele pointen på en fastmonteret køkkenskærm.
+
+           Før dette krympede kortene (flex-shrink er 1 som standard) og
+           `.card { overflow:hidden }` klippede resten væk uden scrollbar, så
+           indholdet var end ikke til at nå. Målt på 1366×728: Vagtplan tabte
+           221px, "Lav snart" 170px, Prep 147px. */
+        /* Kortene klemmes ALDRIG. Det var dét der klippede: de gav efter, og
+           `.card { overflow:hidden }` skjulte resten uden en scrollbar. */
         .right-col > * { flex-shrink:0; }
+        .right-col > .card { display:flex; flex-direction:column; }
+        /* Overskrift og fodnote hører til kortet, ikke til det der scroller. */
+        .right-col > .card > .card-label,
+        .right-col > .card > .vagtplan-link-hint { flex:0 0 auto; }
+        /* Loft, ikke gulv. Kortet vokser med sit indhold indtil her og
+           scroller så indeni — så et langt kort ikke æder hele kolonnen.
+           ~200px er 4-5 rækker, og den halve række i kanten er i sig selv
+           beskeden om at der er mere. */
+        #vagtplanBody, #prepAheadBody, #prepBody {
+            max-height:200px;
+            overflow-y:auto;
+        }
 
         /* ══ CARDS ═════════════════════════════════════════════════ */
         .card {

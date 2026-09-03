@@ -6044,18 +6044,33 @@ og klippede resten — i stedet for at beholde deres højde og lade nogen scroll
 `.content` HAR `overflow-y:auto`, men fik aldrig noget at scrolle: kortene havde jo
 allerede krympet. Resultatet var indhold der hverken kunne ses eller nås.
 
-`.right-col { overflow-y:auto }` + `.right-col > * { flex-shrink:0 }`. Kolonnen
-scroller nu; venstre side (hero + graf) står fast, så kiosk-følelsen holder.
+**To niveauer, efter driftsfeedback.** Første forsøg lod hele kolonnen scrolle. Det
+virkede, men Leif pegede på hero-kortets kategori-liste: *"her er en lidt bedre
+scrolling mulighed."* Den model er bedre, fordi kortene bliver stående med deres
+overskrift — man kan SE at Prep findes uden først at lede efter det.
 
-> Gælder kun søjle-layoutet. Ved de smalle breakpoints ligger kortene på række med
-> `flex:1`, som overskriver `flex-shrink:0` (senere i filen, samme specificitet) — og
-> dér er kolonnen ikke højdebegrænset, så `.content` scroller i forvejen. Efterprøvet
-> ved 900×800: `flex-shrink` er 1 og intet er klippet.
+- `.right-col > * { flex-shrink:0 }` — kortene klemmes aldrig. Det var dét der
+  klippede: de gav efter, og `overflow:hidden` skjulte resten uden scrollbar.
+- `#vagtplanBody, #prepAheadBody, #prepBody { max-height:200px; overflow-y:auto }` —
+  **loft, ikke gulv.** Kortet vokser med sit indhold indtil 200px (4–5 rækker) og
+  scroller så indeni, så ét langt kort ikke æder kolonnen. Den halve række i kanten
+  er i sig selv beskeden om at der er mere.
+- `.right-col { overflow-y:auto }` bliver stående som sikkerhedsnet, til når selv de
+  lofthøje kort ikke kan være der.
 
-Verificeret med et **ægte musehjul-scroll** (0 → 500 af 538), hvorefter hele Prep-kortet
-og quick-nav'en er nåelige. Syntetiske `wheel`-events flytter ikke scroll i Chrome, så
-en tidligere måling så ud som om intet virkede — det målbare dér er om eventet
-`preventDefault`'es, og det gør det ikke.
+> ⚠️ **`min-height` var det forkerte værktøj, og det så rigtigt ud.** Et gulv på
+> kroppene fik kortene til at klippe igen: kortet selv havde intet gulv, så det krympede
+> under sit indhold. Et loft løser det de facto — kortet bliver aldrig højere end det
+> må, og behøver derfor ikke krympe. Fanget ved at måle `scrollHeight > clientHeight`
+> pr. kort, ikke ved at kigge.
+
+Målt efter (1366×728): intet kort klippet, Vagtplan viser hele "I DAG", "Lav snart" 4 af
+6 rækker, og kolonnen scroller 294px for at nå Prep. På 1600×1200 scroller kolonnen
+slet ikke — alt er synligt på én gang. Ved 900×800 (row-layout) er intet klippet.
+
+Kolonne-scrollet er verificeret med et **ægte musehjul-scroll** (0 → 500 af 538).
+Syntetiske `wheel`-events flytter ikke scroll i Chrome, så en tidligere måling så ud som
+om intet virkede — det målbare dér er om eventet `preventDefault`-es, og det gør det ikke.
 
 **Ikke gjort:** pakkelistens underopskrifter. Dér har hver række et redigerbart
 mængdefelt, som et link ville konkurrere med. Og "Lav snart" viser fortsat højst 6
