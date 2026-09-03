@@ -19,7 +19,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, getUserId, transaction } = require('../db/helpers');
+const { handle, getUserId, transaction, todayISO } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 
@@ -54,6 +54,10 @@ const FIELD_KEYS = [
     'name', 'cvr', 'ean', 'legal_name', 'phone', 'email', 'invoice_email',
     'invoice_method', 'address_id', 'economic_customer_id',
     'default_payment_type', 'default_price_category_id', 'discount_percent',
+    // is_reseller: uden den her ville en sammenlægning hvor forhandleren er
+    // TABER tavst tabe markeringen — og så ryger slutkunde-feltet på bonnerne
+    // med. Feltet kom til med migration 167 og var aldrig med i vælgeren.
+    'is_reseller',
     'notes', 'branch', 'company_type', 'employee_count',
     'last_enriched_at', 'last_enriched_source',
 ];
@@ -356,7 +360,9 @@ router.post('/', handle((req, res) => {
             }
 
             // ── Markér loser inactive ──
-            const loserInactiveNote = `\n[Sammenlagt med firma #${winnerId} ${new Date().toISOString().slice(0,10)}]`;
+            // todayISO(), ikke toISOString(): noten skal bære den DANSKE kalenderdato.
+            // Mellem midnat og kl. 02 giver UTC gårsdagens dato (#133).
+            const loserInactiveNote = `\n[Sammenlagt med firma #${winnerId} ${todayISO()}]`;
             db.prepare(`
                 UPDATE companies
                    SET is_active = 0,

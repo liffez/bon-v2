@@ -790,6 +790,7 @@ router.patch('/:id', handle((req, res) => {
         'kitchen_info', 'customer_wishes', 'internal_notes', 'invoice_info',
         'day_contact_name', 'day_contact_phone',
         'end_customer_name',
+        'offer_discount_percent',
         'is_internal'
     ];
 
@@ -799,6 +800,17 @@ router.patch('/:id', handle((req, res) => {
 
     if (Object.keys(updates).length === 0)
         return res.status(400).json({ error: 'Ingen gyldige felter' });
+
+    // Rabatten er den ENE sats hele systemet regner ud fra (recalcBonTotal her,
+    // discountPercentage pr. linje i e-conomic-udkastet), så den skal valideres
+    // hvor den skrives. 100 % er ikke en rabat, og en negativ sats ville lægge
+    // TIL fakturaen i stedet for at trække fra.
+    if ('offer_discount_percent' in updates) {
+        const pct = Number(updates.offer_discount_percent);
+        if (!Number.isFinite(pct) || pct < 0 || pct >= 100)
+            return res.status(400).json({ error: 'Rabat skal være mindst 0 og under 100 procent' });
+        updates.offer_discount_percent = pct;
+    }
 
     const bon = db.prepare('SELECT * FROM bons WHERE id = ?').get(id);
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
@@ -827,7 +839,7 @@ router.patch('/:id', handle((req, res) => {
     }
 
     // Hvis felter der påvirker totalen er ændret → recalc server-autoritativt
-    if ('delivery_price' in updates) {
+    if ('delivery_price' in updates || 'offer_discount_percent' in updates) {
         recalcBonTotal(db, id, { logIfChanged: true, userId: req.session?.userId ?? null });
     }
 
@@ -846,6 +858,50 @@ router.patch('/:id', handle((req, res) => {
 
     broadcast('bon_updated', { id });
     res.json({ ok: true });
+}));
+
+// ─── POST /api/bons/:id/reapply-discount — hent firmaets/kundens rabat igen ──
+//
+// `bons_seed_standing_discount` (migration 111) kopierer satsen ved INSERT og kun
+// der — bevidst, så en ændret sats ikke rører historiske fakturaer. Men det gør
+// også at en rabat aftalt i dag ALDRIG rammer de bons der allerede ligger i
+// faktureringskøen, og der fandtes ingen vej til at hente den. Det kostede to
+// kreditnotaer i august (faktura 4150 → 4177 → 4178, og 4161 → 4179 → 4180).
+//
+// Bevidst handling med sin egen changelog-linje, ikke en bivirkning af at gemme.
+router.post('/:id/reapply-discount', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    const bon = db.prepare(`
+        SELECT b.id, b.offer_discount_percent,
+               co.discount_percent AS company_pct, co.name AS company_name,
+               c.discount_percent  AS customer_pct
+        FROM bons b
+        LEFT JOIN companies co ON co.id = b.company_id
+        LEFT JOIN customers c  ON c.id  = b.customer_id
+        WHERE b.id = ?`).get(id);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    // Samme prioritet som triggeren: firmaet vinder over personen.
+    const pct = Number(bon.company_pct) > 0 ? Number(bon.company_pct)
+              : Number(bon.customer_pct) > 0 ? Number(bon.customer_pct)
+              : 0;
+    const current = Number(bon.offer_discount_percent) || 0;
+    if (pct === current) return res.json({ ok: true, changed: false, discount_percent: pct });
+
+    db.prepare('UPDATE bons SET offer_discount_percent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pct, id);
+    logChange({
+        entityType: 'bon', entityId: id, action: 'update',
+        fieldName: 'offer_discount_percent',
+        oldValue: String(current), newValue: String(pct),
+        userId: req.session?.userId ?? null,
+        notes: pct > 0
+            ? `Hentet fra ${bon.company_name ? 'firmaet ' + bon.company_name : 'kunden'}`
+            : 'Nulstillet — der er ingen stående rabat',
+    });
+    recalcBonTotal(db, id, { logIfChanged: true, userId: req.session?.userId ?? null });
+    broadcast('bon_updated', { id });
+    res.json({ ok: true, changed: true, discount_percent: pct, previous: current });
 }));
 
 // ─── PATCH /api/bons/:id/status — skift status ─────────────────────────────
