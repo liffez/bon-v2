@@ -858,6 +858,66 @@ function _k3RenderShell() {
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .k3-company { font-size: 13px; color: var(--color-text-dim, #888); margin-top: 2px; }
+            .k3-company-none { font-style: italic; opacity: .7; }
+
+            /* Identitets-editor: navn + firma */
+            .k3-id-edit-btn {
+                background: none; border: none; cursor: pointer; padding: 0 0 0 6px;
+                font-size: 13px; color: var(--color-text-dim, #999); opacity: .45;
+                vertical-align: middle;
+            }
+            .k3-name:hover .k3-id-edit-btn { opacity: 1; }
+            .k3-id-edit-btn:hover { color: var(--brand-primary, #8e631f); }
+            /* min-width:0 — uden den kan en flex-item ikke krympe under sit
+               indholds min-bredde, og editoren skyder ud over kortets kant. */
+            .k3-id-edit { min-width: 0; }
+            .k3-id-row { display: flex; gap: 6px; margin-bottom: 6px; }
+            .k3-id-row input { flex: 1; min-width: 0; }
+            .k3-id-edit input {
+                padding: 5px 8px; border: 1px solid var(--color-border, #d7d1ca);
+                border-radius: 4px; font-size: 13px; font-family: inherit; width: 100%;
+                /* Siden er content-box, så width:100% + padding + border skyder
+                   18px ud over kortets kant og klipper Annullér-knappen af.
+                   Samme fælde som .f3-edit-wrap havde i Firma 360°. */
+                box-sizing: border-box;
+            }
+            .k3-id-edit input:focus { outline: none; border-color: var(--brand-primary, #8e631f); }
+            .k3-id-firma { margin-bottom: 6px; }
+            .k3-id-firma label {
+                display: block; font-size: 10px; letter-spacing: .5px;
+                text-transform: uppercase; color: var(--color-text-dim, #999); margin-bottom: 3px;
+            }
+            .k3-id-chip {
+                display: inline-flex; align-items: center; gap: 6px; margin-bottom: 5px;
+                padding: 3px 8px; border-radius: 12px; font-size: 12px;
+                background: #f5f0e0; color: #8e631f; max-width: 100%;
+            }
+            .k3-id-chip button {
+                background: none; border: none; cursor: pointer; color: inherit;
+                font-size: 12px; padding: 0; line-height: 1; opacity: .7;
+            }
+            .k3-id-chip button:hover { opacity: 1; }
+            .k3-id-chip-none { background: #f0f0f0; color: #777; font-style: italic; }
+            .k3-id-results { max-height: 190px; overflow-y: auto; margin-top: 4px; }
+            .k3-id-result {
+                padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;
+                display: flex; align-items: baseline; gap: 8px;
+            }
+            .k3-id-result:hover { background: #faf8f5; }
+            .k3-id-result-name { font-weight: 600; }
+            .k3-id-result-meta { font-size: 11px; color: var(--color-text-dim, #999); }
+            .k3-id-noresult { padding: 5px 8px; font-size: 12px; color: var(--color-text-dim, #999); font-style: italic; }
+            .k3-id-actions { display: flex; align-items: center; gap: 8px; }
+            .k3-id-save, .k3-id-cancel {
+                padding: 5px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;
+                border: 1px solid var(--color-border, #d7d1ca); font-family: inherit;
+            }
+            .k3-id-save { background: var(--brand-primary, #8e631f); color: #fff; border-color: transparent; }
+            .k3-id-save:disabled { opacity: .5; cursor: default; }
+            .k3-id-cancel { background: #fff; color: var(--color-text-dim, #777); }
+            .k3-id-msg { font-size: 11px; color: var(--color-text-dim, #999); }
+            .k3-id-msg.err { color: #bc181b; }
+            .k3-id-msg.ok { color: #3d7a0a; }
             .k3-company-link { color: var(--brand-primary, #8e631f); text-decoration: none; cursor: pointer; }
             .k3-company-link:hover { text-decoration: underline; }
             .k3-stage-badge {
@@ -1327,6 +1387,129 @@ async function _k3LoadData() {
 
 // ─── Profile (left panel) ───────────────────────────────────
 
+/* ── Identitet: navn + firma ───────────────────────────────────────────
+ * "Opret som lead" fra indbakken gætter navnet ud fra mailens afsender og
+ * giver ALDRIG et firma (createPrivateLead). En mail fra
+ * "Communication <communication@iuno.law>" blev derfor til en kontakt ved navn
+ * Communication uden forbindelse til det IUNO-firma vi allerede kendte — og
+ * indtil PATCH /api/customers/:id fandtes, kunne ingen af delene rettes.
+ *
+ * Firmasøgningen opdaterer KUN sin egen resultat-container, aldrig gennem
+ * _k3RenderProfile(): en fuld re-render bygger inputtet forfra, og så mister
+ * feltet fokus efter hvert tastetryk (samme fælde som indkøbslistens søgefelt).
+ */
+let _k3IdEditMode = false;
+let _k3IdCompany = null;      // { id, name } valgt i editoren; null = privatkunde
+let _k3IdSearchTimer = null;
+
+function _k3RenderIdentityEditor(c) {
+    const pick = _k3IdCompany;
+    const chip = pick
+        ? '<span class="k3-id-chip">' + esc(pick.name) +
+              '<button title="Fjern firma — gør til privatkunde" onclick="_k3IdClearCompany()">✕</button></span>'
+        : '<span class="k3-id-chip k3-id-chip-none">Intet firma (privatkunde)</span>';
+
+    return '<div class="k3-id-edit">' +
+        '<div class="k3-id-row">' +
+            '<input type="text" id="k3IdFirst" placeholder="Fornavn *" value="' + escapeAttr(c.first_name || '') + '" autocomplete="off">' +
+            '<input type="text" id="k3IdLast" placeholder="Efternavn" value="' + escapeAttr(c.last_name || '') + '" autocomplete="off">' +
+        '</div>' +
+        '<div class="k3-id-firma">' +
+            '<label>Firma</label>' +
+            chip +
+            '<input type="text" id="k3IdCoSearch" placeholder="Søg firma på navn eller CVR…" autocomplete="off">' +
+            '<div id="k3IdCoResults" class="k3-id-results"></div>' +
+        '</div>' +
+        '<div class="k3-id-actions">' +
+            '<button class="k3-id-save" onclick="_k3SaveIdentity()">Gem</button>' +
+            '<button class="k3-id-cancel" onclick="_k3ToggleIdEdit()">Annullér</button>' +
+            '<span class="k3-id-msg" id="k3IdMsg"></span>' +
+        '</div>' +
+    '</div>';
+}
+
+function _k3ToggleIdEdit() {
+    _k3IdEditMode = !_k3IdEditMode;
+    // Åbnes editoren, starter den på kundens nuværende firma — så et Gem uden
+    // at røre firmafeltet lader firmaet være i fred.
+    if (_k3IdEditMode) {
+        const c = _k3Data && _k3Data.customer;
+        _k3IdCompany = (c && c.company_id) ? { id: c.company_id, name: c.company_name || ('Firma ' + c.company_id) } : null;
+    }
+    _k3RenderProfile();
+    if (_k3IdEditMode) document.getElementById('k3IdFirst')?.focus();
+}
+
+function _k3IdClearCompany() {
+    _k3IdCompany = null;
+    _k3RenderProfile();
+    document.getElementById('k3IdCoSearch')?.focus();
+}
+
+window._k3IdPickCompany = function(id, name) {
+    _k3IdCompany = { id, name };
+    _k3RenderProfile();
+};
+
+async function _k3IdSearchCompanies(q) {
+    const box = document.getElementById('k3IdCoResults');
+    if (!box) return;
+    if (!q || q.trim().length < 2) { box.innerHTML = ''; return; }
+    try {
+        const rows = await apiFetch('/companies?q=' + encodeURIComponent(q.trim()));
+        if (!rows.length) { box.innerHTML = '<div class="k3-id-noresult">Ingen firmaer matcher</div>'; return; }
+        box.innerHTML = rows.slice(0, 8).map(r =>
+            '<div class="k3-id-result" onclick="_k3IdPickCompany(' + r.id + ', ' +
+                JSON.stringify(r.name).replace(/"/g, '&quot;') + ')">' +
+                '<span class="k3-id-result-name">' + esc(r.name) + '</span>' +
+                (r.cvr ? '<span class="k3-id-result-meta">CVR ' + esc(r.cvr) + '</span>' : '') +
+                (r.city ? '<span class="k3-id-result-meta">' + esc(r.city) + '</span>' : '') +
+            '</div>'
+        ).join('');
+    } catch (e) {
+        box.innerHTML = '<div class="k3-id-noresult">Kunne ikke søge: ' + esc(e.message) + '</div>';
+    }
+}
+
+async function _k3SaveIdentity() {
+    const c = _k3Data && _k3Data.customer;
+    if (!c) return;
+    const msg = document.getElementById('k3IdMsg');
+    const first = (document.getElementById('k3IdFirst')?.value || '').trim();
+    const last  = (document.getElementById('k3IdLast')?.value || '').trim();
+    if (!first) {
+        if (msg) { msg.textContent = 'Fornavn mangler'; msg.className = 'k3-id-msg err'; }
+        document.getElementById('k3IdFirst')?.focus();
+        return;
+    }
+
+    const btn = document.querySelector('.k3-id-save');
+    if (btn) btn.disabled = true;
+    if (msg) { msg.textContent = 'Gemmer…'; msg.className = 'k3-id-msg'; }
+
+    try {
+        const r = await patchCustomer(_k3CustomerId, {
+            first_name: first,
+            last_name: last || null,
+            company_id: _k3IdCompany ? _k3IdCompany.id : null,
+        });
+        _k3IdEditMode = false;
+        _k3IdCompany = null;
+        await _k3LoadData();
+        // Blev et efterladt personligt firma lagt væk, siges det højt — ellers
+        // ville en firma-række forsvinde uden at nogen kunne se hvorfor.
+        const tidied = r && r.company_cleanup && r.company_cleanup.deactivated || [];
+        if (tidied.length) {
+            const m2 = document.getElementById('k3IdMsg');
+            if (m2) { m2.textContent = 'Det tomme personlige firma blev lagt væk'; m2.className = 'k3-id-msg ok'; }
+        }
+    } catch (e) {
+        if (btn) btn.disabled = false;
+        const m2 = document.getElementById('k3IdMsg');
+        if (m2) { m2.textContent = 'Fejl: ' + e.message; m2.className = 'k3-id-msg err'; }
+    }
+}
+
 function _k3RenderProfile() {
     const el = document.getElementById('k3Profile');
     if (!el || !_k3Data) return;
@@ -1340,16 +1523,21 @@ function _k3RenderProfile() {
 
     let html = '';
 
-    // Avatar row
+    // Avatar row — navn + firma, med inline editor bagved blyanten
     html += '<div class="k3-avatar-row">' +
         '<div class="k3-avatar">' + initial + '</div>' +
         '<div class="k3-name-block">' +
-            '<div class="k3-name">' + fullName + '</div>' +
-            '<div style="font-size:11px;color:var(--color-text-dim,#999);margin-top:1px;letter-spacing:.3px" title="Kundenummer — brug som #k-' + _k3CustomerId + ' i mail-emner (tag)">#k-' + _k3CustomerId + '</div>' +
-            (c.company_name && c.company_id
-                ? '<div class="k3-company"><a href="?view=kontakter&tab=firmaer&company=' + c.company_id + '" class="k3-company-link" data-company-id="' + c.company_id + '">' + c.company_name + ' →</a></div>'
-                : (c.company_name ? '<div class="k3-company">' + c.company_name + '</div>' : '')) +
-            '<span class="k3-stage-badge ' + stageClass + '">' + stageName + '</span>' +
+            (_k3IdEditMode ? _k3RenderIdentityEditor(c) :
+                '<div class="k3-name">' + esc(fullName) +
+                    '<button class="k3-id-edit-btn" onclick="_k3ToggleIdEdit()" title="Ret navn eller flyt til et andet firma">\u270e</button>' +
+                '</div>' +
+                '<div style="font-size:11px;color:var(--color-text-dim,#999);margin-top:1px;letter-spacing:.3px" title="Kundenummer — brug som #k-' + _k3CustomerId + ' i mail-emner (tag)">#k-' + _k3CustomerId + '</div>' +
+                (c.company_name && c.company_id
+                    ? '<div class="k3-company"><a href="?view=kontakter&tab=firmaer&company=' + c.company_id + '" class="k3-company-link" data-company-id="' + c.company_id + '">' + esc(c.company_name) + ' →</a></div>'
+                    : (c.company_name ? '<div class="k3-company">' + esc(c.company_name) + '</div>'
+                                      : '<div class="k3-company k3-company-none">Intet firma (privatkunde)</div>')) +
+                '<span class="k3-stage-badge ' + stageClass + '">' + stageName + '</span>'
+            ) +
         '</div>' +
     '</div>';
 
@@ -1468,6 +1656,24 @@ function _k3RenderProfile() {
             if (typeof window.openFirma360 === 'function') {
                 window.openFirma360(cid);
             }
+        });
+    }
+
+    // Firmasøgningen i identitets-editoren. Debouncet, og den skriver kun i sin
+    // egen resultat-container — se kommentaren ved _k3RenderIdentityEditor.
+    const coSearch = el.querySelector('#k3IdCoSearch');
+    if (coSearch) {
+        coSearch.addEventListener('input', () => {
+            clearTimeout(_k3IdSearchTimer);
+            const q = coSearch.value;
+            _k3IdSearchTimer = setTimeout(() => _k3IdSearchCompanies(q), 250);
+        });
+        // Enter i et felt må ikke indsende noget — editoren har sin egen Gem-knap.
+        el.querySelectorAll('.k3-id-edit input').forEach(inp => {
+            inp.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); _k3SaveIdentity(); }
+                if (e.key === 'Escape') { e.preventDefault(); _k3ToggleIdEdit(); }
+            });
         });
     }
 }

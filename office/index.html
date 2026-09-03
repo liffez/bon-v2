@@ -1866,6 +1866,10 @@
         crm_consent_updated: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_consent_updated', data);
         },
+        // Navn rettet eller kontakten flyttet til et andet firma
+        customer_updated: (data) => {
+          if (typeof _k3HandleSSE === 'function') _k3HandleSSE('customer_updated', data);
+        },
         // Outreach-kampagner (Fase 4): pipeline-board lytter på alle member-events
         // + selve kampagnernes lifecycle.
         campaign_created:        (data) => { if (typeof _coHandleSSE === 'function') _coHandleSSE('campaign_created', data); },
