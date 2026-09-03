@@ -5903,6 +5903,40 @@ Verificeret mod en kopi af driftsdata sat i den tilstand skærmbilledet viser:
 vilje ikke HQ-lager: #B4167, #B4168"* og exit 0. Kontrolprøve: fjernes B4166's træk,
 alarmerer den stadig med exit 1. Kopien er slettet.
 
+**Efterspil: det de falske alarmer havde skjult.** Med støjen væk stod fire ægte
+fund frem — #B4238/#B4239/#B4240/#B4253 med `partial`, altså et træk hvor nogle
+produkter fejlede og lageret derfor er for højt. Første gang tilstanden opstår i
+drift (kopien fra 28. august har **nul** partial-rækker), og det afslørede at
+beskeden om dem løj:
+
+> `#B4239 (2026-09-02, LEVERET, partial) — har ALDRIG passeret LEVERET`
+
+`findPartial` henter ikke `saw_leveret`, så `aarsag()` faldt i den grenen for hver
+eneste partial-linje — om bons der står som LEVERET og hvis træk beviseligt ER kørt
+(det er definitionen på `partial`). Alarmen pegede dermed på den forkerte handling:
+*"sæt bonen til LEVERET"* i stedet for *"ret de fejlede produkter i Grocy"*.
+Pre-eksisterende siden årsagsteksten kom til 24. august; usynlig indtil der fandtes
+en partial-række.
+
+- **`fmtPartial`** er nu adskilt fra `fmt`. Et delvist træk har sin egen årsag og
+  må ikke låne den anden forespørgsels felter.
+- **Alarmen navngiver de fejlede produkter** (`— fejlede: Rødløg, Mayonnaise`),
+  hentet fra `grocy_consume`-postens payload. Det er den eneste handling der kan
+  tages, så den hører i alarmen — ikke bag et opslag i UI'et. Samme princip som de
+  tre årsagstekster. Højst 6 navne (`MAX_FAILED_NAMED`), dubletter væk
+  (parent-substitution nævner samme produkt to gange).
+- **`failedProductNames`** spejler alle tre historiske payload-former (sentinel,
+  rå array, `{state,results}`) og returnerer tom liste ved uventet indhold — så
+  falder alarmen tilbage på changelog-henvisningen frem for at vælte. En tavs
+  vagthund er præcis den fejl den selv findes for at forhindre.
+
+Testen voksede 36 → **47 asserts**; elleve mutationer i alt, alle fanget.
+
+> ⚠️ **Fælde i testen selv:** bonnerne står som en komma-liste på én linje, og hver
+> post indeholder selv et komma (datoen). To asserts brugte `#num[^,]*navn` og
+> stoppede derfor for tidligt — de fejlede mod en KORREKT besked. Segmentet skæres
+> nu ved næste bon-nummer.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

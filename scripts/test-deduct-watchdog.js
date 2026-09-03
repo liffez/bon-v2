@@ -33,8 +33,8 @@ const { runMigrations } = require('../db/migrate');
 runMigrations(TEST_DB);
 
 const { getDb } = require('../db/database');
-const { findUndeducted, findPartial, findNothingToDeduct, findGatedByEventPrep } =
-    require('./check-inventory-deduct.js');
+const { findUndeducted, findPartial, findNothingToDeduct, findGatedByEventPrep,
+        failedProductNames } = require('./check-inventory-deduct.js');
 
 let pass = 0, fail = 0;
 const check = (c, m) => { console.log(`  ${c ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m'} ${m}`); c ? pass++ : fail++; };
@@ -279,9 +279,6 @@ check(r.code === 1, `drift fundet → exit 1, så cron fanger det (fik ${r.code}
 check(/ALDRIG passeret LEVERET/.test(r.ud), 'og årsagen står i outputtet, ikke kun antallet');
 check(/ingen alarm-modtager/.test(r.ud), 'uden modtager noteres det — mailen springes over, alarmen består');
 
-// Oprydning: temp-DB slettes uanset udfald.
-try { fs.unlinkSync(TEST_DB); } catch {}
-
 // ── Alarmen skal sige HVORFOR ───────────────────────────────────────────────
 //
 // Drifts-tilfældet 24.08: #B4202 og #B4207 stod som BETALT uden træk og uden
@@ -328,6 +325,77 @@ check(find(fejlede.num)?.inventory_deduct_status === 'failed',
     check(!/date\('now'/.test(kilde),
         "vagthundens forespørgsler bruger ikke SQLites date('now') — den er UTC (#133)");
 }
+
+// ── Et delvist træk må ikke låne den forkerte årsag ─────────────────────────
+//
+// Drifts-tilfældet 3. sep. 2026: fire bons stod som 'partial', og alarmen sagde om
+// hver af dem "har ALDRIG passeret LEVERET — trækket udløses kun dér". De stod som
+// LEVERET, og trækket var beviseligt kørt (det er hele definitionen på 'partial').
+// `aarsag()` læser `saw_leveret`, som findPartial ikke hentede, så alle faldt i den
+// gren — og alarmen pegede på den forkerte handling.
+console.log('\n\x1b[1mDelvist træk: alarmen skal sige hvad der fejlede\x1b[0m');
+
+const PAYLOAD = JSON.stringify({ state: 'partial', results: [
+    { product_id: 1, product_name: 'Spidskål',  success: true  },
+    { product_id: 2, product_name: 'Rødløg',    success: false },
+    { product_id: 3, product_name: 'Mayonnaise', success: false },
+]});
+
+const delvisMedSpor = mkBon({ status: 'LEVERET', date: offsetISO(-1),
+                              deducted: 1, deductStatus: 'partial', sawLeveret: true });
+db.prepare(`INSERT INTO changelog (entity_type, entity_id, action, field_name, new_value)
+            VALUES ('bon', ?, 'grocy_consume', 'stock', ?)`).run(delvisMedSpor.id, PAYLOAD);
+
+// Bonnerne står som en komma-liste på én linje, og hver post indeholder SELV et
+// komma (datoen). Et `[^,]*`-udtryk stopper derfor for tidligt og kan give et
+// falsk svar i begge retninger — segmentet skal skæres ved næste bon-nummer.
+const segment = (ud, num) => {
+    const i = ud.indexOf(`#${num} `);
+    if (i < 0) return '';
+    const rest = ud.slice(i + 1);
+    const next = rest.search(/#T_WD_|\n/);
+    return next < 0 ? rest : rest.slice(0, next);
+};
+
+r = koer();
+const segMed = segment(r.ud, delvisMedSpor.num);
+check(segMed && !/ALDRIG passeret/.test(segMed),
+    'en partial-linje påstår IKKE at bonen aldrig passerede LEVERET');
+check(/Rødløg/.test(segMed) && /Mayonnaise/.test(segMed),
+    '… den navngiver i stedet de produkter der fejlede');
+check(!/Spidskål/.test(segMed),
+    '… og ikke dem der lykkedes');
+
+// Ulæselig payload: alarmen skal stadig komme, blot uden navnene.
+const delvisUdenSpor = mkBon({ status: 'LEVERET', date: offsetISO(-1),
+                               deducted: 1, deductStatus: 'partial', sawLeveret: true });
+db.prepare(`INSERT INTO changelog (entity_type, entity_id, action, field_name, new_value)
+            VALUES ('bon', ?, 'grocy_consume', 'stock', 'ikke-json{{')`).run(delvisUdenSpor.id);
+r = koer();
+check(r.code === 1 && new RegExp(`#${delvisUdenSpor.num}`).test(r.ud),
+    'ulæselig payload vælter ikke alarmen — bonen kommer stadig frem');
+check(/changelog/.test(segment(r.ud, delvisUdenSpor.num)),
+    '… og henviser til changeloggen i stedet for at nævne navne den ikke har');
+
+// Selve udtrækket, direkte — de tre payload-former plus afgrænsningerne.
+console.log('\n\x1b[1mfailedProductNames: de tre payload-former\x1b[0m');
+check(failedProductNames(PAYLOAD).join('|') === 'Rødløg|Mayonnaise',
+    '{state,results}-indpakning læses');
+check(failedProductNames(JSON.stringify([{ product_name: 'A', success: false }])).join('') === 'A',
+    'rå results-array læses også');
+check(failedProductNames('event_prep_owns_stock').length === 0,
+    'sentinel-strengen giver ingen navne');
+check(failedProductNames('ikke-json{{').length === 0 && failedProductNames(null).length === 0,
+    'ulæselig og tom payload giver tom liste — kaster ikke');
+check(failedProductNames(JSON.stringify([
+        { product_name: 'Rødløg', success: false },
+        { product_name: 'Rødløg', success: false }])).length === 1,
+    'samme produkt to gange (parent-substitution) tælles én gang');
+check(failedProductNames(JSON.stringify([{ product_id: 9, success: false }]))[0] === 'produkt #9',
+    'mangler navnet, bruges id — bedre end en tom streng');
+
+// Oprydning: temp-DB slettes uanset udfald.
+try { fs.unlinkSync(TEST_DB); } catch {}
 
 console.log(`\n${'─'.repeat(50)}\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);

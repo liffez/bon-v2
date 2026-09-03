@@ -69,6 +69,36 @@ const DAYS = Math.max(1, parseInt(process.env.INVENTORY_CHECK_DAYS, 10) || 3);
 function logLine(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
 const getSetting = (db, k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? '';
 
+// Højst så mange produktnavne i alarmen. En bon kan fejle på 30 produkter, og
+// en mail der drukner i maskin-payload bliver ikke læst — samme lære som
+// changelog-modalen (`_clipChangelogValue`).
+const MAX_FAILED_NAMED = 6;
+
+// Hvilke produkter fejlede i et delvist træk? Læses af `grocy_consume`-postens
+// payload, som historisk har haft tre former (jf. shared/modal.js
+// `_parseConsumePayload`): sentinel-strengen, et rå results-array, eller samme
+// array pakket i {state, results}. Vi spejler dem alle tre.
+//
+// En uventet payload må ALDRIG vælte alarmen: kan den ikke læses, returneres en
+// tom liste og alarmen henviser til changeloggen som før. En tavs vagthund er
+// præcis den fejl den selv findes for at forhindre.
+function failedProductNames(raw) {
+    const txt = String(raw == null ? '' : raw).trim();
+    if (!txt || txt === 'event_prep_owns_stock') return [];
+    let parsed;
+    try { parsed = JSON.parse(txt); } catch { return []; }
+    const results = Array.isArray(parsed) ? parsed
+                  : (parsed && Array.isArray(parsed.results)) ? parsed.results
+                  : null;
+    if (!results) return [];
+    return results
+        .filter(r => r && r.success === false)
+        .map(r => String(r.product_name || `produkt #${r.product_id ?? '?'}`))
+        // Samme produkt kan optræde to gange (parent-substitution), og et
+        // dublet-navn i alarmen ser ud som to fejl.
+        .filter((n, i, a) => a.indexOf(n) === i);
+}
+
 // ── Populationen, delt af alle tre opslag ───────────────────────────────────
 //
 // De tre funktioner nedenfor PARTITIONERER den samme mængde bons. Skrives
@@ -193,7 +223,14 @@ function findGatedByEventPrep(db, days) {
 function findPartial(db, days) {
     return db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code,
-               b.inventory_deduct_status
+               b.inventory_deduct_status,
+               -- Hvilke produkter fejlede? Det er den ENESTE handling der kan
+               -- tages på et delvist træk (ret dem i hånden i Grocy), så det skal
+               -- stå i alarmen — ikke findes bagefter ved at åbne bonen i UI'et.
+               (SELECT c.new_value FROM changelog c
+                 WHERE c.entity_type = 'bon' AND c.entity_id = b.id
+                   AND c.action = 'grocy_consume'
+                 ORDER BY c.id DESC LIMIT 1) AS consume_payload
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
@@ -248,6 +285,21 @@ async function main() {
     const fmt = r => `#${r.bon_number} (${r.delivery_date}, ${r.status_code}`
                    + `${r.inventory_deduct_status ? ', ' + r.inventory_deduct_status : ''}) — ${aarsag(r)}`;
 
+    // Et delvist træk må IKKE låne årsagsteksten ovenfor. `aarsag()` læser
+    // `saw_leveret`, som findPartial ikke henter, så hver eneste partial-linje
+    // faldt i grenen "har ALDRIG passeret LEVERET" — om bons der står som LEVERET
+    // og hvis træk beviseligt ER kørt. Alarmen pegede dermed på den forkerte
+    // handling ("sæt bonen til LEVERET") i stedet for den rigtige (ret de fejlede
+    // produkter i Grocy). Fundet i drift 3. sep. 2026 på #B4238/#B4239/#B4240/#B4253.
+    const fmtPartial = r => {
+        const navne = failedProductNames(r.consume_payload);
+        const hvem = navne.length
+            ? ` — fejlede: ${navne.slice(0, MAX_FAILED_NAMED).join(', ')}`
+              + (navne.length > MAX_FAILED_NAMED ? ` (+${navne.length - MAX_FAILED_NAMED} mere)` : '')
+            : ` — se changelog-posten 'grocy_consume' på bonen for hvilke der fejlede`;
+        return `#${r.bon_number} (${r.delivery_date}, ${r.status_code})${hvem}`;
+    };
+
     if (rows.length) {
         logLine(`[deduct-check] ⚠ ${rows.length} leveret bon(s) de seneste ${DAYS} dage har IKKE trukket lager: `
               + rows.map(fmt).join(', '));
@@ -257,10 +309,9 @@ async function main() {
     }
     if (partial.length) {
         logLine(`[deduct-check] ⚠ ${partial.length} leveret bon(s) har trukket lager DELVIST — mindst ét produkt `
-              + `fejlede: ` + partial.map(fmt).join(', '));
+              + `fejlede: ` + partial.map(fmtPartial).join(', '));
         logLine(`[deduct-check] Lageret er for højt for de fejlede produkter. Flaget er sat (så trækket ikke kan `
-              + `gentages uden at dobbelt-trække resten) — ret de enkelte produkter manuelt i Grocy. `
-              + `Se changelog-posten 'grocy_consume' på bonen for hvilke der fejlede.`);
+              + `gentages uden at dobbelt-trække resten) — ret de enkelte produkter manuelt i Grocy.`);
     }
 
     // Mail hvis en modtager er sat — ellers klarer log + exit-kode alarmen.
@@ -283,10 +334,9 @@ async function main() {
             }
             if (partial.length) {
                 body += `${partial.length} leveret bon(s) har trukket lager DELVIST — mindst ét produkt fejlede:\n\n`
-                      + partial.map(line).join('\n')
+                      + partial.map(r => `  • ${fmtPartial(r)}`).join('\n')
                       + `\n\nLageret er FOR HØJT for de produkter der fejlede. Trækket kan ikke bare gentages `
-                      + `(det ville dobbelt-trække dem der lykkedes) — ret de enkelte produkter i Grocy.\n`
-                      + `Changelog-posten 'grocy_consume' på bonen viser hvilke der fejlede.\n\n`;
+                      + `(det ville dobbelt-trække dem der lykkedes) — ret de enkelte produkter i Grocy.\n\n`;
             }
             body += `Denne mail sendes af scripts/check-inventory-deduct.js (cron). Se issue #305 + #359.`;
 
@@ -310,7 +360,8 @@ async function main() {
 }
 
 // Eksportér helpers til test uden at køre main().
-module.exports = { findUndeducted, findPartial, findNothingToDeduct, findGatedByEventPrep };
+module.exports = { findUndeducted, findPartial, findNothingToDeduct, findGatedByEventPrep,
+                   failedProductNames };
 
 if (require.main === module) {
     main()
