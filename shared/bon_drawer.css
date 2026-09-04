@@ -349,6 +349,40 @@
     color: #a07340;
 }
 
+/* Web-bestilling: kundens tekst mod bonens varer. Samme sprog som
+   fakturavagten ovenfor — begge er udledte mærker, ikke gemt tilstand. */
+.drawer-wish-warning {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: #fdf3e3;
+    border-left: 3px solid #d98324;
+    color: #7a4a10;
+    font-size: 12px;
+    line-height: 1.45;
+}
+.drawer-wish-warning .dww-list {
+    margin: 5px 0 4px;
+    padding-left: 18px;
+}
+.drawer-wish-warning .dww-list li { margin: 2px 0; }
+.drawer-wish-warning .dww-sub { color: #a07340; }
+
+/* Færre enheder end gæster. Dæmpet — det er en observation, ikke en fejl:
+   én gæst spiser måske ikke med. Flere enheder end pax (sliders, buffet)
+   siges der intet om. */
+.drawer-unit-hint {
+    margin-top: 6px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: #7a4a10;
+    background: #fdf6ea;
+    border-left: 3px solid #e0b070;
+    border-radius: 4px;
+    padding: 5px 8px;
+}
+.drawer-unit-hint .duh-sub { color: #a07340; }
+
 .drawer-status-flash {
     display: inline-block;
     font-size: 13px;

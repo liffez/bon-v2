@@ -112,7 +112,8 @@
     "tjek:dagen": "node --env-file=.env --experimental-sqlite scripts/tjek-dagen.js",
     "test:preview-produced": "node scripts/test-preview-produced.js",
     "test:event-rest-prep": "node --experimental-sqlite scripts/test-event-rest-prep.js",
-    "test:event-rest-prep-http": "node --experimental-sqlite scripts/test-event-rest-prep-http.js"
+    "test:event-rest-prep-http": "node --experimental-sqlite scripts/test-event-rest-prep-http.js",
+    "test:wish-lines": "node scripts/test-wish-lines.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

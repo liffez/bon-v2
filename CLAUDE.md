@@ -6217,6 +6217,104 @@ mængdefelt, som et link ville konkurrere med. Og "Lav snart" viser fortsat høj
 rækker med "+ N mere" nedenunder — en blindgyde, for teksten er ikke klikbar. Nu hvor
 kolonnen kan scrolle, kunne grænsen hæves; det er en produktbeslutning, ikke en fejl.
 
+### En ret bag en note faldt ud af web-bestillingen (4. september 2026)
+
+B4259: kunden bestilte 7 retter, bonen fik 4. `3× Kyllingen (1 without mayonaise)`
+manglede helt. Ingen sagde noget — bon-kortet så komplet ud.
+
+Fejlen sad i formularen, ikke i bonen. Bestillingssiden holder to repræsentationer
+af de samme retter: teksten i kundeønske-feltet og `menu_items[]`, hvorfra
+bon-linjerne genereres (#382). Redigerer kunden teksten, genberegnes `menu_items[]`
+fra den — og `getCurrentCount` kørte én regex **pr. menuret** hen over hele teksten
+med et lookahead der krævede linjeslut lige efter navnet:
+
+```js
+new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s*(?:\\n|$))`, 'i')
+```
+
+Noten i parentesen stod i vejen, så Kyllingen talte 0 og forsvandt ud af
+bestillingen. Lookahead'et var der af en god grund — uden det ville `Kyllingen`
+også ramme `Kyllingen BBQ- Salat` — men prisen var at ethvert ord bag retnavnet
+dræbte retten.
+
+**Ikke en engangsfejl.** Af 50 web-ordrer med ret-linjer i teksten er **24 uenige**
+med deres eget `menu_items[]`. Blandt de 13 bons der har fået auto-genererede linjer:
+B4222 (`1 x Falaflen (GLUTENFRI)` — office tastede den manglende ret i hånden),
+B4174, B4224. Samme parentes, samme udfald.
+
+**Og den modsatte fejl fandtes.** Genberegningen tildelte tællingen til **hver**
+menuret med det pågældende navn. Menuen har haft dubletter (r161/r25, r162/r53 …),
+så B4145 fik 14 linjer for 8 bestilte retter — overbestilling. Den nuværende menu
+har ingen dubletter, så fejlen er sovende, men mekanismen lå der.
+
+- **Én parsing i stedet for én regex pr. ret.** `parseWishes()` læser hver linje
+  én gang og finder den ret hvis navn står **forrest** og slutter på en ordgrænse;
+  længste match vinder. Så overlever noten (`Kyllingen (1 uden mayo)` → Kyllingen),
+  `Kyllingen BBQ- Salat` vinder stadig over `Kyllingen` på sin egen linje, og
+  `Fisken` rammer ikke `Fiskens`. Tællingen går til **ét** id, så dubletter i
+  menuen ikke længere bestilles to gange.
+- **Kundens note bevares ved optælling.** Et klik mere på Kyllingen giver
+  `4× Kyllingen (1 uden mayo)`, ikke `4× Kyllingen`. Den gamle kode skrev linjen
+  om fra navnet alene.
+- **Fri tekst bliver stadig ikke til en bestilling.** `36× kyllinge salat m. brød`
+  matcher ingen ret, og vi gætter ikke. Linjen bliver stående i feltet, og bonens
+  advarsel gør office opmærksom på den.
+
+**Advarslen er den anden halvdel**, for parsingen kan aldrig blive perfekt —
+`Trøflen slider` mod menuens `Trøflen - slider` (B4174) er et match ingen regel
+kan tage uden at risikere at ramme forkert. Bon-draweren viser derfor to udledte
+mærker, i samme sprog som fakturavagten (#319):
+
+| Mærke | Fyrer når |
+|---|---|
+| Kundens bestilling og bonens varer stemmer ikke | en ret-linje i kundeønskerne har ingen modsvarende bon-linje, eller antallet afviger |
+| N enheder til M pax | der er **færre** enheder end gæster, og bonen har varer |
+
+Begge er **udledt, ikke gemt**: ingen migration, de virker på alle eksisterende
+bons med det samme, og de forsvinder af sig selv når office har lagt linjen på.
+Verificeret begge veje — advarslen kom tilbage da linjen blev slettet igen.
+
+> **Pax-mærket går kun én vej.** Flere enheder end pax er helt normalt: en
+> slider-bon har 2-3 pr. gæst. Målt på 2026 ville **137 af 139** slider-bons være
+> tavse, og de sidste 2 har 0 enheder *med* varer på bonen — altså den stale
+> `total_units`-cache, ikke en slider-norm. I alt fyrer mærket på **13 af 455**
+> bons (2,9 %), sjældent nok til at blive læst. Og kun når bonen har varer: en
+> netop oprettet, tom bon er ufærdig, ikke forkert.
+
+`7 enheder til 8 pax` nævnes også, selvom kunden godt må bestille færre retter end
+gæster. Forskellen på "én spiser ikke med" og "en ret faldt ud" er ikke vores at
+afgøre — teksten siger derfor *tjek*, ikke *fejl*.
+
+> ⚠️ **Reglen findes to steder.** Formularen er single-file uden imports, så
+> `matchDish` i `public/embed/bestilling.html` spejler `matchDishName` i
+> `shared/utils.js`. §3 i testen asserterer at de svarer ens på 12 tilfælde —
+> går de fra hinanden, viser formularen noget andet end bonen får. Samme mønster
+> som `_vmFindFactor` mod `findConversionFactor`.
+
+**Fravalgt:** at sende noten videre som `special_request`. "1 without mayonaise"
+gælder 1 af 3 kyllinger; lagt på en linje med antal 3 ville den påstå at alle tre
+er uden mayo. Teksten står i kundeønskerne, og office kan splitte linjen.
+
+**Tests:** `npm run test:wish-lines` — 41 asserts. Browser-kode kan ikke `require`s,
+så både `shared/utils.js` og formularens egen blok køres i en vm-sandkasse; det er
+de samme funktioner browseren bruger. **Mutations-testet:** ni kernerettelser
+rulles hver især tilbage og fælder hver sin navngivne assert. To slap igennem
+første runde og blev lukket: emballage-filteret i `wishLineDiff` viste sig **inert**
+(og skadeligt i det ene tilfælde hvor det virkede — nævner kunden en transportkasse,
+skal antallet kunne sammenlignes) og er fjernet, og en assert **kastede** i stedet
+for at fejle, så mutationen så ud til at slippe. Regression grøn: menu-order 59,
+prep-ahead-link 70, modal 30, nav 15, portioner 32, flyver 15, dato 8,
+inbox-learn 53, mail-tid 20.
+
+Browser-verificeret ende-til-ende mod en kopi af dev-data: formularen bevarer
+retten når noten skrives (badgen bliver 3, ikke 0), noten overlever et nyt klik,
+fri tekst bestilles ikke, og begge mærker i draweren tændes og slukkes med
+linjerne. Testdata og den lokale kopi er slettet. Panelet var frosset (viewport
+0×0), så klikkene gik gennem de ægte lyttere frem for som fysiske museklik.
+
+**Ikke rørt:** de 24 historiske web-ordrer retter sig ikke selv — men advarslen
+gør dem synlige næste gang bonen åbnes.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

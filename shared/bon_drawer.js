@@ -122,6 +122,9 @@ class BonDrawer {
                     <div class="drawer-status-bar"></div>
                     <!-- Fakturavagt (#319): udledt mærke — forsvinder af sig selv når kladden findes -->
                     <div class="drawer-invoice-warning" style="display:none"></div>
+                    <!-- Web-bestilling: retter i kundens tekst der ikke står på bonen.
+                         Også udledt — forsvinder når linjerne stemmer. -->
+                    <div class="drawer-wish-warning" style="display:none"></div>
                     <div class="drawer-status-hint">Status gemmes automatisk når du klikker en knap. Brug "Gem" nederst til de øvrige felter.</div>
                 </div>
 
@@ -233,6 +236,10 @@ class BonDrawer {
                             <input type="number" class="drawer-field" data-field="total_units" min="0">
                         </div>
                     </div>
+                    <!-- Færre enheder end gæster. Ikke i sig selv en fejl (én spiser
+                         måske ikke med), men det er dét man overser når en ret er
+                         faldet ud af en web-bestilling. -->
+                    <div class="drawer-unit-hint" hidden></div>
                     <div class="drawer-row">
                         <div class="drawer-field-group">
                             <label class="drawer-sublabel">Priskategori</label>
@@ -525,7 +532,12 @@ class BonDrawer {
         this.el.querySelectorAll('.drawer-field').forEach(field => {
             if (field.closest('.drawer-mail-section')) return;
             const event = field.tagName === 'SELECT' || field.type === 'checkbox' ? 'change' : 'input';
-            field.addEventListener(event, () => this._markDirty());
+            field.addEventListener(event, () => {
+                this._markDirty();
+                // Noten skal følge tallene mens man retter dem — ikke først ved gem.
+                const f = field.dataset.field;
+                if (f === 'pax' || f === 'total_units') this._updateUnitHint();
+            });
         });
 
         // Type toggle
@@ -1706,6 +1718,68 @@ class BonDrawer {
             + '<span class="diw-sub">— kunden har ikke fået en regning</span>';
     }
 
+    // Web-bestilling: hvad står i kundens tekst som ikke står på bonen?
+    //
+    // Bon-linjerne genereres af `menu_items[]` fra formularen (#382), mens
+    // kundeønske-feltet bærer de samme retter som tekst. Går de fra hinanden —
+    // fordi en note bag retnavnet skjulte den, eller fordi kunden skrev fri
+    // tekst vi ikke kan gætte — er bonen for lille, og intet siger det.
+    //
+    // Udledt, ikke gemt: mærket forsvinder af sig selv når office har lagt
+    // linjen på. Går KUN fra tekst → bon; at bonen har mere er normalt.
+    _renderWishWarning(lines) {
+        const el = this.el.querySelector('.drawer-wish-warning');
+        if (!el) return;
+        const rows0 = lines || (this.data && this.data.lines) || [];
+        let diff = null;
+        try {
+            if (typeof wishLineDiff === 'function' && this.data) {
+                diff = wishLineDiff(this.data.customer_wishes, rows0);
+            }
+        } catch (e) { diff = null; }   // en advarsel må aldrig vælte draweren
+
+        if (!diff) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+        const esc = (t) => String(t == null ? '' : t)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const rows = [];
+        for (const m of diff.missing) {
+            rows.push(`<li><strong>${m.count}× ${esc(m.text)}</strong> står i kundens tekst, men ikke på bonen</li>`);
+        }
+        for (const d of diff.differs) {
+            rows.push(`<li>${esc(d.name)}: kunden skrev <strong>${d.want}</strong>, bonen har <strong>${d.have}</strong></li>`);
+        }
+        el.style.display = '';
+        el.innerHTML = '⚠ Kundens bestilling og bonens varer stemmer ikke'
+            + `<ul class="dww-list">${rows.join('')}</ul>`
+            + '<span class="dww-sub">Tjek kundeønskerne nederst — teksten er det kunden faktisk skrev.</span>';
+    }
+
+    // Færre enheder end gæster. Siges kun når bonen HAR varer: en tom, netop
+    // oprettet bon er ufærdig, ikke forkert. Flere enheder end pax er normalt
+    // (sliders, buffet) og nævnes ikke.
+    _updateUnitHint(lines) {
+        const el = this.el.querySelector('.drawer-unit-hint');
+        if (!el) return;
+        const num = (sel) => {
+            const f = this.el.querySelector(`[data-field="${sel}"]`);
+            const v = f ? Number(f.value) : NaN;
+            return Number.isFinite(v) ? v : 0;
+        };
+        const rows = lines || (this.data && this.data.lines) || [];
+        const hasLines = rows.some(l => !this._isBottomLine(l));
+        const hint = (typeof unitPaxHint === 'function')
+            ? unitPaxHint(num('pax'), num('total_units'), hasLines) : null;
+
+        if (!hint) { el.hidden = true; el.innerHTML = ''; return; }
+        el.hidden = false;
+        el.innerHTML = hint.kind === 'zero'
+            ? `<strong>0 enheder</strong> til ${hint.pax} pax, selvom bonen har varer `
+              + '<span class="duh-sub">&mdash; ingen af varerne tæller som enheder</span>'
+            : `<strong>${hint.units} enheder</strong> til ${hint.pax} pax `
+              + '<span class="duh-sub">&mdash; mindre end én ret pr. gæst. Tjek om noget mangler.</span>';
+    }
+
     async _setStatus(statusKey, force, confirmNoInvoice) {
         if (!this.data) return false;
         const curStatus = statusToFrontend(this.data.status_code || '');
@@ -1854,6 +1928,11 @@ class BonDrawer {
 
         this._syncGroupModel(lines);
         this._updateGroupBtn();
+
+        // Begge mærker er udledt af linjerne — de opdateres HER, så de aldrig
+        // kan vise noget andet end listen ved siden af.
+        this._renderWishWarning(lines);
+        this._updateUnitHint(lines);
 
         if (lines.length === 0) {
             list.innerHTML = '<div class="drawer-lines-empty">Ingen varer tilføjet</div>';

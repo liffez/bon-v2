@@ -1188,3 +1188,132 @@ function recipeUrl(opts) {
     // for at vi hælder et nul eller et gæt i den.
     return url;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   KUNDENS RET-LINJER  (web-bestilling)
+   ══════════════════════════════════════════════════════════════
+   Bestillingsformularen skriver kundens menu-valg som linjer i
+   kundeønske-feltet ("3× Kyllingen") OG sender dem struktureret
+   som `menu_items[]`, hvorfra bon-linjerne genereres (#382).
+
+   To repræsentationer af det samme, og de kan skride fra hinanden:
+   kunden redigerer teksten frit, og formularen genkender ikke
+   altid en ret bag en note ("3× Kyllingen (1 without mayonaise)").
+   Så falder retten ud af `menu_items[]` — uden en lyd, og med et
+   bon-kort der ser komplet ud.
+
+   Reglen her er den samme begge steder: en ret genkendes når dens
+   navn står FORREST i linjen og slutter på en ordgrænse. Derfor
+   vinder "Kyllingen BBQ- Salat" over "Kyllingen" på sin egen linje
+   (længste match), og "Fisken" rammer ikke "Fiskens".
+
+   Formularen har sin egen kopi (single-file, ingen imports) —
+   `tests/wish_lines.test.js` asserterer at de to svarer ens.
+   ══════════════════════════════════════════════════════════════ */
+
+/** Ret-linjer ("N× tekst") skilt fra fri tekst. Bevarer rækkefølgen. */
+function parseWishDishes(text) {
+    const free = [];
+    const dishes = [];
+    for (const line of String(text == null ? '' : text).split('\n')) {
+        const m = line.trim().match(/^(\d+)\s*[×x]\s*(.+?)\s*$/i);
+        if (m) dishes.push({ count: parseInt(m[1], 10), rest: m[2] });
+        else free.push(line);
+    }
+    return { free, dishes };
+}
+
+/**
+ * Find den ret i `names` der står forrest i `rest`. Længste match vinder,
+ * og navnet skal slutte på en ordgrænse.
+ * @returns {{name: string, note: string}|null} name = kandidatens eget navn
+ *          (uændret casing), note = det kunden skrev bagefter.
+ */
+function matchDishName(rest, names) {
+    const hay = String(rest == null ? '' : rest).trim();
+    const low = hay.toLowerCase();
+    if (!low) return null;
+
+    let best = null;
+    for (const raw of (names || [])) {
+        const name = String(raw == null ? '' : raw).trim();
+        const n = name.toLowerCase();
+        if (!n || n.length > low.length) continue;
+        if (low.slice(0, n.length) !== n) continue;
+        // Ordgrænse — ellers ville "Fisken" sluge "Fiskens ..."
+        const next = low.charAt(n.length);
+        if (next && /[0-9a-zà-öø-ÿ]/.test(next)) continue;
+        if (!best || n.length > best.name.length) best = { name, note: hay.slice(name.length).trim() };
+    }
+    return best;
+}
+
+/**
+ * Hvad står i kundens tekst som ikke står på bonen?
+ *
+ * Går KUN fra tekst → bon. At bonen har mere end teksten er normalt
+ * (office tilføjer emballage, retter efter aftale) og siges ikke.
+ *
+ * Emballage/levering/service tælles ikke med: dem lægger vi selv på.
+ *
+ * @returns {{missing: Array, differs: Array}|null} null når alt stemmer,
+ *          eller når teksten slet ikke har ret-linjer (så er der intet at holde op imod).
+ */
+function wishLineDiff(customerWishes, lines) {
+    const { dishes } = parseWishDishes(customerWishes);
+    if (!dishes.length) return null;
+
+    // Alle linjer tæller med — også emballage. At bonen har MERE end teksten
+    // siges der intet om (vi går kun tekst → bon), så vores egne tilføjelser
+    // larmer ikke. Og nævner kunden faktisk en transportkasse, skal antallet
+    // kunne sammenlignes frem for at blive meldt som "står ikke på bonen".
+    const bonLines = (lines || []);
+    const names = bonLines.map(l => String((l && (l.product_name || l.name)) || ''));
+
+    // Bonens antal pr. vare — rå dubletrækker lægges sammen
+    const have = new Map();
+    for (const l of bonLines) {
+        const k = String((l && (l.product_name || l.name)) || '').trim().toLowerCase();
+        if (k) have.set(k, (have.get(k) || 0) + (Number(l.quantity) || 0));
+    }
+
+    const missing = [];
+    const wanted = new Map();
+    for (const d of dishes) {
+        const hit = matchDishName(d.rest, names);
+        if (!hit) { missing.push({ count: d.count, text: d.rest }); continue; }
+        const k = hit.name.toLowerCase();
+        const prev = wanted.get(k);
+        wanted.set(k, { name: hit.name, count: (prev ? prev.count : 0) + d.count });
+    }
+
+    const differs = [];
+    for (const [k, w] of wanted) {
+        const got = have.get(k) || 0;
+        if (got !== w.count) differs.push({ name: w.name, want: w.count, have: got });
+    }
+
+    return (missing.length || differs.length) ? { missing, differs } : null;
+}
+
+/**
+ * Færre enheder end gæster — er det værd at nævne?
+ *
+ * Reglen går KUN én vej. Flere enheder end pax er helt normalt: en
+ * slider-bon har 2-3 pr. gæst, en buffet endnu flere. Målt på 2026 ville
+ * 137 af 139 slider-bons i drift være tavse, og de sidste 2 har 0 enheder
+ * med varer på bonen — altså en ægte fejl, ikke en slider-norm.
+ *
+ * Og kun når bonen HAR varer: en netop oprettet, tom bon er ufærdig,
+ * ikke forkert.
+ *
+ * Rammer ~3 % af bons i drift, hvilket er sjældent nok til at blive læst.
+ *
+ * @returns {{kind: 'zero'|'few', pax: number, units: number}|null}
+ */
+function unitPaxHint(pax, units, hasFoodLines) {
+    const p = Number(pax) || 0;
+    const u = Number(units) || 0;
+    if (!(p > 0 && u < p && hasFoodLines)) return null;
+    return { kind: u === 0 ? 'zero' : 'few', pax: p, units: u };
+}

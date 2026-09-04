@@ -1221,92 +1221,143 @@ function escapeHtml(s) {
 // når der også er fri tekst at adskille retterne fra
 // ════════════════════════════════════════════════════════
 const STRUCT_HEADER = '--- Valgte Menu ---';
+// Gamle udgaver af headeren ("--- Valgte Menu --") skal genkendes, ellers
+// bliver de til fri tekst og hober sig op i feltet.
+const STRUCT_HEADER_RE = /^-{2,}\s*Valgte\s+Menu\s*-{2,}$/i;
 
 // Struktureret state for menu_items[] payload — id-baseret
 const selectedItems = new Map(); // id → count
 
+// ── Genkend en ret i en linje ────────────────────────────────────────────
+// Navnet skal stå FORREST og slutte på en ordgrænse; længste match vinder.
+// Derfor overlever en note bag navnet ("Kyllingen (1 uden mayo)"), mens
+// "Kyllingen BBQ- Salat" stadig vinder over "Kyllingen" på sin egen linje.
+//
+// SPEJLER matchDishName() i shared/utils.js — denne fil er single-file uden
+// imports. tests/wish_lines.test.js asserterer at de to svarer ens; går de
+// fra hinanden, viser formularen noget andet end bonen får.
+function matchDish(rest, names) {
+  const hay = String(rest == null ? '' : rest).trim();
+  const low = hay.toLowerCase();
+  if (!low) return null;
+  let best = null;
+  for (const raw of (names || [])) {
+    const name = String(raw == null ? '' : raw).trim();
+    const n = name.toLowerCase();
+    if (!n || n.length > low.length) continue;
+    if (low.slice(0, n.length) !== n) continue;
+    const next = low.charAt(n.length);
+    if (next && /[0-9a-zà-öø-ÿ]/.test(next)) continue;
+    if (!best || n.length > best.name.length) best = { name, note: hay.slice(name.length).trim() };
+  }
+  return best;
+}
+
+// Første menu-id med dette navn. Har menuen to retter med samme navn (det
+// har den haft), må kun den ene få tællingen — ellers bestilles der dobbelt.
+function menuIdByName(name) {
+  const n = String(name).trim().toLowerCase();
+  const hit = MENU.find(i => String(i.name).trim().toLowerCase() === n);
+  return hit ? hit.id : null;
+}
+
+// Parse hele feltet ÉN gang: fri tekst + ret-linjer med kanonisk navn,
+// kundens note og menu-id (null = linjen matcher ingen ret på menuen).
+function parseWishes(text) {
+  const free = [], dishes = [];
+  const names = MENU.map(i => i.name);
+  for (const line of String(text == null ? '' : text).split('\n')) {
+    const t = line.trim();
+    if (STRUCT_HEADER_RE.test(t)) continue;
+    const m = t.match(/^(\d+)\s*[×x]\s*(.+?)\s*$/i);
+    if (!m) { free.push(line); continue; }
+    const count = parseInt(m[1], 10);
+    const hit = matchDish(m[2], names);
+    dishes.push(hit
+      ? { count, name: hit.name, note: hit.note, id: menuIdByName(hit.name) }
+      : { count, name: m[2], note: '', id: null });
+  }
+  return { free, dishes };
+}
+
+// Byg feltets tekst. Retterne samles altid i én blok; headeren vises kun når
+// der også er fri tekst at adskille dem fra. Kundens note bevares.
+function renderWishes(free, dishes) {
+  while (free.length && !free[0].trim())                    free.shift();
+  while (free.length && !free[free.length - 1].trim())      free.pop();
+  const dishBlock = dishes.map(d => `${d.count}× ${d.name}${d.note ? ' ' + d.note : ''}`).join('\n');
+  const freeText  = free.join('\n');
+  if (!dishBlock) return freeText;
+  return freeText ? `${freeText}\n\n${STRUCT_HEADER}\n${dishBlock}` : dishBlock;
+}
+
+// menu_items[] bygges KUN af linjer der matcher en ret. Fri tekst
+// ("36× kyllingesalat m. brød") bliver ikke til en bon-linje — vi kan ikke
+// gætte hvilken ret det er. Bonens advarsel gør office opmærksom på den.
+function syncSelected(dishes) {
+  selectedItems.clear();
+  for (const d of dishes) {
+    if (!d.id) continue;
+    selectedItems.set(d.id, (selectedItems.get(d.id) || 0) + d.count);
+  }
+}
+
+// Antal pr. ret som teksten står nu (kun genkendte retter).
+function currentCounts() {
+  const { dishes } = parseWishes(document.getElementById('wishes').value);
+  const byName = new Map();
+  for (const d of dishes) {
+    if (!d.id) continue;
+    const k = d.name.toLowerCase();
+    byName.set(k, (byName.get(k) || 0) + d.count);
+  }
+  return byName;
+}
+
 function addItem(item) {
   const ta = document.getElementById('wishes');
-  const name = item.name;
+  const { free, dishes } = parseWishes(ta.value);
 
-  // Partitionér eksisterende tekst i fri tekst vs. ret-linjer. Headeren droppes
-  // og genindsættes, så retter aldrig ender spredt over/under en note — de samles
-  // altid i én blok.
-  const freeLines = [];
-  const dishes = [];   // [{ count, name }] i oprindelig rækkefølge
-  for (const line of ta.value.split('\n')) {
-    const t = line.trim();
-    if (t === STRUCT_HEADER) continue;
-    const m = t.match(/^(\d+)\s*[×x]\s*(.+?)\s*$/);
-    if (m) dishes.push({ count: parseInt(m[1], 10), name: m[2] });
-    else   freeLines.push(line);
-  }
-
-  // Tilføj eller optæl den valgte ret (navnematch, case-insensitivt)
-  const existing = dishes.find(d => d.name.toLowerCase() === name.toLowerCase());
+  // Match på id først (to retter kan hedde det samme), ellers på navn.
+  const existing = dishes.find(d => d.id && d.id === item.id)
+                || dishes.find(d => d.name.toLowerCase() === String(item.name).toLowerCase());
   if (existing) existing.count += 1;
-  else          dishes.push({ count: 1, name });
+  else          dishes.push({ count: 1, name: item.name, note: '', id: item.id || null });
 
-  // Fjern ledende/afsluttende tomme fri-tekst-linjer, så afstanden bliver ren
-  while (freeLines.length && !freeLines[0].trim())                    freeLines.shift();
-  while (freeLines.length && !freeLines[freeLines.length - 1].trim()) freeLines.pop();
-
-  const dishBlock = dishes.map(d => `${d.count}× ${d.name}`).join('\n');
-  const freeText  = freeLines.join('\n');
-  ta.value = freeText ? `${freeText}\n\n${STRUCT_HEADER}\n${dishBlock}` : dishBlock;
-
-  // Struktureret state
-  if (item.id) selectedItems.set(item.id, (selectedItems.get(item.id) || 0) + 1);
+  ta.value = renderWishes(free, dishes);
+  syncSelected(dishes);
 
   updateBadge();
   updateMenuItemCounts();
   postHeight();
 }
 
-function getCurrentCount(name) {
-  const text = document.getElementById('wishes').value;
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Samme linjeslut-anker som addItem — se kommentar dér.
-  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s*(?:\\n|$))`, 'i');
-  const m = text.match(re);
-  return m ? parseInt(m[2], 10) : 0;
-}
-
-function getTotalCount() {
-  let total = 0;
-  MENU.forEach(item => { total += getCurrentCount(item.name); });
-  return total;
-}
-
 function updateBadge() {
-  const total = getTotalCount();
+  let total = 0;
+  for (const c of currentCounts().values()) total += c;
   const badge = document.getElementById('menu-link-badge');
   badge.textContent = total;
   badge.classList.toggle('show', total > 0);
 }
 
 function updateMenuItemCounts() {
+  const counts = currentCounts();
   document.querySelectorAll('.mi-count').forEach(span => {
-    const name = span.dataset.count;
-    const count = getCurrentCount(name);
+    const count = counts.get(String(span.dataset.count || '').toLowerCase()) || 0;
     if (count > 0) { span.textContent = `${count}×`; span.classList.add('show'); }
     else { span.textContent = ''; span.classList.remove('show'); }
   });
 }
 
 document.getElementById('wishes').addEventListener('input', () => {
-  // Hvis brugeren manuelt redigerer textarea, så genberegn struktureret state fra teksten
-  // (ellers kommer den ud af sync ved fri redigering)
-  selectedItems.clear();
-  MENU.forEach(item => {
-    const c = getCurrentCount(item.name);
-    if (c > 0 && item.id) selectedItems.set(item.id, c);
-  });
+  // Brugeren redigerer frit — state følger teksten. Teksten SKRIVES ikke om
+  // her; det ville flytte markøren midt i en sætning.
+  const { dishes } = parseWishes(document.getElementById('wishes').value);
+  syncSelected(dishes);
   updateBadge();
   updateMenuItemCounts();
   postHeight();
 });
-
 // ════════════════════════════════════════════════════════
 // LOCALSTORAGE
 // ════════════════════════════════════════════════════════
