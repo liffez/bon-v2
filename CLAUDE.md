@@ -6334,6 +6334,22 @@ Begge er **udledt, ikke gemt**: ingen migration, de virker på alle eksisterende
 bons med det samme, og de forsvinder af sig selv når office har lagt linjen på.
 Verificeret begge veje — advarslen kom tilbage da linjen blev slettet igen.
 
+**Og begge tier på en bon der ikke kan rettes.** Grænsen går ved **fakturering**,
+ikke ved levering: en LEVERET bon skal stadig faktureres, så en manglende varelinje
+betyder en for lille faktura — det er netop dér mærket handler om penge (B4222 var
+LEVERET). Er fakturaen sendt, er der intet at gøre, og et mærke man ikke kan handle
+på lærer folk at ignorere mærket — samme svigt som vagthunden i #305. `bonIsClosed()`
+dækker FAKTURERET · BETALT · AFSLUTTET · AFLYST, præcis dem med
+`status_definitions.is_terminal = 1`. Listen skrives ud frem for at hente feltet,
+fordi draweren kun kender `status_code` indtil bonen hentes igen — og mærket skal
+slukke i samme øjeblik status skifter.
+
+Målt på driftsdata er det forskellen mellem et brugbart mærke og støj: ret-linje-
+advarslen falder fra **24 til 4** bons, pax-noten fra **15 til 1**. De 20 lukkede var
+alle faktureret eller afsluttet. Pax-notens ene er ikke et udtryk for at den er død —
+kopien er fra 28. august, så næsten alt 2026 er lukket; fremadrettet vises den på
+bons under arbejde, som er hvor den hører hjemme.
+
 > **Pax-mærket går kun én vej.** Flere enheder end pax er helt normalt: en
 > slider-bon har 2-3 pr. gæst. Målt på 2026 ville **137 af 139** slider-bons være
 > tavse, og de sidste 2 har 0 enheder *med* varer på bonen — altså den stale

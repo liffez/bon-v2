@@ -1718,6 +1718,12 @@ class BonDrawer {
             + '<span class="diw-sub">— kunden har ikke fået en regning</span>';
     }
 
+    /** Er der stadig noget at gøre ved bonen? Se bonIsClosed i shared/utils.js. */
+    _bonLukket() {
+        return typeof bonIsClosed === 'function'
+            && bonIsClosed(this.data && this.data.status_code);
+    }
+
     // Web-bestilling: hvad står i kundens tekst som ikke står på bonen?
     //
     // Bon-linjerne genereres af `menu_items[]` fra formularen (#382), mens
@@ -1731,6 +1737,8 @@ class BonDrawer {
         const el = this.el.querySelector('.drawer-wish-warning');
         if (!el) return;
         const rows0 = lines || (this.data && this.data.lines) || [];
+        // Fakturaen er sendt — der er intet at gøre ved en manglende linje.
+        if (this._bonLukket()) { el.style.display = 'none'; el.innerHTML = ''; return; }
         let diff = null;
         try {
             if (typeof wishLineDiff === 'function' && this.data) {
@@ -1766,6 +1774,7 @@ class BonDrawer {
             const v = f ? Number(f.value) : NaN;
             return Number.isFinite(v) ? v : 0;
         };
+        if (this._bonLukket()) { el.hidden = true; el.innerHTML = ''; return; }
         const rows = lines || (this.data && this.data.lines) || [];
         const hasLines = rows.some(l => !this._isBottomLine(l));
         const hint = (typeof unitPaxHint === 'function')
@@ -1811,6 +1820,10 @@ class BonDrawer {
             this._renderStatusBar();
             this._renderDeleteButton();
             this._renderInvoiceWarning();
+            // De to udledte mærker gælder kun så længe bonen kan rettes —
+            // markeres den som faktureret, skal de slukke uden en genindlæsning.
+            this._renderWishWarning();
+            this._updateUnitHint();
             this._showStatusFlash();
             return true;
         } catch (err) {

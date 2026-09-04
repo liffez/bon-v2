@@ -322,6 +322,29 @@ console.log('\n§2b BONEN — færre enheder end gæster\n');
        '7 til 8 nævnes også — forskellen er ikke vores at afgøre');
 }
 
+console.log('\n§2c BONEN — mærker tier når der ikke kan gøres noget\n');
+
+{
+    const { bonIsClosed } = U;
+
+    // Grænsen går ved FAKTURERING, ikke ved levering. B4222 var LEVERET og
+    // manglede en ret — den skulle stadig faktureres, så mærket betød penge.
+    ok(bonIsClosed('LEVERET') === false, 'LEVERET er stadig åben — fakturaen mangler');
+    ok(bonIsClosed('KLAR') === false, 'KLAR er åben');
+    ok(bonIsClosed('NY') === false, 'NY er åben');
+    ok(bonIsClosed('VENTER') === false, 'VENTER er åben');
+
+    // 20 af de 24 uenige web-ordrer i drift står her. Fakturaen er sendt.
+    ok(bonIsClosed('FAKTURERET') === true, 'FAKTURERET er lukket');
+    ok(bonIsClosed('BETALT') === true, 'BETALT er lukket');
+    ok(bonIsClosed('AFSLUTTET') === true, 'AFSLUTTET er lukket');
+    ok(bonIsClosed('AFLYST') === true, 'AFLYST er lukket');
+
+    ok(bonIsClosed(null) === false && bonIsClosed(undefined) === false && bonIsClosed('') === false,
+       'ukendt status behandles som åben — vi tier ikke om noget vi ikke kender');
+    ok(bonIsClosed('faktureret') === true, 'casing er ligegyldig');
+}
+
 console.log('\n§3 DE TO KOPIER AF REGLEN SVARER ENS\n');
 
 {
