@@ -180,7 +180,47 @@ test('et inaktivt firma findes ikke på sit id', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// D. Sammenlægnings-guiden — hvor tooltip'en sender folk hen
+// D. Røgtest — hele filen, ikke kun de to ruter vi ændrede
+// ─────────────────────────────────────────────────────────────
+
+// En template literal med en udefineret variabel er syntaktisk gyldig og
+// evalueres først når ruten KALDES — `node --check` ser den ikke, og en test
+// af nabo-ruten heller ikke. Præcis dét væltede /suggestions i produktion, da
+// en ORDER BY-rettelse til /customers landede i den forkerte handler.
+//
+// Derfor rammes hver GET-rute i filen mindst én gang. Den siger intet om
+// svarets INDHOLD — kun at ruten kan køre uden at kaste.
+const CRM_GETS = [
+    '/stats', '/meetings/upcoming', '/briefing', '/suggestions',
+    '/suggestions/snoozed', '/suggestions/review-stats', '/season', '/rytme',
+    '/cold-offers', '/service-calls', '/customers', '/companies',
+    '/customer/4019', '/company/2533', '/customer-orders/4019',
+    '/planned', '/followups', '/callbacks', '/dormant', '/call-log',
+    '/call-stats', '/pipeline',
+];
+
+test('hver GET-rute i crm.js svarer uden at kaste', async () => {
+    const brudte = [];
+    for (const p of CRM_GETS) {
+        const r = await get('/api/crm' + p);
+        // 404 er et gyldigt svar for en opslags-rute med et id vi ikke seeder.
+        if (r.status >= 500) brudte.push(`${p} → ${r.status} ${r.body && r.body.error || ''}`);
+    }
+    assert.deepEqual(brudte, [], 'ruter der kaster');
+});
+
+test('ruterne svarer også MED en søgetekst der ligner et id', async () => {
+    // Id-grenen er den nye kodesti; den skal ikke kunne vælte en nabo-rute.
+    const brudte = [];
+    for (const p of ['/customers', '/companies', '/suggestions', '/season', '/rytme']) {
+        const r = await get('/api/crm' + p + '?q=4019');
+        if (r.status >= 500) brudte.push(`${p} → ${r.status} ${r.body && r.body.error || ''}`);
+    }
+    assert.deepEqual(brudte, [], 'ruter der kaster med q=4019');
+});
+
+// ─────────────────────────────────────────────────────────────
+// E. Sammenlægnings-guiden — hvor tooltip'en sender folk hen
 // ─────────────────────────────────────────────────────────────
 
 test('guidens firmasøgning finder på id', async () => {

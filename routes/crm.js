@@ -462,7 +462,7 @@ router.get('/suggestions', handle((req, res) => {
             ${catFilter.replace(/b_inner/g, 'b1')}
         GROUP BY c.id
         HAVING total_revenue > 30000
-        ORDER BY ${byIdOrder} total_revenue DESC
+        ORDER BY total_revenue DESC
         LIMIT 5
     `).all(...catArgs);
 
