@@ -7,7 +7,9 @@
 !.env.test.example
 
 # Node
-node_modules/
+# Uden skråstreg, så et SYMLINK ved navn node_modules også fanges — i en worktree
+# er der intet node_modules, og et symlink til hoved-repoets er den normale løsning.
+node_modules
 npm-debug.log*
 
 # Test-output (genereres ved hver kørsel)

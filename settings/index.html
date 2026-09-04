@@ -352,6 +352,7 @@
     <button class="st-nav-item st-admin-only" data-section="smartplan">Smartplan</button>
     <button class="st-nav-item st-admin-only" data-section="whiteboard">Whiteboard</button>
     <button class="st-nav-item st-admin-only" data-section="zettle">Zettle (POS)</button>
+    <button class="st-nav-item st-admin-only" data-section="economic">e-conomic</button>
     <button class="st-nav-item st-admin-only" data-section="event-order">Event-ordre</button>
 
     <div class="st-nav-label st-group">System &amp; vedligehold</div>
@@ -1045,6 +1046,27 @@
     </style>
 
     <!-- ════ SYSTEM ════ -->
+    <div class="st-section st-admin-only" id="sec-economic">
+      <h2>e-conomic</h2>
+
+      <div class="st-card">
+        <h3>Kategorier uden rabat</h3>
+        <p style="font-size:.82rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:4px;max-width:680px;line-height:1.6">
+          En kundes st&aring;ende rabat l&aelig;gges p&aring; hver linje i fakturaudkastet. Kategorierne her er
+          undtaget &mdash; <strong>et gebyr er et gebyr, og det rabatteres ikke</strong>. Det samme g&aelig;lder levering.
+        </p>
+        <p style="font-size:.78rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:12px;max-width:680px;line-height:1.6">
+          G&aelig;lder kun <strong>nye fakturaudkast</strong> &mdash; allerede bogf&oslash;rte fakturaer r&oslash;res ikke.
+          Kategorierne kommer fra Grocys <em>grupper</em>-felt. Er listen tom, f&aring;r alle linjer rabatten.
+        </p>
+        <div id="econ-nodisc-list"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+          <button class="st-btn st-btn-sm st-btn-primary" onclick="saveEconNoDiscount()">Gem</button>
+          <span id="econ-nodisc-msg" style="font-size:.82rem"></span>
+        </div>
+      </div>
+    </div>
+
     <div class="st-section st-admin-only" id="sec-system">
       <h2>System</h2>
       <div id="system-fields"></div>
@@ -1919,6 +1941,7 @@ async function init() {
     loadFormbuilder();
     loadOfferBlocks();
     loadOfferCatDisplay();
+    loadEconNoDiscount();
     loadLegoCats();
     loadSystemSection();
     loadDeductStatus();          // egen fetch — må ikke blokere resten hvis den fejler
@@ -3794,6 +3817,77 @@ async function saveOfferCatDisplay() {
     await saveSetting('offer_category_display', JSON.stringify(_ocdRules));
     allSettings['offer_category_display'] = JSON.stringify(_ocdRules);
     if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '✓ Gemt — slår igennem næste gang et tilbud åbnes'; }
+  } catch (e) {
+    if (msg) { msg.style.color = '#c0392b'; msg.textContent = 'Fejl: ' + (e.message || e); }
+  }
+  if (msg) setTimeout(function() { msg.textContent = ''; }, 4000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// e-conomic — kategorier uden rabat (migration 168)
+//
+// Den stående kunderabat lægges på hver fakturalinje. Levering og gebyrer skal
+// ikke rabatteres. Kategori-styret frem for hårdkodet, så en ny gebyrtype koster
+// en afkrydsning frem for en kodeændring.
+//
+// Kategorier med en gemt regel tages med selvom de er ude af Grocy — ellers ville
+// reglen være usynlig og umulig at fjerne igen (samme fælde som
+// offer_category_display havde).
+// ═══════════════════════════════════════════════════════════
+
+var _econNoDisc = [];
+var _econNoDiscCats = [];
+
+async function loadEconNoDiscount() {
+  try { _econNoDisc = JSON.parse(allSettings['economic_no_discount_categories'] || '[]') || []; }
+  catch (_) { _econNoDisc = []; }
+  if (!Array.isArray(_econNoDisc)) _econNoDisc = [];
+  _econNoDisc = _econNoDisc.filter(function(v) { return typeof v === 'string' && v.trim(); });
+
+  var cats = [];
+  try { cats = await getGrocyCategories(); }
+  catch (_) { /* Grocy nede — vis i det mindste de gemte regler */ }
+  _econNoDisc.forEach(function(c) { if (cats.indexOf(c) === -1) cats.push(c); });
+  cats.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+  _econNoDiscCats = cats;
+  renderEconNoDiscount();
+}
+
+function renderEconNoDiscount() {
+  var el = document.getElementById('econ-nodisc-list');
+  if (!el) return;
+  if (!_econNoDiscCats.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim)">Ingen kategorier fundet — kan Grocy nås?</div>';
+    return;
+  }
+  var h = '<div style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;max-width:560px">';
+  _econNoDiscCats.forEach(function(c, i) {
+    var on = _econNoDisc.indexOf(c) !== -1;
+    h += '<label style="display:flex;align-items:center;gap:10px;padding:7px 12px;cursor:pointer;' +
+         (i ? 'border-top:1px solid var(--color-border);' : '') + '">' +
+         '<input type="checkbox"' + (on ? ' checked' : '') +
+           ' onchange="_econNoDiscSet(' + JSON.stringify(c).replace(/"/g, '&quot;') + ', this.checked)">' +
+         '<span style="flex:1;font-size:13px">' + esc(c) + '</span>' +
+         '<span style="font-size:11px;color:var(--color-text-dim)">' + (on ? 'ingen rabat' : 'rabat gælder') + '</span>' +
+         '</label>';
+  });
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function _econNoDiscSet(cat, on) {
+  var i = _econNoDisc.indexOf(cat);
+  if (on && i === -1) _econNoDisc.push(cat);
+  if (!on && i !== -1) _econNoDisc.splice(i, 1);
+  renderEconNoDiscount();
+}
+
+async function saveEconNoDiscount() {
+  var msg = document.getElementById('econ-nodisc-msg');
+  try {
+    await saveSetting('economic_no_discount_categories', JSON.stringify(_econNoDisc));
+    allSettings['economic_no_discount_categories'] = JSON.stringify(_econNoDisc);
+    if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '✓ Gemt — gælder næste fakturaudkast'; }
   } catch (e) {
     if (msg) { msg.style.color = '#c0392b'; msg.textContent = 'Fejl: ' + (e.message || e); }
   }
