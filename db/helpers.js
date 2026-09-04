@@ -574,6 +574,36 @@ function createBon(input = {}) {
 // tid (UTC+1/+2) peger den stadig på i går, så "I dag"-filtre rammer
 // gårsdagens bons. todayISO() returnerer altid den danske kalenderdato.
 // en-CA-locale formaterer som YYYY-MM-DD.
+/**
+ * Et rent tal i et søgefelt er også et kunde- eller firma-id.
+ *
+ * Listerne VISER id'et — firma-listen med tooltip'en "brug til sammenlægning" —
+ * men søgefeltet lige ovenover kunne ikke finde det. Man kommer med id'et i
+ * hånden fra en changelog-linje, et oprydnings-script eller en fejlbesked, og
+ * stod så uden vej ind.
+ *
+ * EKSAKT match, aldrig delstreng: `4019` må ikke også trække 14019 og 40190 med.
+ * Og det ERSTATTER ikke tekstsøgningen — `4019` skal stadig kunne ramme et
+ * telefonnummer der indeholder cifrene. Præcis dét skete i drift, hvor en
+ * søgning på et kunde-id fandt seks rækker med Ristet Rugs eget mobilnummer.
+ *
+ * Øvre længde på 9 cifre holder et absurd langt tal ude af en heltals-kolonne;
+ * et telefonnummer eller et EAN er ikke et id.
+ *
+ * Havelågen accepteres, fordi listerne VISER id'et som "#4019" og felterne
+ * inviterer til den skrivemåde. Uden den afviste søgningen sin egen notation.
+ *
+ * Den skærper samtidig: ingen navn, mail eller telefon indeholder en havelåge,
+ * så "#4019" rammer kun id'et, mens "4019" også tager de brede tekst-træffere
+ * med. To niveauer af præcision uden et ekstra felt.
+ *
+ * @returns {number|null} id'et, eller null hvis søgeteksten ikke er et rent tal
+ */
+function searchAsId(q) {
+    const t = String(q ?? '').trim().replace(/^#/, '');
+    return /^\d{1,9}$/.test(t) ? Number(t) : null;
+}
+
 function todayISO() {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(new Date());
 }
@@ -1021,6 +1051,7 @@ function getUserId(req) {
 }
 
 module.exports = {
+    searchAsId,
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, getStatusId, getDefaultLocationId,
     createBon,

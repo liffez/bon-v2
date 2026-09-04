@@ -359,7 +359,7 @@ const _CV_PANEL_HTML = `
       <div style="display:flex;flex-direction:column;gap:14px;max-width:700px">
         <div class="merge-picker">
           <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;color:var(--color-text)">Vinder (det firma der BEHOLDES)</label>
-          <input type="search" id="merge-winner-q" placeholder="Søg firma, CVR eller juridisk navn…"
+          <input type="search" id="merge-winner-q" placeholder="Søg firma, CVR, juridisk navn eller #id…"
                  style="width:100%;padding:8px 12px;border:1px solid var(--color-border);border-radius:6px;font-size:13px"
                  autocomplete="off"/>
           <div id="merge-winner-results" class="merge-results"></div>
@@ -368,7 +368,7 @@ const _CV_PANEL_HTML = `
 
         <div class="merge-picker">
           <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;color:var(--color-text)">Taber (det firma der DEAKTIVERES)</label>
-          <input type="search" id="merge-loser-q" placeholder="Søg firma, CVR eller juridisk navn…"
+          <input type="search" id="merge-loser-q" placeholder="Søg firma, CVR, juridisk navn eller #id…"
                  style="width:100%;padding:8px 12px;border:1px solid var(--color-border);border-radius:6px;font-size:13px"
                  autocomplete="off"/>
           <div id="merge-loser-results" class="merge-results"></div>

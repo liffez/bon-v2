@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, getUserId, logChange, transaction } = require('../db/helpers');
+const { handle, getUserId, logChange, transaction, searchAsId } = require('../db/helpers');
 const { enrich } = require('../services/cvrEnrichment');
 const { buildCompanyDiff, FIELD_MAP } = require('../services/companyDiff');
 const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
@@ -12,6 +12,9 @@ router.get('/', handle((req, res) => {
     const db = getDb();
     const q = req.query.q || '';
     if (q.length < 2) return res.json([]);
+    // Sammenlægnings-guiden viser "firma #3681" i sit resultat, og firma-listens
+    // tooltip henviser hertil med id'et i hånden — så det skal kunne søges.
+    const byId = searchAsId(q);
     const rows = db.prepare(`
         SELECT c.id, c.name, c.cvr, c.ean, c.phone, c.email,
                c.default_payment_type, c.default_price_category_id,
@@ -22,9 +25,10 @@ router.get('/', handle((req, res) => {
           AND (c.name LIKE '%'||?||'%'
             OR c.cvr LIKE '%'||?||'%'
             OR COALESCE(c.legal_name,'') LIKE '%'||?||'%'
-            OR COALESCE(c.alternate_names,'') LIKE '%'||?||'%')
+            OR COALESCE(c.alternate_names,'') LIKE '%'||?||'%'
+            ${byId !== null ? 'OR c.id = ?' : ''})
         ORDER BY c.name LIMIT 20
-    `).all(q, q, q, q);
+    `).all(...(byId !== null ? [q, q, q, q, byId] : [q, q, q, q]));
     res.json(rows);
 }));
 

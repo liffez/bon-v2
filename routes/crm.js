@@ -8,7 +8,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, getUserId, logChange, transaction, revenueFactorSQL } = require('../db/helpers');
+const { handle, getUserId, logChange, transaction, revenueFactorSQL, searchAsId } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { mergeLines } = require('../shared/bon_lines');
 const { broadcast } = require('../shared/sse');
@@ -835,10 +835,22 @@ router.get('/customers', handle((req, res) => {
         where.push("c.company_id = ?");
         args.push(parseInt(company_id, 10));
     }
+    // Søger man på et id, er dén række svaret — den må ikke ligge som nr. 8 af 9
+    // under de kunder hvis telefonnummer tilfældigvis indeholder cifrene. Præcis
+    // dét skete i drift med "4019" mod mobilnummeret 40195471.
+    let byIdOrder = '';
     if (q) {
-        where.push("(c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)");
+        // Et rent tal er også et kunde-id — se searchAsId(). Det LÆGGES TIL
+        // tekstsøgningen, så cifre der optræder i et telefonnummer stadig rammer.
+        const byId = searchAsId(q);
+        // Interpoleret, ikke bundet: en parameter i ORDER BY er akavet, og
+        // værdien er allerede snævert valideret som 1-9 cifre af searchAsId().
+        if (byId !== null) byIdOrder = `CASE WHEN c.id = ${byId} THEN 0 ELSE 1 END,`;
+        where.push("(c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?"
+            + (byId !== null ? ' OR c.id = ?' : '') + ')');
         const s = '%' + q + '%';
         args.push(s, s, s, s);
+        if (byId !== null) args.push(byId);
     }
     if (category && category !== 'all') {
         bonFilter += " AND b.price_category_id = (SELECT id FROM price_categories WHERE code = ?)";
@@ -875,7 +887,7 @@ router.get('/customers', handle((req, res) => {
         WHERE ${where.join(' AND ')}
         GROUP BY c.id
         ${havingClause}
-        ORDER BY total_revenue DESC
+        ORDER BY ${byIdOrder} total_revenue DESC
         LIMIT ?
     `).all(...args);
 
@@ -895,9 +907,14 @@ router.get('/companies', handle((req, res) => {
     const args = [];
 
     if (q) {
-        where.push("(co.name LIKE ? OR co.cvr LIKE ? OR COALESCE(co.legal_name,'') LIKE ? OR COALESCE(co.alternate_names,'') LIKE ?)");
+        // Listen viser firma-id'et med tooltip'en "brug til sammenlægning" —
+        // så skal man også kunne søge på det.
+        const byId = searchAsId(q);
+        where.push("(co.name LIKE ? OR co.cvr LIKE ? OR COALESCE(co.legal_name,'') LIKE ? OR COALESCE(co.alternate_names,'') LIKE ?"
+            + (byId !== null ? ' OR co.id = ?' : '') + ')');
         const s = '%' + q + '%';
         args.push(s, s, s, s);
+        if (byId !== null) args.push(byId);
     }
     // order_after/order_before filtrerer på sidste ordre — referer nu det subquery-aliasede felt
     // i WHERE-clause på det yderste SELECT (HAVING virker ikke uden b-join længere).
