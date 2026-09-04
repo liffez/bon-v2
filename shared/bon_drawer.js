@@ -1739,6 +1739,14 @@ class BonDrawer {
         const rows0 = lines || (this.data && this.data.lines) || [];
         // Fakturaen er sendt — der er intet at gøre ved en manglende linje.
         if (this._bonLukket()) { el.style.display = 'none'; el.innerHTML = ''; return; }
+        // Kun web-bestillinger. Dér er teksten maskingenereret fra kundens
+        // menu-valg og BURDE matche linjerne. På en almindelig bon er
+        // kundeønske-feltet en note fra en telefonsamtale, som office allerede
+        // har oversat til linjer — at den ikke matcher ordret er normalt.
+        // Målt på driftsdata: 342 af 369 ramte almindelige bons, og 5 af 6
+        // stikprøver dér var falske ("9 x Sliderboks, med 3 stk:", "4 x Tunen"
+        // mod bonens «"Tunen"»).
+        if (!this.data || !this.data.from_web_order) { el.style.display = 'none'; el.innerHTML = ''; return; }
         let diff = null;
         try {
             if (typeof wishLineDiff === 'function' && this.data) {

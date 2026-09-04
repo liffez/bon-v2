@@ -398,6 +398,10 @@ function getBon(id) {
             sd.label  AS status_label,
             sd.color  AS status_color,
             sd.icon   AS status_icon,
+            -- Kom bonen fra bestillingsformularen? Kundeønske-feltet er da
+            -- maskingenereret fra kundens menu-valg og kan holdes op mod
+            -- varelinjerne; på en almindelig bon er det en menneskeskrevet note.
+            EXISTS (SELECT 1 FROM web_orders wo WHERE wo.bon_id = b.id) AS from_web_order,
             l.name    AS location_name,
             l.code    AS location_code,
             c.first_name || ' ' || COALESCE(c.last_name,'') AS contact_name_full,
