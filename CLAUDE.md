@@ -6285,6 +6285,12 @@ Verificeret begge veje — advarslen kom tilbage da linjen blev slettet igen.
 gæster. Forskellen på "én spiser ikke med" og "en ret faldt ud" er ikke vores at
 afgøre — teksten siger derfor *tjek*, ikke *fejl*.
 
+Første udgave af pax-mærket var bevidst dæmpet (11,5 px, næsten hvid baggrund) for
+ikke at larme om noget der ikke altid er en fejl. Efter drifttest blev det løftet til
+samme vægt som ret-linje-advarslen — 13 px, mættet amber, ⚠ og to linjer. Når et
+mærke kun fyrer på under 3 % af bons, må det godt fylde når det endelig gør; det er
+netop sjældenheden der gør det læseværdigt.
+
 > ⚠️ **Reglen findes to steder.** Formularen er single-file uden imports, så
 > `matchDish` i `public/embed/bestilling.html` spejler `matchDishName` i
 > `shared/utils.js`. §3 i testen asserterer at de svarer ens på 12 tilfælde —

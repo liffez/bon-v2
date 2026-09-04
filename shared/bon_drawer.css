@@ -368,20 +368,31 @@
 .drawer-wish-warning .dww-list li { margin: 2px 0; }
 .drawer-wish-warning .dww-sub { color: #a07340; }
 
-/* Færre enheder end gæster. Dæmpet — det er en observation, ikke en fejl:
+/* Færre enheder end gæster. Samme vægt som ret-linje-advarslen ovenfor:
+   den fyrer på under 3 % af bons, så den må godt fylde når den endelig gør.
+   Amber og ikke rød — det er en opfordring til at tjekke, ikke en fejl:
    én gæst spiser måske ikke med. Flere enheder end pax (sliders, buffet)
    siges der intet om. */
 .drawer-unit-hint {
-    margin-top: 6px;
-    font-size: 11.5px;
-    line-height: 1.4;
-    color: #7a4a10;
-    background: #fdf6ea;
-    border-left: 3px solid #e0b070;
-    border-radius: 4px;
-    padding: 5px 8px;
+    margin-top: 8px;
+    padding: 9px 11px;
+    border-radius: 5px;
+    background: #fdf0dc;
+    border: 1px solid #eccfa4;
+    border-left: 4px solid #d98324;
+    color: #6d400c;
+    font-size: 13px;
+    line-height: 1.45;
 }
-.drawer-unit-hint .duh-sub { color: #a07340; }
+.drawer-unit-hint strong { font-weight: 700; }
+.drawer-unit-hint .duh-sub { color: #97652c; }
+/* Ikonet står i sin egen kolonne, så teksten ikke ombryder ind under det. */
+.drawer-unit-hint .duh-ico {
+    float: left;
+    margin-right: 7px;
+    font-size: 14px;
+    line-height: 1.3;
+}
 
 .drawer-status-flash {
     display: inline-block;

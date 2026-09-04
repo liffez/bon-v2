@@ -1773,11 +1773,13 @@ class BonDrawer {
 
         if (!hint) { el.hidden = true; el.innerHTML = ''; return; }
         el.hidden = false;
+        const ico = '<span class="duh-ico">&#9888;</span>';
         el.innerHTML = hint.kind === 'zero'
-            ? `<strong>0 enheder</strong> til ${hint.pax} pax, selvom bonen har varer `
-              + '<span class="duh-sub">&mdash; ingen af varerne tæller som enheder</span>'
-            : `<strong>${hint.units} enheder</strong> til ${hint.pax} pax `
-              + '<span class="duh-sub">&mdash; mindre end én ret pr. gæst. Tjek om noget mangler.</span>';
+            ? ico + `<strong>0 enheder til ${hint.pax} pax</strong>, selvom bonen har varer<br>`
+              + '<span class="duh-sub">Ingen af varerne tæller som enheder.</span>'
+            : ico + `<strong>${hint.units} enheder til ${hint.pax} pax</strong> `
+              + '&mdash; mindre end én ret pr. gæst<br>'
+              + '<span class="duh-sub">Tjek om der mangler noget på bonen.</span>';
     }
 
     async _setStatus(statusKey, force, confirmNoInvoice) {
