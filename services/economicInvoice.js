@@ -35,6 +35,7 @@ function getEconomicSettings(db = getDb()) {
         oneoffProductNumber:         num(get('economic_oneoff_product_number')),
         amountLineRecipes:           parseIdList(get('economic_amount_line_recipes')),
         noninvoiceRecipes:           parseIdList(get('economic_noninvoice_recipes')),
+        noDiscountCategories:        parseCategoryList(get('economic_no_discount_categories')),
     };
 }
 
@@ -47,6 +48,48 @@ function parseIdList(raw) {
     } catch {
         return new Set();
     }
+}
+
+/**
+ * Kategorinavne fra Grocys `grupper` → Set af NORMALISEREDE navne.
+ * Normalisering (trim, ét mellemrum, små bogstaver) er ikke pynt: kategorien
+ * hedder `x- Service` med mellemrum efter bindestregen, og `x-Service` ville
+ * ellers ryge lydløst forbi reglen — præcis den slags tastefejl der først opdages
+ * på en faktura hos kunden.
+ */
+function parseCategoryList(raw) {
+    try {
+        const arr = JSON.parse(raw || '[]');
+        return new Set((Array.isArray(arr) ? arr : [])
+            .filter(v => typeof v === 'string')
+            .map(normalizeCategory)
+            .filter(Boolean));
+    } catch {
+        return new Set();
+    }
+}
+
+function normalizeCategory(s) {
+    return String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Rabatsats for ÉN fakturalinje. Den stående kunderabat gælder varerne — ikke
+ * levering og ikke gebyrer. Et gebyr er et gebyr; det rabatteres ikke.
+ *
+ * ÉN kilde, som alle tre linje-veje (vare, bundt, leverings-synteselinje) kalder,
+ * så de ikke kan blive uenige. Netop håndkraft-synkronisering mellem parallelle
+ * grene producerede #444.
+ *
+ * `category` er Grocys `grupper` som den står på bonlinjen. Er den tom, gælder
+ * rabatten — vi udelader kun det vi positivt kan genkende, så en linje uden
+ * kategori mister ikke stille en rabat kunden har krav på.
+ */
+function discountForLine(category, basePercent, settings = {}) {
+    if (!basePercent) return 0;
+    const excluded = settings.noDiscountCategories;
+    if (!excluded) return basePercent;
+    return excluded.has(normalizeCategory(category)) ? 0 : basePercent;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -79,6 +122,9 @@ function recipientName(bon) {
    ══════════════════════════════════════════════════════════════ */
 
 const EMPTY_SET = new Set();
+
+/** Grocy-kategorien leverings-opskrifterne bærer. Synteselinjen låner den. */
+const DELIVERY_CATEGORY = 'x-Levering';
 
 /** Linjens værdi INCL moms. `line_total` er sandheden; ellers antal × stk-pris. */
 function lineAmount(line) {
@@ -305,6 +351,7 @@ function buildDraftInvoice(bon, settings, opts = {}) {
         // og fakturasummen skal være præcis den samme som uden udfoldning.
         if (cls.kind === 'bundle') {
             const parts   = line.economic_bundle;
+            const partDiscount = discountForLine(line.category, lineDiscount, settings);
             const boxOre  = Math.round(round2(inclToExcl(line.unit_price)) * 100);
             const shares  = splitOre(boxOre, parts.map(p => p.servings));
             // e-conomic vil have prisen PR. ENHED, så andelen deles med servings og
@@ -331,7 +378,7 @@ function buildDraftInvoice(bon, settings, opts = {}) {
                     quantity:     line.quantity * p.servings,
                     unitNetPrice: unitOre[i] / 100,
                 };
-                if (lineDiscount) partObj.discountPercentage = lineDiscount;
+                if (partDiscount) partObj.discountPercentage = partDiscount;
                 lines.push(partObj);
             });
             continue;
@@ -372,7 +419,8 @@ function buildDraftInvoice(bon, settings, opts = {}) {
             quantity:     line.quantity,
             unitNetPrice: round2(inclToExcl(line.unit_price)),   // EX moms, 2 decimaler
         };
-        if (lineDiscount) lineObj.discountPercentage = lineDiscount;
+        const pct = discountForLine(line.category, lineDiscount, settings);
+        if (pct) lineObj.discountPercentage = pct;
         lines.push(lineObj);
     }
 
@@ -396,7 +444,11 @@ function buildDraftInvoice(bon, settings, opts = {}) {
             quantity:     1,
             unitNetPrice: round2(inclToExcl(bon.delivery_price)),
         };
-        if (lineDiscount) dl.discountPercentage = lineDiscount;
+        // Synteselinjen har ingen bonlinje at hente kategori fra, men den ER en
+        // levering — så den følger x-Levering-reglen. Fjernes kategorien fra
+        // listen, får leveringen rabat igen, og de to veje bliver ikke uenige.
+        const delPct = discountForLine(DELIVERY_CATEGORY, lineDiscount, settings);
+        if (delPct) dl.discountPercentage = delPct;
         lines.push(dl);
     }
 
@@ -496,6 +548,9 @@ module.exports = {
     hasBundle,
     isAmountLine,
     parseIdList,
+    parseCategoryList,
+    normalizeCategory,
+    discountForLine,
     splitOre,
     buildDraftInvoice,
     createDraftInvoice,

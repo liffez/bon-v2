@@ -371,14 +371,34 @@ E-conomics indbyggede rabat-pr-kunde virker IKKE når vi lægger linjer ind via 
 ### Sådan rammer rabatten fakturaen
 Rabatten ligger som en flad procent på BON-niveau (`bons.offer_discount_percent`),
 ikke i linjepriserne. Da en flad %-rabat på subtotalen er matematisk identisk med
-samme % på hver linje, sendes den som `discountPercentage` på **hver** linje (alle
-tre kilder: bon_lines, levering, gebyrer). `unitNetPrice` bliver ved fuld ex-moms-pris,
-så rabatten står synligt på fakturaen.
+samme % på hver linje, sendes den som `discountPercentage` pr. linje. `unitNetPrice`
+bliver ved fuld ex-moms-pris, så rabatten står synligt på fakturaen.
+
+**Undtagelse (4. sep. 2026): levering og gebyrer rabatteres ikke.** Første udgave lagde
+satsen på ALLE linjer, og faktura 4194 gav derfor 12,5 % rabat på miljøgebyret. Et gebyr
+er et gebyr. Undtagelserne er KATEGORI-styret via `settings.economic_no_discount_categories`
+(migration 168, default `["x-Levering","x- Service","06 Emballage"]`), så en ny gebyrtype
+koster en afkrydsning i Settings frem for en kodeændring.
+
+`discountForLine(category, pct, settings)` er ÉN kilde, som alle tre linjeveje kalder
+— varelinje, bundt (slider-boks) og leverings-synteselinjen. Skrevet tre gange ville
+reglen skride fra hinanden; det var netop dét der producerede #444. Synteselinjen har
+ingen bonlinje at hente kategori fra og låner `x-Levering`, så den følger listen.
+
+Navne normaliseres (trim, ét mellemrum, små bogstaver): kategorien hedder `x- Service`
+med mellemrum efter bindestregen, og `x-Service` ville ellers ryge lydløst forbi reglen.
+En linje UDEN kategori beholder rabatten — vi udelader kun det vi positivt kan genkende,
+så en linje ikke stille mister en rabat kunden har krav på. Tom liste = rabat på alt.
 
 ```js
-const lineDiscount = bon.offer_discount_percent || 0;   // samme % på alle linjer
-// pr. linje:  ...(lineDiscount ? { discountPercentage: lineDiscount } : {}),
+const pct = discountForLine(line.category, bon.offer_discount_percent || 0, settings);
+if (pct) lineObj.discountPercentage = pct;
 ```
+
+> ⚠️ Det er en ÆNDRING af hidtidig praksis for emballage. Da Ables fakturaer blev tastet
+> manuelt i e-conomic, fik emballage 12,5 % som alt andet — sådan opfører prisgruppen sig.
+> Beslutningen 4. sep. 2026 var at emballage ikke skal rabatteres, men den kan rulles
+> tilbage i Settings uden kodeændring hvis aftalen viser sig at være en anden.
 
 e-conomic genberegner totalen; `total_excl_moms` matcher Bon v2's `total_price`
 (begge er flad %-rabat på subtotal). Øre-drift accepteres (e-conomics total er sandhed).
@@ -393,6 +413,15 @@ dag — ingen kode anvender den. Den skal aktiveres (fx 12,5 % frokostportal-fir
   som fallback. Stables ALDRIG.
 - **Snapshot:** satsen låses ved oprettelse (kopieres til bonen). Senere ændring af
   firmaets sats rører IKKE eksisterende bons. Konsistent med pris-snapshot i Bon v2.
+- **Men snapshottet skal kunne rettes (4. sep. 2026).** Triggeren fyrer kun ved INSERT,
+  så en rabat aftalt i dag ramte aldrig de bons der allerede lå i faktureringskøen — og
+  `offer_discount_percent` stod ikke i PATCH-allowlisten, så satsen kunne hverken rettes
+  fra skærmen eller API'et. Det kostede to kreditnotaer i august (faktura 4150 → 4177 →
+  4178 og 4161 → 4179 → 4180), hvor eneste ændring var 12 % lagt på hver linje i hånden.
+  To veje ind nu: feltet er patchbart (valideret 0 ≤ x < 100 — en negativ sats ville
+  lægge TIL fakturaen), og `POST /api/bons/:id/reapply-discount` henter den stående sats
+  igen som en bevidst handling med sin egen changelog-linje. Knappen i bon-draweren vises
+  kun når satserne afviger; en knap der altid er en no-op er værre end ingen knap.
 
 **Mekanik — ét sted, ikke 7:** bons oprettes 7 steder (web-ordrer, tilbud, webhook,
 manuel, event …) uden fælles `createBon()`. Seed derfor den stående rabat med en

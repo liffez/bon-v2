@@ -405,6 +405,14 @@ function getBon(id) {
             c.email   AS contact_email,
             co.name   AS company_name,
             co.phone  AS company_phone,
+            -- Den STÅENDE rabat på firmaet/kunden — ikke bonens egen sats.
+            -- Bonens offer_discount_percent er et snapshot fra oprettelsen
+            -- (migration 111), så de to kan afvige: aftales en rabat i dag,
+            -- bærer bons der allerede ligger i køen stadig 0. Draweren viser
+            -- forskellen og tilbyder at hente den igen — uden de to felter
+            -- side om side er den forskel usynlig.
+            co.discount_percent AS company_discount_percent,
+            c.discount_percent  AS customer_discount_percent,
             pc.code   AS price_category_code,
             ev.name   AS event_name,
             ev.model  AS event_model
