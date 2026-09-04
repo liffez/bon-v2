@@ -98,6 +98,7 @@ function _k3RenderSearch() {
             .k3-search-row:hover { background: var(--brand-primary-light, #f1e6b2); }
             .k3-search-name { font-weight: 600; font-size: 14px; }
             .k3-search-company { font-size: 13px; color: var(--color-text-dim, #888); margin-top: 2px; }
+            .k3-search-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; opacity: .75; }
             .k3-search-stats { font-size: 13px; color: var(--color-text-dim, #888); text-align: right; }
             .k3-row-check {
                 width: 16px; height: 16px; margin-right: 12px;
@@ -726,7 +727,8 @@ function _k3RenderSearchResults(rows) {
             '<input type="checkbox" class="k3-row-check" ' + checked + ' onclick="event.stopPropagation();_k3ToggleSelect(' + r.id + ', this.checked)">' +
             '<div onclick="_k3Navigate(' + r.id + ')" style="flex:1;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;">' +
                 '<div><span class="k3-search-name">' + r.name + stageBadge + '</span>' +
-                (r.company_name ? '<div class="k3-search-company">' + r.company_name + '</div>' : '') + '</div>' +
+                '<div class="k3-search-company"><span class="k3-search-id" title="Kunde-id — kan søges på">#' + r.id + '</span>' +
+                    (r.company_name ? ' · ' + r.company_name : '') + '</div></div>' +
                 '<div class="k3-search-stats">' + (r.total_orders || 0) + ' ordrer · ' +
                 Math.round(r.total_revenue || 0).toLocaleString('da-DK') + ' kr</div>' +
             '</div>' +

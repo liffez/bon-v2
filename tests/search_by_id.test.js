@@ -108,6 +108,29 @@ test('searchAsId genkender et rent tal og afviser alt andet', () => {
     assert.equal(searchAsId('1234567890'), null, '10 cifre er et telefonnummer, ikke et id');
 });
 
+test('havelåge accepteres — listerne viser id\'et som "#4019"', () => {
+    // Uden dette afviser søgningen sin egen notation: felterne siger "#id",
+    // listerne skriver "#4019", og folk taster havelågen med.
+    assert.equal(searchAsId('#4019'), 4019);
+    assert.equal(searchAsId(' #4019 '), 4019);
+    for (const v of ['##4019', '#abc', '#', '4019#']) {
+        assert.equal(searchAsId(v), null, `${JSON.stringify(v)} er ikke et id`);
+    }
+});
+
+test('havelågen SKÆRPER søgningen til netop den ene kunde', async () => {
+    // "#4019" er utvetydigt et id — ingen navn, mail eller telefon indeholder
+    // havelågen, så tekstdelen rammer ingenting og kun id-matchet står tilbage.
+    // Det er en gevinst, ikke en bivirkning: skriver man havelågen, vil man
+    // ikke have de otte kunder hvis telefonnummer indeholder cifrene.
+    const med = await get('/api/crm/customers?q=%234019');
+    assert.deepEqual(ids(med.body), [4019], 'kun kunden');
+
+    const uden = await get('/api/crm/customers?q=4019');
+    assert.equal(uden.body[0].id, 4019, 'uden havelåge står den først …');
+    assert.ok(uden.body.length > 1, '… men de brede træffere er med');
+});
+
 // ─────────────────────────────────────────────────────────────
 // B. Kundelisten — dét felt der fejlede i drift
 // ─────────────────────────────────────────────────────────────

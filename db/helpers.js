@@ -582,10 +582,17 @@ function createBon(input = {}) {
  * Øvre længde på 9 cifre holder et absurd langt tal ude af en heltals-kolonne;
  * et telefonnummer eller et EAN er ikke et id.
  *
+ * Havelågen accepteres, fordi listerne VISER id'et som "#4019" og felterne
+ * inviterer til den skrivemåde. Uden den afviste søgningen sin egen notation.
+ *
+ * Den skærper samtidig: ingen navn, mail eller telefon indeholder en havelåge,
+ * så "#4019" rammer kun id'et, mens "4019" også tager de brede tekst-træffere
+ * med. To niveauer af præcision uden et ekstra felt.
+ *
  * @returns {number|null} id'et, eller null hvis søgeteksten ikke er et rent tal
  */
 function searchAsId(q) {
-    const t = String(q ?? '').trim();
+    const t = String(q ?? '').trim().replace(/^#/, '');
     return /^\d{1,9}$/.test(t) ? Number(t) : null;
 }
 
