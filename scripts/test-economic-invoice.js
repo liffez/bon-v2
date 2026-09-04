@@ -433,6 +433,89 @@ console.log('\n── Bundt-reglen (hvilke opskrifter folder ud) ──');
     })().catch(e => { fail++; console.error('  ✗ bundt-regel crash:', e.message); }));
 }
 
+console.log('\n── Rabat: levering og gebyrer rabatteres ikke (etape 1) ──');
+{
+    // Kategorierne kommer fra Grocys `grupper`. `x- Service` har mellemrum efter
+    // bindestregen — normaliseringen er hele pointen med at teste den.
+    const S = { ...SETTINGS, noDiscountCategories: inv.parseCategoryList(
+        '["x-Levering","x- Service","06 Emballage"]') };
+
+    const ableBon = () => ({
+        id: 900, bon_number: 'T_ECON_RABAT', delivery_date: '2026-09-04',
+        company: { name: 'Able', economic_customer_id: 733 },
+        offer_discount_percent: 12.5,
+        delivery_price: 0,
+        lines: [
+            { id: 1, product_name: 'Kyllingen',  category: '01 Sandwich',  quantity: 36, unit_price: 104, economic_product_number: '70' },
+            { id: 2, product_name: 'Transportkasse', category: '06 Emballage', quantity: 10, unit_price: 12.5, economic_product_number: '56' },
+            { id: 3, product_name: 'Miljøgebyr', category: 'x- Service',   quantity: 1,  unit_price: 36.25, economic_product_number: '98' },
+            { id: 4, product_name: 'By-ekspressen leverer', category: 'x-Levering', quantity: 1, unit_price: 225, economic_product_number: '17' },
+            { id: 5, product_name: 'Fritekstvare', category: null,         quantity: 1,  unit_price: 100, economic_product_number: '60' },
+        ],
+    });
+
+    const byNr = (p) => Object.fromEntries(p.lines.map(l => [l.product.productNumber, l.discountPercentage ?? 0]));
+    const d = byNr(inv.buildDraftInvoice(ableBon(), S));
+
+    ok('#D1 mad får rabatten',                    d['70'] === 12.5);
+    ok('#D2 miljøgebyr får INGEN rabat',          d['98'] === 0);
+    ok('#D3 levering får INGEN rabat',            d['17'] === 0);
+    ok('#D4 emballage får INGEN rabat',           d['56'] === 0);
+    // En linje uden kategori må ikke miste en rabat kunden har krav på — vi
+    // udelader kun det vi positivt kan genkende.
+    ok('#D5 linje uden kategori beholder rabatten', d['60'] === 12.5);
+
+    // Tom liste = den gamle adfærd. Bevidst bagudkompatibel, så en tom eller
+    // ugyldig setting aldrig kan fjerne en rabat i stilhed.
+    const d0 = byNr(inv.buildDraftInvoice(ableBon(), { ...SETTINGS, noDiscountCategories: new Set() }));
+    ok('#D6 tom liste → rabat på alt (gammel adfærd)', d0['98'] === 12.5 && d0['17'] === 12.5);
+    const dU = byNr(inv.buildDraftInvoice(ableBon(), { ...SETTINGS, noDiscountCategories: inv.parseCategoryList('{ikke json') }));
+    ok('#D7 ugyldig setting vælter ikke faktureringen', dU['70'] === 12.5);
+
+    // Stavevarianter: `x-Service` uden mellemrum ville ellers ryge lydløst forbi.
+    const varianter = inv.parseCategoryList('["  X-LEVERING ","x-  Service"]');
+    ok('#D8 normalisering fanger store bogstaver og dobbelt mellemrum',
+        inv.discountForLine('x-Levering', 12.5, { noDiscountCategories: varianter }) === 0 &&
+        inv.discountForLine('x- Service', 12.5, { noDiscountCategories: varianter }) === 0);
+
+    // Leverings-SYNTESElinjen har ingen bonlinje at hente kategori fra.
+    const syntese = { ...ableBon(), delivery_price: 250, lines: [ableBon().lines[0]] };
+    const ps = inv.buildDraftInvoice(syntese, S);
+    const del = ps.lines.find(l => l.description.startsWith('Levering'));
+    ok('#D9 leverings-synteselinje bygges',        !!del);
+    ok('#D10 synteselinjen får INGEN rabat',       del && (del.discountPercentage ?? 0) === 0);
+    const ps0 = inv.buildDraftInvoice(syntese, { ...SETTINGS, noDiscountCategories: new Set() });
+    const del0 = ps0.lines.find(l => l.description.startsWith('Levering'));
+    ok('#D11 synteselinjen følger listen (fjernet → rabat igen)', del0 && del0.discountPercentage === 12.5);
+
+    // Bundt (slider-boks) folder ud til flere linjer — de skal arve bonlinjens regel.
+    const boks = { ...ableBon(), lines: [{
+        id: 9, product_name: 'Alm slider Boks', category: '04 Slider', quantity: 2, unit_price: 200,
+        economic_product_number: null,
+        economic_bundle: [
+            { recipe_id: 1, product_number: '65', servings: 1, name: 'Kartoflen' },
+            { recipe_id: 2, product_number: '72', servings: 1, name: 'Fisken' },
+        ],
+    }] };
+    const db2 = byNr(inv.buildDraftInvoice(boks, S));
+    ok('#D12 bundt-linjer arver rabatten',  db2['65'] === 12.5 && db2['72'] === 12.5);
+    const boksEmb = { ...boks, lines: [{ ...boks.lines[0], category: '06 Emballage' }] };
+    const db3 = byNr(inv.buildDraftInvoice(boksEmb, S));
+    ok('#D13 bundt i udeladt kategori får INGEN rabat', db3['65'] === 0 && db3['72'] === 0);
+
+    // Uden rabat på bonen må reglen ikke opfinde en.
+    const uden = byNr(inv.buildDraftInvoice({ ...ableBon(), offer_discount_percent: 0 }, S));
+    ok('#D14 ingen rabat på bonen → ingen rabat nogen steder',
+        Object.values(uden).every(v => v === 0));
+
+    // Beløbet skal faktisk flytte sig — ellers beviser procenterne ingenting.
+    const p = inv.buildDraftInvoice(ableBon(), S);
+    const net = p.lines.reduce((s, l) => s + l.quantity * l.unitNetPrice * (1 - (l.discountPercentage || 0) / 100), 0);
+    // mad 36×83,20×0,875 + emballage 10×10 + gebyr 29 + levering 180 + fritekst 80×0,875
+    const vent = 36 * 83.2 * 0.875 + 10 * 10 + 29 + 180 + 80 * 0.875;
+    ok('#D15 fakturasummen rammer det forventede', Math.abs(net - vent) < 0.5);
+}
+
 Promise.all(pending).then(() => {
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
     process.exit(fail === 0 ? 0 : 1);

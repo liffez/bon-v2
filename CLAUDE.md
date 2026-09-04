@@ -3398,11 +3398,12 @@ ikke: den kiggede bare længere fremme.
   3 Silvan. De har ingen faktura i e-conomic overhovedet. Det er #319's område, ikke dette:
   vagten fanger dem der opfylder dens fire filtre (4 stk. / 18.781 kr i drift) og holder dem
   ude af "Forfaldne"; resten falder for skæringsdatoen eller betalingstypen.
-- **Ledger-endpoints er spærret af app-rollen.** `/accounts`, `/accounting-years`, `/journals`
-  og `/suppliers` svarer **403** med vores nuværende grant (kun `/customers` + `/invoices/*`
-  virker). Vil vi bruge e-conomics egen bank-afstemning til de ukoblede indbetalinger, er det
-  en rolle-ændring hos e-conomic — ikke kode. Verificér med et nyt probe-kald FØR der bygges
-  noget på posteringer.
+- ~~**Ledger-endpoints er spærret af app-rollen.**~~ **Rettet 4. september 2026:** de er
+  åbne. `/accounts` (240), `/journals` (7), `/suppliers` (59) og `/employees` svarer alle
+  **200** — Bookkeeping-rollen kom til med app'en `bon-v2-regnskab` (appNumber 29856).
+  Noten her stammede fra den udfasede app `bon-faktura`, som kun havde `Sales`. `/self`
+  (`application.requiredRoles`) er facit. `/price-groups` svarer derimod **501** — ikke
+  implementeret hos e-conomic, så en kundes rabatsats kan ikke læses derfra.
 
 ### CRM-triks — Ringeliste + fælles worklist-komponent (#229 + #230 + #228, 6. juli 2026)
 > Epic #232. Spec: `docs/CLAUDE_CRM_TRIKS.md`. Lav-friktions "top-of-mind"-ringekøer oven på
@@ -6217,6 +6218,65 @@ mængdefelt, som et link ville konkurrere med. Og "Lav snart" viser fortsat høj
 rækker med "+ N mere" nedenunder — en blindgyde, for teksten er ikke klikbar. Nu hvor
 kolonnen kan scrolle, kunne grænsen hæves; det er en produktbeslutning, ikke en fejl.
 
+### Rabatten rammer varerne — ikke levering og gebyrer (4. september 2026)
+
+Faktura 4194 gav Able 12,5 % rabat på **miljøgebyret**. Et gebyr er et gebyr.
+
+Rabatten SKAL komme fra bon — e-conomics egen prisgruppe fyrer ikke gennem API'et.
+Det stod i specen fra juni, og Ables egne fakturaer viser det renere end nogen
+dokumentation: 4094 (tastet manuelt i e-conomic) 12,5 % · 4150 (vores udkast, samme
+kunde, samme prisgruppe) **0 %**. `/price-groups` svarer 501, så satsen kan ikke engang
+læses derfra.
+
+- **Migration 168** — `settings.economic_no_discount_categories`, default
+  `["x-Levering","x- Service","06 Emballage"]`. Kategori-styret, ikke hårdkodet: en ny
+  gebyrtype koster en afkrydsning i **Settings → e-conomic** frem for en kodeændring.
+  Tom liste = rabat på alt (den gamle adfærd), så en tastefejl kan ikke fjerne en rabat
+  i stilhed.
+- **`discountForLine()` er ÉN kilde**, som alle tre linjeveje kalder — varelinje, bundt
+  (slider-boks) og leverings-synteselinjen. Skrevet tre gange ville de skride fra
+  hinanden; det var netop dét der producerede #444. Synteselinjen har ingen bonlinje at
+  hente kategori fra og låner `x-Levering`, så den følger listen begge veje.
+- Navne normaliseres (trim, ét mellemrum, små bogstaver). Kategorien hedder `x- Service`
+  **med mellemrum efter bindestregen** — `x-Service` ville ellers ryge lydløst forbi.
+  En linje UDEN kategori beholder rabatten: vi udelader kun det vi positivt kan genkende.
+
+**Snapshottet kan nu rettes.** Triggeren fra migration 111 fyrer kun ved INSERT, så en
+rabat aftalt i dag ramte aldrig de bons der allerede lå i køen — og
+`offer_discount_percent` stod ikke i PATCH-allowlisten, så satsen kunne hverken rettes
+fra skærmen eller API'et. Sattes den forkert, fandtes der ingen vej tilbage. Det kostede
+to kreditnotaer i august (4150 → 4177 → 4178 og 4161 → 4179 → 4180), hvor eneste ændring
+var 12 % lagt på hver linje i hånden.
+
+- Feltet er patchbart, valideret **0 ≤ x < 100** — 100 % er ikke en rabat, og en negativ
+  sats ville lægge TIL fakturaen.
+- `POST /api/bons/:id/reapply-discount` henter den stående sats igen. Bevidst handling
+  med sin egen changelog-linje, ikke en bivirkning af at gemme. Samme prioritet som
+  triggeren: firmaet vinder over personen.
+- Bon-draweren viser bonens sats **ved siden af** firmaets stående (`getBon` leverer nu
+  begge). Uden de to tal side om side er forskellen usynlig — og det var dét der kostede
+  kreditnotaerne. Knappen "Hent 12,5 % fra firmaet" vises kun når satserne afviger; en
+  knap der altid er en no-op er værre end ingen knap.
+
+> ⚠️ **Emballage i default'en er en ÆNDRING af praksis.** Da Ables fakturaer blev tastet
+> manuelt, fik emballage 12,5 % som alt andet — sådan opfører e-conomics prisgruppe sig.
+> Beslutningen var at emballage ikke skal rabatteres, men den kan rulles tilbage i
+> Settings uden kodeændring. Ables fakturaer bliver dermed en anelse dyrere end de plejer.
+
+**Drive-by:** `is_reseller` manglede i sammenlægnings-vælgeren (`routes/admin-merge.js`).
+Uden den ville en fletning hvor forhandleren er **taber** tavst tabe markeringen — og så
+holder slutkunde-routingen (migration 167) op med at virke for det firma.
+
+**Tests:** `tests/standing_discount.test.js` (17 — mod de ægte endpoints over HTTP, skema
+bygget af de rigtige migrations i `:memory:`) + 15 nye i `scripts/test-economic-invoice.js`
+(**118/0**). **Mutations-testet:** ti mutationer, alle fanget af hver sin navngivne assert.
+En af testens egne asserts fejlede undervejs og havde ret — fixturen indsatte bons uden at
+regne totalen, så ethvert beløb ville have målt fixturen frem for koden.
+
+**Ikke gjort her:** `able ApS` (id 3551) skal lægges ind under `Able` (3570) — begge peger
+på e-conomic-kundenr 733, så rabatten skulle ellers sættes to steder. Det er en
+datahandling: CRM → Værktøjer → Sammenlæg firmaer, med `Able` som vinder. 1 bon, 0 kontakter.
+
 ### En ret bag en note faldt ud af web-bestillingen (4. september 2026)
 
 B4259: kunden bestilte 7 retter, bonen fik 4. `3× Kyllingen (1 without mayonaise)`
@@ -6320,6 +6380,7 @@ linjerne. Testdata og den lokale kopi er slettet. Panelet var frosset (viewport
 
 **Ikke rørt:** de 24 historiske web-ordrer retter sig ikke selv — men advarslen
 gør dem synlige næste gang bonen åbnes.
+
 
 ## Næste opgave
 

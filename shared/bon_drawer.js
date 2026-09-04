@@ -2008,18 +2008,37 @@ class BonDrawer {
         // og serverens egen total (et andet faktum) — ikke et mellemregnet tal
         // der kan komme til at modsige fakturaen.
         var discountHtml = '';
-        var pct = Number(this.data && this.data.offer_discount_percent) || 0;
-        if (pct > 0) {
-            var bonTotal = Number(this.data.total_price);
-            var pctTxt = pct.toLocaleString('da-DK', { maximumFractionDigits: 2 });
+        var d = this.data || {};
+        var pct = Number(d.offer_discount_percent) || 0;
+        // Den stående sats på firmaet/kunden. Afviger den fra bonens, er det
+        // fordi satsen blev aftalt EFTER bonen blev oprettet — triggeren
+        // (migration 111) fyrer kun ved INSERT. Uden de to tal side om side er
+        // den forskel usynlig, og det var præcis dét der kostede to kreditnotaer.
+        var standing = Number(d.company_discount_percent) > 0
+            ? Number(d.company_discount_percent)
+            : Number(d.customer_discount_percent) || 0;
+        var fmtPct = function (v) { return v.toLocaleString('da-DK', { maximumFractionDigits: 2 }); };
+
+        if (pct > 0 || standing > 0) {
+            var bonTotal = Number(d.total_price);
+            var label = pct > 0 ? 'Rabat ' + fmtPct(pct) + ' %' : 'Ingen rabat på denne bon';
+            var editBtn = '<button type="button" class="drawer-discount-edit" data-pct="' + pct +
+                          '" title="Ret rabatten på denne bon">✎</button>';
+            // Knappen vises kun når den faktisk kan gøre noget — en knap der
+            // altid er en no-op er værre end ingen knap.
+            var reapply = (standing > 0 && standing !== pct)
+                ? '<button type="button" class="drawer-discount-reapply" title="Firmaet har ' +
+                  fmtPct(standing) + ' % i stående rabat, som denne bon ikke bærer">' +
+                  'Hent ' + fmtPct(standing) + ' % fra firmaet</button>'
+                : '';
             discountHtml =
                 '<div class="drawer-line-discount">' +
-                    '<span class="drawer-line-total-label">Rabat ' + pctTxt + ' %</span>' +
-                    '<span class="drawer-line-total-amount">trukket fra</span>' +
+                    '<span class="drawer-line-total-label">' + label + ' ' + editBtn + reapply + '</span>' +
+                    '<span class="drawer-line-total-amount">' + (pct > 0 ? 'trukket fra' : '') + '</span>' +
                 '</div>' +
-                (isFinite(bonTotal)
+                (pct > 0 && isFinite(bonTotal)
                     ? '<div class="drawer-line-total drawer-line-total-final"' +
-                        ' title="Linjesum minus rabat — plus levering, hvis leveringen ikke står som en varelinje.">' +
+                        ' title="Linjesum minus rabat — plus levering, hvis leveringen ikke står som en varelinje. Levering og gebyrer rabatteres ikke.">' +
                         '<span class="drawer-line-total-label">Bonens total (inkl. moms)</span>' +
                         '<span class="drawer-line-total-amount">' + bonTotal.toLocaleString('da-DK', { maximumFractionDigits: 0 }) + ' kr</span>' +
                       '</div>'
@@ -2034,6 +2053,51 @@ class BonDrawer {
         list.innerHTML = html;
         this._bindLineHandlers(list);
         this._bindGroupHandlers(list);
+        this._bindDiscountHandlers(list);
+    }
+
+    /**
+     * Rabatten kunne indtil nu hverken rettes fra skærmen eller API'et — den blev
+     * sat én gang ved oprettelsen og var derefter støbt fast. Sattes den forkert,
+     * fandtes der ingen vej tilbage.
+     */
+    _bindDiscountHandlers(list) {
+        var self = this;
+        var edit = list.querySelector('.drawer-discount-edit');
+        if (edit) edit.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var now = Number(edit.getAttribute('data-pct')) || 0;
+            var svar = window.prompt('Rabat på denne bon i procent (0 = ingen).\n\nLevering og gebyrer rabatteres ikke.', String(now).replace('.', ','));
+            if (svar === null) return;
+            var v = Number(String(svar).replace(',', '.').trim());
+            if (!isFinite(v) || v < 0 || v >= 100) { self._flashMsg('⚠ Rabat skal være mindst 0 og under 100 procent', true); return; }
+            self._saveDiscount(v);
+        });
+        var again = list.querySelector('.drawer-discount-reapply');
+        if (again) again.addEventListener('click', function (e) {
+            e.stopPropagation();
+            again.disabled = true;
+            apiFetch('/bons/' + self.bonId + '/reapply-discount', { method: 'POST' })
+                .then(function (r) {
+                    self._flashMsg(r && r.changed
+                        ? '✓ Rabat hentet: ' + String(r.discount_percent).replace('.', ',') + ' %'
+                        : '✓ Rabatten var allerede den rigtige');
+                    return self.load(self.bonId);
+                })
+                .catch(function (err) { again.disabled = false; self._flashMsg('⚠ ' + (err.message || 'Kunne ikke hente rabatten'), true); });
+        });
+    }
+
+    _saveDiscount(pct) {
+        var self = this;
+        return apiFetch('/bons/' + this.bonId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ offer_discount_percent: pct }),
+        })
+            .then(function () { return self.load(self.bonId); })
+            .then(function () { self._flashMsg('✓ Rabat gemt'); })
+            .catch(function (err) { self._flashMsg('⚠ ' + (err.message || 'Kunne ikke gemme rabatten'), true); });
     }
 
     /** Én linje. Bundlinjer (emballage/service/levering) dæmpes som på bon-kortet. */
@@ -2307,15 +2371,20 @@ class BonDrawer {
     }
 
     _flashGroupSaved(failed) {
-        var row = this.el.querySelector('.drawer-lines-tools');
+        this._flashMsg(failed ? '⚠ Ikke gemt' : '✓ Gemt', failed);
+    }
+
+    /** Kort kvittering i linje-værktøjslinjen. Draweren har ingen toast. */
+    _flashMsg(text, failed) {
+        var row = this.el && this.el.querySelector('.drawer-lines-tools');
         if (!row) return;
         var old = row.querySelector('.dg-saved');
         if (old) old.remove();
         var el = document.createElement('span');
         el.className = 'dg-saved' + (failed ? ' failed' : '');
-        el.textContent = failed ? '⚠ Ikke gemt' : '✓ Gemt';
+        el.textContent = text;
         row.insertBefore(el, row.firstChild);
-        setTimeout(function() { el.remove(); }, failed ? 5000 : 1800);
+        setTimeout(function() { el.remove(); }, failed ? 5000 : 2600);
     }
 
     _openQtyEdit(qtyEl) {

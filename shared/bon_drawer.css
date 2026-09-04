@@ -1556,3 +1556,26 @@
     color: var(--color-text-dim, #8a8580);
     font-weight: 400;
 }
+
+/* Rabat — kan rettes, og den stående sats kan hentes igen (etape 1, sep. 2026).
+   Knapperne står inde i totalrækken, så de er dér hvor tallet er. */
+.drawer-discount-edit,
+.drawer-discount-reapply {
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0 .35em;
+    margin-left: .4em;
+    line-height: 1.5;
+}
+.drawer-discount-reapply {
+    font-size: .82em;
+    border-color: var(--brand-primary, #8e631f);
+    color: var(--brand-primary, #8e631f);
+}
+.drawer-discount-edit:hover,
+.drawer-discount-reapply:hover { background: rgba(0, 0, 0, .05); }
+.drawer-discount-reapply[disabled] { opacity: .5; cursor: default; }
