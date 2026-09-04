@@ -37,7 +37,7 @@ function initCrmFirmaer(container, opts = {}) {
                     <button class="cf-chip" data-stage="vip">⭐ VIP</button>
                     <button class="cf-chip" data-stage="dormant">Sovende</button>
                 </div>
-                <input class="cf-search" type="search" placeholder="Søg firma, CVR eller juridisk navn…" />
+                <input class="cf-search" type="search" placeholder="Søg firma, CVR, juridisk navn eller #id…" />
             </div>
             <div class="cf-status" id="cf-status"></div>
             <div id="cf-select-bar"></div>

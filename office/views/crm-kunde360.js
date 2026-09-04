@@ -228,7 +228,7 @@ function _k3RenderSearch() {
                 <button class="k3-new-btn" id="k3NewBtn">+ Ny kunde</button>
             </div>
             <div id="k3SearchArea">
-                <input type="text" class="k3-search-input" placeholder="Søg kunde, firma, email, telefon..." id="k3SearchInput" autofocus>
+                <input type="text" class="k3-search-input" placeholder="Søg kunde, firma, email, telefon eller #id…" id="k3SearchInput" autofocus>
                 <div class="k3-stage-filters" id="k3StageFilters">
                     <button class="k3-stage-btn active" data-stage="all">Alle</button>
                     <button class="k3-stage-btn" data-stage="vip">VIP</button>
@@ -1417,7 +1417,7 @@ function _k3RenderIdentityEditor(c) {
         '<div class="k3-id-firma">' +
             '<label>Firma</label>' +
             chip +
-            '<input type="text" id="k3IdCoSearch" placeholder="Søg firma på navn eller CVR…" autocomplete="off">' +
+            '<input type="text" id="k3IdCoSearch" placeholder="Søg firma på navn, CVR eller #id…" autocomplete="off">' +
             '<div id="k3IdCoResults" class="k3-id-results"></div>' +
         '</div>' +
         '<div class="k3-id-actions">' +
