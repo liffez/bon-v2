@@ -6334,6 +6334,50 @@ Begge er **udledt, ikke gemt**: ingen migration, de virker på alle eksisterende
 bons med det samme, og de forsvinder af sig selv når office har lagt linjen på.
 Verificeret begge veje — advarslen kom tilbage da linjen blev slettet igen.
 
+**Og begge tier på en bon der ikke kan rettes.** Grænsen går ved **fakturering**,
+ikke ved levering: en LEVERET bon skal stadig faktureres, så en manglende varelinje
+betyder en for lille faktura — det er netop dér mærket handler om penge (B4222 var
+LEVERET). Er fakturaen sendt, er der intet at gøre, og et mærke man ikke kan handle
+på lærer folk at ignorere mærket — samme svigt som vagthunden i #305. `bonIsClosed()`
+dækker FAKTURERET · BETALT · AFSLUTTET · AFLYST, præcis dem med
+`status_definitions.is_terminal = 1`. Listen skrives ud frem for at hente feltet,
+fordi draweren kun kender `status_code` indtil bonen hentes igen — og mærket skal
+slukke i samme øjeblik status skifter.
+
+**Og ret-linje-advarslen gælder kun web-bestillinger.** Dér er kundeønske-feltet
+maskingenereret fra kundens menu-valg og BURDE matche varelinjerne. På en almindelig
+bon er feltet en note fra en telefonsamtale, som office allerede har oversat til
+linjer — at den ikke matcher ordret er normalt. `getBon` leverer `from_web_order`
+(EXISTS mod `web_orders`, autoritativ; alle 123 web-bons i drift har også
+`[Form:]`-markøren, men koblingen er kilden). Pax-noten er ikke afgrænset — den
+handler om pax mod enheder og gælder enhver bon.
+
+> ⚠️ **Det første tal her var forkert.** "24 uenige web-ordrer" målte tekst mod
+> `menu_items[]` — men advarslen sammenligner tekst mod bonens **faktiske linjer**.
+> Kørt med den rigtige sammenligning rammer den **369 bons**, hvoraf **342 er
+> almindelige bons**. En stikprøve på 6 af dem gav 5 falske: `9 x Sliderboks, med
+> 3 stk:` mod en bon der har de tre sliders, `2 x standard kartoffel samt 1 x
+> standard fisk` som én sætning, `4 x Tunen` mod bonens `"Tunen"`. Uden afgrænsningen
+> havde mærket været ubrugeligt.
+
+De to filtre tilsammen, målt med den ægte `wishLineDiff` mod driftsdata:
+
+| | Bons der ville advare |
+|---|---|
+| uden afgrænsning | 369 |
+| kun web-bestillinger | 27 |
+| … og kun dem der kan rettes | **3** |
+
+De tre er B4173, B4174 og B4225 — alle gennemgået i drift og fundet i orden. To er
+fritekst der aldrig kan matches (`2× Glutenfri efter kokkens valg`, `10× sliderbox
+med`); den tredje er en navnevariant (`Trøflen slider` mod menuens `Trøflen -
+slider`). De forsvinder når bonsene faktureres. B4222 tav af sig selv, da Falaflen
+blev lagt på — selvhelbredningen er dermed bekræftet i drift, ikke kun i test.
+
+Pax-noten falder fra 15 til 1 bons; det ene er ikke et udtryk for at den er død —
+driftskopien er fra 28. august, så næsten alt fra 2026 er lukket. Fremadrettet vises
+den på bons under arbejde, som er hvor den hører hjemme.
+
 > **Pax-mærket går kun én vej.** Flere enheder end pax er helt normalt: en
 > slider-bon har 2-3 pr. gæst. Målt på 2026 ville **137 af 139** slider-bons være
 > tavse, og de sidste 2 har 0 enheder *med* varer på bonen — altså den stale

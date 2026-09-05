@@ -1297,6 +1297,25 @@ function wishLineDiff(customerWishes, lines) {
 }
 
 /**
+ * Er bonen lukket for rettelser?
+ *
+ * Grænsen går ved **fakturering**, ikke ved levering. En LEVERET bon skal
+ * stadig faktureres, så en manglende varelinje betyder en for lille faktura —
+ * det er netop dér et mærke betyder penge. Er fakturaen sendt, kan der ikke
+ * gøres noget, og et mærke man ikke kan handle på lærer folk at ignorere
+ * mærket. Samme svigt som vagthunden i #305.
+ *
+ * De fire koder er præcis dem med `status_definitions.is_terminal = 1`.
+ * Listen skrives ud frem for at hente feltet, fordi draweren skal kunne
+ * slukke mærket i samme øjeblik status skifter — den kender kun `status_code`
+ * indtil bonen hentes igen.
+ */
+var CLOSED_BON_STATUSES = ['FAKTURERET', 'BETALT', 'AFSLUTTET', 'AFLYST'];
+function bonIsClosed(statusCode) {
+    return CLOSED_BON_STATUSES.indexOf(String(statusCode || '').toUpperCase()) !== -1;
+}
+
+/**
  * Færre enheder end gæster — er det værd at nævne?
  *
  * Reglen går KUN én vej. Flere enheder end pax er helt normalt: en
