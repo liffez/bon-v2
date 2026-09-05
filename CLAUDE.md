@@ -6370,9 +6370,32 @@ De to filtre tilsammen, målt med den ægte `wishLineDiff` mod driftsdata:
 
 De tre er B4173, B4174 og B4225 — alle gennemgået i drift og fundet i orden. To er
 fritekst der aldrig kan matches (`2× Glutenfri efter kokkens valg`, `10× sliderbox
-med`); den tredje er en navnevariant (`Trøflen slider` mod menuens `Trøflen -
-slider`). De forsvinder når bonsene faktureres. B4222 tav af sig selv, da Falaflen
-blev lagt på — selvhelbredningen er dermed bekræftet i drift, ikke kun i test.
+med`). De forsvinder når bonsene faktureres. B4222 tav af sig selv, da Falaflen blev
+lagt på — selvhelbredningen er dermed bekræftet i drift, ikke kun i test.
+
+**Matchningen tåler skilletegn** (tilføjet efter drifttest). Menuen skriver
+`Trøflen - slider` og `"Tunen"`; kunden skriver `Trøflen slider` og `Tunen`.
+`_normDish()` gør bindestreger og gentagne mellemrum til ét mellemrum og fjerner
+anførselstegn — målt mod driftsdata gav det **61 nye match og nul linjer der skiftede
+fra én ret til en anden**. Ordgrænsen holder (`Fisken` rammer stadig ikke `Fiskens`),
+og en sammenskrivning uden skilletegn matcher ikke.
+
+> Normalisering ændrer længden, så noten kan ikke skæres af den normaliserede tekst.
+> `_normDish` returnerer derfor et **kort** fra hvert normaliseret tegn tilbage til
+> originalens index, og noten skæres dér. `toLowerCase()` kan give flere tegn for ét
+> (tyrkisk İ), så hvert resultat-tegn får originalens index — kortet er altid lige så
+> langt som teksten. Et anførselstegn der **klistrer** til navnet spises med
+> (`"Tunen" (uden løg)` → noten `(uden løg)`); står der et mellemrum imellem, er det
+> kundens eget og bliver stående (`Fisken "med ekstra"`).
+
+Risikoen ved at være tolerant er fejlmatch, så den blev målt før den blev bygget: af
+205 distinkte varenavne i drift smelter 7 sammen — alle **samme vare med anden
+stavning** (`cookie ` ≡ `Cookie`, ` Falaflen` ≡ `Falaflen`), ingen to forskellige
+retter. Og **0 af 3119 bons** har to af deres egne linjer der smelter sammen, så
+matchet forbliver entydigt dér hvor det bruges. Bestillingsmenuens 36 retter: ingen
+kollisioner. Efter tolerancen advarer B4174 kun om `Grisen slider` mod menuens
+`Grisen på Rug slider` — dér mangler der ord i midten, og det kan ikke tages uden
+fuzzy matching, som ville kunne ramme den forkerte ret.
 
 Pax-noten falder fra 15 til 1 bons; det ene er ikke et udtryk for at den er død —
 driftskopien er fra 28. august, så næsten alt fra 2026 er lukket. Fremadrettet vises

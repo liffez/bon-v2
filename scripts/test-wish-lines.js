@@ -322,6 +322,46 @@ console.log('\n§2b BONEN — færre enheder end gæster\n');
        '7 til 8 nævnes også — forskellen er ikke vores at afgøre');
 }
 
+console.log('\n§1c TOLERANCE — bindestreger, mellemrum og anførselstegn\n');
+
+{
+    // Menuen skriver retterne på én måde, kunden på en anden. Uden tolerance
+    // faldt 61 ret-linjer i drift ud af bestillingen.
+    const M = ['Trøflen - slider', '"Tunen"', 'Bønnen - Salat', 'Fisken', 'Kyllingen BBQ- Salat'];
+    const m = (t) => matchDishName(t, M);
+    // Null-sikre opslag: en mutation skal fælde en NAVNGIVEN assert, ikke give
+    // en stak der ligner et brudt testscript.
+    const navn = (t) => (m(t) || {}).name || null;
+    const note = (t) => (m(t) || {}).note;
+
+    eq(navn('Trøflen slider'), 'Trøflen - slider',
+       'bindestreg i menuen, ikke i kundens tekst (B4174)');
+    eq(navn('Trøflen  -  slider'), 'Trøflen - slider',
+       'ekstra mellemrum omkring bindestregen');
+    eq(navn('Trøflen-slider'), 'Trøflen - slider',
+       'bindestreg helt uden mellemrum');
+    eq(navn('Tunen'), '"Tunen"',
+       'kunden skriver uden anførselstegn, menuen med');
+    eq(navn('Bønnen salat (vegansk)'), 'Bønnen - Salat',
+       'bindestreg OG en note bagefter');
+
+    // Noten skal skæres af den ORIGINALE tekst — normaliseringen forskyder længden
+    eq(note('Trøflen slider (2 uden løg)'), '(2 uden løg)', 'note efter et kortere navn');
+    eq(note('Bønnen  -  Salat, 3 glutenfri'), ', 3 glutenfri', 'note efter et længere navn');
+    eq(note('"Tunen" (uden løg)'), '(uden løg)',
+       'navnets afsluttende anførselstegn hænger ikke ved i noten');
+    eq(note('Fisken "med ekstra"'), '"med ekstra"',
+       'men kundens EGNE anførselstegn bevares — de står efter et mellemrum');
+
+    // Og det tolerancen ikke må ødelægge
+    ok(m('Fiskens fornemmelse') === null, 'ordgrænsen holder — "Fisken" sluger ikke "Fiskens"');
+    eq(navn('Kyllingen BBQ Salat'), 'Kyllingen BBQ- Salat',
+       'længste match vinder stadig, nu også uden bindestregen');
+    ok(m('Trøflenslider') === null, 'sammenskrevet uden skilletegn matcher IKKE');
+    eq(note('  Trøflen   slider  '), '',
+       'ledende og afsluttende mellemrum giver ingen note');
+}
+
 console.log('\n§2c BONEN — mærker tier når der ikke kan gøres noget\n');
 
 {
@@ -355,6 +395,9 @@ console.log('\n§3 DE TO KOPIER AF REGLEN SVARER ENS\n');
         'Falaflen (GLUTENFRI)', 'Fiskens fornemmelse', 'Fisken',
         'kyllinge salat m. brød', 'Ægget - uden mayo', 'ÆGGET', '',
         'Frikadellen, 2 uden løg', 'Kyllingen BBQ- Salat (glutenfri)',
+        // Tolerancen skal også være ens i de to kopier
+        'Kyllingen BBQ Salat', 'Kyllingen  BBQ-  Salat', 'Kyllingen-BBQ-Salat',
+        '"Kyllingen" (standard)', 'Kyllingen BBQ- Salat  (2 uden løg)',
     ];
     let enige = 0;
     for (const c of cases) {

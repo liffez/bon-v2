@@ -1233,24 +1233,59 @@ const selectedItems = new Map(); // id → count
 // Derfor overlever en note bag navnet ("Kyllingen (1 uden mayo)"), mens
 // "Kyllingen BBQ- Salat" stadig vinder over "Kyllingen" på sin egen linje.
 //
+// Sammenligningen er tolerant over for bindestreger, dobbelte mellemrum og
+// anførselstegn: menuen har "Trøflen - slider" og «"Tunen"», kunden skriver
+// "Trøflen slider" og "Tunen". Kortet fra _normDish gør at kundens note kan
+// skæres af den ORIGINALE tekst, som normaliseringen ellers ville forskyde.
+//
 // SPEJLER matchDishName() i shared/utils.js — denne fil er single-file uden
-// imports. tests/wish_lines.test.js asserterer at de to svarer ens; går de
-// fra hinanden, viser formularen noget andet end bonen får.
+// imports. scripts/test-wish-lines.js §3 asserterer at de to svarer ens; går
+// de fra hinanden, viser formularen noget andet end bonen får.
+const DISH_DASHES = /[-\u2010-\u2015]/;
+const DISH_QUOTES = /["'\u00ab\u00bb\u201a\u201c\u201d\u201e]/;
+const DISH_WORDCHAR = /[0-9a-z\u00e0-\u00f6\u00f8-\u00ff]/;
+
+function normDish(s) {
+  const out = [], map = [];
+  let prevSpace = true;
+  for (let i = 0; i < s.length; i++) {
+    const raw = s.charAt(i);
+    if (DISH_QUOTES.test(raw)) continue;
+    if (DISH_DASHES.test(raw) || raw === ' ' || raw === '\t') {
+      if (prevSpace) continue;
+      prevSpace = true; out.push(' '); map.push(i);
+      continue;
+    }
+    prevSpace = false;
+    const lc = raw.toLowerCase();
+    for (let k = 0; k < lc.length; k++) { out.push(lc.charAt(k)); map.push(i); }
+  }
+  while (out.length && out[out.length - 1] === ' ') { out.pop(); map.pop(); }
+  return { norm: out.join(''), map };
+}
+
 function matchDish(rest, names) {
   const hay = String(rest == null ? '' : rest).trim();
-  const low = hay.toLowerCase();
-  if (!low) return null;
+  const H = normDish(hay);
+  if (!H.norm) return null;
   let best = null;
   for (const raw of (names || [])) {
     const name = String(raw == null ? '' : raw).trim();
-    const n = name.toLowerCase();
-    if (!n || n.length > low.length) continue;
-    if (low.slice(0, n.length) !== n) continue;
-    const next = low.charAt(n.length);
-    if (next && /[0-9a-zà-öø-ÿ]/.test(next)) continue;
-    if (!best || n.length > best.name.length) best = { name, note: hay.slice(name.length).trim() };
+    const n = normDish(name).norm;
+    if (!n || n.length > H.norm.length) continue;
+    if (H.norm.slice(0, n.length) !== n) continue;
+    const next = H.norm.charAt(n.length);
+    if (next && DISH_WORDCHAR.test(next)) continue;
+    if (!best || n.length > best.len) {
+      // Et anførselstegn der KLISTRER til navnet lukker navnet («"Tunen"» før
+      // « (uden løg)»); står der et mellemrum imellem, er det kundens eget
+      // og bliver i noten.
+      let cut = H.map[n.length - 1] + 1;
+      while (cut < hay.length && DISH_QUOTES.test(hay.charAt(cut))) cut++;
+      best = { name, note: hay.slice(cut).trim(), len: n.length };
+    }
   }
-  return best;
+  return best ? { name: best.name, note: best.note } : null;
 }
 
 // Første menu-id med dette navn. Har menuen to retter med samme navn (det
