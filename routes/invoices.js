@@ -278,6 +278,11 @@ const ECO_BON_SQL = `
         c.economic_contact_id, c.economic_customer_id AS customer_economic_customer_id,
         co.id AS company_id, co.name AS company_name, co.ean AS company_ean,
         co.economic_customer_id AS company_economic_customer_id,
+        -- Firmaets EGEN adresse (companies.address_id) = fakturaadressen. Den er en
+        -- anden end bonens leveringsadresse: vi leverer på et sted og fakturerer til
+        -- hovedkontoret. Begge skal med på fakturaen, hver sit sted.
+        ca.street_name AS co_street_name, ca.street_nr AS co_street_nr,
+        ca.postal_code AS co_postal_code, ca.city AS co_city,
         a.street_name AS addr_street_name, a.street_nr AS addr_street_nr,
         a.postal_code AS addr_postal_code, a.city AS addr_city,
         dv.label AS delivery_vehicle_label,
@@ -285,6 +290,7 @@ const ECO_BON_SQL = `
     FROM bons b
     LEFT JOIN customers c ON c.id = b.customer_id
     LEFT JOIN companies co ON co.id = b.company_id
+    LEFT JOIN addresses ca ON ca.id = co.address_id
     LEFT JOIN addresses a ON a.id = b.delivery_address_id
     LEFT JOIN delivery_vehicles dv ON dv.id = b.delivery_vehicle_id
     LEFT JOIN price_categories pc ON pc.id = b.price_category_id
@@ -346,6 +352,13 @@ async function enrichBonForEconomic(db, bonId) {
             name:                 row.company_name,
             ean:                  row.company_ean,
             economic_customer_id: row.company_economic_customer_id,
+            // Fakturaadressen — adskilt fra delivery_address nedenfor.
+            address: row.co_street_name || row.co_city ? {
+                street_name: row.co_street_name,
+                street_nr:   row.co_street_nr,
+                postal_code: row.co_postal_code,
+                city:        row.co_city,
+            } : null,
         } : null,
         delivery_address: row.addr_street_name ? {
             street_name: row.addr_street_name,
@@ -589,9 +602,17 @@ router.post('/:bonId/economic-create-customer', requireAuth(), handle(async (req
         SELECT b.id, co.id AS company_id, co.name AS company_name, co.cvr, co.ean, co.economic_customer_id AS company_eco,
                c.id AS customer_id, c.first_name, c.last_name, c.email, c.phone,
                c.economic_customer_id AS customer_eco, c.economic_contact_id,
-               a.street_name, a.street_nr, a.postal_code, a.city
+               -- Firmaets egen adresse først; bonens leveringsadresse kun som
+               -- nødløsning (og for privatkunder, der ikke har nogen anden).
+               -- Et kundekort med leveringsadressen sender rykkere til et
+               -- festivalområde.
+               COALESCE(ca.street_name, a.street_name) AS street_name,
+               COALESCE(ca.street_nr,   a.street_nr)   AS street_nr,
+               COALESCE(ca.postal_code, a.postal_code) AS postal_code,
+               COALESCE(ca.city,        a.city)        AS city
         FROM bons b
         LEFT JOIN companies co ON co.id = b.company_id
+        LEFT JOIN addresses ca ON ca.id = co.address_id
         LEFT JOIN customers c ON c.id = b.customer_id
         LEFT JOIN addresses a ON a.id = b.delivery_address_id
         WHERE b.id = ?`).get(parseInt(req.params.bonId, 10));
@@ -709,7 +730,8 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
         // Værn bag forhåndstjekket (#444/#454): en linje der ikke kan bygges må aldrig
         // ende som en for lille faktura. Nås kun hvis de to er blevet uenige.
         if (e.code === 'line_without_product' || e.code === 'delivery_without_product'
-            || e.code === 'oneoff_unavailable' || e.code === 'contact_customer_mismatch') {
+            || e.code === 'oneoff_unavailable' || e.code === 'contact_customer_mismatch'
+            || e.code === 'invalid_ean') {
             return res.status(422).json({ error: e.message, code: e.code, line: e.line ?? null, readiness });
         }
         // e-conomics egen begrundelse må ikke kun findes i HTTP-svaret. Da en kladde

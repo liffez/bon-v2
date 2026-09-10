@@ -516,6 +516,62 @@ console.log('\n── Rabat: levering og gebyrer rabatteres ikke (etape 1) ─�
     ok('#D15 fakturasummen rammer det forventede', Math.abs(net - vent) < 0.5);
 }
 
+console.log('\n── Fakturaadresse + EAN på modtageren ──');
+// Rapporteret fra drift: hverken EAN eller firmaadressen kom med over på
+// fakturaen. e-conomic kopierer ikke fra kundekortet — sender vi kun
+// recipient.name, står fakturaen uden begge dele, og en offentlig kunde kan
+// slet ikke modtage den.
+{
+    const mkEanBon = (over = {}) => ({
+        id: 9, bon_number: 'B4300', delivery_date: '2026-09-10',
+        company: {
+            name: 'Høje-Taastrup Kommune', economic_customer_id: 1029,
+            ean: '5798001021593',
+            address: { street_name: 'Rådhusstræde', street_nr: '1', postal_code: '2630', city: 'Taastrup' },
+            ...over,
+        },
+        delivery_address: { street_name: 'Taastrupgårdsvej', street_nr: '75', postal_code: '2630', city: 'Taastrup' },
+        offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'Sandwich', quantity: 14, unit_price: 99.79, economic_product_number: '65' }],
+    });
+
+    const p = inv.buildDraftInvoice(mkEanBon(), SETTINGS);
+    ok('#E1 EAN kommer med på recipient', p.recipient.ean === '5798001021593');
+    ok('#E1 EAN er max 13 tegn (e-conomics skema)', p.recipient.ean.length <= 13);
+    ok('#E1 fakturaadressen er firmaets egen', p.recipient.address === 'Rådhusstræde 1');
+    ok('#E1 postnr + by med', p.recipient.zip === '2630' && p.recipient.city === 'Taastrup');
+    ok('#E1 land sat', p.recipient.country === 'Danmark');
+    // Det centrale: de to adresser må ikke smelte sammen.
+    ok('#E1 leveringsadressen er en ANDEN og står stadig i delivery',
+        p.delivery.address === 'Taastrupgårdsvej 75' && p.recipient.address !== p.delivery.address);
+
+    // EAN skrevet med mellemrum/bindestreger i CRM skal stadig virke.
+    const pFormat = inv.buildDraftInvoice(mkEanBon({ ean: '5798 0010-21593' }), SETTINGS);
+    ok('#E2 cifrene trækkes ud af et formateret EAN', pFormat.recipient.ean === '5798001021593');
+
+    // Intet EAN → feltet udelades helt (privatkunder, ikke-offentlige firmaer).
+    const pUdenEan = inv.buildDraftInvoice(mkEanBon({ ean: null }), SETTINGS);
+    ok('#E3 intet EAN → feltet sendes ikke', !('ean' in pUdenEan.recipient));
+
+    // Intet firma-adresse → recipient-adressen udelades (og arver IKKE leveringsadressen).
+    const pUdenAdr = inv.buildDraftInvoice(mkEanBon({ address: null }), SETTINGS);
+    ok('#E4 ingen firmaadresse → ingen recipient-adresse', !('address' in pUdenAdr.recipient));
+    ok('#E4 og leveringsadressen smitter ikke af', pUdenAdr.delivery.address === 'Taastrupgårdsvej 75');
+
+    // Et ubrugeligt EAN skal larme her, ikke fejle ved bogføring.
+    let kastet = null;
+    try { inv.buildDraftInvoice(mkEanBon({ ean: '579800102' }), SETTINGS); } catch (e) { kastet = e; }
+    ok('#E5 for kort EAN kaster', kastet !== null);
+    ok('#E5 med kode invalid_ean', kastet?.code === 'invalid_ean');
+    ok('#E5 og beskeden viser det faktiske nummer', /579800102/.test(kastet?.message || ''));
+
+    ok('#E6 privat bon uden firma vælter ikke',
+        (() => { const b = mkEanBon(); b.company = null;
+                 b.customer = { first_name: 'Sophie', last_name: 'Schiøtt', economic_customer_id: 1030 };
+                 const pp = inv.buildDraftInvoice(b, SETTINGS);
+                 return !('ean' in pp.recipient) && !('address' in pp.recipient); })());
+}
+
 Promise.all(pending).then(() => {
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
     process.exit(fail === 0 ? 0 : 1);

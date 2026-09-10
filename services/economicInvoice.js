@@ -110,6 +110,32 @@ function buildReference(bon) {
     return [bon.bon_number, bon.requisition_ref].filter(Boolean).join(' · ');
 }
 
+/**
+ * Firmaets EAN, klar til e-conomic (`recipient.ean`, max 13 tegn i deres skema).
+ *
+ * Et EAN-nummer er 13 cifre. Skrives det med mellemrum eller bindestreger i CRM,
+ * skal cifrene stadig frem. Er der noget andet end 13 cifre tilbage, er nummeret
+ * ubrugeligt: e-conomic kan ikke sende fakturaen via Nemhandel, og fejlen ville
+ * først vise sig ved bogføring — langt fra den der kan rette den. Derfor larmer vi
+ * her frem for at sende et halvt nummer med.
+ *
+ * @returns {string|null} 13 cifre, eller null hvis firmaet slet ikke har et EAN.
+ * @throws {Error} code 'invalid_ean' hvis der ER et EAN, men det ikke er 13 cifre.
+ */
+function economicEan(bon) {
+    const raw = bon.company?.ean;
+    if (raw == null || String(raw).trim() === '') return null;
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.length !== 13) {
+        const err = new Error(
+            `EAN-nummeret på ${bon.company?.name || 'firmaet'} er "${raw}" — det skal være 13 cifre. ` +
+            `Ret det i firmaets stamdata; ellers kan e-conomic ikke sende fakturaen via Nemhandel.`);
+        err.code = 'invalid_ean';
+        throw err;
+    }
+    return digits;
+}
+
 function recipientName(bon) {
     if (bon.company?.name) return bon.company.name;
     const fn = bon.customer?.first_name || '';
@@ -477,6 +503,20 @@ function buildDraftInvoice(bon, settings, opts = {}) {
         payload.recipient.attention = { customerContactNumber: Number(contactNo) };
         payload.references.customerContact = { customerContactNumber: Number(contactNo) };
     }
+    // Fakturaadresse + EAN på modtageren. e-conomic kopierer IKKE fra kundekortet:
+    // sender vi kun recipient.name, står fakturaen uden adresse og uden EAN, og en
+    // offentlig kunde kan slet ikke modtage den. `delivery` nedenfor er noget andet
+    // — dét er hvor maden kørte hen.
+    const billTo = bon.company?.address;
+    if (billTo && (billTo.street_name || billTo.city)) {
+        payload.recipient.address = `${billTo.street_name || ''} ${billTo.street_nr || ''}`.trim();
+        payload.recipient.zip     = billTo.postal_code || '';
+        payload.recipient.city    = billTo.city || '';
+        payload.recipient.country = 'Danmark';
+    }
+    const ean = economicEan(bon);
+    if (ean) payload.recipient.ean = ean;
+
     if (addr && (addr.street_name || addr.city)) {
         payload.delivery = {
             deliveryDate: bon.delivery_date || invoiceDate,
@@ -600,6 +640,7 @@ module.exports = {
     splitOre,
     buildDraftInvoice,
     contactBelongsToCustomer,
+    economicEan,
     createDraftInvoice,
     deleteDraftInvoice,
     round2,
