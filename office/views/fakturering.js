@@ -360,6 +360,14 @@ function _faktSelectBon(bon) {
                         <div class="fakt-info-label">e-conomic<br><span style="font-size:10px;opacity:.7">kunde-nr</span></div>
                         <div class="fakt-info-val" id="fakt-eco-privat"></div>
                     </div>
+                    <!-- Kontakt-nummeret bruges af payloaden uanset om bonen har et firma
+                         (se economicInvoice.js), så det skal også kunne ses og rettes her.
+                         Var det skjult, kunne en kontakt der ligger under en ANDEN kunde
+                         vælte fakturaen uden at nogen kunne finde ud af hvorfor. -->
+                    <div class="fakt-info-row">
+                        <div class="fakt-info-label">e-conomic<br><span style="font-size:10px;opacity:.7">kontakt-nr</span></div>
+                        <div class="fakt-info-val" id="fakt-eco-privat-kontakt"></div>
+                    </div>
                     `}
                     <div class="fakt-info-row">
                         <div class="fakt-info-label">Betaling</div>
@@ -470,6 +478,7 @@ function _faktSelectBon(bon) {
         _faktRenderEcoField('fakt-eco-kontakt', bon.customer?.economic_contact_id, 'kontakt', bon);
     } else if (bon.customer) {
         _faktRenderEcoField('fakt-eco-privat', bon.customer.economic_customer_id, 'privat', bon);
+        _faktRenderEcoField('fakt-eco-privat-kontakt', bon.customer.economic_contact_id, 'kontakt', bon);
     }
     if (bon.delivery_method) _faktRenderDeliveryPrice(bon);
 }
