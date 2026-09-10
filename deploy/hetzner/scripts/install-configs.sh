@@ -36,8 +36,8 @@ echo "─── nginx vhosts ─────────────────
 # Eksisterende filer backup'es inden overskrivning, så lokale ændringer
 # kan reddes manuelt fra .backup-<timestamp>.
 TS=$(date +%Y%m%d-%H%M%S)
-for vhost in bon.ristetrug.dk whiteboard.ristetrug.dk sop.ristetrug.dk \
-             grocy-hq.ristetrug.dk grocy-trailer.ristetrug.dk \
+for vhost in bon.ristetrug.dk kontakt.ristetrug.dk whiteboard.ristetrug.dk \
+             sop.ristetrug.dk grocy-hq.ristetrug.dk grocy-trailer.ristetrug.dk \
              grocy-test.ristetrug.dk kaelder.ristetrug.dk; do
     DEST="/etc/nginx/sites-available/$vhost.conf"
     SRC="$DEPLOY_DIR/nginx/sites-available/$vhost.conf"

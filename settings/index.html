@@ -4050,14 +4050,57 @@ const BOOKING_SETTING_KEYS_SMAGNING = [
     'booking_blocked_weekdays', 'booking_workday_start', 'booking_workday_end',
     'booking_slot_step_min', 'booking_event_buffer_before_min', 'booking_event_buffer_after_min',
     'booking_default_owner_user_id', 'booking_token_ttl_days', 'booking_token_reuse_min_days',
-    'booking_public_url_base',
+    'booking_public_url_base', 'booking_customer_url_base',
     'booking_reminder_enabled', 'booking_reminder_days_before', 'booking_reminder_send_at_time',
     'booking_notify_owner_enabled'
 ];
 const BOOKING_SETTING_KEYS_KONTAKT = [
-    'booking_kontakt_enabled', 'booking_default_owner_user_id', 'booking_public_url_base',
+    'booking_kontakt_enabled', 'booking_default_owner_user_id',
+    'booking_public_url_base', 'booking_customer_url_base',
     'booking_notify_owner_enabled'
 ];
+
+// Den base kunderne ser. Falder tilbage til app-basen når der ikke er et
+// særskilt kundedomæne — samme regel som i mailService's {{booking_link}}.
+function _bookingCustomerBase() {
+    const cust = (allSettings.booking_customer_url_base || '').replace(/\/+$/, '');
+    const app  = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
+    return cust || app;
+}
+
+// App URL-basen skal pege på appen selv. Sætter man den til kundedomænet,
+// ser booking-linket rigtigt ud — men sælgernes office-links i interne mails
+// og Lobo-webhookens fallback følger med derover og lander på kundens
+// formular. Det er sket to gange, fordi feltet står hvor "Public URL-base"
+// plejede at stå.
+//
+// Siden ved hvor den selv bliver serveret fra, så den kan sige til. Undtagen
+// på localhost, hvor det er normalt at basen peger et andet sted hen end
+// udviklingsserveren.
+function _bookingAppBaseWarning() {
+    const base = (allSettings.booking_public_url_base || '').trim();
+    if (!base) return '';
+    const here = location.hostname;
+    if (here === 'localhost' || here === '127.0.0.1' || here === '::1') return '';
+
+    let baseHost;
+    try { baseHost = new URL(base).hostname; }
+    catch { baseHost = null; }
+    if (baseHost === here) return '';
+
+    const problem = baseHost
+        ? 'App URL-base peger på <strong>' + esc(baseHost) + '</strong>, men du sidder på <strong>' + esc(here) + '</strong>.'
+        : '<strong>' + esc(base) + '</strong> ser ikke ud som en gyldig URL.';
+
+    return '<div style="margin-top:10px;padding:10px 12px;border-radius:6px;background:#fdf3e3;border:1px solid #e0c088;font-size:12px;line-height:1.5">' +
+        '⚠️ ' + problem +
+        ' Feltet bygger office-links i interne mails og fallback for Lobo-webhooken — ikke kundernes booking-link.' +
+        ' Skal kunderne have et pænt domæne, hører det i <em>Kunde-URL-base</em> nedenunder.' +
+        '<div style="margin-top:8px"><button class="st-btn" style="font-size:12px" ' +
+        'onclick="bsFixAppBase()">' +
+        'Sæt til ' + esc(location.origin) + '</button></div>' +
+        '</div>';
+}
 
 const WEEKDAY_LABELS = ['Søn','Man','Tir','Ons','Tor','Fre','Lør']; // søndag = 0
 
@@ -4077,8 +4120,8 @@ async function loadBookingSmagning() {
         try { _bookingMtCache = await fetchBookingMeetingTypesAdmin(); } catch { _bookingMtCache = []; }
     }
     const c = document.getElementById('bs-content');
-    const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
-    const publicUrl = baseUrl ? baseUrl + '/tools/booking-smagning.html' : '(sæt booking_public_url_base nedenfor)';
+    const baseUrl = _bookingCustomerBase();
+    const publicUrl = baseUrl ? baseUrl + '/book/smagning' : '(sæt App URL-base nedenfor)';
 
     let html = '';
 
@@ -4095,6 +4138,8 @@ async function loadBookingSmagning() {
     html += '<table class="st-table" id="bs-mt-table"><thead><tr>' +
         '<th style="width:40px">Ikon</th><th>Navn</th><th>Nøgle</th>' +
         '<th style="width:90px">Varighed</th><th style="width:70px">Bookbar</th>' +
+        '<th style="width:96px" title="Tomt = spørg kunden. Et tal = feltet skjules og bookingen registreres med tallet">Faste gæster</th>' +
+        '<th style="width:80px" title="Slået fra: kunden bliver ikke spurgt om eventtype">Eventtype</th>' +
         '<th style="width:60px">Type</th><th style="width:70px">Aktiv</th><th style="width:60px"></th>' +
         '</tr></thead><tbody id="bs-mt-body"></tbody></table>';
     html += '<button class="st-btn st-btn-primary" style="margin-top:8px" onclick="bsMtShowNew()">+ Ny mødetype</button>';
@@ -4118,10 +4163,12 @@ async function loadBookingSmagning() {
     html += '<h3 style="font-size:14px;margin:24px 0 8px">Standardejer + tokens</h3>';
     html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border)">';
     html += _bookingOwnerField();
-    html += _bookingTextField('booking_public_url_base', 'Public URL-base', 'fx https://bon.ristetrug.dk');
+    html += _bookingTextField('booking_public_url_base', 'App URL-base (office, webhooks)', 'fx https://bon.ristetrug.dk');
+    html += _bookingTextField('booking_customer_url_base', 'Kunde-URL-base (booking-sider)', 'tom = brug app-basen');
     html += _bookingNumField('booking_token_ttl_days', 'Token-levetid', 'dage', 1, 365);
     html += _bookingNumField('booking_token_reuse_min_days', 'Genbrug token hvis udløb >', 'dage', 1, 365);
     html += '</div>';
+    html += _bookingAppBaseWarning();
 
     // Erindring
     html += '<h3 style="font-size:14px;margin:24px 0 8px">Erindringsmail</h3>';
@@ -4163,8 +4210,8 @@ async function loadBookingKontakt() {
         try { _bookingCrCache = await fetchBookingContactReasonsAdmin(); } catch { _bookingCrCache = []; }
     }
     const c = document.getElementById('bk-content');
-    const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
-    const publicUrl = baseUrl ? baseUrl + '/tools/booking-kontakt.html' : '(sæt booking_public_url_base i Smagsprøve-fanen)';
+    const baseUrl = _bookingCustomerBase();
+    const publicUrl = baseUrl ? baseUrl + '/book/kontakt' : '(sæt App URL-base i Smagsprøve-fanen)';
 
     let html = '';
 
@@ -4256,16 +4303,30 @@ function _bookingRenderMtTable() {
             <td style="font-size:12px;color:#888;font-family:monospace">${esc(mt.key)}</td>
             <td><input type="number" min="1" max="600" value="${mt.duration_min}" onchange="bsMtPatch(${mt.id}, 'duration_min', parseInt(this.value))" style="width:60px;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"> min</td>
             <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.is_bookable ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'is_bookable', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
+            <td><input type="number" min="1" max="500" placeholder="spørg" value="${mt.fixed_guest_count ?? ''}" onchange="bsMtPatch(${mt.id}, 'fixed_guest_count', this.value)" style="width:64px;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"></td>
+            <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.asks_event_type ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'asks_event_type', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
             <td><span style="font-size:11px;padding:2px 6px;border-radius:8px;background:${mt.is_system ? '#f5f0e0' : '#e8f2dc'}">${mt.is_system ? 'System' : 'Bruger'}</span></td>
             <td>${mt.is_system ? '<span style="color:#3d7a0a">✓</span>' :
                 '<label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ' + (mt.is_active ? 'checked' : '') +
                 ' onchange="bsMtPatch(' + mt.id + ', \'is_active\', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label>'}</td>
             <td><button class="st-btn" style="font-size:11px;padding:2px 8px" onclick="bsMtEditEmoji(${mt.id})">Ikon</button></td>
         </tr>
+        <tr>
+            <td></td>
+            <td colspan="9" style="padding-top:0;padding-bottom:10px">
+                <input value="${esc(mt.description || '')}"
+                       placeholder="Beskrivelse — vises under navnet på kundens booking-kort"
+                       onchange="bsMtPatch(${mt.id}, 'description', this.value)"
+                       style="width:100%;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:12px;color:var(--color-text-dim)">
+            </td>
+        </tr>
     `).join('');
 }
 
 async function bsMtPatch(id, field, value) {
+    // Tom streng er en gyldig værdi for fixed_guest_count — den betyder
+    // "spørg kunden igen". null/undefined/NaN er derimod en mislykket
+    // aflæsning og skal ikke sendes.
     if (value === null || value === undefined || Number.isNaN(value)) return;
     try {
         await patchBookingMeetingType(id, { [field]: value });
@@ -4468,6 +4529,13 @@ async function bsSavePageTemplate(key) {
 }
 
 // ─── SETTINGS HELPERS ────────────────────────────────────
+// Knappen i advarslen. bsSaveSetting tegner ikke fanen igen, så uden dette
+// ville advarslen blive stående efter at man havde rettet fejlen.
+async function bsFixAppBase() {
+    await bsSaveSetting('booking_public_url_base', location.origin);
+    loadBookingSmagning();
+}
+
 async function bsSaveSetting(key, value) {
     try {
         await patchSetting(key, value);

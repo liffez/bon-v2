@@ -6,12 +6,12 @@
 // korte som muligt i mails: https://bon.ristetrug.dk/b/76efbc7fe8f3333e
 //
 // Adfærd:
-//   - 302 redirect til den fulde tools-side med ?t=TOKEN, baseret på
+//   - 302 redirect til den offentlige booking-side med ?t=TOKEN, baseret på
 //     token's flow-felt ('smagning' eller 'kontakt')
 //   - Ukendt eller udløbet token → 410 Gone med en nem fallback
 //
 // Open-tracking (open_count + opened_at) sker i GET /api/booking/token/:token
-// så vi ikke dobbelt-tæller når kunden lander på tools-siden via /b.
+// så vi ikke dobbelt-tæller når kunden lander på booking-siden via /b.
 // ==========================================
 
 const express = require('express');
@@ -50,9 +50,9 @@ router.get('/:token', (req, res) => {
         );
     }
 
-    // 302 redirect til den korrekte tools-side
+    // 302 redirect til den korrekte offentlige booking-side
     const flow = (row.flow === 'kontakt') ? 'kontakt' : 'smagning';
-    const targetUrl = `/tools/booking-${flow}.html?t=${encodeURIComponent(token)}`;
+    const targetUrl = `/book/${flow}?t=${encodeURIComponent(token)}`;
     res.redirect(302, targetUrl);
 });
 

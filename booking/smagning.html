@@ -338,12 +338,12 @@
         <input type="text" name="company" id="company" autocomplete="organization">
       </div>
 
-      <div class="field-row">
-        <div class="field">
+      <div class="field-row" id="row-extra">
+        <div class="field" id="field-guests">
           <label>Antal gæster</label>
           <input type="number" name="guest_count" id="guest_count" min="1" max="500">
         </div>
-        <div class="field">
+        <div class="field" id="field-event">
           <label>Eventtype</label>
           <select name="event_type" id="event_type">
             <option value="">Vælg…</option>
@@ -478,8 +478,34 @@ function renderMeetingTypes() {
   });
 }
 
+// Mødetypen bestemmer hvilke felter der giver mening. En smagning er altid
+// til to personer og har intet event at vælge — så spørger vi ikke. Reglen
+// kommer fra meeting_types (fixed_guest_count / asks_event_type), ikke fra
+// en nøgle hardkodet her, så nye typer kan styres fra Settings.
+//
+// Skjulte felter deaktiveres også: FormData springer disabled felter over,
+// så de aldrig havner i payloaden. Backend sætter selv den faste værdi.
+function applyMeetingTypeFields(mt) {
+  const fixedGuests = mt && mt.fixed_guest_count != null ? mt.fixed_guest_count : null;
+  const asksEvent   = !mt || mt.asks_event_type !== 0;
+
+  const guestField = document.getElementById('field-guests');
+  const guestInput = document.getElementById('guest_count');
+  guestField.classList.toggle('hidden', fixedGuests !== null);
+  guestInput.disabled = fixedGuests !== null;
+
+  const eventField = document.getElementById('field-event');
+  const eventInput = document.getElementById('event_type');
+  eventField.classList.toggle('hidden', !asksEvent);
+  eventInput.disabled = !asksEvent;
+
+  document.getElementById('row-extra')
+          .classList.toggle('hidden', fixedGuests !== null && !asksEvent);
+}
+
 function selectMeetingType(key) {
   state.selectedMt = state.meetingTypes.find(m => m.key === key);
+  applyMeetingTypeFields(state.selectedMt);
   document.querySelectorAll('.mt-card').forEach(c => {
     c.classList.toggle('selected', c.dataset.key === key);
   });

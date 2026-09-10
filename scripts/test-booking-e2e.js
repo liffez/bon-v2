@@ -142,7 +142,7 @@ async function main() {
         const r2 = await fetch(`${BASE}/b/${token}`, { redirect: 'manual' });
         assert(r2.status === 302, `Status 302 (fik ${r2.status})`);
         const loc = r2.headers.get('location');
-        assert(loc === `/tools/booking-smagning.html?t=${token}`, `Redirect target korrekt`);
+        assert(loc === `/book/smagning?t=${token}`, `Redirect target korrekt`);
 
         // ─── STEP 3: Tools-side henter pre-fill ────────────────
         console.log('\n═══ Step 3: Tools-side henter pre-fill ═══');

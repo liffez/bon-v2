@@ -101,7 +101,7 @@ try {
     // Kort URL siden M8a — server redirect'er til den fulde tools-side.
     const expectedUrl = `https://bon.test.local/b/${t1}`;
     assert(out.includes(expectedUrl), `Output indeholder genbrugt token-URL: ${expectedUrl}`);
-    assert(!out.includes('/tools/booking-'), 'URL er kort form (/b/), ikke fuld tools-sti');
+    assert(!out.includes('/book/'), 'URL er kort form (/b/), ikke fuld booking-sti');
     assert(!out.includes('{{booking_link}}'), 'Ingen rester af placeholder i output');
 
     // Verificér at idempotens stadig gælder ved render → samme antal rækker som før
