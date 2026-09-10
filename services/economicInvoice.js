@@ -515,7 +515,15 @@ function buildDraftInvoice(bon, settings, opts = {}) {
         payload.recipient.country = 'Danmark';
     }
     const ean = economicEan(bon);
-    if (ean) payload.recipient.ean = ean;
+    if (ean) {
+        payload.recipient.ean = ean;
+        // Uden nemHandelType er EAN-nummeret bare et tal på fakturaen. Det er DETTE
+        // felt der fortæller e-conomic at fakturaen skal sendes elektronisk via
+        // Nemhandel til EAN'et når et menneske bogfører den. Sættes kun når vi
+        // faktisk har et gyldigt EAN — ellers ville vi bede om en afsendelsesmåde
+        // der ikke kan lade sig gøre.
+        payload.recipient.nemHandelType = 'ean';
+    }
 
     if (addr && (addr.street_name || addr.city)) {
         payload.delivery = {

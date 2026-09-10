@@ -538,6 +538,8 @@ console.log('\n── Fakturaadresse + EAN på modtageren ──');
     const p = inv.buildDraftInvoice(mkEanBon(), SETTINGS);
     ok('#E1 EAN kommer med på recipient', p.recipient.ean === '5798001021593');
     ok('#E1 EAN er max 13 tegn (e-conomics skema)', p.recipient.ean.length <= 13);
+    ok('#E1 nemHandelType = ean (ellers sendes den ikke via Nemhandel)',
+        p.recipient.nemHandelType === 'ean');
     ok('#E1 fakturaadressen er firmaets egen', p.recipient.address === 'Rådhusstræde 1');
     ok('#E1 postnr + by med', p.recipient.zip === '2630' && p.recipient.city === 'Taastrup');
     ok('#E1 land sat', p.recipient.country === 'Danmark');
@@ -552,6 +554,8 @@ console.log('\n── Fakturaadresse + EAN på modtageren ──');
     // Intet EAN → feltet udelades helt (privatkunder, ikke-offentlige firmaer).
     const pUdenEan = inv.buildDraftInvoice(mkEanBon({ ean: null }), SETTINGS);
     ok('#E3 intet EAN → feltet sendes ikke', !('ean' in pUdenEan.recipient));
+    ok('#E3 og heller ingen nemHandelType (ingen afsendelsesmåde at bede om)',
+        !('nemHandelType' in pUdenEan.recipient));
 
     // Intet firma-adresse → recipient-adressen udelades (og arver IKKE leveringsadressen).
     const pUdenAdr = inv.buildDraftInvoice(mkEanBon({ address: null }), SETTINGS);
