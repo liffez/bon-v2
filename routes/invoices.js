@@ -708,9 +708,15 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
         }
         // Værn bag forhåndstjekket (#444/#454): en linje der ikke kan bygges må aldrig
         // ende som en for lille faktura. Nås kun hvis de to er blevet uenige.
-        if (e.code === 'line_without_product' || e.code === 'delivery_without_product' || e.code === 'oneoff_unavailable') {
+        if (e.code === 'line_without_product' || e.code === 'delivery_without_product'
+            || e.code === 'oneoff_unavailable' || e.code === 'contact_customer_mismatch') {
             return res.status(422).json({ error: e.message, code: e.code, line: e.line ?? null, readiness });
         }
+        // e-conomics egen begrundelse må ikke kun findes i HTTP-svaret. Da en kladde
+        // blev afvist i drift, stod der intet i journalctl (handle() når aldrig herned,
+        // fordi vi selv fanger fejlen) og toasten viste kun den generiske overskrift —
+        // så årsagen fandtes ét sted: i et svar ingen kiggede i.
+        console.error(`[e-conomic] kladde for bon ${bonId} afvist:`, e.message);
         if (e instanceof eco.EconomicAuthError) {
             return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
         }

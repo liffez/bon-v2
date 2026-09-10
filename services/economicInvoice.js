@@ -494,6 +494,33 @@ function buildDraftInvoice(bon, settings, opts = {}) {
    ══════════════════════════════════════════════════════════════ */
 
 /**
+ * Hører kontakten til den kunde fakturaen udstedes til?
+ *
+ * e-conomic afviser HELE kladden med E04800 ("Mismatching customer number for
+ * invoice and customer contact") hvis ikke. Intet i forhåndstjekket kunne fange
+ * det, fordi `customers.economic_contact_id` er et bart kontaktnummer uden nogen
+ * registrering af hvilken kunde det ligger under — mens fakturakunden kan være
+ * firmaet (se resolveEconomicCustomer). En person der har fået sin kontakt
+ * oprettet under ét kundenummer og siden optræder på en bon der faktureres til et
+ * andet (firma-kobling tilføjet bagefter, ny arbejdsplads, samme person brugt på
+ * flere firmaers bons) rammer den hver eneste gang.
+ *
+ * FAIL-OPEN: kun et definitivt 404 er et nej. Netværksfejl, 500, rate limit → vi
+ * ved det ikke, og vores egen vagt må ikke blokere en faktura på et gæt; det
+ * rigtige kald bagefter afgør sagen alligevel.
+ *
+ * @returns {Promise<boolean>} false KUN når kontakten beviseligt ikke findes der.
+ */
+async function contactBelongsToCustomer(customerNumber, contactNumber) {
+    try {
+        await eco.rest(`/customers/${customerNumber}/contacts/${contactNumber}`);
+        return true;
+    } catch (err) {
+        return err.status !== 404;
+    }
+}
+
+/**
  * Opret fakturaudkast i e-conomic. Forventer en beriget bon (lines med
  * economic_product_number). Kører forhåndstjek; bygger ikke payload hvis noget mangler.
  * @param {object} opts  { invoiceDate?, oneoffForMissing?, dryRun? }
@@ -513,6 +540,25 @@ async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing, dryRun }
         throw err;
     }
     const payload = buildDraftInvoice(bon, settings, { invoiceDate, oneoffForMissing });
+
+    // Kontakt-vagt: e-conomic afviser hele kladden hvis kontakten ligger under en
+    // anden kunde end fakturaens. Tjekket kører også i prøvekørslen — en generalprøve
+    // der ikke fanger den fejl beviser intet. Det er ét opslag; der skrives intet.
+    const draftContactNo = payload.references?.customerContact?.customerContactNumber;
+    if (draftContactNo != null) {
+        const draftCustomerNo = payload.customer.customerNumber;
+        if (!(await contactBelongsToCustomer(draftCustomerNo, draftContactNo))) {
+            const err = new Error(
+                `Kontaktpersonen (e-conomic kontakt ${draftContactNo}) hører ikke til kunde ` +
+                `${draftCustomerNo}, som fakturaen udstedes til. e-conomic afviser hele ` +
+                `fakturaen. Ryd eller ret kontakt-nummeret på kunden — "Foreslå kunde/kontakt" ` +
+                `viser de kontakter der faktisk ligger under kunde ${draftCustomerNo}.`);
+            err.code = 'contact_customer_mismatch';
+            err.contactNumber = draftContactNo;
+            err.customerNumber = draftCustomerNo;
+            throw err;
+        }
+    }
     // Idempotency-nøgle = bon-id + content-hash: ægte netværks-retry (samme payload)
     // dedupes; ændret indhold (redigeret bon gen-sendt inden for 1t) får en ny nøgle
     // og undgår e-conomics "PayloadChanged"-fejl. Re-send efter success forhindres
@@ -553,6 +599,7 @@ module.exports = {
     discountForLine,
     splitOre,
     buildDraftInvoice,
+    contactBelongsToCustomer,
     createDraftInvoice,
     deleteDraftInvoice,
     round2,

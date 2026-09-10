@@ -51,6 +51,15 @@ eco.isConfigured = () => true;
 eco.rest = async (p, opts = {}) => {
     if (opts.method === 'POST' && p === '/invoices/drafts') { lastPostBody = opts.body; return { draftInvoiceNumber: ++draftSeq }; }
     if (opts.method === 'DELETE') return null;
+    // Kontakt-vagten slår op om kontakten ligger under fakturaens kunde.
+    // 700 gør (firmaets kunde 944); alt andet svarer e-conomic 404 på.
+    const ct = p.match(/^\/customers\/(\d+)\/contacts\/(\d+)$/);
+    if (ct) {
+        if (ct[1] === '944' && ct[2] === '700') return { customerContactNumber: 700 };
+        const e = new Error('e-conomic 404: contact not found');
+        e.status = 404;
+        throw e;
+    }
     throw new Error('uventet eco.rest: ' + p);
 };
 
@@ -119,7 +128,7 @@ function seed() {
     db.prepare('UPDATE bons SET pax = 40 WHERE id = ?').run(fee);
     insLine.run(fee, 'Kartoflen', 40, 9400, 376000, 100, '01 Sandwich', 0);
 
-    return { ready, missing, bundle, amount, excl, exclPriced, mixed, fee };
+    return { ready, missing, bundle, amount, excl, exclPriced, mixed, fee, cuId, coEco: 944 };
 }
 
 // ── http helper ─────────────────────────────────────────────
@@ -199,6 +208,32 @@ function req(server, method, url, { auth = true, body } = {}) {
         ok('readiness → missing bon blokeret', res.body?.blocked?.some(b => b.bon_id === ids.missing));
         ok('readiness → ready bon IKKE blokeret', !res.body?.blocked?.some(b => b.bon_id === ids.ready));
         ok('readiness → drafts_waiting = 0', res.body?.drafts_waiting === 0);
+
+        console.log('\n── Kontakt-vagt: kontakt under en anden kunde ──');
+        // Fejlen fra drift: fakturaen udstedes til firmaets kunde, men personens
+        // kontakt lå under et andet kundenummer → e-conomic afviste HELE kladden
+        // med E04800. Vagten skal fange den før afsendelse, med en besked office
+        // kan handle på.
+        db.prepare('UPDATE customers SET economic_contact_id = ? WHERE id = ?').run('875', ids.cuId);
+        res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: {} });
+        ok('kontakt-mismatch → 422', res.status === 422, `(status ${res.status}, ${JSON.stringify(res.body)})`);
+        ok('kontakt-mismatch → code', res.body?.code === 'contact_customer_mismatch');
+        ok('kontakt-mismatch → beskeden nævner begge numre',
+            /875/.test(res.body?.error || '') && /944/.test(res.body?.error || ''));
+        ok('kontakt-mismatch → intet gemt på bonen',
+            db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(ids.ready).n == null);
+
+        res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: { dry_run: true } });
+        ok('kontakt-mismatch → prøvekørslen fanger den også',
+            res.status === 422 && res.body?.code === 'contact_customer_mismatch', `(status ${res.status})`);
+
+        db.prepare('UPDATE customers SET economic_contact_id = ? WHERE id = ?').run('700', ids.cuId);
+        res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: { dry_run: true } });
+        ok('kontakt under rette kunde → slipper igennem', res.status === 200, `(status ${res.status})`);
+        ok('kontakt under rette kunde → med i payloaden',
+            res.body?.payload?.references?.customerContact?.customerContactNumber === 700
+            && res.body?.payload?.recipient?.attention?.customerContactNumber === 700);
+        db.prepare('UPDATE customers SET economic_contact_id = NULL WHERE id = ?').run(ids.cuId);
 
         console.log('\n── Draft (opret udkast) ──');
         res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: {} });

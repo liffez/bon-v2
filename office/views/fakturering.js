@@ -553,6 +553,50 @@ function _faktNoteRow(label, value) {
     `;
 }
 
+/**
+ * e-conomics afvisning i læsbar form.
+ *
+ * Serveren sender begrundelsen med som `detail` — fx
+ * `e-conomic 400: {"message":"Validation failed. 1 error found.", ... }` — men den
+ * blev tidligere smidt væk her, så en afvist faktura kun sagde "e-conomic afviste
+ * udkastet". Vi pakker JSON'en ud og beholder de menneskelæselige linjer; kan den
+ * ikke parses, er den rå tekst stadig bedre end ingenting.
+ */
+function _faktEcoReadableDetail(detail) {
+    const raw = String(detail || '');
+    const at = raw.indexOf('{');
+    if (at === -1) return raw;
+    let json;
+    try { json = JSON.parse(raw.slice(at)); } catch (e) { return raw; }
+
+    const out = [];
+    if (json.message) out.push(json.message);
+    // `errors` er et træ hvor hvert niveau kan bære en errors-liste
+    // ({ customerContact: { errors: [{ errorMessage, developerHint }] } }).
+    const walk = (node) => {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node.errors)) {
+            node.errors.forEach(e => {
+                const line = [e.errorMessage, e.developerHint].filter(Boolean).join(' \u2014 ');
+                if (line) out.push(line);
+            });
+        }
+        Object.keys(node).forEach(k => { if (k !== 'errors') walk(node[k]); });
+    };
+    walk(json.errors);
+    return out.length ? out.join('\n\n') : raw;
+}
+
+/** Fælles visning når e-conomic afviser: overskrift + vores fejl + deres begrundelse. */
+function _faktEcoFailOverlay(title, err) {
+    const b = err.body || {};
+    const lead = b.error || err.message || 'Ukendt fejl';
+    const detail = b.detail ? _faktEcoReadableDetail(b.detail) : '';
+    _faktEcoOverlay(title,
+        `<p class="fakt-eco-block-lead">${_escHtml(lead)}</p>`
+        + (detail ? `<pre class="fakt-eco-detail">${_escHtml(detail)}</pre>` : ''));
+}
+
 // ── E-conomic: send udkast / forhåndsvisning ─────────────────
 async function _faktSendEconomic(bonId) {
     const bon = _faktData?.pending.find(b => b.id === bonId);
@@ -576,6 +620,8 @@ async function _faktSendEconomic(bonId) {
             bon.economic_draft_number = err.body?.economic_draft_number ?? bon.economic_draft_number;
             _faktShowToast(`Udkast findes allerede (kladde ${err.body?.economic_draft_number || ''})`);
             _faktSelectBon(bon);
+        } else if (err.body?.detail) {
+            _faktEcoFailOverlay(`e-conomic afviste bon #${bon.bon_number}`, err);
         } else {
             _faktShowToast('e-conomic: ' + (err.body?.error || err.message));
         }
@@ -738,7 +784,8 @@ async function _faktDryRunEconomic(bonId, oneoff) {
         const b = err.body || {};
         _faktEcoOverlay(titel, b.readiness
             ? `<p class="fakt-eco-block-lead">Afsendelsen ville blive afvist:</p>${_faktReadinessHtml(b.readiness, bonId)}`
-            : `<p class="fakt-eco-block-lead">Afsendelsen ville fejle:</p><p>${_escHtml(b.error || err.message)}</p>`);
+            : `<p class="fakt-eco-block-lead">Afsendelsen ville fejle:</p><p>${_escHtml(b.error || err.message)}</p>`
+              + (b.detail ? `<pre class="fakt-eco-detail">${_escHtml(_faktEcoReadableDetail(b.detail))}</pre>` : ''));
     }
 }
 
@@ -771,7 +818,8 @@ async function _faktSendEconomicOneoff(bonId) {
         _faktRender();
         if (bon) _faktSelectBon(bon);
     } catch (err) {
-        _faktShowToast('Kunne ikke oprette udkast: ' + (err.body?.error || err.message));
+        if (err.body?.detail) _faktEcoFailOverlay('Kunne ikke oprette udkast', err);
+        else _faktShowToast('Kunne ikke oprette udkast: ' + (err.body?.error || err.message));
     }
 }
 
