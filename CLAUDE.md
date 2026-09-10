@@ -1752,6 +1752,14 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] Migration 051: `meeting_types`, `contact_reasons`, `booking_tokens`, `page_templates` + 7 nye kolonner på `crm_activities` (`meeting_type_id`, `contact_reason_id`, `duration_min`, `guest_count`, `event_type`, `booked_via`, `reminder_sent_at`)
 - [x] 4 mail-skabeloner seedet (`booking_smagning_confirmation`, `booking_smagning_reminder`, `booking_kontakt_confirmation`, `booking_internal_notification`) + 4 page-templates (intro/thankyou × 2)
 - [x] 18 booking-settings (slot-logik, ejer, tokens, erindring, master-toggles)
+- [x] **To base-URL'er, ikke én** (migration 169). `booking_public_url_base`
+  hed "public", men bygger office-links i interne mails (`bookingMatcher`,
+  `web-orders`) og er fallback for Lobo-webhooken (`delivery`) — den er
+  appens base. Da den blev sat til et pænt kundedomæne, pegede sælgernes
+  CRM-links ind i kundens kontaktformular. `booking_customer_url_base` er
+  nu kundernes base og bruges kun af `{{booking_link}}` og URL-visningen i
+  Settings. Tom værdi = brug app-basen, så opsætninger uden pænt domæne
+  opfører sig som før.
 - [x] `routes/booking.js` — public + admin endpoints
   - `GET /meeting-types` + `/contact-reasons` + `/page-templates/:key` (returnerer `{available:false, reason}` ved disabled/unconfigured i stedet for 503 — patch P3)
   - `GET /slots?date=&meeting_type=` (slot-beregning, 10/10 testcases)
@@ -6487,7 +6495,7 @@ gør dem synlige næste gang bonen åbnes.
 > - Inco credentials — til webshop-login (har også API, men bruges ikke endnu)
 > - `services/hokaAdapter.js` — bruges ikke af bestillingsflowet (erstattet af proxy-logik i `routes/horkram.js`). Review om den skal slettes eller beholdes til andre formål.
 > - **Booking-modul (Fase 14)**: ved deploy skal cron-job konfigureres: `0 * * * * cd /home/leif/bon-v2 && node --experimental-sqlite scripts/booking-reminders.js >> logs/reminders.log 2>&1` — scriptet exit'er stille hvis modulet er deaktiveret eller hvis time ikke matcher `booking_reminder_send_at_time`.
-> - **Booking-modul**: `booking_public_url_base` (settings-felt) skal sættes til `https://bon.ristetrug.dk` ved deploy — ellers virker `{{booking_link}}` ikke korrekt i mails. Konfigureres via Settings → Booking — Smagsprøve.
+> - **Booking-modul**: `booking_public_url_base` (settings-felt) skal sættes til `https://bon.ristetrug.dk` ved deploy — ellers virker `{{booking_link}}` ikke korrekt i mails. Konfigureres via Settings → Booking — Smagsprøve. Den skal blive på app-domænet: den bygger også office-links i interne mails. Skal kunderne have et pænt domæne, sættes `booking_customer_url_base` i stedet (fx `https://kontakt.ristetrug.dk`), og det domæne skal have en vhost der bærer `/book/*` og `/b/:token` — se `deploy/hetzner/nginx/sites-available/kontakt.ristetrug.dk.conf`.
 > - **Booking-modul**: `booking_default_owner_user_id` skal sættes via Settings UI før public-flowet virker. Submit-webhooks 503'er ellers.
 > - **Booking-modul**: ved deploy skal `https://bon.ristetrug.dk` (eller den valgte URL hvor `/book/*` hostes) tilføjes til `WEBHOOK_ALLOWED_ORIGINS` i `server.js` hvis kunden lander på et andet domæne (fx ristetrug.dk-iframe). I dag er ristetrug.dk allerede inkluderet.
 > - **T_CRM-spec**: scope er routes/companies.js + routes/crm.js (callbacks, call-log, kunde-relations). Større suite — kandidat efter weekenden

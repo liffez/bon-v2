@@ -91,7 +91,12 @@ function renderTemplate(body, vars = {}, ctx = {}) {
     // 2. {{booking_link}} — universel: virker i ALLE skabeloner
     if (result.includes('{{booking_link}}')) {
         const customerId = ctx.customerId || vars.customer_id || null;
-        const baseUrl = (getSetting('booking_public_url_base') || '').replace(/\/+$/, '');
+        // Kundevendt base, ikke appens. De to var ét felt indtil #169, og da
+        // nogen satte det til et pænt kundedomæne, fulgte office-linksene i
+        // sælgernes interne mails med derover. Tom kundebase = brug appens.
+        const baseUrl = (getSetting('booking_customer_url_base')
+                      || getSetting('booking_public_url_base')
+                      || '').replace(/\/+$/, '');
         if (customerId && baseUrl) {
             const flow = ctx.bookingFlow || 'smagning';
             const ttlDays = parseInt(getSetting('booking_token_ttl_days') || '60');
@@ -110,7 +115,7 @@ function renderTemplate(body, vars = {}, ctx = {}) {
             // Manglende customer_id eller base URL → fjern placeholder så mailen ikke får
             // en halv URL eller en synlig {{booking_link}}-streng.
             if (!baseUrl) {
-                console.warn('[mail] {{booking_link}} sprunget over: booking_public_url_base er ikke sat');
+                console.warn('[mail] {{booking_link}} sprunget over: hverken booking_customer_url_base eller booking_public_url_base er sat');
             } else if (!customerId) {
                 console.warn('[mail] {{booking_link}} sprunget over: customerId mangler i context');
             }

@@ -4050,14 +4050,23 @@ const BOOKING_SETTING_KEYS_SMAGNING = [
     'booking_blocked_weekdays', 'booking_workday_start', 'booking_workday_end',
     'booking_slot_step_min', 'booking_event_buffer_before_min', 'booking_event_buffer_after_min',
     'booking_default_owner_user_id', 'booking_token_ttl_days', 'booking_token_reuse_min_days',
-    'booking_public_url_base',
+    'booking_public_url_base', 'booking_customer_url_base',
     'booking_reminder_enabled', 'booking_reminder_days_before', 'booking_reminder_send_at_time',
     'booking_notify_owner_enabled'
 ];
 const BOOKING_SETTING_KEYS_KONTAKT = [
-    'booking_kontakt_enabled', 'booking_default_owner_user_id', 'booking_public_url_base',
+    'booking_kontakt_enabled', 'booking_default_owner_user_id',
+    'booking_public_url_base', 'booking_customer_url_base',
     'booking_notify_owner_enabled'
 ];
+
+// Den base kunderne ser. Falder tilbage til app-basen når der ikke er et
+// særskilt kundedomæne — samme regel som i mailService's {{booking_link}}.
+function _bookingCustomerBase() {
+    const cust = (allSettings.booking_customer_url_base || '').replace(/\/+$/, '');
+    const app  = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
+    return cust || app;
+}
 
 const WEEKDAY_LABELS = ['Søn','Man','Tir','Ons','Tor','Fre','Lør']; // søndag = 0
 
@@ -4077,8 +4086,8 @@ async function loadBookingSmagning() {
         try { _bookingMtCache = await fetchBookingMeetingTypesAdmin(); } catch { _bookingMtCache = []; }
     }
     const c = document.getElementById('bs-content');
-    const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
-    const publicUrl = baseUrl ? baseUrl + '/book/smagning' : '(sæt booking_public_url_base nedenfor)';
+    const baseUrl = _bookingCustomerBase();
+    const publicUrl = baseUrl ? baseUrl + '/book/smagning' : '(sæt App URL-base nedenfor)';
 
     let html = '';
 
@@ -4118,7 +4127,8 @@ async function loadBookingSmagning() {
     html += '<h3 style="font-size:14px;margin:24px 0 8px">Standardejer + tokens</h3>';
     html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border)">';
     html += _bookingOwnerField();
-    html += _bookingTextField('booking_public_url_base', 'Public URL-base', 'fx https://bon.ristetrug.dk');
+    html += _bookingTextField('booking_public_url_base', 'App URL-base (office, webhooks)', 'fx https://bon.ristetrug.dk');
+    html += _bookingTextField('booking_customer_url_base', 'Kunde-URL-base (booking-sider)', 'tom = brug app-basen');
     html += _bookingNumField('booking_token_ttl_days', 'Token-levetid', 'dage', 1, 365);
     html += _bookingNumField('booking_token_reuse_min_days', 'Genbrug token hvis udløb >', 'dage', 1, 365);
     html += '</div>';
@@ -4163,8 +4173,8 @@ async function loadBookingKontakt() {
         try { _bookingCrCache = await fetchBookingContactReasonsAdmin(); } catch { _bookingCrCache = []; }
     }
     const c = document.getElementById('bk-content');
-    const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
-    const publicUrl = baseUrl ? baseUrl + '/book/kontakt' : '(sæt booking_public_url_base i Smagsprøve-fanen)';
+    const baseUrl = _bookingCustomerBase();
+    const publicUrl = baseUrl ? baseUrl + '/book/kontakt' : '(sæt App URL-base i Smagsprøve-fanen)';
 
     let html = '';
 
