@@ -297,7 +297,14 @@ const ECO_BON_SQL = `
     WHERE b.id = ?
 `;
 
-async function enrichBonForEconomic(db, bonId) {
+/**
+ * @param {object} opts
+ *   lookupBillingAddress: slå firmaets adresse op i e-conomic hvis den mangler i CRM.
+ *     Koster ét API-kald, så den er OPT-IN: kø-tjekket (/economic-readiness) kører
+ *     denne funktion for HVER bon ved hver sideindlæsning, og må ikke lave N kald.
+ *     Forhåndsvisning og afsendelse slår op; kø-tjekket gør ikke.
+ */
+async function enrichBonForEconomic(db, bonId, opts = {}) {
     const row = db.prepare(ECO_BON_SQL).get(bonId);
     if (!row) return null;
 
@@ -322,7 +329,7 @@ async function enrichBonForEconomic(db, bonId) {
             : null;
     }
 
-    return {
+    const bon = {
         id:                     row.id,
         bon_number:             row.bon_number,
         delivery_date:          row.delivery_date,
@@ -352,12 +359,14 @@ async function enrichBonForEconomic(db, bonId) {
             name:                 row.company_name,
             ean:                  row.company_ean,
             economic_customer_id: row.company_economic_customer_id,
-            // Fakturaadressen — adskilt fra delivery_address nedenfor.
-            address: row.co_street_name || row.co_city ? {
-                street_name: row.co_street_name,
-                street_nr:   row.co_street_nr,
-                postal_code: row.co_postal_code,
-                city:        row.co_city,
+            // Fakturaadressen — adskilt fra delivery_address nedenfor. Én form
+            // (`line/zip/city/country`), så builderen ikke skal vide hvor den kom fra.
+            billing_address: row.co_street_name || row.co_city ? {
+                line:    `${row.co_street_name || ''} ${row.co_street_nr || ''}`.trim(),
+                zip:     row.co_postal_code || '',
+                city:    row.co_city || '',
+                country: 'Danmark',
+                source:  'crm',
             } : null,
         } : null,
         delivery_address: row.addr_street_name ? {
@@ -368,6 +377,29 @@ async function enrichBonForEconomic(db, bonId) {
         } : null,
         lines,
     };
+
+    // Adressen står allerede på kundekortet i e-conomic — de her kunder har fået
+    // fakturaer i årevis. Det er kun CRM der ikke kender den. Hellere hente den
+    // end sende en faktura uden afsenderadresse, og hellere det end at kræve at
+    // nogen taster den ind et sted den allerede findes.
+    // FAIL-OPEN: kan vi ikke hente den, sendes fakturaen som hidtil.
+    if (opts.lookupBillingAddress && bon.company && !bon.company.billing_address
+        && bon.company.economic_customer_id && eco.isConfigured()) {
+        try {
+            const kunde = await eco.rest(`/customers/${bon.company.economic_customer_id}`);
+            if (kunde && (kunde.address || kunde.city)) {
+                bon.company.billing_address = {
+                    line:    kunde.address || '',
+                    zip:     kunde.zip     || '',
+                    city:    kunde.city    || '',
+                    country: kunde.country || 'Danmark',
+                    source:  'economic',
+                };
+            }
+        } catch (e) { /* fail-open — adressen er en forbedring, ikke et krav */ }
+    }
+
+    return bon;
 }
 
 // ─── GET /api/invoices/economic-readiness ───────────────────────────────────
@@ -438,7 +470,7 @@ router.get('/economic-readiness', requireAuth(), handle(async (req, res) => {
 // tokens nødvendige — viser præcis hvad der ville blive POST'et + hvad der mangler.
 router.get('/:bonId/economic-preview', requireAuth(), handle(async (req, res) => {
     const db = getDb();
-    const bon = await enrichBonForEconomic(db, parseInt(req.params.bonId, 10));
+    const bon = await enrichBonForEconomic(db, parseInt(req.params.bonId, 10), { lookupBillingAddress: true });
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
     const settings = economicInvoice.getEconomicSettings(db);
@@ -706,7 +738,7 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
     // lagt på, så payloaden ikke ser mindre ud end den rigtige afsendelses.
     if (!dryRun) await autoFees.applyAutoFees(db, bonId, { userId: req.session?.userId ?? null });
 
-    const bon = await enrichBonForEconomic(db, bonId);
+    const bon = await enrichBonForEconomic(db, bonId, { lookupBillingAddress: true });
     const oneoffForMissing = req.body?.oneoff_for_missing === true;
 
     const readiness = economicInvoice.checkReadiness(bon, economicInvoice.getEconomicSettings(db));
@@ -730,8 +762,7 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
         // Værn bag forhåndstjekket (#444/#454): en linje der ikke kan bygges må aldrig
         // ende som en for lille faktura. Nås kun hvis de to er blevet uenige.
         if (e.code === 'line_without_product' || e.code === 'delivery_without_product'
-            || e.code === 'oneoff_unavailable' || e.code === 'contact_customer_mismatch'
-            || e.code === 'invalid_ean') {
+            || e.code === 'oneoff_unavailable' || e.code === 'contact_customer_mismatch') {
             return res.status(422).json({ error: e.message, code: e.code, line: e.line ?? null, readiness });
         }
         // e-conomics egen begrundelse må ikke kun findes i HTTP-svaret. Da en kladde

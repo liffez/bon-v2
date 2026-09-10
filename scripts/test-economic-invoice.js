@@ -527,7 +527,7 @@ console.log('\n── Fakturaadresse + EAN på modtageren ──');
         company: {
             name: 'Høje-Taastrup Kommune', economic_customer_id: 1029,
             ean: '5798001021593',
-            address: { street_name: 'Rådhusstræde', street_nr: '1', postal_code: '2630', city: 'Taastrup' },
+            billing_address: { line: 'Rådhusstræde 1', zip: '2630', city: 'Taastrup', country: 'Danmark', source: 'crm' },
             ...over,
         },
         delivery_address: { street_name: 'Taastrupgårdsvej', street_nr: '75', postal_code: '2630', city: 'Taastrup' },
@@ -558,16 +558,29 @@ console.log('\n── Fakturaadresse + EAN på modtageren ──');
         !('nemHandelType' in pUdenEan.recipient));
 
     // Intet firma-adresse → recipient-adressen udelades (og arver IKKE leveringsadressen).
-    const pUdenAdr = inv.buildDraftInvoice(mkEanBon({ address: null }), SETTINGS);
+    const pUdenAdr = inv.buildDraftInvoice(mkEanBon({ billing_address: null }), SETTINGS);
     ok('#E4 ingen firmaadresse → ingen recipient-adresse', !('address' in pUdenAdr.recipient));
     ok('#E4 og leveringsadressen smitter ikke af', pUdenAdr.delivery.address === 'Taastrupgårdsvej 75');
 
-    // Et ubrugeligt EAN skal larme her, ikke fejle ved bogføring.
-    let kastet = null;
-    try { inv.buildDraftInvoice(mkEanBon({ ean: '579800102' }), SETTINGS); } catch (e) { kastet = e; }
-    ok('#E5 for kort EAN kaster', kastet !== null);
-    ok('#E5 med kode invalid_ean', kastet?.code === 'invalid_ean');
-    ok('#E5 og beskeden viser det faktiske nummer', /579800102/.test(kastet?.message || ''));
+    // Et ubrugeligt EAN må ALDRIG stoppe faktureringen — 34 af 231 firmaer har
+    // noget andet end 13 cifre i feltet, og de faktureres fint i dag. Det skal
+    // rapporteres, ikke blokeres.
+    const bonSkidtEan = mkEanBon({ ean: '579800102' });
+    const pSkidt = inv.buildDraftInvoice(bonSkidtEan, SETTINGS);
+    ok('#E5 ubrugeligt EAN blokerer IKKE fakturaen', pSkidt.lines.length > 0);
+    ok('#E5 men EAN sendes ikke med', !('ean' in pSkidt.recipient));
+    ok('#E5 og heller ikke nemHandelType', !('nemHandelType' in pSkidt.recipient));
+    ok('#E5 fakturaadressen er der stadig', pSkidt.recipient.address === 'Rådhusstræde 1');
+    const rSkidt = inv.checkReadiness(bonSkidtEan, SETTINGS);
+    ok('#E5 readiness rapporterer råteksten', rSkidt.eanUnusable === '579800102');
+    ok('#E5 og bonen er stadig klar til fakturering', rSkidt.ok === true);
+    ok('#E5 et ubrugeligt EAN kræver ikke en kontaktperson',
+        rSkidt.eanWithoutContact === false);
+
+    // Et GYLDIGT EAN kræver stadig en kontaktperson (uændret regel).
+    const rGyldig = inv.checkReadiness(mkEanBon(), SETTINGS);
+    ok('#E5 gyldigt EAN uden kontakt blokerer stadig', rGyldig.eanWithoutContact === true);
+    ok('#E5 og rapporterer ikke et ubrugeligt EAN', rGyldig.eanUnusable === null);
 
     ok('#E6 privat bon uden firma vælter ikke',
         (() => { const b = mkEanBon(); b.company = null;
@@ -584,7 +597,10 @@ Promise.all(pending).then(() => {
 function runTriggerTests() {
     const { openDb } = require('../db/compat');
     const { runMigrations } = require('../db/migrate');
-    const tmp = path.join(__dirname, '../data/_econ_trigger_test.db');
+    // Egen fil pr. proces, uden for projektmappen. Et fast navn i data/ betød at to
+    // kørsler tæt på hinanden kæmpede om samme fil ("database is locked") — og fordi
+    // mappen ligger i iCloud, kunne en -wal/-shm hænge ved efter oprydningen.
+    const tmp = path.join(require('node:os').tmpdir(), `econ_trigger_test_${process.pid}.db`);
     for (const f of [tmp, tmp + '-wal', tmp + '-shm']) { try { fs.unlinkSync(f); } catch {} }
 
     let db;

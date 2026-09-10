@@ -51,6 +51,11 @@ eco.isConfigured = () => true;
 eco.rest = async (p, opts = {}) => {
     if (opts.method === 'POST' && p === '/invoices/drafts') { lastPostBody = opts.body; return { draftInvoiceNumber: ++draftSeq }; }
     if (opts.method === 'DELETE') return null;
+    // Kundekortet: adressen står i e-conomic, ikke i CRM — den skal hentes derfra.
+    if (p === '/customers/944') {
+        return { customerNumber: 944, name: 'T_ECO Firma', address: 'Testvej 3',
+                 zip: '2200', city: 'København N', country: 'Danmark' };
+    }
     // Kontakt-vagten slår op om kontakten ligger under fakturaens kunde.
     // 700 gør (firmaets kunde 944); alt andet svarer e-conomic 404 på.
     const ct = p.match(/^\/customers\/(\d+)\/contacts\/(\d+)$/);
@@ -208,6 +213,18 @@ function req(server, method, url, { auth = true, body } = {}) {
         ok('readiness → missing bon blokeret', res.body?.blocked?.some(b => b.bon_id === ids.missing));
         ok('readiness → ready bon IKKE blokeret', !res.body?.blocked?.some(b => b.bon_id === ids.ready));
         ok('readiness → drafts_waiting = 0', res.body?.drafts_waiting === 0);
+
+        console.log('\n── Fakturaadressen hentes fra e-conomic når CRM ikke har den ──');
+        // Firmaerne har fået fakturaer i årevis, så adressen står allerede på
+        // kundekortet. Uden dette stod fakturaen helt uden afsenderadresse.
+        res = await req(server, 'GET', `/api/invoices/${ids.ready}/economic-preview`);
+        ok('adresse hentet fra kundekortet', res.body?.payload?.recipient?.address === 'Testvej 3',
+            JSON.stringify(res.body?.payload?.recipient));
+        ok('postnr + by med', res.body?.payload?.recipient?.zip === '2200'
+            && res.body?.payload?.recipient?.city === 'København N');
+        ok('forhåndsvisning og prøvekørsel er stadig enige',
+            (await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: { dry_run: true } }))
+                .body?.payload?.recipient?.address === 'Testvej 3');
 
         console.log('\n── Kontakt-vagt: kontakt under en anden kunde ──');
         // Fejlen fra drift: fakturaen udstedes til firmaets kunde, men personens

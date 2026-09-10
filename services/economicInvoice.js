@@ -111,29 +111,32 @@ function buildReference(bon) {
 }
 
 /**
- * Firmaets EAN, klar til e-conomic (`recipient.ean`, max 13 tegn i deres skema).
+ * Cifrene i firmaets EAN, klar til e-conomic (`recipient.ean`, max 13 tegn).
  *
- * Et EAN-nummer er 13 cifre. Skrives det med mellemrum eller bindestreger i CRM,
- * skal cifrene stadig frem. Er der noget andet end 13 cifre tilbage, er nummeret
- * ubrugeligt: e-conomic kan ikke sende fakturaen via Nemhandel, og fejlen ville
- * først vise sig ved bogføring — langt fra den der kan rette den. Derfor larmer vi
- * her frem for at sende et halvt nummer med.
+ * Et EAN er 13 cifre. Skrives det med mellemrum eller bindestreger i CRM, skal
+ * cifrene stadig frem. Er der ikke 13 cifre tilbage, er nummeret ubrugeligt —
+ * så returneres null, og fakturaen sendes som en helt almindelig faktura.
  *
- * @returns {string|null} 13 cifre, eller null hvis firmaet slet ikke har et EAN.
- * @throws {Error} code 'invalid_ean' hvis der ER et EAN, men det ikke er 13 cifre.
+ * Vi BLOKERER bevidst ikke på et ubrugeligt EAN: 34 af de 231 firmaer med et
+ * EAN har noget andet end 13 cifre i feltet (fritekst, telefonnumre, to numre i
+ * samme felt). De faktureres fint i dag, og et stamdata-problem må ikke stoppe
+ * pengene. I stedet rapporteres det via checkReadiness → eanUnusable, så office
+ * kan SE at fakturaen ikke går via Nemhandel, frem for at opdage det bagefter.
+ *
+ * @returns {string|null} 13 cifre, ellers null.
  */
-function economicEan(bon) {
+function economicEanDigits(bon) {
     const raw = bon.company?.ean;
     if (raw == null || String(raw).trim() === '') return null;
     const digits = String(raw).replace(/\D/g, '');
-    if (digits.length !== 13) {
-        const err = new Error(
-            `EAN-nummeret på ${bon.company?.name || 'firmaet'} er "${raw}" — det skal være 13 cifre. ` +
-            `Ret det i firmaets stamdata; ellers kan e-conomic ikke sende fakturaen via Nemhandel.`);
-        err.code = 'invalid_ean';
-        throw err;
-    }
-    return digits;
+    return digits.length === 13 ? digits : null;
+}
+
+/** Firmaet HAR skrevet et EAN, men det kan ikke bruges. Returnerer råteksten (til visning). */
+function unusableEan(bon) {
+    const raw = bon.company?.ean;
+    if (raw == null || String(raw).trim() === '') return null;
+    return economicEanDigits(bon) === null ? String(raw) : null;
 }
 
 function recipientName(bon) {
@@ -258,13 +261,17 @@ function checkReadiness(bon, settings = {}) {
     const missingDelivery = needsDeliveryLine(bon) && deliveryProductNumber(bon, settings) == null;
 
     // EAN-kunde (offentlig) kræver en kontaktperson på e-conomic-kunden, ellers fejler bogføring.
-    const isEan = Boolean(bon.company?.ean);
+    // Kun et BRUGBART EAN gør kunden til en EAN-kunde. Et felt med fritekst i
+    // skal ikke kræve en kontaktperson for en faktura der alligevel sendes normalt.
+    const isEan = economicEanDigits(bon) !== null;
     const hasContact = bon.customer?.economic_contact_id != null
         && String(bon.customer.economic_contact_id).trim() !== '';
     const eanWithoutContact = isEan && !hasContact;
 
     return {
         // `excluded` gør IKKE bonen ikke-klar — det er en oplysning, ikke en mangel.
+        // eanUnusable indgår IKKE i `ok` — den advarer, den blokerer ikke.
+        eanUnusable: unusableEan(bon),
         ok: missingProducts.length === 0 && !missingCustomer && !eanWithoutContact && !missingDelivery,
         missingCustomer,
         eanWithoutContact,
@@ -507,14 +514,14 @@ function buildDraftInvoice(bon, settings, opts = {}) {
     // sender vi kun recipient.name, står fakturaen uden adresse og uden EAN, og en
     // offentlig kunde kan slet ikke modtage den. `delivery` nedenfor er noget andet
     // — dét er hvor maden kørte hen.
-    const billTo = bon.company?.address;
-    if (billTo && (billTo.street_name || billTo.city)) {
-        payload.recipient.address = `${billTo.street_name || ''} ${billTo.street_nr || ''}`.trim();
-        payload.recipient.zip     = billTo.postal_code || '';
+    const billTo = bon.company?.billing_address;
+    if (billTo && (billTo.line || billTo.city)) {
+        payload.recipient.address = billTo.line || '';
+        payload.recipient.zip     = billTo.zip || '';
         payload.recipient.city    = billTo.city || '';
-        payload.recipient.country = 'Danmark';
+        payload.recipient.country = billTo.country || 'Danmark';
     }
-    const ean = economicEan(bon);
+    const ean = economicEanDigits(bon);
     if (ean) {
         payload.recipient.ean = ean;
         // Uden nemHandelType er EAN-nummeret bare et tal på fakturaen. Det er DETTE
@@ -648,7 +655,8 @@ module.exports = {
     splitOre,
     buildDraftInvoice,
     contactBelongsToCustomer,
-    economicEan,
+    economicEanDigits,
+    unusableEan,
     createDraftInvoice,
     deleteDraftInvoice,
     round2,

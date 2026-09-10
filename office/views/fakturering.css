@@ -609,3 +609,14 @@
     max-height: 40vh;
     overflow-y: auto;
 }
+
+/* Ikke-blokerende advarsel i forhåndsvisning/prøvekørsel (fx ubrugeligt EAN). */
+.fakt-eco-pv-warn {
+    margin: 0 0 12px;
+    padding: 9px 11px;
+    background: var(--color-warn-bg, #fdf3d8);
+    border-left: 3px solid var(--color-warn, #c8901b);
+    border-radius: 4px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}

@@ -643,10 +643,18 @@ async function _faktSendEconomic(bonId) {
  * sin egen version beviser intet om den rigtige.
  */
 function _faktPayloadHtml(p, readiness, note) {
+    // Et ubrugeligt EAN blokerer ikke — men office skal se det FØR afsendelse,
+    // ikke opdage bagefter at fakturaen aldrig gik via Nemhandel.
+    const eanAdvarsel = readiness?.eanUnusable
+        ? `<p class="fakt-eco-pv-warn">&#9888; Firmaets EAN (<span class="mono">${_escHtml(readiness.eanUnusable)}</span>)
+             er ikke 13 cifre. Fakturaen oprettes som normalt, men <strong>sendes ikke via Nemhandel</strong>.
+             Ret EAN-nummeret i firmaets stamdata, hvis den skal.</p>`
+        : '';
     const exTotal = p.lines.reduce((s, l) => s + (l.unitNetPrice || 0) * (l.quantity || 0), 0);
     const inclTotal = window.Moms.exclToIncl(exTotal);
     const momsAmt = inclTotal - exTotal;
     return `
+        ${eanAdvarsel}
         <div class="fakt-eco-pv-meta">
             <div><span>Modtager</span><strong>${_escHtml(p.recipient?.name || '')}</strong></div>
             <div><span>e-conomic kunde-nr</span><strong>${p.customer?.customerNumber ?? '—'}</strong></div>
