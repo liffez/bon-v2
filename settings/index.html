@@ -4068,6 +4068,40 @@ function _bookingCustomerBase() {
     return cust || app;
 }
 
+// App URL-basen skal pege på appen selv. Sætter man den til kundedomænet,
+// ser booking-linket rigtigt ud — men sælgernes office-links i interne mails
+// og Lobo-webhookens fallback følger med derover og lander på kundens
+// formular. Det er sket to gange, fordi feltet står hvor "Public URL-base"
+// plejede at stå.
+//
+// Siden ved hvor den selv bliver serveret fra, så den kan sige til. Undtagen
+// på localhost, hvor det er normalt at basen peger et andet sted hen end
+// udviklingsserveren.
+function _bookingAppBaseWarning() {
+    const base = (allSettings.booking_public_url_base || '').trim();
+    if (!base) return '';
+    const here = location.hostname;
+    if (here === 'localhost' || here === '127.0.0.1' || here === '::1') return '';
+
+    let baseHost;
+    try { baseHost = new URL(base).hostname; }
+    catch { baseHost = null; }
+    if (baseHost === here) return '';
+
+    const problem = baseHost
+        ? 'App URL-base peger på <strong>' + esc(baseHost) + '</strong>, men du sidder på <strong>' + esc(here) + '</strong>.'
+        : '<strong>' + esc(base) + '</strong> ser ikke ud som en gyldig URL.';
+
+    return '<div style="margin-top:10px;padding:10px 12px;border-radius:6px;background:#fdf3e3;border:1px solid #e0c088;font-size:12px;line-height:1.5">' +
+        '⚠️ ' + problem +
+        ' Feltet bygger office-links i interne mails og fallback for Lobo-webhooken — ikke kundernes booking-link.' +
+        ' Skal kunderne have et pænt domæne, hører det i <em>Kunde-URL-base</em> nedenunder.' +
+        '<div style="margin-top:8px"><button class="st-btn" style="font-size:12px" ' +
+        'onclick="bsFixAppBase()">' +
+        'Sæt til ' + esc(location.origin) + '</button></div>' +
+        '</div>';
+}
+
 const WEEKDAY_LABELS = ['Søn','Man','Tir','Ons','Tor','Fre','Lør']; // søndag = 0
 
 async function _bookingEnsureLoaded() {
@@ -4134,6 +4168,7 @@ async function loadBookingSmagning() {
     html += _bookingNumField('booking_token_ttl_days', 'Token-levetid', 'dage', 1, 365);
     html += _bookingNumField('booking_token_reuse_min_days', 'Genbrug token hvis udløb >', 'dage', 1, 365);
     html += '</div>';
+    html += _bookingAppBaseWarning();
 
     // Erindring
     html += '<h3 style="font-size:14px;margin:24px 0 8px">Erindringsmail</h3>';
@@ -4485,6 +4520,13 @@ async function bsSavePageTemplate(key) {
 }
 
 // ─── SETTINGS HELPERS ────────────────────────────────────
+// Knappen i advarslen. bsSaveSetting tegner ikke fanen igen, så uden dette
+// ville advarslen blive stående efter at man havde rettet fejlen.
+async function bsFixAppBase() {
+    await bsSaveSetting('booking_public_url_base', location.origin);
+    loadBookingSmagning();
+}
+
 async function bsSaveSetting(key, value) {
     try {
         await patchSetting(key, value);

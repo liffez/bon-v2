@@ -1769,6 +1769,9 @@ Oprettes under Grocy → Manage master data → Userfields.
   nu kundernes base og bruges kun af `{{booking_link}}` og URL-visningen i
   Settings. Tom værdi = brug app-basen, så opsætninger uden pænt domæne
   opfører sig som før.
+  Settings advarer hvis App URL-base peger på et andet domæne end det man
+  sidder på — fejlen er sket to gange, fordi feltet står hvor "Public
+  URL-base" plejede at stå. Advarslen er tavs på localhost.
 - [x] `routes/booking.js` — public + admin endpoints
   - `GET /meeting-types` + `/contact-reasons` + `/page-templates/:key` (returnerer `{available:false, reason}` ved disabled/unconfigured i stedet for 503 — patch P3)
   - `GET /slots?date=&meeting_type=` (slot-beregning, 10/10 testcases)
