@@ -216,7 +216,7 @@ async function main() {
             console.log('  ' + shortUrl);
             console.log('');
             console.log('  Forventet:');
-            console.log('   1. Browser → kort URL → redirect til /tools/booking-smagning.html?t=...');
+            console.log('   1. Browser → kort URL → redirect til /book/smagning?t=...');
             console.log('   2. Felterne (Fornavn, Email osv.) er pre-fyldt med dine data');
             console.log('   3. "Gennemgang" mødetype er auto-valgt (intent fra token)');
             console.log('   4. Banner øverst: "Velkommen Leif — du booker hos anne"');

@@ -31,7 +31,7 @@ function contactInfo() {
 }
 
 // ─── PUBLIC: meeting-types ─────────────────────────────────────────────────
-// Bruges af tools/booking-smagning.html. Returnerer altid 200.
+// Bruges af booking/smagning.html (/book/smagning). Returnerer altid 200.
 // Hvis modulet er deaktiveret eller default-ejer mangler: { available: false, ... }.
 
 router.get('/meeting-types', handle((req, res) => {

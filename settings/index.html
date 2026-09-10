@@ -4078,7 +4078,7 @@ async function loadBookingSmagning() {
     }
     const c = document.getElementById('bs-content');
     const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
-    const publicUrl = baseUrl ? baseUrl + '/tools/booking-smagning.html' : '(sæt booking_public_url_base nedenfor)';
+    const publicUrl = baseUrl ? baseUrl + '/book/smagning' : '(sæt booking_public_url_base nedenfor)';
 
     let html = '';
 
@@ -4164,7 +4164,7 @@ async function loadBookingKontakt() {
     }
     const c = document.getElementById('bk-content');
     const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
-    const publicUrl = baseUrl ? baseUrl + '/tools/booking-kontakt.html' : '(sæt booking_public_url_base i Smagsprøve-fanen)';
+    const publicUrl = baseUrl ? baseUrl + '/book/kontakt' : '(sæt booking_public_url_base i Smagsprøve-fanen)';
 
     let html = '';
 

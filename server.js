@@ -119,6 +119,18 @@ for (const file of PUBLIC_ROOT_FILES) {
     app.get('/' + file, (req, res) => res.sendFile(path.join(__dirname, file)));
 }
 
+// Kundevendte booking-sider. De lå i tools/ — og var dermed utilgængelige for
+// præcis dem de er lavet til: /tools kom bag login med #581, og nginx på prod
+// svarer 404 på /tools/ overhovedet. Linket i Settings pegede på en 404.
+//
+// De ligger nu i deres egen mappe med en offentlig sti, fordi det er dét de
+// er: kundeflader. tools/ er arbejdsredskaber bag login, og en public side
+// dér er en fælde der venter på næste gang nogen strammer adgangen.
+const PUBLIC_BOOKING_PAGES = { smagning: 'smagning.html', kontakt: 'kontakt.html' };
+for (const [slug, file] of Object.entries(PUBLIC_BOOKING_PAGES)) {
+    app.get('/book/' + slug, (req, res) => res.sendFile(path.join(__dirname, 'booking', file)));
+}
+
 // ─── ROUTES ────────────────────────────────────────────────────────────────
 
 // ─── WEB ORDER WEBHOOK (public, CORS for ristetrug.dk + test-origins) ───────
@@ -167,7 +179,7 @@ const PUBLIC_API_PATHS = [
     /^\/auth\/pin$/,
     /^\/auth\/pin-users$/,           // mobile/login.html: bruger-vælgeren før PIN
 
-    // Kundevendt booking (tools/booking-smagning.html + booking-kontakt.html).
+    // Kundevendt booking (booking/smagning.html + booking/kontakt.html → /book/*).
     // BEMÆRK: /booking/meeting-types/intent er sælger-værktøj og matcher IKKE
     // (anker $), så den fanges korrekt af gaten. Samme for /booking/admin/*.
     /^\/booking\/meeting-types$/,
