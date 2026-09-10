@@ -1752,6 +1752,15 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] Migration 051: `meeting_types`, `contact_reasons`, `booking_tokens`, `page_templates` + 7 nye kolonner på `crm_activities` (`meeting_type_id`, `contact_reason_id`, `duration_min`, `guest_count`, `event_type`, `booked_via`, `reminder_sent_at`)
 - [x] 4 mail-skabeloner seedet (`booking_smagning_confirmation`, `booking_smagning_reminder`, `booking_kontakt_confirmation`, `booking_internal_notification`) + 4 page-templates (intro/thankyou × 2)
 - [x] 18 booking-settings (slot-logik, ejer, tokens, erindring, master-toggles)
+- [x] **Felter pr. mødetype** (migration 170). `Antal gæster` og `Eventtype` lå
+  hardkodet i booking-formularen og blev vist for alle mødetyper — men en
+  smagning er altid til to personer og har intet event at vælge.
+  `meeting_types.fixed_guest_count` (NULL = spørg kunden, et tal = skjul
+  feltet og registrér tallet) og `meeting_types.asks_event_type` styrer det
+  nu, redigerbart i Settings → Mødetyper. Backend læser værdierne fra
+  databasen ved indsendelse, så en manipuleret POST ikke kan sende noget
+  andet. Migrationen sætter kun `smagning` (2 gæster, ingen eventtype);
+  øvrige typer er uændrede.
 - [x] **To base-URL'er, ikke én** (migration 169). `booking_public_url_base`
   hed "public", men bygger office-links i interne mails (`bookingMatcher`,
   `web-orders`) og er fallback for Lobo-webhooken (`delivery`) — den er

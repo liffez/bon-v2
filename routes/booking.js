@@ -43,7 +43,8 @@ router.get('/meeting-types', handle((req, res) => {
     if (!ownerSet) return res.json({ available: false, reason: 'unconfigured', meeting_types: [], contact });
 
     const rows = getDb().prepare(`
-        SELECT id, key, label, emoji, description, duration_min
+        SELECT id, key, label, emoji, description, duration_min,
+               fixed_guest_count, asks_event_type
         FROM meeting_types
         WHERE is_active = 1 AND is_bookable = 1
         ORDER BY sort_order, id
@@ -196,7 +197,8 @@ router.get('/page-templates/:key', handle((req, res) => {
 
 router.get('/admin/meeting-types', requireAuth('admin'), handle((req, res) => {
     const rows = getDb().prepare(`
-        SELECT id, key, label, emoji, description, duration_min, is_bookable, is_system, is_active, sort_order
+        SELECT id, key, label, emoji, description, duration_min, is_bookable, is_system, is_active, sort_order,
+               fixed_guest_count, asks_event_type
         FROM meeting_types
         ORDER BY sort_order, id
     `).all();
@@ -237,7 +239,8 @@ router.patch('/admin/meeting-types/:id', requireAuth('admin'), handle((req, res)
     const row = db.prepare('SELECT * FROM meeting_types WHERE id = ?').get(id);
     if (!row) return res.status(404).json({ error: 'Mødetype ikke fundet' });
 
-    const { label, emoji, description, duration_min, is_bookable, is_active, sort_order } = req.body;
+    const { label, emoji, description, duration_min, is_bookable, is_active, sort_order,
+            fixed_guest_count, asks_event_type } = req.body;
 
     if (row.is_system && is_active === 0) {
         return res.status(400).json({ error: 'Systemmødetype kan ikke deaktiveres' });
@@ -256,6 +259,15 @@ router.patch('/admin/meeting-types/:id', requireAuth('admin'), handle((req, res)
         updates.push('duration_min = ?'); params.push(d);
     }
     if (is_bookable !== undefined)  { updates.push('is_bookable = ?');  params.push(is_bookable ? 1 : 0); }
+    if (asks_event_type !== undefined) { updates.push('asks_event_type = ?'); params.push(asks_event_type ? 1 : 0); }
+    if (fixed_guest_count !== undefined) {
+        // Tom streng og null betyder begge "spørg kunden" — feltet ryddes.
+        const g = (fixed_guest_count === '' || fixed_guest_count === null) ? null : parseInt(fixed_guest_count);
+        if (g !== null && (!Number.isFinite(g) || g < 1 || g > 500)) {
+            return res.status(400).json({ error: 'fixed_guest_count skal være 1-500 eller tom' });
+        }
+        updates.push('fixed_guest_count = ?'); params.push(g);
+    }
     if (sort_order !== undefined)   { updates.push('sort_order = ?');   params.push(parseInt(sort_order) || 100); }
     if (is_active !== undefined && !row.is_system) {
         updates.push('is_active = ?'); params.push(is_active ? 1 : 0);
@@ -412,7 +424,8 @@ function handleSmagningBooking(data) {
 
     // 3. Hent meeting_type
     const mt = db.prepare(`
-        SELECT id, label, duration_min FROM meeting_types
+        SELECT id, label, duration_min, fixed_guest_count, asks_event_type
+        FROM meeting_types
         WHERE key = ? AND is_active = 1 AND is_bookable = 1
     `).get(data.meeting_type);
     if (!mt) {
@@ -440,8 +453,15 @@ function handleSmagningBooking(data) {
             const owner = resolveSalesOwner(data.token);
 
             const dueAt = `${data.date} ${data.time}:00`;
-            const guestCount = data.guest_count ? parseInt(data.guest_count) : null;
-            const eventType  = (data.event_type || '').trim() || null;
+            // Mødetypen bestemmer, ikke formularen. Felterne er skjult i
+            // siden når typen selv svarer på dem, men en POST kan sende hvad
+            // som helst — så vi tager svaret fra databasen, ikke fra klienten.
+            const guestCount = mt.fixed_guest_count != null
+                ? mt.fixed_guest_count
+                : (data.guest_count ? parseInt(data.guest_count) : null);
+            const eventType  = mt.asks_event_type
+                ? ((data.event_type || '').trim() || null)
+                : null;
             const message    = (data.message    || '').trim() || `Online booking: ${mt.label}`;
 
             const r = db.prepare(`

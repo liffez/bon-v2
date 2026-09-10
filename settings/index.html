@@ -4104,6 +4104,8 @@ async function loadBookingSmagning() {
     html += '<table class="st-table" id="bs-mt-table"><thead><tr>' +
         '<th style="width:40px">Ikon</th><th>Navn</th><th>Nøgle</th>' +
         '<th style="width:90px">Varighed</th><th style="width:70px">Bookbar</th>' +
+        '<th style="width:96px" title="Tomt = spørg kunden. Et tal = feltet skjules og bookingen registreres med tallet">Faste gæster</th>' +
+        '<th style="width:80px" title="Slået fra: kunden bliver ikke spurgt om eventtype">Eventtype</th>' +
         '<th style="width:60px">Type</th><th style="width:70px">Aktiv</th><th style="width:60px"></th>' +
         '</tr></thead><tbody id="bs-mt-body"></tbody></table>';
     html += '<button class="st-btn st-btn-primary" style="margin-top:8px" onclick="bsMtShowNew()">+ Ny mødetype</button>';
@@ -4266,6 +4268,8 @@ function _bookingRenderMtTable() {
             <td style="font-size:12px;color:#888;font-family:monospace">${esc(mt.key)}</td>
             <td><input type="number" min="1" max="600" value="${mt.duration_min}" onchange="bsMtPatch(${mt.id}, 'duration_min', parseInt(this.value))" style="width:60px;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"> min</td>
             <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.is_bookable ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'is_bookable', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
+            <td><input type="number" min="1" max="500" placeholder="spørg" value="${mt.fixed_guest_count ?? ''}" onchange="bsMtPatch(${mt.id}, 'fixed_guest_count', this.value)" style="width:64px;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"></td>
+            <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.asks_event_type ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'asks_event_type', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
             <td><span style="font-size:11px;padding:2px 6px;border-radius:8px;background:${mt.is_system ? '#f5f0e0' : '#e8f2dc'}">${mt.is_system ? 'System' : 'Bruger'}</span></td>
             <td>${mt.is_system ? '<span style="color:#3d7a0a">✓</span>' :
                 '<label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ' + (mt.is_active ? 'checked' : '') +
@@ -4276,6 +4280,9 @@ function _bookingRenderMtTable() {
 }
 
 async function bsMtPatch(id, field, value) {
+    // Tom streng er en gyldig værdi for fixed_guest_count — den betyder
+    // "spørg kunden igen". null/undefined/NaN er derimod en mislykket
+    // aflæsning og skal ikke sendes.
     if (value === null || value === undefined || Number.isNaN(value)) return;
     try {
         await patchBookingMeetingType(id, { [field]: value });
