@@ -178,7 +178,7 @@ async function main() {
         const r2 = await fetch(`${BASE}/b/${token}`, { redirect: 'manual' });
         assert(r2.status === 302, `Status 302 (fik ${r2.status})`);
         const loc = r2.headers.get('location');
-        assert(loc === `/tools/booking-smagning.html?t=${token}`, `Location: /tools/booking-smagning.html?t=${token} (fik ${loc})`);
+        assert(loc === `/book/smagning?t=${token}`, `Location: /book/smagning?t=${token} (fik ${loc})`);
 
         // /b bumper IKKE — open_count stadig = 2 (fra tidligere)
         const t3 = db.prepare('SELECT open_count FROM booking_tokens WHERE token = ?').get(token);

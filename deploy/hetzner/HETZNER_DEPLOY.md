@@ -217,6 +217,7 @@ sudo apt install -y certbot python3-certbot-nginx
 # Alle domæner på én gang:
 sudo certbot --nginx \
     -d bon.ristetrug.dk \
+    -d kontakt.ristetrug.dk \
     -d whiteboard.ristetrug.dk \
     -d sop.ristetrug.dk \
     -d grocy-hq.ristetrug.dk \
