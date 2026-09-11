@@ -1579,3 +1579,26 @@
 .drawer-discount-edit:hover,
 .drawer-discount-reapply:hover { background: rgba(0, 0, 0, .05); }
 .drawer-discount-reapply[disabled] { opacity: .5; cursor: default; }
+
+/* Pris-redigering på en linje — samme mønster som antal. Uden den kunne en
+   leveringslinje kun slettes, ikke rettes (prisen var ren tekst). */
+.drawer-line-price.price-editable { cursor: pointer; border-radius: 4px; padding: 1px 3px; }
+.drawer-line-price.price-editable:hover { background: rgba(142,99,31,0.12); color: var(--color-text, #1a1917); }
+.drawer-line-price.editing { display: inline-flex; align-items: center; gap: 4px; cursor: default; background: transparent; }
+.drawer-line-price.editing .price-input {
+    width: 72px;
+    font-size: var(--font-size-s, 13px);
+    font-weight: 600;
+    text-align: right;
+    border: 1px solid var(--brand-primary, #8e631f);
+    border-radius: 4px;
+    padding: 2px 4px;
+    background: #fff;
+    color: var(--color-text, #1a1917);
+    -moz-appearance: textfield;
+}
+.drawer-line-price.editing .price-input::-webkit-outer-spin-button,
+.drawer-line-price.editing .price-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.drawer-line-price.editing .price-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(142,99,31,0.25); }
+.drawer-line-price.editing .price-unit { font-size: 10px; color: var(--color-text-dim, #8a8580); }
+.drawer-line-price.saving { opacity: 0.6; }

@@ -8,7 +8,7 @@
 
 /* globals apiFetch, fetchInvoiceQueue, patchBonStatus, patchCompanyEconomic,
            patchCustomerEconomic, patchBon, connectSSE,
-           previewEconomicDraft, createEconomicDraft, fetchEconomicReadiness,
+           previewEconomicDraft, createEconomicDraft, releaseEconomicDraft, fetchEconomicReadiness,
            suggestEconomicCustomer, createEconomicCustomer, fetchDeliveryCustomerPrice */
 
 let _faktData = null;
@@ -537,7 +537,9 @@ function _faktActionBarHtml(bon, isBottom) {
     const drafted = bon.economic_draft_number != null;
     const ecoBtns = drafted
         ? `<span class="fakt-eco-draft-tag">&#9993; Kladde ${bon.economic_draft_number} sendt</span>
-           <button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>`
+           <button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>
+           <button class="fakt-btn-ghost" onclick="_faktReleaseEconomic(${bon.id})"
+                   title="Brug kun hvis kladden er slettet i e-conomic">Frigiv</button>`
         : `<button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>
            <button class="fakt-btn-eco" onclick="_faktSendEconomic(${bon.id})">&#128229; Send til e-conomic</button>`;
     return `
@@ -604,6 +606,40 @@ function _faktEcoFailOverlay(title, err) {
     _faktEcoOverlay(title,
         `<p class="fakt-eco-block-lead">${_escHtml(lead)}</p>`
         + (detail ? `<pre class="fakt-eco-detail">${_escHtml(detail)}</pre>` : ''));
+}
+
+// ── E-conomic: frigiv bonen efter en slettet kladde ──────────────────────
+/**
+ * Re-send-vagten har ingen nødudgang: slettes kladden i e-conomic, bliver
+ * nummeret stående på bonen, og bonen kan aldrig faktureres igen. Her frigives
+ * den — men kun når serveren har bekræftet at kladden FAKTISK er væk og at der
+ * ikke ligger en bogført faktura på bonen.
+ *
+ * Den farlige forveksling er "slettet" vs. "bogført": begge er væk fra
+ * kladdelisten, men den bogførte er ude hos kunden. Derfor spørger vi også her.
+ */
+async function _faktReleaseEconomic(bonId) {
+    const bon = _faktData?.pending.find(b => b.id === bonId) || _faktSelected;
+    const nr = bon?.economic_draft_number;
+    const ok = window.confirm(
+        `Frigiv #${bon?.bon_number ?? bonId} til en ny afsendelse?\n\n`
+        + `Brug KUN dette hvis du har SLETTET kladde ${nr} i e-conomic.\n`
+        + `Er den i stedet BOGFØRT, er fakturaen ude hos kunden, og en ny afsendelse `
+        + `giver dem to.\n\nServeren tjekker begge dele, men spørger dig først.`);
+    if (!ok) return;
+
+    try {
+        const res = await releaseEconomicDraft(bonId);
+        if (bon) bon.economic_draft_number = null;
+        if (_faktData?.summary && _faktData.summary.drafts_waiting > 0) _faktData.summary.drafts_waiting--;
+        _faktShowToast(`Kladde ${res.released_draft_number} frigivet — bonen kan sendes igen`);
+        _faktRender();
+        if (bon) _faktSelectBon(bon);
+    } catch (err) {
+        _faktEcoOverlay('Kunne ikke frigive bonen',
+            `<p class="fakt-eco-block-lead">${_escHtml(err.body?.error || err.message)}</p>`
+            + (err.body?.detail ? `<pre class="fakt-eco-detail">${_escHtml(_faktEcoReadableDetail(err.body.detail))}</pre>` : ''));
+    }
 }
 
 // ── E-conomic: send udkast / forhåndsvisning ─────────────────

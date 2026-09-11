@@ -809,4 +809,76 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
     res.json({ ok: true, economic_draft_number: draftNo });
 }));
 
+// ─── DELETE /api/invoices/:bonId/economic-draft ────────────────────────────
+// Frigiv bonen til en ny afsendelse, når kladden er SLETTET i e-conomic.
+//
+// Re-send-vagten er der af en god grund (ingen dublet-kladder), men den havde
+// ingen nødudgang: slettede man kladden i e-conomic — fx en testkladde — stod
+// nummeret stadig på bonen, og bonen kunne aldrig faktureres igen.
+//
+// Den farlige forveksling er "slettet" vs. "bogført": en bogført kladde er også
+// væk fra /invoices/drafts, men så er fakturaen ude hos kunden. Derfor to vagter
+// før vi frigiver, og fail-CLOSED hvis vi ikke kan få svar — en spærret bon er
+// til at leve med, to fakturaer til samme kunde er ikke.
+router.delete('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const bonId = parseInt(req.params.bonId, 10);
+    const row = db.prepare('SELECT bon_number, economic_draft_number FROM bons WHERE id = ?').get(bonId);
+    if (!row) return res.status(404).json({ error: 'Bon ikke fundet' });
+    if (row.economic_draft_number == null) {
+        return res.status(409).json({ error: 'Bonen har ingen kladde at frigive' });
+    }
+    const draftNo = row.economic_draft_number;
+
+    // Vagt 1 — findes kladden stadig? Så er der intet at frigive.
+    if (eco.isConfigured()) {
+        let stadigDer = false;
+        try {
+            await eco.rest(`/invoices/drafts/${draftNo}`);
+            stadigDer = true;
+        } catch (e) {
+            if (e.status !== 404) {
+                return res.status(502).json({
+                    error: 'Kunne ikke spørge e-conomic om kladden stadig findes — prøv igen',
+                    detail: e.message,
+                });
+            }
+        }
+        if (stadigDer) {
+            return res.status(409).json({
+                error: `Kladde ${draftNo} findes stadig i e-conomic. Slet den dér først — ellers ender I med to.`,
+                economic_draft_number: draftNo,
+            });
+        }
+    }
+
+    // Vagt 2 — blev den bogført i stedet for slettet? Så er fakturaen ude hos kunden.
+    // Spejlet (cf_economic_invoices) er kun så friskt som seneste cashflow-sync, så
+    // det er et sikkerhedsnet, ikke en garanti — derfor spørger UI'et også brugeren.
+    const heading = `#${row.bon_number}`;
+    const booked = db.prepare(`
+        SELECT booked_no, date FROM cf_economic_invoices
+        WHERE heading = ? OR heading LIKE ?
+        ORDER BY date DESC LIMIT 1
+    `).get(heading, heading + ' %');
+    if (booked) {
+        return res.status(409).json({
+            error: `Der findes en BOGFØRT faktura ${booked.booked_no} (${booked.date}) for ${heading}. `
+                 + 'Kladden blev bogført, ikke slettet — frigiv kun bonen hvis fakturaen også er krediteret.',
+            booked_invoice_number: booked.booked_no,
+        });
+    }
+
+    db.prepare('UPDATE bons SET economic_draft_number = NULL, economic_draft_at = NULL WHERE id = ?').run(bonId);
+    logChange({
+        entityType: 'bon', entityId: bonId,
+        action:     'economic_draft_released',
+        fieldName:  'economic_draft_number',
+        oldValue:   String(draftNo), newValue: null,
+        userId:     req.session?.userId ?? null,
+    });
+    broadcast('bon_updated', { id: bonId, economic_draft_number: null });
+    res.json({ ok: true, released_draft_number: draftNo });
+}));
+
 module.exports = router;

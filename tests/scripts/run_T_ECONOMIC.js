@@ -47,10 +47,19 @@ grocyAdapter.getRecipes = async () => ([
 ]);
 
 let draftSeq = 5000, lastPostBody = null;
+const LEVENDE_KLADDER = new Set();   // kladder der (endnu) IKKE er slettet i e-conomic
 eco.isConfigured = () => true;
 eco.rest = async (p, opts = {}) => {
     if (opts.method === 'POST' && p === '/invoices/drafts') { lastPostBody = opts.body; return { draftInvoiceNumber: ++draftSeq }; }
     if (opts.method === 'DELETE') return null;
+    // Kladde-opslag (frigivelses-vagten). Numre i LEVENDE_KLADDER findes stadig.
+    const dm = p.match(/^\/invoices\/drafts\/(\d+)$/);
+    if (dm && !opts.method) {
+        if (LEVENDE_KLADDER.has(dm[1])) return { draftInvoiceNumber: Number(dm[1]) };
+        const e = new Error('e-conomic 404: draft not found');
+        e.status = 404;
+        throw e;
+    }
     // Kundekortet: adressen står i e-conomic, ikke i CRM — den skal hentes derfra.
     if (p === '/customers/944') {
         return { customerNumber: 944, name: 'T_ECO Firma', address: 'Testvej 3',
@@ -405,6 +414,44 @@ function req(server, method, url, { auth = true, body } = {}) {
         // Tre kladder nu: happy path, nødudgangen på mixed-bonen, og den rigtige
         // afsendelse der blev sammenlignet med prøvekørslen.
         ok('readiness → drafts_waiting = 3', res.body?.drafts_waiting === 3, `(${res.body?.drafts_waiting})`);
+
+        console.log('\n── Frigiv bon efter slettet kladde ──');
+        // Re-send-vagten havde ingen nødudgang: slettede man kladden i e-conomic,
+        // stod nummeret stadig på bonen, og bonen kunne aldrig faktureres igen.
+        {
+            const bid = ids.ready;   // har fået en kladde tidligere i denne kørsel
+            const nr = String(db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(bid).n);
+
+            // Kladden findes stadig → må IKKE frigives (ellers to kladder).
+            LEVENDE_KLADDER.add(nr);
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('kladde findes stadig → 409', res.status === 409, `(status ${res.status})`);
+            ok('og nummeret står urørt på bonen',
+                db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(bid).n != null);
+
+            // Bogført faktura på bonen → må HELLER IKKE frigives (fakturaen er ude).
+            LEVENDE_KLADDER.delete(nr);
+            const bnum = db.prepare('SELECT bon_number FROM bons WHERE id=?').get(bid).bon_number;
+            db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading)
+                        VALUES ('90001','2026-09-10',1000,0,?)`).run('#' + bnum);
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('bogført faktura → 409', res.status === 409, `(status ${res.status})`);
+            ok('og den navngiver fakturanummeret', res.body?.booked_invoice_number === '90001');
+
+            // Hverken kladde eller bogført faktura → frigiv.
+            db.prepare("DELETE FROM cf_economic_invoices WHERE booked_no='90001'").run();
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('slettet kladde → 200', res.status === 200, `(status ${res.status}, ${JSON.stringify(res.body)})`);
+            ok('nummeret er ryddet på bonen',
+                db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(bid).n === null);
+            ok('frigivelsen er logget',
+                db.prepare("SELECT COUNT(*) n FROM changelog WHERE entity_id=? AND action='economic_draft_released'").get(bid).n === 1);
+
+            // Intet at frigive → 409, ikke en stille succes.
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('ingen kladde → 409', res.status === 409, `(status ${res.status})`);
+        }
+
     } finally {
         server.close();
         try { db.close?.(); } catch (e) {}
