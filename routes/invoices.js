@@ -278,6 +278,11 @@ const ECO_BON_SQL = `
         c.economic_contact_id, c.economic_customer_id AS customer_economic_customer_id,
         co.id AS company_id, co.name AS company_name, co.ean AS company_ean,
         co.economic_customer_id AS company_economic_customer_id,
+        -- Firmaets EGEN adresse (companies.address_id) = fakturaadressen. Den er en
+        -- anden end bonens leveringsadresse: vi leverer på et sted og fakturerer til
+        -- hovedkontoret. Begge skal med på fakturaen, hver sit sted.
+        ca.street_name AS co_street_name, ca.street_nr AS co_street_nr,
+        ca.postal_code AS co_postal_code, ca.city AS co_city,
         a.street_name AS addr_street_name, a.street_nr AS addr_street_nr,
         a.postal_code AS addr_postal_code, a.city AS addr_city,
         dv.label AS delivery_vehicle_label,
@@ -285,13 +290,21 @@ const ECO_BON_SQL = `
     FROM bons b
     LEFT JOIN customers c ON c.id = b.customer_id
     LEFT JOIN companies co ON co.id = b.company_id
+    LEFT JOIN addresses ca ON ca.id = co.address_id
     LEFT JOIN addresses a ON a.id = b.delivery_address_id
     LEFT JOIN delivery_vehicles dv ON dv.id = b.delivery_vehicle_id
     LEFT JOIN price_categories pc ON pc.id = b.price_category_id
     WHERE b.id = ?
 `;
 
-async function enrichBonForEconomic(db, bonId) {
+/**
+ * @param {object} opts
+ *   lookupBillingAddress: slå firmaets adresse op i e-conomic hvis den mangler i CRM.
+ *     Koster ét API-kald, så den er OPT-IN: kø-tjekket (/economic-readiness) kører
+ *     denne funktion for HVER bon ved hver sideindlæsning, og må ikke lave N kald.
+ *     Forhåndsvisning og afsendelse slår op; kø-tjekket gør ikke.
+ */
+async function enrichBonForEconomic(db, bonId, opts = {}) {
     const row = db.prepare(ECO_BON_SQL).get(bonId);
     if (!row) return null;
 
@@ -316,7 +329,7 @@ async function enrichBonForEconomic(db, bonId) {
             : null;
     }
 
-    return {
+    const bon = {
         id:                     row.id,
         bon_number:             row.bon_number,
         delivery_date:          row.delivery_date,
@@ -346,6 +359,15 @@ async function enrichBonForEconomic(db, bonId) {
             name:                 row.company_name,
             ean:                  row.company_ean,
             economic_customer_id: row.company_economic_customer_id,
+            // Fakturaadressen — adskilt fra delivery_address nedenfor. Én form
+            // (`line/zip/city/country`), så builderen ikke skal vide hvor den kom fra.
+            billing_address: row.co_street_name || row.co_city ? {
+                line:    `${row.co_street_name || ''} ${row.co_street_nr || ''}`.trim(),
+                zip:     row.co_postal_code || '',
+                city:    row.co_city || '',
+                country: 'Danmark',
+                source:  'crm',
+            } : null,
         } : null,
         delivery_address: row.addr_street_name ? {
             street_name: row.addr_street_name,
@@ -355,6 +377,29 @@ async function enrichBonForEconomic(db, bonId) {
         } : null,
         lines,
     };
+
+    // Adressen står allerede på kundekortet i e-conomic — de her kunder har fået
+    // fakturaer i årevis. Det er kun CRM der ikke kender den. Hellere hente den
+    // end sende en faktura uden afsenderadresse, og hellere det end at kræve at
+    // nogen taster den ind et sted den allerede findes.
+    // FAIL-OPEN: kan vi ikke hente den, sendes fakturaen som hidtil.
+    if (opts.lookupBillingAddress && bon.company && !bon.company.billing_address
+        && bon.company.economic_customer_id && eco.isConfigured()) {
+        try {
+            const kunde = await eco.rest(`/customers/${bon.company.economic_customer_id}`);
+            if (kunde && (kunde.address || kunde.city)) {
+                bon.company.billing_address = {
+                    line:    kunde.address || '',
+                    zip:     kunde.zip     || '',
+                    city:    kunde.city    || '',
+                    country: kunde.country || 'Danmark',
+                    source:  'economic',
+                };
+            }
+        } catch (e) { /* fail-open — adressen er en forbedring, ikke et krav */ }
+    }
+
+    return bon;
 }
 
 // ─── GET /api/invoices/economic-readiness ───────────────────────────────────
@@ -425,7 +470,7 @@ router.get('/economic-readiness', requireAuth(), handle(async (req, res) => {
 // tokens nødvendige — viser præcis hvad der ville blive POST'et + hvad der mangler.
 router.get('/:bonId/economic-preview', requireAuth(), handle(async (req, res) => {
     const db = getDb();
-    const bon = await enrichBonForEconomic(db, parseInt(req.params.bonId, 10));
+    const bon = await enrichBonForEconomic(db, parseInt(req.params.bonId, 10), { lookupBillingAddress: true });
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
     const settings = economicInvoice.getEconomicSettings(db);
@@ -589,9 +634,17 @@ router.post('/:bonId/economic-create-customer', requireAuth(), handle(async (req
         SELECT b.id, co.id AS company_id, co.name AS company_name, co.cvr, co.ean, co.economic_customer_id AS company_eco,
                c.id AS customer_id, c.first_name, c.last_name, c.email, c.phone,
                c.economic_customer_id AS customer_eco, c.economic_contact_id,
-               a.street_name, a.street_nr, a.postal_code, a.city
+               -- Firmaets egen adresse først; bonens leveringsadresse kun som
+               -- nødløsning (og for privatkunder, der ikke har nogen anden).
+               -- Et kundekort med leveringsadressen sender rykkere til et
+               -- festivalområde.
+               COALESCE(ca.street_name, a.street_name) AS street_name,
+               COALESCE(ca.street_nr,   a.street_nr)   AS street_nr,
+               COALESCE(ca.postal_code, a.postal_code) AS postal_code,
+               COALESCE(ca.city,        a.city)        AS city
         FROM bons b
         LEFT JOIN companies co ON co.id = b.company_id
+        LEFT JOIN addresses ca ON ca.id = co.address_id
         LEFT JOIN customers c ON c.id = b.customer_id
         LEFT JOIN addresses a ON a.id = b.delivery_address_id
         WHERE b.id = ?`).get(parseInt(req.params.bonId, 10));
@@ -685,7 +738,7 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
     // lagt på, så payloaden ikke ser mindre ud end den rigtige afsendelses.
     if (!dryRun) await autoFees.applyAutoFees(db, bonId, { userId: req.session?.userId ?? null });
 
-    const bon = await enrichBonForEconomic(db, bonId);
+    const bon = await enrichBonForEconomic(db, bonId, { lookupBillingAddress: true });
     const oneoffForMissing = req.body?.oneoff_for_missing === true;
 
     const readiness = economicInvoice.checkReadiness(bon, economicInvoice.getEconomicSettings(db));
@@ -708,9 +761,15 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
         }
         // Værn bag forhåndstjekket (#444/#454): en linje der ikke kan bygges må aldrig
         // ende som en for lille faktura. Nås kun hvis de to er blevet uenige.
-        if (e.code === 'line_without_product' || e.code === 'delivery_without_product' || e.code === 'oneoff_unavailable') {
+        if (e.code === 'line_without_product' || e.code === 'delivery_without_product'
+            || e.code === 'oneoff_unavailable' || e.code === 'contact_customer_mismatch') {
             return res.status(422).json({ error: e.message, code: e.code, line: e.line ?? null, readiness });
         }
+        // e-conomics egen begrundelse må ikke kun findes i HTTP-svaret. Da en kladde
+        // blev afvist i drift, stod der intet i journalctl (handle() når aldrig herned,
+        // fordi vi selv fanger fejlen) og toasten viste kun den generiske overskrift —
+        // så årsagen fandtes ét sted: i et svar ingen kiggede i.
+        console.error(`[e-conomic] kladde for bon ${bonId} afvist:`, e.message);
         if (e instanceof eco.EconomicAuthError) {
             return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
         }
@@ -748,6 +807,78 @@ router.post('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => 
     broadcast('bon_updated', { id: bonId, economic_draft_number: draftNo });
 
     res.json({ ok: true, economic_draft_number: draftNo });
+}));
+
+// ─── DELETE /api/invoices/:bonId/economic-draft ────────────────────────────
+// Frigiv bonen til en ny afsendelse, når kladden er SLETTET i e-conomic.
+//
+// Re-send-vagten er der af en god grund (ingen dublet-kladder), men den havde
+// ingen nødudgang: slettede man kladden i e-conomic — fx en testkladde — stod
+// nummeret stadig på bonen, og bonen kunne aldrig faktureres igen.
+//
+// Den farlige forveksling er "slettet" vs. "bogført": en bogført kladde er også
+// væk fra /invoices/drafts, men så er fakturaen ude hos kunden. Derfor to vagter
+// før vi frigiver, og fail-CLOSED hvis vi ikke kan få svar — en spærret bon er
+// til at leve med, to fakturaer til samme kunde er ikke.
+router.delete('/:bonId/economic-draft', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const bonId = parseInt(req.params.bonId, 10);
+    const row = db.prepare('SELECT bon_number, economic_draft_number FROM bons WHERE id = ?').get(bonId);
+    if (!row) return res.status(404).json({ error: 'Bon ikke fundet' });
+    if (row.economic_draft_number == null) {
+        return res.status(409).json({ error: 'Bonen har ingen kladde at frigive' });
+    }
+    const draftNo = row.economic_draft_number;
+
+    // Vagt 1 — findes kladden stadig? Så er der intet at frigive.
+    if (eco.isConfigured()) {
+        let stadigDer = false;
+        try {
+            await eco.rest(`/invoices/drafts/${draftNo}`);
+            stadigDer = true;
+        } catch (e) {
+            if (e.status !== 404) {
+                return res.status(502).json({
+                    error: 'Kunne ikke spørge e-conomic om kladden stadig findes — prøv igen',
+                    detail: e.message,
+                });
+            }
+        }
+        if (stadigDer) {
+            return res.status(409).json({
+                error: `Kladde ${draftNo} findes stadig i e-conomic. Slet den dér først — ellers ender I med to.`,
+                economic_draft_number: draftNo,
+            });
+        }
+    }
+
+    // Vagt 2 — blev den bogført i stedet for slettet? Så er fakturaen ude hos kunden.
+    // Spejlet (cf_economic_invoices) er kun så friskt som seneste cashflow-sync, så
+    // det er et sikkerhedsnet, ikke en garanti — derfor spørger UI'et også brugeren.
+    const heading = `#${row.bon_number}`;
+    const booked = db.prepare(`
+        SELECT booked_no, date FROM cf_economic_invoices
+        WHERE heading = ? OR heading LIKE ?
+        ORDER BY date DESC LIMIT 1
+    `).get(heading, heading + ' %');
+    if (booked) {
+        return res.status(409).json({
+            error: `Der findes en BOGFØRT faktura ${booked.booked_no} (${booked.date}) for ${heading}. `
+                 + 'Kladden blev bogført, ikke slettet — frigiv kun bonen hvis fakturaen også er krediteret.',
+            booked_invoice_number: booked.booked_no,
+        });
+    }
+
+    db.prepare('UPDATE bons SET economic_draft_number = NULL, economic_draft_at = NULL WHERE id = ?').run(bonId);
+    logChange({
+        entityType: 'bon', entityId: bonId,
+        action:     'economic_draft_released',
+        fieldName:  'economic_draft_number',
+        oldValue:   String(draftNo), newValue: null,
+        userId:     req.session?.userId ?? null,
+    });
+    broadcast('bon_updated', { id: bonId, economic_draft_number: null });
+    res.json({ ok: true, released_draft_number: draftNo });
 }));
 
 module.exports = router;

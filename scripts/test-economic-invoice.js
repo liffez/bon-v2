@@ -516,6 +516,131 @@ console.log('\n── Rabat: levering og gebyrer rabatteres ikke (etape 1) ─�
     ok('#D15 fakturasummen rammer det forventede', Math.abs(net - vent) < 0.5);
 }
 
+console.log('\n── Fakturaadresse + EAN på modtageren ──');
+// Rapporteret fra drift: hverken EAN eller firmaadressen kom med over på
+// fakturaen. e-conomic kopierer ikke fra kundekortet — sender vi kun
+// recipient.name, står fakturaen uden begge dele, og en offentlig kunde kan
+// slet ikke modtage den.
+{
+    const mkEanBon = (over = {}) => ({
+        id: 9, bon_number: 'B4300', delivery_date: '2026-09-10',
+        company: {
+            name: 'Høje-Taastrup Kommune', economic_customer_id: 1029,
+            ean: '5798001021593',
+            billing_address: { line: 'Rådhusstræde 1', zip: '2630', city: 'Taastrup', country: 'Danmark', source: 'crm' },
+            ...over,
+        },
+        delivery_address: { street_name: 'Taastrupgårdsvej', street_nr: '75', postal_code: '2630', city: 'Taastrup' },
+        offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'Sandwich', quantity: 14, unit_price: 99.79, economic_product_number: '65' }],
+    });
+
+    const p = inv.buildDraftInvoice(mkEanBon(), SETTINGS);
+    ok('#E1 EAN kommer med på recipient', p.recipient.ean === '5798001021593');
+    ok('#E1 EAN er max 13 tegn (e-conomics skema)', p.recipient.ean.length <= 13);
+    ok('#E1 nemHandelType = ean (ellers sendes den ikke via Nemhandel)',
+        p.recipient.nemHandelType === 'ean');
+    ok('#E1 fakturaadressen er firmaets egen', p.recipient.address === 'Rådhusstræde 1');
+    ok('#E1 postnr + by med', p.recipient.zip === '2630' && p.recipient.city === 'Taastrup');
+    ok('#E1 land sat', p.recipient.country === 'Danmark');
+    // Det centrale: de to adresser må ikke smelte sammen.
+    ok('#E1 leveringsadressen er en ANDEN og står stadig i delivery',
+        p.delivery.address === 'Taastrupgårdsvej 75' && p.recipient.address !== p.delivery.address);
+
+    // EAN skrevet med mellemrum/bindestreger i CRM skal stadig virke.
+    const pFormat = inv.buildDraftInvoice(mkEanBon({ ean: '5798 0010-21593' }), SETTINGS);
+    ok('#E2 cifrene trækkes ud af et formateret EAN', pFormat.recipient.ean === '5798001021593');
+
+    // Intet EAN → feltet udelades helt (privatkunder, ikke-offentlige firmaer).
+    const pUdenEan = inv.buildDraftInvoice(mkEanBon({ ean: null }), SETTINGS);
+    ok('#E3 intet EAN → feltet sendes ikke', !('ean' in pUdenEan.recipient));
+    ok('#E3 og heller ingen nemHandelType (ingen afsendelsesmåde at bede om)',
+        !('nemHandelType' in pUdenEan.recipient));
+
+    // Intet firma-adresse → recipient-adressen udelades (og arver IKKE leveringsadressen).
+    const pUdenAdr = inv.buildDraftInvoice(mkEanBon({ billing_address: null }), SETTINGS);
+    ok('#E4 ingen firmaadresse → ingen recipient-adresse', !('address' in pUdenAdr.recipient));
+    ok('#E4 og leveringsadressen smitter ikke af', pUdenAdr.delivery.address === 'Taastrupgårdsvej 75');
+
+    // Et ubrugeligt EAN må ALDRIG stoppe faktureringen — 34 af 231 firmaer har
+    // noget andet end 13 cifre i feltet, og de faktureres fint i dag. Det skal
+    // rapporteres, ikke blokeres.
+    const bonSkidtEan = mkEanBon({ ean: '579800102' });
+    const pSkidt = inv.buildDraftInvoice(bonSkidtEan, SETTINGS);
+    ok('#E5 ubrugeligt EAN blokerer IKKE fakturaen', pSkidt.lines.length > 0);
+    ok('#E5 men EAN sendes ikke med', !('ean' in pSkidt.recipient));
+    ok('#E5 og heller ikke nemHandelType', !('nemHandelType' in pSkidt.recipient));
+    ok('#E5 fakturaadressen er der stadig', pSkidt.recipient.address === 'Rådhusstræde 1');
+    const rSkidt = inv.checkReadiness(bonSkidtEan, SETTINGS);
+    ok('#E5 readiness rapporterer råteksten', rSkidt.eanUnusable === '579800102');
+    ok('#E5 og bonen er stadig klar til fakturering', rSkidt.ok === true);
+    ok('#E5 et ubrugeligt EAN kræver ikke en kontaktperson',
+        rSkidt.eanWithoutContact === false);
+
+    // Et GYLDIGT EAN kræver stadig en kontaktperson (uændret regel).
+    const rGyldig = inv.checkReadiness(mkEanBon(), SETTINGS);
+    ok('#E5 gyldigt EAN uden kontakt blokerer stadig', rGyldig.eanWithoutContact === true);
+    ok('#E5 og rapporterer ikke et ubrugeligt EAN', rGyldig.eanUnusable === null);
+
+    ok('#E6 privat bon uden firma vælter ikke',
+        (() => { const b = mkEanBon(); b.company = null;
+                 b.customer = { first_name: 'Sophie', last_name: 'Schiøtt', economic_customer_id: 1030 };
+                 const pp = inv.buildDraftInvoice(b, SETTINGS);
+                 return !('ean' in pp.recipient) && !('address' in pp.recipient); })());
+}
+
+console.log('\n── Bonen uenig med sig selv om kørslen ──');
+// Fra drift (#B4244): bonen bar en håndtilføjet linje "Levering med El-Taxa"
+// til 230 kr, mens buddet var skiftet til taxa-4x35 og kundeprisen sat til 400.
+// Linjen vinder over delivery_price, så fakturaen sendte den GAMLE kørsel til
+// den GAMLE pris — og det kunne ingen se før fakturaen lå der.
+{
+    const mkLeveringBon = (over = {}) => ({
+        id: 9156, bon_number: 'B4244', delivery_date: '2026-09-10',
+        company: null,
+        customer: { first_name: 'Sophie', last_name: 'Schiøtt', economic_customer_id: 1030 },
+        delivery_price: 400,
+        delivery_vehicle_label: 'Taxa 4x35',
+        offer_discount_percent: 0,
+        lines: [
+            { id: 1, product_name: 'Falaflen', quantity: 4, unit_price: 104, line_total: 416,
+              economic_product_number: '68' },
+            { id: 2, product_name: 'Levering med El-Taxa', category: 'x-Levering',
+              grocy_recipe_id: 156, quantity: 1, unit_price: 230, line_total: 230,
+              economic_product_number: '100' },
+        ],
+        ...over,
+    });
+
+    const r = inv.checkReadiness(mkLeveringBon(), SETTINGS);
+    ok('#L1 selvmodsigelsen opdages', r.deliveryConflict !== null);
+    ok('#L1 den navngiver linjen', r.deliveryConflict?.line_name === 'Levering med El-Taxa');
+    ok('#L1 og viser begge tal', r.deliveryConflict?.line_total === 230
+        && r.deliveryConflict?.delivery_price === 400);
+    ok('#L1 og hvilken vogn bonen NU har', r.deliveryConflict?.vehicle === 'Taxa 4x35');
+    ok('#L1 men bonen kan stadig faktureres (advarsel, ikke blokering)', r.ok === true);
+
+    // Det er stadig linjen der kommer med — advarslen ændrer ikke payloaden.
+    const p = inv.buildDraftInvoice(mkLeveringBon(), SETTINGS);
+    const lev = p.lines.filter(l => l.product.productNumber === '100');
+    ok('#L2 leveringslinjen er med én gang', lev.length === 1);
+    ok('#L2 til linjens pris, ikke delivery_price (230 incl = 184 ex)',
+        Math.abs(lev[0].unitNetPrice - 184) < 1, String(lev[0].unitNetPrice));
+    // Synteselinjen for delivery_price bygges IKKE oveni (needsDeliveryLine er
+    // falsk når der allerede er en x-Levering-linje) — ellers blev leveringen
+    // faktureret to gange. Tælles på antal linjer, ikke på teksten: den rigtige
+    // leveringslinje hedder selv "Levering med ...".
+    ok('#L2 ingen ekstra synteselinje oveni', p.lines.length === 2, 'linjer: ' + p.lines.length);
+
+    // Kun leveringspris, ingen linje → ingen selvmodsigelse, synteselinjen bygges.
+    const rRen = inv.checkReadiness(mkLeveringBon({ lines: [mkLeveringBon().lines[0]] }), SETTINGS);
+    ok('#L3 kun leveringspris → ingen advarsel', rRen.deliveryConflict === null);
+
+    // Kun linje, ingen pris → heller ingen selvmodsigelse.
+    const rKunLinje = inv.checkReadiness(mkLeveringBon({ delivery_price: 0 }), SETTINGS);
+    ok('#L4 kun linje → ingen advarsel', rKunLinje.deliveryConflict === null);
+}
+
 Promise.all(pending).then(() => {
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
     process.exit(fail === 0 ? 0 : 1);
@@ -524,7 +649,10 @@ Promise.all(pending).then(() => {
 function runTriggerTests() {
     const { openDb } = require('../db/compat');
     const { runMigrations } = require('../db/migrate');
-    const tmp = path.join(__dirname, '../data/_econ_trigger_test.db');
+    // Egen fil pr. proces, uden for projektmappen. Et fast navn i data/ betød at to
+    // kørsler tæt på hinanden kæmpede om samme fil ("database is locked") — og fordi
+    // mappen ligger i iCloud, kunne en -wal/-shm hænge ved efter oprydningen.
+    const tmp = path.join(require('node:os').tmpdir(), `econ_trigger_test_${process.pid}.db`);
     for (const f of [tmp, tmp + '-wal', tmp + '-shm']) { try { fs.unlinkSync(f); } catch {} }
 
     let db;

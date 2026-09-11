@@ -318,6 +318,31 @@ ok(DP._groupBusy.call(busy2) === true, 'ugemte ændringer blokerer reload');
 const idle = { _selectMode: false, _groupsDirty: false, el: { contains: () => false } };
 ok(DP._groupBusy.call(idle) === false, 'ellers er reload tilladt');
 
+// ── Linjens pris kan redigeres ─────────────────────────────────────────────
+// Fra drift (#B4244): en forældet leveringslinje bar 230 kr, men prisen var ren
+// tekst i skuffen. Linjen kunne kun slettes, ikke rettes — og den pris gik
+// direkte videre til fakturaen.
+console.log('\n— Pris-redigering på linjen —');
+{
+    const esc = (x) => String(x == null ? '' : x);
+    const self = { _selectMode: false, _isBottomLine: () => false };
+    const html = DP._lineHtml.call(self,
+        { id: 891346, product_name: 'Levering med El-Taxa', category: 'x-Levering',
+          quantity: 1, unit_price: 230, line_total: 230 }, esc);
+
+    ok(/class="[^"]*price-editable/.test(html), 'prisen er klikbar');
+    ok(/230 kr/.test(html), 'og viser linjens total');
+    ok(/data-unit-price="230"/.test(html), 'stk-prisen følger med på rækken');
+    ok(/qty-editable/.test(html), 'antal er stadig redigerbart');
+
+    // Editoren skal sende stk-prisen, ikke totalen — ellers ganges der op to gange.
+    const src = fs.readFileSync(path.join(root, 'shared', 'bon_drawer.js'), 'utf8');
+    ok(/putBonLine\(this\.bonId, lineId, \{ unit_price: ny \}\)/.test(src),
+        'gemmer unit_price (serveren ganger selv op til line_total)');
+    ok(!/putBonLine\([^)]*line_total/.test(src),
+        'sender ALDRIG line_total — den er server-autoritativ');
+}
+
 console.log(`\n${'═'.repeat(55)}`);
 console.log(`${pass} PASS · ${fail} FAIL`);
 console.log('═'.repeat(55));

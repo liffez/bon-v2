@@ -2138,7 +2138,7 @@ class BonDrawer {
             check +
             '<span class="drawer-line-qty qty-editable" title="Klik for at ændre antal">' + (l.quantity || 1) + '</span>' +
             '<span class="drawer-line-name name-editable" title="Klik for at tilføje eller ændre hjælpetekst">' + _esc(l.product_name || '') + special + '</span>' +
-            '<span class="drawer-line-price">' + price + '</span>' +
+            '<span class="drawer-line-price price-editable" title="Klik for at ændre stk-prisen">' + price + '</span>' +
             '<button class="drawer-line-del" title="Fjern">&times;</button>' +
         '</div>';
     }
@@ -2161,6 +2161,17 @@ class BonDrawer {
                 if (self._selectMode) return;   // i gruppér-tilstand vælger klik linjen
                 e.stopPropagation();
                 self._openQtyEdit(qtyEl);
+            });
+        });
+
+        // Pris-edit. Leveringslinjer bærer beløbet som stk-pris på antal 1, og der
+        // fandtes ingen vej til at rette dem: prisen var ren tekst, så en forældet
+        // leveringslinje kunne kun slettes, ikke rettes.
+        list.querySelectorAll('.drawer-line-price.price-editable').forEach(function(priceEl) {
+            priceEl.addEventListener('click', function(e) {
+                if (self._selectMode) return;   // i gruppér-tilstand vælger klik linjen
+                e.stopPropagation();
+                self._openPriceEdit(priceEl);
             });
         });
 
@@ -2406,6 +2417,82 @@ class BonDrawer {
         el.textContent = text;
         row.insertBefore(el, row.firstChild);
         setTimeout(function() { el.remove(); }, failed ? 5000 : 2600);
+    }
+
+    /**
+     * Rediger linjens STK-pris. Serveren er autoritativ: den ganger op til
+     * line_total, genberegner bonens total og logger ændringen
+     * (PUT /api/bons/:id/lines/:lid accepterer unit_price).
+     *
+     * Feltet viser stk-prisen, mens linjen viser totalen — de er kun ens ved
+     * antal 1. Derfor siger titlen "stk-pris", og efter gemning vises den total
+     * serveren regnede ud, ikke vores eget gæt.
+     */
+    _openPriceEdit(priceEl) {
+        if (!priceEl || priceEl.classList.contains('editing')) return;
+        var itemEl = priceEl.closest('.drawer-line-item');
+        if (!itemEl) return;
+        var lineId = itemEl.dataset.lineId;
+        var unitPrice = parseFloat(itemEl.dataset.unitPrice);
+        var self = this;
+
+        priceEl.dataset.originalPrice = priceEl.textContent.trim();
+        priceEl.classList.add('editing');
+
+        priceEl.innerHTML = '<input type="number" class="price-input" min="0" step="0.01" value="'
+            + (Number.isFinite(unitPrice) ? unitPrice : '') + '"><span class="price-unit">kr/stk</span>';
+
+        var input = priceEl.querySelector('.price-input');
+        input.addEventListener('click', function(e) { e.stopPropagation(); });
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); self._savePriceEdit(priceEl, lineId); }
+            else if (e.key === 'Escape') { e.preventDefault(); self._cancelPriceEdit(priceEl); }
+        });
+        input.addEventListener('blur', function() {
+            setTimeout(function() {
+                if (priceEl.classList.contains('editing') && !priceEl.contains(document.activeElement)) {
+                    self._savePriceEdit(priceEl, lineId);
+                }
+            }, 120);
+        });
+
+        input.focus();
+        input.select();
+    }
+
+    _savePriceEdit(priceEl, lineId) {
+        var input = priceEl.querySelector('.price-input');
+        if (!input) return;
+        var raw = String(input.value).trim().replace(',', '.');
+        var ny = parseFloat(raw);
+        var itemEl = priceEl.closest('.drawer-line-item');
+        var gammel = itemEl ? parseFloat(itemEl.dataset.unitPrice) : NaN;
+
+        if (raw === '' || !Number.isFinite(ny) || ny < 0) { this._cancelPriceEdit(priceEl); return; }
+        if (Number.isFinite(gammel) && ny === gammel)     { this._cancelPriceEdit(priceEl); return; }
+
+        var self = this;
+        priceEl.classList.add('saving');
+        putBonLine(this.bonId, lineId, { unit_price: ny })
+            .then(function(updated) {
+                priceEl.classList.remove('editing', 'saving');
+                delete priceEl.dataset.originalPrice;
+                if (itemEl) itemEl.dataset.unitPrice = ny;
+                priceEl.textContent = (updated && updated.line_total != null)
+                    ? updated.line_total + ' kr' : ny + ' kr';
+                self._flashMsg('✓ Pris gemt');
+            })
+            .catch(function(err) {
+                console.error('Kunne ikke gemme pris:', err);
+                self._cancelPriceEdit(priceEl);
+                self._flashMsg('⚠ ' + ((err && err.message) || 'Kunne ikke gemme prisen'), true);
+            });
+    }
+
+    _cancelPriceEdit(priceEl) {
+        priceEl.textContent = priceEl.dataset.originalPrice || priceEl.textContent;
+        priceEl.classList.remove('editing', 'saving');
+        delete priceEl.dataset.originalPrice;
     }
 
     _openQtyEdit(qtyEl) {

@@ -593,3 +593,30 @@
   .fakt-master-detail { flex-direction: column; }
   .fakt-list { width: 100%; max-height: 40vh; }
 }
+
+/* e-conomics egen begrundelse ved en afvist kladde — rå tekst, men ombrudt så
+   en lang valideringsfejl kan læses uden vandret scroll. */
+.fakt-eco-detail {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    background: var(--color-bg-alt, #f6f4f0);
+    border-left: 3px solid var(--color-danger, #c0392b);
+    border-radius: 4px;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--color-text, #333);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+/* Ikke-blokerende advarsel i forhåndsvisning/prøvekørsel (fx ubrugeligt EAN). */
+.fakt-eco-pv-warn {
+    margin: 0 0 12px;
+    padding: 9px 11px;
+    background: var(--color-warn-bg, #fdf3d8);
+    border-left: 3px solid var(--color-warn, #c8901b);
+    border-radius: 4px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}

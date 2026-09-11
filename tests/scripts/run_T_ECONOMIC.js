@@ -47,10 +47,33 @@ grocyAdapter.getRecipes = async () => ([
 ]);
 
 let draftSeq = 5000, lastPostBody = null;
+const LEVENDE_KLADDER = new Set();   // kladder der (endnu) IKKE er slettet i e-conomic
 eco.isConfigured = () => true;
 eco.rest = async (p, opts = {}) => {
     if (opts.method === 'POST' && p === '/invoices/drafts') { lastPostBody = opts.body; return { draftInvoiceNumber: ++draftSeq }; }
     if (opts.method === 'DELETE') return null;
+    // Kladde-opslag (frigivelses-vagten). Numre i LEVENDE_KLADDER findes stadig.
+    const dm = p.match(/^\/invoices\/drafts\/(\d+)$/);
+    if (dm && !opts.method) {
+        if (LEVENDE_KLADDER.has(dm[1])) return { draftInvoiceNumber: Number(dm[1]) };
+        const e = new Error('e-conomic 404: draft not found');
+        e.status = 404;
+        throw e;
+    }
+    // Kundekortet: adressen står i e-conomic, ikke i CRM — den skal hentes derfra.
+    if (p === '/customers/944') {
+        return { customerNumber: 944, name: 'T_ECO Firma', address: 'Testvej 3',
+                 zip: '2200', city: 'København N', country: 'Danmark' };
+    }
+    // Kontakt-vagten slår op om kontakten ligger under fakturaens kunde.
+    // 700 gør (firmaets kunde 944); alt andet svarer e-conomic 404 på.
+    const ct = p.match(/^\/customers\/(\d+)\/contacts\/(\d+)$/);
+    if (ct) {
+        if (ct[1] === '944' && ct[2] === '700') return { customerContactNumber: 700 };
+        const e = new Error('e-conomic 404: contact not found');
+        e.status = 404;
+        throw e;
+    }
     throw new Error('uventet eco.rest: ' + p);
 };
 
@@ -119,7 +142,7 @@ function seed() {
     db.prepare('UPDATE bons SET pax = 40 WHERE id = ?').run(fee);
     insLine.run(fee, 'Kartoflen', 40, 9400, 376000, 100, '01 Sandwich', 0);
 
-    return { ready, missing, bundle, amount, excl, exclPriced, mixed, fee };
+    return { ready, missing, bundle, amount, excl, exclPriced, mixed, fee, cuId, coEco: 944 };
 }
 
 // ── http helper ─────────────────────────────────────────────
@@ -199,6 +222,44 @@ function req(server, method, url, { auth = true, body } = {}) {
         ok('readiness → missing bon blokeret', res.body?.blocked?.some(b => b.bon_id === ids.missing));
         ok('readiness → ready bon IKKE blokeret', !res.body?.blocked?.some(b => b.bon_id === ids.ready));
         ok('readiness → drafts_waiting = 0', res.body?.drafts_waiting === 0);
+
+        console.log('\n── Fakturaadressen hentes fra e-conomic når CRM ikke har den ──');
+        // Firmaerne har fået fakturaer i årevis, så adressen står allerede på
+        // kundekortet. Uden dette stod fakturaen helt uden afsenderadresse.
+        res = await req(server, 'GET', `/api/invoices/${ids.ready}/economic-preview`);
+        ok('adresse hentet fra kundekortet', res.body?.payload?.recipient?.address === 'Testvej 3',
+            JSON.stringify(res.body?.payload?.recipient));
+        ok('postnr + by med', res.body?.payload?.recipient?.zip === '2200'
+            && res.body?.payload?.recipient?.city === 'København N');
+        ok('forhåndsvisning og prøvekørsel er stadig enige',
+            (await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: { dry_run: true } }))
+                .body?.payload?.recipient?.address === 'Testvej 3');
+
+        console.log('\n── Kontakt-vagt: kontakt under en anden kunde ──');
+        // Fejlen fra drift: fakturaen udstedes til firmaets kunde, men personens
+        // kontakt lå under et andet kundenummer → e-conomic afviste HELE kladden
+        // med E04800. Vagten skal fange den før afsendelse, med en besked office
+        // kan handle på.
+        db.prepare('UPDATE customers SET economic_contact_id = ? WHERE id = ?').run('875', ids.cuId);
+        res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: {} });
+        ok('kontakt-mismatch → 422', res.status === 422, `(status ${res.status}, ${JSON.stringify(res.body)})`);
+        ok('kontakt-mismatch → code', res.body?.code === 'contact_customer_mismatch');
+        ok('kontakt-mismatch → beskeden nævner begge numre',
+            /875/.test(res.body?.error || '') && /944/.test(res.body?.error || ''));
+        ok('kontakt-mismatch → intet gemt på bonen',
+            db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(ids.ready).n == null);
+
+        res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: { dry_run: true } });
+        ok('kontakt-mismatch → prøvekørslen fanger den også',
+            res.status === 422 && res.body?.code === 'contact_customer_mismatch', `(status ${res.status})`);
+
+        db.prepare('UPDATE customers SET economic_contact_id = ? WHERE id = ?').run('700', ids.cuId);
+        res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: { dry_run: true } });
+        ok('kontakt under rette kunde → slipper igennem', res.status === 200, `(status ${res.status})`);
+        ok('kontakt under rette kunde → med i payloaden',
+            res.body?.payload?.references?.customerContact?.customerContactNumber === 700
+            && res.body?.payload?.recipient?.attention?.customerContactNumber === 700);
+        db.prepare('UPDATE customers SET economic_contact_id = NULL WHERE id = ?').run(ids.cuId);
 
         console.log('\n── Draft (opret udkast) ──');
         res = await req(server, 'POST', `/api/invoices/${ids.ready}/economic-draft`, { body: {} });
@@ -353,6 +414,44 @@ function req(server, method, url, { auth = true, body } = {}) {
         // Tre kladder nu: happy path, nødudgangen på mixed-bonen, og den rigtige
         // afsendelse der blev sammenlignet med prøvekørslen.
         ok('readiness → drafts_waiting = 3', res.body?.drafts_waiting === 3, `(${res.body?.drafts_waiting})`);
+
+        console.log('\n── Frigiv bon efter slettet kladde ──');
+        // Re-send-vagten havde ingen nødudgang: slettede man kladden i e-conomic,
+        // stod nummeret stadig på bonen, og bonen kunne aldrig faktureres igen.
+        {
+            const bid = ids.ready;   // har fået en kladde tidligere i denne kørsel
+            const nr = String(db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(bid).n);
+
+            // Kladden findes stadig → må IKKE frigives (ellers to kladder).
+            LEVENDE_KLADDER.add(nr);
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('kladde findes stadig → 409', res.status === 409, `(status ${res.status})`);
+            ok('og nummeret står urørt på bonen',
+                db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(bid).n != null);
+
+            // Bogført faktura på bonen → må HELLER IKKE frigives (fakturaen er ude).
+            LEVENDE_KLADDER.delete(nr);
+            const bnum = db.prepare('SELECT bon_number FROM bons WHERE id=?').get(bid).bon_number;
+            db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading)
+                        VALUES ('90001','2026-09-10',1000,0,?)`).run('#' + bnum);
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('bogført faktura → 409', res.status === 409, `(status ${res.status})`);
+            ok('og den navngiver fakturanummeret', res.body?.booked_invoice_number === '90001');
+
+            // Hverken kladde eller bogført faktura → frigiv.
+            db.prepare("DELETE FROM cf_economic_invoices WHERE booked_no='90001'").run();
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('slettet kladde → 200', res.status === 200, `(status ${res.status}, ${JSON.stringify(res.body)})`);
+            ok('nummeret er ryddet på bonen',
+                db.prepare('SELECT economic_draft_number n FROM bons WHERE id=?').get(bid).n === null);
+            ok('frigivelsen er logget',
+                db.prepare("SELECT COUNT(*) n FROM changelog WHERE entity_id=? AND action='economic_draft_released'").get(bid).n === 1);
+
+            // Intet at frigive → 409, ikke en stille succes.
+            res = await req(server, 'DELETE', `/api/invoices/${bid}/economic-draft`);
+            ok('ingen kladde → 409', res.status === 409, `(status ${res.status})`);
+        }
+
     } finally {
         server.close();
         try { db.close?.(); } catch (e) {}

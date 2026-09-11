@@ -861,9 +861,9 @@ function recalcBonTotalCo2e(db, bonId) {
  * Kræver at linjerne har `grocy_recipe_id` med — ellers kan et gebyr ikke skelnes
  * fra en levering, og vi falder (sikkert) tilbage til den gamle adfærd.
  */
-function hasDeliveryLine(lines) {
+function findDeliveryLine(lines) {
     let feeIds = null;   // slås først op hvis der faktisk ER en x-Levering-linje
-    return (lines || []).some(l => {
+    return (lines || []).find(l => {
         if (l.category !== 'x-Levering') return false;
         if (l.grocy_recipe_id == null) return true;
         if (feeIds === null) {
@@ -871,7 +871,12 @@ function hasDeliveryLine(lines) {
             catch { feeIds = new Set(); }
         }
         return !feeIds.has(Number(l.grocy_recipe_id));
-    });
+    }) || null;
+}
+
+/** Som findDeliveryLine, men kun ja/nej. Samme regel — ét sted. */
+function hasDeliveryLine(lines) {
+    return findDeliveryLine(lines) !== null;
 }
 
 function recalcBonTotal(db, bonId, opts = {}) {
@@ -1064,7 +1069,7 @@ module.exports = {
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
     bonUnitsExpr, unitCountablePredicate,
-    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, hasDeliveryLine,
+    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, hasDeliveryLine, findDeliveryLine,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql, bonOwnsStockCostSql,
     driftLocationSql,
     countsAsSale, salesPriceCategorySql,

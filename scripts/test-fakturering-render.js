@@ -28,9 +28,30 @@ const ok = (navn, cond, ekstra = '') => {
 
 const kilde = fs.readFileSync(path.join(__dirname, '..', 'office', 'views', 'fakturering.js'), 'utf8');
 const sandbox = {
-    console, document: { getElementById: () => null, querySelector: () => null,
-                         querySelectorAll: () => [], createElement: () => ({ style: {}, classList: { add(){}, remove(){} } }) },
-    window: { Moms: { exclToIncl: (n) => n * 1.25, inclToExcl: (n) => n / 1.25 } },
+    console, document: {
+        // Elementer huskes pr. id, så en test kan se hvad der blev renderet i dem.
+        _els: new Map(),
+        getElementById(id) {
+            if (!this._els.has(id)) this._els.set(id, { id, innerHTML: '', style: {}, classList: { add(){}, remove(){} } });
+            return this._els.get(id);
+        },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        createElement: () => ({ style: {}, classList: { add(){}, remove(){} } }),
+    },
+    window: { Moms: {
+        exclToIncl: (n) => n * 1.25,
+        inclToExcl: (n) => n / 1.25,
+        // Samme form som shared/moms.js — §6b: input er INCL moms.
+        computeMomsFields: (incl) => {
+            const i = Math.round((incl || 0) * 100) / 100;
+            const e = Math.round((i / 1.25) * 100) / 100;
+            return { total_incl_moms: i, total_excl_moms: e, moms_amount: Math.round((i - e) * 100) / 100 };
+        },
+    } },
+    // Bonlinje-sammenlægningen er testet for sig (shared/bon_lines.js) — her skal
+    // den bare ikke stå i vejen for at skabelonen kan renderes.
+    BonLines: { mergeLines: (lines) => lines },
     setTimeout, clearTimeout, fetch: async () => ({ ok: true, json: async () => ({}) }),
 };
 sandbox.globalThis = sandbox;
@@ -90,6 +111,50 @@ ok('#5 men det siges hvorfor', rUdenOneoff.includes('economic_oneoff_product_num
 const rKundeMangler = sandbox._faktReadinessHtml({ ...READINESS, missingCustomer: true }, 42);
 ok('#6 ingen engangsbeløb når KUNDEN mangler (den hjælper ikke der)',
     !rKundeMangler.includes('Fakturér som engangsbeløb'));
+
+console.log('\n── Kontakt-nummeret er synligt på BEGGE slags bons ──');
+// Fejlen fra drift: en privat bon bar et kontakt-nummer der lå under en anden
+// e-conomic-kunde. Payloaden brugte det (economicInvoice.js), men panelet viste
+// kun feltet for firma-bons — så det kunne hverken ses eller ryddes.
+const BON_BASE = {
+    id: 42, bon_number: 'B4244', delivery_date: '2026-09-10', pax: 14,
+    total_price: 1797, delivery_price: 400, payment_type: 'faktura',
+    status_code: 'LEVERET', lines: [{ product_name: 'Sandwich', quantity: 14, unit: 'stk', unit_price: 99.79, line_total: 1397 }],
+};
+const els = sandbox.document._els;
+
+els.clear();
+sandbox._faktSelectBon({ ...BON_BASE,
+    customer: { id: 3860, first_name: 'Sophie', last_name: 'Schiøtt',
+                economic_customer_id: '1030', economic_contact_id: '875' },
+    company: null });
+const privatHtml = els.get('fakt-detail-panel')?.innerHTML || '';
+ok('#7 privat bon har en kontakt-række', privatHtml.includes('id="fakt-eco-privat-kontakt"'));
+ok('#7 og kundenummer-rækken er der stadig', privatHtml.includes('id="fakt-eco-privat"'));
+ok('#7 kontakt-nummeret vises med en rediger-knap',
+    (els.get('fakt-eco-privat-kontakt')?.innerHTML || '').includes('875'),
+    els.get('fakt-eco-privat-kontakt')?.innerHTML);
+ok('#7 og det kan RYDDES herfra (ellers var fejlen ikke til at rette)',
+    (els.get('fakt-eco-privat-kontakt')?.innerHTML || '').includes("'kontakt'"));
+
+els.clear();
+sandbox._faktSelectBon({ ...BON_BASE,
+    customer: { id: 3860, first_name: 'Sophie', last_name: 'Schiøtt', economic_contact_id: '875' },
+    company: { id: 3341, name: 'Høje-Taastrup Kommune', economic_customer_id: '1029' } });
+const firmaHtml = els.get('fakt-detail-panel')?.innerHTML || '';
+ok('#7 firma-bon har stadig sin kontakt-række', firmaHtml.includes('id="fakt-eco-kontakt"'));
+ok('#7 firma-bon har IKKE privat-felterne', !firmaHtml.includes('id="fakt-eco-privat"'));
+
+console.log('\n── e-conomics afvisning gøres læselig ──');
+const E04800 = String.raw`e-conomic 400: {"message":"Validation failed. 1 error found.","errorCode":"E04300","httpStatusCode":400,"errors":{"customerContact":{"errors":[{"propertyName":"customerContact","errorMessage":"Mismatching customer number for invoice and customer contact","errorCode":"E04800","inputValue":875,"developerHint":"Invoice customer: 1029, customer contact: 875, customer contact reference: 708"}]}},"errorCount":1}`;
+const laest = sandbox._faktEcoReadableDetail(E04800);
+ok('#8 overskriften kommer med', laest.includes('Validation failed'));
+ok('#8 selve fejlen kommer med', laest.includes('Mismatching customer number'));
+ok('#8 og hintet med numrene', laest.includes('Invoice customer: 1029'));
+ok('#8 ingen rå JSON tilbage', !laest.includes('"errorCode"'));
+ok('#8 en ikke-JSON besked vises som den er',
+    sandbox._faktEcoReadableDetail('e-conomic timeout efter 20000 ms') === 'e-conomic timeout efter 20000 ms');
+ok('#8 tom detail vælter ikke', sandbox._faktEcoReadableDetail(undefined) === '');
 
 console.log(`\n${fail ? '❌' : '✅'} ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

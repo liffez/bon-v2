@@ -8,7 +8,7 @@
 
 /* globals apiFetch, fetchInvoiceQueue, patchBonStatus, patchCompanyEconomic,
            patchCustomerEconomic, patchBon, connectSSE,
-           previewEconomicDraft, createEconomicDraft, fetchEconomicReadiness,
+           previewEconomicDraft, createEconomicDraft, releaseEconomicDraft, fetchEconomicReadiness,
            suggestEconomicCustomer, createEconomicCustomer, fetchDeliveryCustomerPrice */
 
 let _faktData = null;
@@ -360,6 +360,14 @@ function _faktSelectBon(bon) {
                         <div class="fakt-info-label">e-conomic<br><span style="font-size:10px;opacity:.7">kunde-nr</span></div>
                         <div class="fakt-info-val" id="fakt-eco-privat"></div>
                     </div>
+                    <!-- Kontakt-nummeret bruges af payloaden uanset om bonen har et firma
+                         (se economicInvoice.js), så det skal også kunne ses og rettes her.
+                         Var det skjult, kunne en kontakt der ligger under en ANDEN kunde
+                         vælte fakturaen uden at nogen kunne finde ud af hvorfor. -->
+                    <div class="fakt-info-row">
+                        <div class="fakt-info-label">e-conomic<br><span style="font-size:10px;opacity:.7">kontakt-nr</span></div>
+                        <div class="fakt-info-val" id="fakt-eco-privat-kontakt"></div>
+                    </div>
                     `}
                     <div class="fakt-info-row">
                         <div class="fakt-info-label">Betaling</div>
@@ -470,6 +478,7 @@ function _faktSelectBon(bon) {
         _faktRenderEcoField('fakt-eco-kontakt', bon.customer?.economic_contact_id, 'kontakt', bon);
     } else if (bon.customer) {
         _faktRenderEcoField('fakt-eco-privat', bon.customer.economic_customer_id, 'privat', bon);
+        _faktRenderEcoField('fakt-eco-privat-kontakt', bon.customer.economic_contact_id, 'kontakt', bon);
     }
     if (bon.delivery_method) _faktRenderDeliveryPrice(bon);
 }
@@ -528,7 +537,9 @@ function _faktActionBarHtml(bon, isBottom) {
     const drafted = bon.economic_draft_number != null;
     const ecoBtns = drafted
         ? `<span class="fakt-eco-draft-tag">&#9993; Kladde ${bon.economic_draft_number} sendt</span>
-           <button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>`
+           <button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>
+           <button class="fakt-btn-ghost" onclick="_faktReleaseEconomic(${bon.id})"
+                   title="Brug kun hvis kladden er slettet i e-conomic">Frigiv</button>`
         : `<button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>
            <button class="fakt-btn-eco" onclick="_faktSendEconomic(${bon.id})">&#128229; Send til e-conomic</button>`;
     return `
@@ -551,6 +562,84 @@ function _faktNoteRow(label, value) {
             <div class="fakt-info-val">${_escHtml(value)}</div>
         </div>
     `;
+}
+
+/**
+ * e-conomics afvisning i læsbar form.
+ *
+ * Serveren sender begrundelsen med som `detail` — fx
+ * `e-conomic 400: {"message":"Validation failed. 1 error found.", ... }` — men den
+ * blev tidligere smidt væk her, så en afvist faktura kun sagde "e-conomic afviste
+ * udkastet". Vi pakker JSON'en ud og beholder de menneskelæselige linjer; kan den
+ * ikke parses, er den rå tekst stadig bedre end ingenting.
+ */
+function _faktEcoReadableDetail(detail) {
+    const raw = String(detail || '');
+    const at = raw.indexOf('{');
+    if (at === -1) return raw;
+    let json;
+    try { json = JSON.parse(raw.slice(at)); } catch (e) { return raw; }
+
+    const out = [];
+    if (json.message) out.push(json.message);
+    // `errors` er et træ hvor hvert niveau kan bære en errors-liste
+    // ({ customerContact: { errors: [{ errorMessage, developerHint }] } }).
+    const walk = (node) => {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node.errors)) {
+            node.errors.forEach(e => {
+                const line = [e.errorMessage, e.developerHint].filter(Boolean).join(' \u2014 ');
+                if (line) out.push(line);
+            });
+        }
+        Object.keys(node).forEach(k => { if (k !== 'errors') walk(node[k]); });
+    };
+    walk(json.errors);
+    return out.length ? out.join('\n\n') : raw;
+}
+
+/** Fælles visning når e-conomic afviser: overskrift + vores fejl + deres begrundelse. */
+function _faktEcoFailOverlay(title, err) {
+    const b = err.body || {};
+    const lead = b.error || err.message || 'Ukendt fejl';
+    const detail = b.detail ? _faktEcoReadableDetail(b.detail) : '';
+    _faktEcoOverlay(title,
+        `<p class="fakt-eco-block-lead">${_escHtml(lead)}</p>`
+        + (detail ? `<pre class="fakt-eco-detail">${_escHtml(detail)}</pre>` : ''));
+}
+
+// ── E-conomic: frigiv bonen efter en slettet kladde ──────────────────────
+/**
+ * Re-send-vagten har ingen nødudgang: slettes kladden i e-conomic, bliver
+ * nummeret stående på bonen, og bonen kan aldrig faktureres igen. Her frigives
+ * den — men kun når serveren har bekræftet at kladden FAKTISK er væk og at der
+ * ikke ligger en bogført faktura på bonen.
+ *
+ * Den farlige forveksling er "slettet" vs. "bogført": begge er væk fra
+ * kladdelisten, men den bogførte er ude hos kunden. Derfor spørger vi også her.
+ */
+async function _faktReleaseEconomic(bonId) {
+    const bon = _faktData?.pending.find(b => b.id === bonId) || _faktSelected;
+    const nr = bon?.economic_draft_number;
+    const ok = window.confirm(
+        `Frigiv #${bon?.bon_number ?? bonId} til en ny afsendelse?\n\n`
+        + `Brug KUN dette hvis du har SLETTET kladde ${nr} i e-conomic.\n`
+        + `Er den i stedet BOGFØRT, er fakturaen ude hos kunden, og en ny afsendelse `
+        + `giver dem to.\n\nServeren tjekker begge dele, men spørger dig først.`);
+    if (!ok) return;
+
+    try {
+        const res = await releaseEconomicDraft(bonId);
+        if (bon) bon.economic_draft_number = null;
+        if (_faktData?.summary && _faktData.summary.drafts_waiting > 0) _faktData.summary.drafts_waiting--;
+        _faktShowToast(`Kladde ${res.released_draft_number} frigivet — bonen kan sendes igen`);
+        _faktRender();
+        if (bon) _faktSelectBon(bon);
+    } catch (err) {
+        _faktEcoOverlay('Kunne ikke frigive bonen',
+            `<p class="fakt-eco-block-lead">${_escHtml(err.body?.error || err.message)}</p>`
+            + (err.body?.detail ? `<pre class="fakt-eco-detail">${_escHtml(_faktEcoReadableDetail(err.body.detail))}</pre>` : ''));
+    }
 }
 
 // ── E-conomic: send udkast / forhåndsvisning ─────────────────
@@ -576,6 +665,8 @@ async function _faktSendEconomic(bonId) {
             bon.economic_draft_number = err.body?.economic_draft_number ?? bon.economic_draft_number;
             _faktShowToast(`Udkast findes allerede (kladde ${err.body?.economic_draft_number || ''})`);
             _faktSelectBon(bon);
+        } else if (err.body?.detail) {
+            _faktEcoFailOverlay(`e-conomic afviste bon #${bon.bon_number}`, err);
         } else {
             _faktShowToast('e-conomic: ' + (err.body?.error || err.message));
         }
@@ -588,10 +679,30 @@ async function _faktSendEconomic(bonId) {
  * sin egen version beviser intet om den rigtige.
  */
 function _faktPayloadHtml(p, readiness, note) {
+    // Et ubrugeligt EAN blokerer ikke — men office skal se det FØR afsendelse,
+    // ikke opdage bagefter at fakturaen aldrig gik via Nemhandel.
+    // Bonen er uenig med sig selv om kørslen. Linjen vinder — og er den forældet,
+    // faktureres den gamle kørsel til den gamle pris uden at nogen ser det.
+    const dc = readiness?.deliveryConflict;
+    const leveringAdvarsel = dc
+        ? `<p class="fakt-eco-pv-warn">&#9888; Bonen har både en leveringslinje
+             (<strong>${_escHtml(dc.line_name)}</strong>, ${_faktFmt(dc.line_total)} kr)
+             og en leveringspris (<strong>${_faktFmt(dc.delivery_price)} kr</strong>).
+             <strong>Kun linjen kommer på fakturaen</strong> — leveringsprisen falder ud.
+             ${dc.vehicle ? `Bonens vogn er nu <strong>${_escHtml(dc.vehicle)}</strong>. ` : ''}
+             Ret linjen på bonen, hvis den ikke passer til den kørsel I faktisk havde.</p>`
+        : '';
+    const eanAdvarsel = readiness?.eanUnusable
+        ? `<p class="fakt-eco-pv-warn">&#9888; Firmaets EAN (<span class="mono">${_escHtml(readiness.eanUnusable)}</span>)
+             er ikke 13 cifre. Fakturaen oprettes som normalt, men <strong>sendes ikke via Nemhandel</strong>.
+             Ret EAN-nummeret i firmaets stamdata, hvis den skal.</p>`
+        : '';
     const exTotal = p.lines.reduce((s, l) => s + (l.unitNetPrice || 0) * (l.quantity || 0), 0);
     const inclTotal = window.Moms.exclToIncl(exTotal);
     const momsAmt = inclTotal - exTotal;
     return `
+        ${leveringAdvarsel}
+        ${eanAdvarsel}
         <div class="fakt-eco-pv-meta">
             <div><span>Modtager</span><strong>${_escHtml(p.recipient?.name || '')}</strong></div>
             <div><span>e-conomic kunde-nr</span><strong>${p.customer?.customerNumber ?? '—'}</strong></div>
@@ -738,7 +849,8 @@ async function _faktDryRunEconomic(bonId, oneoff) {
         const b = err.body || {};
         _faktEcoOverlay(titel, b.readiness
             ? `<p class="fakt-eco-block-lead">Afsendelsen ville blive afvist:</p>${_faktReadinessHtml(b.readiness, bonId)}`
-            : `<p class="fakt-eco-block-lead">Afsendelsen ville fejle:</p><p>${_escHtml(b.error || err.message)}</p>`);
+            : `<p class="fakt-eco-block-lead">Afsendelsen ville fejle:</p><p>${_escHtml(b.error || err.message)}</p>`
+              + (b.detail ? `<pre class="fakt-eco-detail">${_escHtml(_faktEcoReadableDetail(b.detail))}</pre>` : ''));
     }
 }
 
@@ -771,7 +883,8 @@ async function _faktSendEconomicOneoff(bonId) {
         _faktRender();
         if (bon) _faktSelectBon(bon);
     } catch (err) {
-        _faktShowToast('Kunne ikke oprette udkast: ' + (err.body?.error || err.message));
+        if (err.body?.detail) _faktEcoFailOverlay('Kunne ikke oprette udkast', err);
+        else _faktShowToast('Kunne ikke oprette udkast: ' + (err.body?.error || err.message));
     }
 }
 

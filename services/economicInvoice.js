@@ -110,6 +110,35 @@ function buildReference(bon) {
     return [bon.bon_number, bon.requisition_ref].filter(Boolean).join(' · ');
 }
 
+/**
+ * Cifrene i firmaets EAN, klar til e-conomic (`recipient.ean`, max 13 tegn).
+ *
+ * Et EAN er 13 cifre. Skrives det med mellemrum eller bindestreger i CRM, skal
+ * cifrene stadig frem. Er der ikke 13 cifre tilbage, er nummeret ubrugeligt —
+ * så returneres null, og fakturaen sendes som en helt almindelig faktura.
+ *
+ * Vi BLOKERER bevidst ikke på et ubrugeligt EAN: 34 af de 231 firmaer med et
+ * EAN har noget andet end 13 cifre i feltet (fritekst, telefonnumre, to numre i
+ * samme felt). De faktureres fint i dag, og et stamdata-problem må ikke stoppe
+ * pengene. I stedet rapporteres det via checkReadiness → eanUnusable, så office
+ * kan SE at fakturaen ikke går via Nemhandel, frem for at opdage det bagefter.
+ *
+ * @returns {string|null} 13 cifre, ellers null.
+ */
+function economicEanDigits(bon) {
+    const raw = bon.company?.ean;
+    if (raw == null || String(raw).trim() === '') return null;
+    const digits = String(raw).replace(/\D/g, '');
+    return digits.length === 13 ? digits : null;
+}
+
+/** Firmaet HAR skrevet et EAN, men det kan ikke bruges. Returnerer råteksten (til visning). */
+function unusableEan(bon) {
+    const raw = bon.company?.ean;
+    if (raw == null || String(raw).trim() === '') return null;
+    return economicEanDigits(bon) === null ? String(raw) : null;
+}
+
 function recipientName(bon) {
     if (bon.company?.name) return bon.company.name;
     const fn = bon.customer?.first_name || '';
@@ -180,6 +209,36 @@ function deliveryProductNumber(bon, settings) {
     return (no == null || String(no).trim() === '') ? null : String(no);
 }
 
+/**
+ * Bonen har BÅDE en leveringslinje og en leveringspris — hvad kommer på fakturaen?
+ *
+ * Linjen vinder: hasDeliveryLine() får `delivery_price` til at falde ud af både
+ * bonens total og fakturaen. Er linjen forældet (bud skiftet bagefter), faktureres
+ * den GAMLE kørsel til den GAMLE pris, og ingen kan se det før fakturaen ligger der.
+ *
+ * Ingen kode opretter eller vedligeholder de linjer — de tilføjes i hånden som
+ * almindelige varelinjer, og logistik-panelet ved ikke af dem. Derfor kan de to
+ * kun bringes i overensstemmelse af et menneske, og så skal mennesket se det.
+ *
+ * Advarer, blokerer ikke: en bon kan sagtens faktureres med linjen som den er,
+ * hvis det er den der er rigtig.
+ *
+ * @returns {{line_name:string, line_total:number, delivery_price:number, vehicle:string|null}|null}
+ */
+function deliveryConflict(bon) {
+    const pris = Number(bon.delivery_price || 0);
+    if (!(pris > 0)) return null;
+    const { findDeliveryLine } = require('../db/helpers');
+    const linje = findDeliveryLine(bon.lines);
+    if (!linje) return null;
+    return {
+        line_name:      linje.product_name,
+        line_total:     round2(lineAmount(linje)),
+        delivery_price: round2(pris),
+        vehicle:        bon.delivery_vehicle_label || null,
+    };
+}
+
 /** Har bonen en leverings-synteselinje der skal bygges? (beløb på bon, ingen x-Levering-linje) */
 function needsDeliveryLine(bon) {
     const { hasDeliveryLine } = require('../db/helpers');
@@ -232,13 +291,18 @@ function checkReadiness(bon, settings = {}) {
     const missingDelivery = needsDeliveryLine(bon) && deliveryProductNumber(bon, settings) == null;
 
     // EAN-kunde (offentlig) kræver en kontaktperson på e-conomic-kunden, ellers fejler bogføring.
-    const isEan = Boolean(bon.company?.ean);
+    // Kun et BRUGBART EAN gør kunden til en EAN-kunde. Et felt med fritekst i
+    // skal ikke kræve en kontaktperson for en faktura der alligevel sendes normalt.
+    const isEan = economicEanDigits(bon) !== null;
     const hasContact = bon.customer?.economic_contact_id != null
         && String(bon.customer.economic_contact_id).trim() !== '';
     const eanWithoutContact = isEan && !hasContact;
 
     return {
         // `excluded` gør IKKE bonen ikke-klar — det er en oplysning, ikke en mangel.
+        // Hverken eanUnusable eller deliveryConflict indgår i `ok` — de advarer.
+        eanUnusable: unusableEan(bon),
+        deliveryConflict: deliveryConflict(bon),
         ok: missingProducts.length === 0 && !missingCustomer && !eanWithoutContact && !missingDelivery,
         missingCustomer,
         eanWithoutContact,
@@ -477,6 +541,28 @@ function buildDraftInvoice(bon, settings, opts = {}) {
         payload.recipient.attention = { customerContactNumber: Number(contactNo) };
         payload.references.customerContact = { customerContactNumber: Number(contactNo) };
     }
+    // Fakturaadresse + EAN på modtageren. e-conomic kopierer IKKE fra kundekortet:
+    // sender vi kun recipient.name, står fakturaen uden adresse og uden EAN, og en
+    // offentlig kunde kan slet ikke modtage den. `delivery` nedenfor er noget andet
+    // — dét er hvor maden kørte hen.
+    const billTo = bon.company?.billing_address;
+    if (billTo && (billTo.line || billTo.city)) {
+        payload.recipient.address = billTo.line || '';
+        payload.recipient.zip     = billTo.zip || '';
+        payload.recipient.city    = billTo.city || '';
+        payload.recipient.country = billTo.country || 'Danmark';
+    }
+    const ean = economicEanDigits(bon);
+    if (ean) {
+        payload.recipient.ean = ean;
+        // Uden nemHandelType er EAN-nummeret bare et tal på fakturaen. Det er DETTE
+        // felt der fortæller e-conomic at fakturaen skal sendes elektronisk via
+        // Nemhandel til EAN'et når et menneske bogfører den. Sættes kun når vi
+        // faktisk har et gyldigt EAN — ellers ville vi bede om en afsendelsesmåde
+        // der ikke kan lade sig gøre.
+        payload.recipient.nemHandelType = 'ean';
+    }
+
     if (addr && (addr.street_name || addr.city)) {
         payload.delivery = {
             deliveryDate: bon.delivery_date || invoiceDate,
@@ -492,6 +578,33 @@ function buildDraftInvoice(bon, settings, opts = {}) {
 /* ══════════════════════════════════════════════════════════════
    E-CONOMIC-KALD (kun udkast)
    ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Hører kontakten til den kunde fakturaen udstedes til?
+ *
+ * e-conomic afviser HELE kladden med E04800 ("Mismatching customer number for
+ * invoice and customer contact") hvis ikke. Intet i forhåndstjekket kunne fange
+ * det, fordi `customers.economic_contact_id` er et bart kontaktnummer uden nogen
+ * registrering af hvilken kunde det ligger under — mens fakturakunden kan være
+ * firmaet (se resolveEconomicCustomer). En person der har fået sin kontakt
+ * oprettet under ét kundenummer og siden optræder på en bon der faktureres til et
+ * andet (firma-kobling tilføjet bagefter, ny arbejdsplads, samme person brugt på
+ * flere firmaers bons) rammer den hver eneste gang.
+ *
+ * FAIL-OPEN: kun et definitivt 404 er et nej. Netværksfejl, 500, rate limit → vi
+ * ved det ikke, og vores egen vagt må ikke blokere en faktura på et gæt; det
+ * rigtige kald bagefter afgør sagen alligevel.
+ *
+ * @returns {Promise<boolean>} false KUN når kontakten beviseligt ikke findes der.
+ */
+async function contactBelongsToCustomer(customerNumber, contactNumber) {
+    try {
+        await eco.rest(`/customers/${customerNumber}/contacts/${contactNumber}`);
+        return true;
+    } catch (err) {
+        return err.status !== 404;
+    }
+}
 
 /**
  * Opret fakturaudkast i e-conomic. Forventer en beriget bon (lines med
@@ -513,6 +626,25 @@ async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing, dryRun }
         throw err;
     }
     const payload = buildDraftInvoice(bon, settings, { invoiceDate, oneoffForMissing });
+
+    // Kontakt-vagt: e-conomic afviser hele kladden hvis kontakten ligger under en
+    // anden kunde end fakturaens. Tjekket kører også i prøvekørslen — en generalprøve
+    // der ikke fanger den fejl beviser intet. Det er ét opslag; der skrives intet.
+    const draftContactNo = payload.references?.customerContact?.customerContactNumber;
+    if (draftContactNo != null) {
+        const draftCustomerNo = payload.customer.customerNumber;
+        if (!(await contactBelongsToCustomer(draftCustomerNo, draftContactNo))) {
+            const err = new Error(
+                `Kontaktpersonen (e-conomic kontakt ${draftContactNo}) hører ikke til kunde ` +
+                `${draftCustomerNo}, som fakturaen udstedes til. e-conomic afviser hele ` +
+                `fakturaen. Ryd eller ret kontakt-nummeret på kunden — "Foreslå kunde/kontakt" ` +
+                `viser de kontakter der faktisk ligger under kunde ${draftCustomerNo}.`);
+            err.code = 'contact_customer_mismatch';
+            err.contactNumber = draftContactNo;
+            err.customerNumber = draftCustomerNo;
+            throw err;
+        }
+    }
     // Idempotency-nøgle = bon-id + content-hash: ægte netværks-retry (samme payload)
     // dedupes; ændret indhold (redigeret bon gen-sendt inden for 1t) får en ny nøgle
     // og undgår e-conomics "PayloadChanged"-fejl. Re-send efter success forhindres
@@ -553,6 +685,10 @@ module.exports = {
     discountForLine,
     splitOre,
     buildDraftInvoice,
+    contactBelongsToCustomer,
+    deliveryConflict,
+    economicEanDigits,
+    unusableEan,
     createDraftInvoice,
     deleteDraftInvoice,
     round2,

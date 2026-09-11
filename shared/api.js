@@ -1037,6 +1037,13 @@ function createEconomicDraft(bonId, opts) {
     });
 }
 
+// Frigiv bonen til ny afsendelse efter at kladden er SLETTET i e-conomic.
+// Serveren tjekker selv at kladden faktisk er væk, og at der ikke ligger en
+// bogført faktura på bonen — den frigiver aldrig på vores ord alene.
+function releaseEconomicDraft(bonId) {
+    return apiFetch('/invoices/' + bonId + '/economic-draft', { method: 'DELETE' });
+}
+
 // Pre-flight: hvilke kø-bons ville blive blokeret + "kladder venter"-tæller.
 function fetchEconomicReadiness() {
     return apiFetch('/invoices/economic-readiness');
