@@ -209,6 +209,36 @@ function deliveryProductNumber(bon, settings) {
     return (no == null || String(no).trim() === '') ? null : String(no);
 }
 
+/**
+ * Bonen har BÅDE en leveringslinje og en leveringspris — hvad kommer på fakturaen?
+ *
+ * Linjen vinder: hasDeliveryLine() får `delivery_price` til at falde ud af både
+ * bonens total og fakturaen. Er linjen forældet (bud skiftet bagefter), faktureres
+ * den GAMLE kørsel til den GAMLE pris, og ingen kan se det før fakturaen ligger der.
+ *
+ * Ingen kode opretter eller vedligeholder de linjer — de tilføjes i hånden som
+ * almindelige varelinjer, og logistik-panelet ved ikke af dem. Derfor kan de to
+ * kun bringes i overensstemmelse af et menneske, og så skal mennesket se det.
+ *
+ * Advarer, blokerer ikke: en bon kan sagtens faktureres med linjen som den er,
+ * hvis det er den der er rigtig.
+ *
+ * @returns {{line_name:string, line_total:number, delivery_price:number, vehicle:string|null}|null}
+ */
+function deliveryConflict(bon) {
+    const pris = Number(bon.delivery_price || 0);
+    if (!(pris > 0)) return null;
+    const { findDeliveryLine } = require('../db/helpers');
+    const linje = findDeliveryLine(bon.lines);
+    if (!linje) return null;
+    return {
+        line_name:      linje.product_name,
+        line_total:     round2(lineAmount(linje)),
+        delivery_price: round2(pris),
+        vehicle:        bon.delivery_vehicle_label || null,
+    };
+}
+
 /** Har bonen en leverings-synteselinje der skal bygges? (beløb på bon, ingen x-Levering-linje) */
 function needsDeliveryLine(bon) {
     const { hasDeliveryLine } = require('../db/helpers');
@@ -270,8 +300,9 @@ function checkReadiness(bon, settings = {}) {
 
     return {
         // `excluded` gør IKKE bonen ikke-klar — det er en oplysning, ikke en mangel.
-        // eanUnusable indgår IKKE i `ok` — den advarer, den blokerer ikke.
+        // Hverken eanUnusable eller deliveryConflict indgår i `ok` — de advarer.
         eanUnusable: unusableEan(bon),
+        deliveryConflict: deliveryConflict(bon),
         ok: missingProducts.length === 0 && !missingCustomer && !eanWithoutContact && !missingDelivery,
         missingCustomer,
         eanWithoutContact,
@@ -655,6 +686,7 @@ module.exports = {
     splitOre,
     buildDraftInvoice,
     contactBelongsToCustomer,
+    deliveryConflict,
     economicEanDigits,
     unusableEan,
     createDraftInvoice,

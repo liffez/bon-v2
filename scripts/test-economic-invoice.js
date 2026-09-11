@@ -589,6 +589,58 @@ console.log('\n── Fakturaadresse + EAN på modtageren ──');
                  return !('ean' in pp.recipient) && !('address' in pp.recipient); })());
 }
 
+console.log('\n── Bonen uenig med sig selv om kørslen ──');
+// Fra drift (#B4244): bonen bar en håndtilføjet linje "Levering med El-Taxa"
+// til 230 kr, mens buddet var skiftet til taxa-4x35 og kundeprisen sat til 400.
+// Linjen vinder over delivery_price, så fakturaen sendte den GAMLE kørsel til
+// den GAMLE pris — og det kunne ingen se før fakturaen lå der.
+{
+    const mkLeveringBon = (over = {}) => ({
+        id: 9156, bon_number: 'B4244', delivery_date: '2026-09-10',
+        company: null,
+        customer: { first_name: 'Sophie', last_name: 'Schiøtt', economic_customer_id: 1030 },
+        delivery_price: 400,
+        delivery_vehicle_label: 'Taxa 4x35',
+        offer_discount_percent: 0,
+        lines: [
+            { id: 1, product_name: 'Falaflen', quantity: 4, unit_price: 104, line_total: 416,
+              economic_product_number: '68' },
+            { id: 2, product_name: 'Levering med El-Taxa', category: 'x-Levering',
+              grocy_recipe_id: 156, quantity: 1, unit_price: 230, line_total: 230,
+              economic_product_number: '100' },
+        ],
+        ...over,
+    });
+
+    const r = inv.checkReadiness(mkLeveringBon(), SETTINGS);
+    ok('#L1 selvmodsigelsen opdages', r.deliveryConflict !== null);
+    ok('#L1 den navngiver linjen', r.deliveryConflict?.line_name === 'Levering med El-Taxa');
+    ok('#L1 og viser begge tal', r.deliveryConflict?.line_total === 230
+        && r.deliveryConflict?.delivery_price === 400);
+    ok('#L1 og hvilken vogn bonen NU har', r.deliveryConflict?.vehicle === 'Taxa 4x35');
+    ok('#L1 men bonen kan stadig faktureres (advarsel, ikke blokering)', r.ok === true);
+
+    // Det er stadig linjen der kommer med — advarslen ændrer ikke payloaden.
+    const p = inv.buildDraftInvoice(mkLeveringBon(), SETTINGS);
+    const lev = p.lines.filter(l => l.product.productNumber === '100');
+    ok('#L2 leveringslinjen er med én gang', lev.length === 1);
+    ok('#L2 til linjens pris, ikke delivery_price (230 incl = 184 ex)',
+        Math.abs(lev[0].unitNetPrice - 184) < 1, String(lev[0].unitNetPrice));
+    // Synteselinjen for delivery_price bygges IKKE oveni (needsDeliveryLine er
+    // falsk når der allerede er en x-Levering-linje) — ellers blev leveringen
+    // faktureret to gange. Tælles på antal linjer, ikke på teksten: den rigtige
+    // leveringslinje hedder selv "Levering med ...".
+    ok('#L2 ingen ekstra synteselinje oveni', p.lines.length === 2, 'linjer: ' + p.lines.length);
+
+    // Kun leveringspris, ingen linje → ingen selvmodsigelse, synteselinjen bygges.
+    const rRen = inv.checkReadiness(mkLeveringBon({ lines: [mkLeveringBon().lines[0]] }), SETTINGS);
+    ok('#L3 kun leveringspris → ingen advarsel', rRen.deliveryConflict === null);
+
+    // Kun linje, ingen pris → heller ingen selvmodsigelse.
+    const rKunLinje = inv.checkReadiness(mkLeveringBon({ delivery_price: 0 }), SETTINGS);
+    ok('#L4 kun linje → ingen advarsel', rKunLinje.deliveryConflict === null);
+}
+
 Promise.all(pending).then(() => {
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
     process.exit(fail === 0 ? 0 : 1);

@@ -645,6 +645,17 @@ async function _faktSendEconomic(bonId) {
 function _faktPayloadHtml(p, readiness, note) {
     // Et ubrugeligt EAN blokerer ikke — men office skal se det FØR afsendelse,
     // ikke opdage bagefter at fakturaen aldrig gik via Nemhandel.
+    // Bonen er uenig med sig selv om kørslen. Linjen vinder — og er den forældet,
+    // faktureres den gamle kørsel til den gamle pris uden at nogen ser det.
+    const dc = readiness?.deliveryConflict;
+    const leveringAdvarsel = dc
+        ? `<p class="fakt-eco-pv-warn">&#9888; Bonen har både en leveringslinje
+             (<strong>${_escHtml(dc.line_name)}</strong>, ${_faktFmt(dc.line_total)} kr)
+             og en leveringspris (<strong>${_faktFmt(dc.delivery_price)} kr</strong>).
+             <strong>Kun linjen kommer på fakturaen</strong> — leveringsprisen falder ud.
+             ${dc.vehicle ? `Bonens vogn er nu <strong>${_escHtml(dc.vehicle)}</strong>. ` : ''}
+             Ret linjen på bonen, hvis den ikke passer til den kørsel I faktisk havde.</p>`
+        : '';
     const eanAdvarsel = readiness?.eanUnusable
         ? `<p class="fakt-eco-pv-warn">&#9888; Firmaets EAN (<span class="mono">${_escHtml(readiness.eanUnusable)}</span>)
              er ikke 13 cifre. Fakturaen oprettes som normalt, men <strong>sendes ikke via Nemhandel</strong>.
@@ -654,6 +665,7 @@ function _faktPayloadHtml(p, readiness, note) {
     const inclTotal = window.Moms.exclToIncl(exTotal);
     const momsAmt = inclTotal - exTotal;
     return `
+        ${leveringAdvarsel}
         ${eanAdvarsel}
         <div class="fakt-eco-pv-meta">
             <div><span>Modtager</span><strong>${_escHtml(p.recipient?.name || '')}</strong></div>
