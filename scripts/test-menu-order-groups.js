@@ -343,6 +343,101 @@ console.log('\n— Pris-redigering på linjen —');
         'sender ALDRIG line_total — den er server-autoritativ');
 }
 
+
+/* ── 9. Mailen til kunden følger samme rækkefølge ───────────────── */
+console.log('\n── 9. Kundemail: MailThread.buildVars sorterer som kortet ──');
+{
+    // bon_kort.js og bon_drawer.js havde hver sin kopi af mail-builderen, og
+    // ingen af dem fulgte med da sorteringen blev fælles — kunden fik varerne
+    // i rå DB-rækkefølge med emballage midt i maden (B4274, sept. 2026).
+    for (const f of ['bon_lines.js', 'moms.js', 'mail_thread.js']) {
+        vm.runInContext(fs.readFileSync(path.join(root, 'shared', f), 'utf8'), sandbox, { filename: f });
+    }
+    const MailThread = sandbox.MailThread;
+    ok(MailThread && typeof MailThread.buildVars === 'function', 'MailThread.buildVars findes');
+
+    // B4274 i den rå rækkefølge mailen viste den
+    const B4274 = {
+        bon_number: 'B4274', pax: 8, contact_name_full: 'Jesper Neergaard',
+        delivery_date: '2026-09-14', delivery_time: '11:15',
+        lines: [
+            { id: 1, product_name: 'Kartoflen',          category: '01 Sandwich',  quantity: 1, unit_price: 99,   line_total: 99,   special_request: '1 Glutenfri' },
+            { id: 2, product_name: 'Italieneren',        category: '01 Sandwich',  quantity: 3, unit_price: 104,  line_total: 312 },
+            { id: 3, product_name: 'Kartoflen',          category: '01 Sandwich',  quantity: 2, unit_price: 99,   line_total: 198 },
+            { id: 4, product_name: 'RR Boks (emballage)', category: '06 Emballage', quantity: 8, unit_price: 0,    line_total: 0 },
+            { id: 5, product_name: 'Transportkasse (emballage)', category: '06 Emballage', quantity: 1, unit_price: 12.5, line_total: 12.5 },
+            { id: 6, product_name: 'Fatdane – Sodavand', category: '05 Drikke',    quantity: 8, unit_price: 35,   line_total: 280 },
+            { id: 7, product_name: 'Falaflen',           category: '01 Sandwich',  quantity: 1, unit_price: 104,  line_total: 104,  special_request: 'Vegansk' },
+            { id: 8, product_name: 'Kartoflen',          category: '01 Sandwich',  quantity: 1, unit_price: 99,   line_total: 99,   special_request: 'Vegetar' },
+        ],
+    };
+    const vars = MailThread.buildVars(B4274);
+    const menu = vars.menuUdenPriser.split('\n');
+    eq(menu, [
+        '8× Fatdane – Sodavand',
+        '1× Falaflen (Vegansk)',
+        '3× Italieneren',
+        '1× Kartoflen (1 Glutenfri)',
+        '2× Kartoflen',
+        '1× Kartoflen (Vegetar)',
+        '8× RR Boks (emballage)',
+        '1× Transportkasse (emballage)',
+    ], 'drikke øverst, mad i midten (alfabetisk), emballage nederst — som drawer og info-modal');
+
+    const idx = (needle) => menu.findIndex(l => l.includes(needle));
+    ok(idx('RR Boks') > idx('Kartoflen (Vegetar)'), 'emballage står EFTER den sidste madvare');
+    ok(idx('Fatdane') === 0, 'drikke står allerførst');
+    eq(vars.menuMedPriser.split('\n').map(l => l.replace(/\s+[\d.,]+ kr$/, '')), menu,
+        'menuMedPriser har præcis samme rækkefølge som menuUdenPriser');
+
+    // Grupper: linjerne INDE i en gruppe sorteres også, og grupperne følger sort_order
+    const grouped = {
+        lines: [
+            { id: 1, product_name: 'Transportkasse', category: '06 Emballage', quantity: 1, line_total: 12.5, menu_group_id: 7 },
+            { id: 2, product_name: 'Kyllingen',      category: '01 Sandwich',  quantity: 4, line_total: 400,  menu_group_id: 7 },
+            { id: 3, product_name: 'Brownie',        category: '03 Kager',     quantity: 4, line_total: 100,  menu_group_id: 9 },
+            { id: 4, product_name: 'RR Boks',        category: '06 Emballage', quantity: 2, line_total: 0 },
+            { id: 5, product_name: 'Falaflen',       category: '01 Sandwich',  quantity: 2, line_total: 200 },
+        ],
+        menu_groups: [
+            { id: 9, title: 'Eftermiddag', sort_order: 2 },
+            { id: 7, title: 'Frokost',     sort_order: 1 },
+        ],
+    };
+    eq(MailThread.buildVars(grouped).menuUdenPriser.split('\n'), [
+        'Frokost:',
+        '  4× Kyllingen',
+        '  1× Transportkasse',
+        '',
+        'Eftermiddag:',
+        '  4× Brownie',
+        '',
+        '2× Falaflen',
+        '2× RR Boks',
+    ], 'grupper i sort_order, emballage nederst inde i gruppen OG blandt de løse');
+
+    // Ekstra felter der før kun fandtes i drawerens kopi skal stadig være der
+    const withTransport = MailThread.buildVars({ lines: [], transport_co2_source: 'ors', transport_co2e_kg: 0.9, delivery_method: 'bike' });
+    eq(withTransport.co2Transport, '0,90 kg', 'co2Transport (drawerens felt) leveres fra den fælles builder');
+    eq(withTransport.co2MedTransport, '0,90 kg CO₂e', 'co2MedTransport summerer mad + transport');
+    eq(withTransport.leveringsMetode, 'Cykelbud', 'leveringsMetode falder tilbage på delivery_method');
+    eq(MailThread.buildVars({ lines: [] }).co2Transport, '0,00 kg', 'ukendt transport → 0, ikke crash');
+
+    // De to gamle kopier skal være væk — ellers driver de fra hinanden igen
+    const kort = fs.readFileSync(path.join(root, 'shared', 'bon_kort.js'), 'utf8');
+    const drawer = fs.readFileSync(path.join(root, 'shared', 'bon_drawer.js'), 'utf8');
+    ok(/function _buildMailVars\(bon\) \{[\s\S]{0,400}?MailThread\.buildVars\(bon\)/.test(kort),
+        'bon_kort.js delegerer til MailThread.buildVars');
+    ok(/_buildMailVars = function\(bon\) \{ return MailThread\.buildVars\(bon\); \}/.test(drawer),
+        'bon_drawer.js delegerer til MailThread.buildVars');
+    ok(!/menuUdenPriser:/.test(kort) && !/menuUdenPriser:/.test(drawer),
+        'ingen af dem bygger selv menuUdenPriser længere');
+    for (const page of ['kitchen/today.html', 'kitchen/later.html', 'kitchen/calendar.html', 'kitchen/logistik.html', 'office/index.html', 'mobile/index.html']) {
+        const html = fs.readFileSync(path.join(root, page), 'utf8');
+        ok(/mail_thread\.js/.test(html) && /shared\/utils\.js/.test(html), page + ' loader både mail_thread.js og utils.js');
+    }
+}
+
 console.log(`\n${'═'.repeat(55)}`);
 console.log(`${pass} PASS · ${fail} FAIL`);
 console.log('═'.repeat(55));
