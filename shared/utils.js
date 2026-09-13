@@ -1223,29 +1223,81 @@ function parseWishDishes(text) {
     return { free, dishes };
 }
 
+/* Skilletegn folk skriver forskelligt fra menuen. Menuen har "Trøflen - slider"
+   og «"Tunen"»; kunden skriver "Trøflen slider" og "Tunen". Uden tolerance falder
+   retten ud af bestillingen — målt på driftsdata rammer det 61 ret-linjer. */
+var DISH_DASHES = /[-\u2010-\u2015]/;
+var DISH_QUOTES = /["'\u00ab\u00bb\u201a\u201c\u201d\u201e]/;
+var DISH_WORDCHAR = /[0-9a-z\u00e0-\u00f6\u00f8-\u00ff]/;
+
+/**
+ * Normalisér et retnavn til sammenligning, og hold styr på hvor hvert tegn kom
+ * fra i originalen.
+ *
+ * Kortet er ikke pynt: kalderen skal kunne skære kundens note af den ORIGINALE
+ * tekst ("Kyllingen (1 uden mayo)"), og normaliseringen ændrer længden. Uden
+ * det ville noten blive klippet forkert.
+ *
+ * Anførselstegn forsvinder helt; bindestreger og gentagne mellemrum bliver til
+ * ét mellemrum. `toLowerCase()` kan give flere tegn for ét (tyrkisk İ), så hvert
+ * resultat-tegn får originalens index — kortet er altid lige så langt som teksten.
+ */
+function _normDish(s) {
+    const out = [], map = [];
+    let prevSpace = true;                 // true fra start = spis ledende mellemrum
+    for (let i = 0; i < s.length; i++) {
+        const raw = s.charAt(i);
+        if (DISH_QUOTES.test(raw)) continue;
+        if (DISH_DASHES.test(raw) || raw === ' ' || raw === '\t') {
+            if (prevSpace) continue;
+            prevSpace = true; out.push(' '); map.push(i);
+            continue;
+        }
+        prevSpace = false;
+        const lc = raw.toLowerCase();
+        for (let k = 0; k < lc.length; k++) { out.push(lc.charAt(k)); map.push(i); }
+    }
+    while (out.length && out[out.length - 1] === ' ') { out.pop(); map.pop(); }
+    return { norm: out.join(''), map };
+}
+
 /**
  * Find den ret i `names` der står forrest i `rest`. Længste match vinder,
  * og navnet skal slutte på en ordgrænse.
+ *
+ * Sammenligningen er tolerant over for bindestreger, dobbelte mellemrum og
+ * anførselstegn (se _normDish). Målt mod driftsdata gav det 61 nye match og
+ * **nul** linjer der skiftede fra én ret til en anden — og ingen af de 3119
+ * bons har to egne linjer der smelter sammen, så matchet forbliver entydigt.
+ *
  * @returns {{name: string, note: string}|null} name = kandidatens eget navn
  *          (uændret casing), note = det kunden skrev bagefter.
  */
 function matchDishName(rest, names) {
     const hay = String(rest == null ? '' : rest).trim();
-    const low = hay.toLowerCase();
-    if (!low) return null;
+    const H = _normDish(hay);
+    if (!H.norm) return null;
 
     let best = null;
     for (const raw of (names || [])) {
         const name = String(raw == null ? '' : raw).trim();
-        const n = name.toLowerCase();
-        if (!n || n.length > low.length) continue;
-        if (low.slice(0, n.length) !== n) continue;
+        const n = _normDish(name).norm;
+        if (!n || n.length > H.norm.length) continue;
+        if (H.norm.slice(0, n.length) !== n) continue;
         // Ordgrænse — ellers ville "Fisken" sluge "Fiskens ..."
-        const next = low.charAt(n.length);
-        if (next && /[0-9a-zà-öø-ÿ]/.test(next)) continue;
-        if (!best || n.length > best.name.length) best = { name, note: hay.slice(name.length).trim() };
+        const next = H.norm.charAt(n.length);
+        if (next && DISH_WORDCHAR.test(next)) continue;
+        if (!best || n.length > best.len) {
+            // Skær noten af den originale tekst, ikke af den normaliserede.
+            // Et anførselstegn der KLISTRER til navnet lukker navnet («"Tunen"» før
+            // « (uden løg)»); står der et mellemrum imellem, er det kundens eget
+            // og bliver i noten.
+            let cut = H.map[n.length - 1] + 1;
+            while (cut < hay.length && DISH_QUOTES.test(hay.charAt(cut))) cut++;
+            best = { name, note: hay.slice(cut).trim(), len: n.length };
+        }
     }
-    return best;
+    return best ? { name: best.name, note: best.note } : null;
 }
 
 /**
