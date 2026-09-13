@@ -6468,7 +6468,8 @@ advarer om ved `_buildMailVars`.
 - **Et dødt filter er fjernet**: kopierne filtrerede på kategori `'emballage'` /
   `'levering'`, men kategorierne hedder `06 Emballage` / `x-Levering` siden
   normaliseringen, så emballage har hele tiden stået i mailen. Den står der
-  stadig — nu nederst. Skal den ud af kundemailen, er det en egen beslutning.
+  stadig — nu nederst. **Beslutning (Leif, 13. september 2026): emballagen
+  SKAL med i kundemailen.** Filtrér den ikke ud igen.
 - `kitchen/logistik.html` loader nu `mail_thread.js` (den havde draweren uden).
 
 **Tests**: `npm run test:menu-order` fik en sektion 9 (84 PASS) med B4274 som
