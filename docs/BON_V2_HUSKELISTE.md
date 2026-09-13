@@ -157,6 +157,26 @@
 
 ---
 
+## Indkøb — Fase C (uafklaret, afventer drift af Fase A)
+
+> **Fuld skitse: [`indkob/HUSKELISTE_indkob_fase_c.md`](indkob/HUSKELISTE_indkob_fase_c.md)** — den er
+> source-of-truth og gentages ikke her. Nedenfor kun det man skal kunne se ved en sessionsstart.
+> Fase A = epic #471, Fase B = `indkob/CLAUDE_INDKOB_FASE_B.md`.
+
+**Diagnosen:** modulet mangler en entitet. Det modellerer *behov* (Grocy `shopping_list`) og
+*afsendt bestilling* (`purchase_orders`), men ikke det imellem: **den bestilling jeg er ved at
+lave**. Derfor er kurven kun `_ibCartItems` i browserhukommelsen, derfor er "Bestillinger" tvunget
+sammen med "Indkøbsliste", og derfor har et engangskøb ingen indgang.
+
+| Regel | |
+|---|---|
+| ⛔ **Skriv ikke spec endnu** | Først efter ~2 ugers faktisk drift af Fase A. Tre af fire smertepunkter i ASIS §12 viste sig at være bugs, ikke arkitektur — måske er engangskøb det eneste der reelt mangler |
+| ⛔ **Mockup før spec** | C er UI-tungt |
+| ⚠️ **Hård binding** | Varemodtagelsen *læser* `ordered_*` for at bygge sin vareliste (ASIS §7 + §12.5). Migreres indkøb uden varemodtagelsen, står modtagelsen med tom liste. **Samme deploy — betingelse, ikke anbefaling** |
+| 📌 **Opdatér ASIS** | Når Deploy 2 er ude, så den ikke beskriver rettede fejl |
+
+---
+
 ## Sammenfatning — stadig åbne huller
 
 Grupperet efter type. Sortér frit efter prioritet.
@@ -189,7 +209,10 @@ Grupperet efter type. Sortér frit efter prioritet.
 
 ### ❓ Kræver afklaring
 23. **Fremtidige ordrer usynlige** — konkret eksempel mangler
+24. **Indkøb Fase C** — kladde-entiteten. Spec skrives først efter ~2 ugers drift af Fase A (epic #471). Se afsnittet ovenfor
 
 ---
 
-*Sidst opdateret: 19. maj 2026 — opdateret efter session: kalender-farver, SSE bons-list, sidebar-toggle, drawer-historik, expandable notes lukket. Falsk `better-sqlite3`-item fjernet (eneste reference er korrekt kontrast-eksempel).*
+*Sidst opdateret: 17. august 2026 — Indkøb Fase C tilføjet som afsnit + peger på `indkob/HUSKELISTE_indkob_fase_c.md` (skitsen kopieres bevidst IKKE ind — to kopier ville drive fra hinanden).*
+
+*Tidligere: 19. maj 2026 — opdateret efter session: kalender-farver, SSE bons-list, sidebar-toggle, drawer-historik, expandable notes lukket. Falsk `better-sqlite3`-item fjernet (eneste reference er korrekt kontrast-eksempel).*

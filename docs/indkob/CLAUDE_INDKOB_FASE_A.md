@@ -12,6 +12,30 @@
 > **Autoritative dokumenter:** `../BON_V2_PRINCIPPER.md`, `../bon_v2_datamodel_v2.md`,
 > `../bon_v2_zoner_og_layout.md`. Ved konflikt vinder de over dette dokument.
 >
+> **⚠️ Linjenumre er forældede.** Spec'en er skrevet mod koden 31.07.2026. Efter
+> [#477](https://github.com/liffez/bon-v2/issues/477) (merget 18.08) er `shared/indkob.js` vokset
+> fra 3.132 til **3.544 linjer**, og de steder spec'en peger på er drevet **~32 linjer**:
+>
+> | Spec siger | Står nu på (19.08.2026) |
+> |---|---|
+> | `_ibPricePerKg` 483 · `_ibPackSizeKg` 489 · `_ibCalcQty` 499 · `_ibPackPrice` 505 · `_ibChipLabel` 512 | 510 · 518 · 528 · **534** · 543 |
+> | `su.price` 505-508 | **537** |
+>
+> **Find hvert sted med `grep`, ikke med linjenummer** — §3's kommandoer gør netop det.
+>
+> **§3-verifikationen er kørt 19.08.2026 (efter #477) og holder:** `item_id` er stadig NOT NULL ·
+> `goods_receipts` har ikke `supplier_id` · 9 forekomster af `salesUnits[0]` i tre filer ·
+> 1 forekomst af `su.price` · 6 kaldere af `deliveryDate()`. **Næste ledige migrationsnummer er
+> 149** (bemærk: 144, 145 og 147 findes hver to gange i `db/migrations/` — det er et selvstændigt
+> lille rod, ikke A4's problem). Kør §3 igen hvis der går tid inden implementeringen.
+>
+> **#477 er landet (18.08) og rører IKKE regnestykket.** Den ændrede kobl-panelet, gruppe-navne,
+> render-livscyklussen og tilføjede inline varenr-håndtering — men ingen af de funktioner A5
+> omskriver. `salesUnits[0]` står stadig 9 steder, `su.price` stadig ét. Tre ting fra den er dog
+> værd at kende, og de er noteret hvor de rammer: §5.2 (input overlever ikke `_ibRender`),
+> §5.1 (`|| 'ks'`-fallbacken i `_ibAddToCart`) og §10c (draweren er nu det sidste sted med den
+> numeriske Hørkram-regel).
+>
 > **Note om fasenavne:** et tidligere "Fase B" betød "synkronisér leveringsdatoen til Hoka".
 > Den opgave viste sig at være fire linjer kode (`_edd`-cookien) og er absorberet i A1 §4.2.
 > Fase B betyder nu noget andet. Der er intet gammelt B at lede efter.
@@ -197,6 +221,9 @@ sqlite3 data/bon.db "PRAGMA table_info(goods_receipts);"
 
 # 3. Næste ledige migrationsnummer — GÆT IKKE
 ls db/migrations/ | sort | tail -5
+#    17.08.2026: højeste er 148_booking_confirmed_by.sql → næste er 149.
+#    Bemærk at 144, 145 og 147 hver findes TO gange (forskellige features, samme nummer).
+#    Genbrug ikke det mønster.
 
 # 4. Alle steder der bruger salesUnits[0]
 grep -rn "salesUnits\[0\]" shared/ routes/ services/
@@ -341,8 +368,14 @@ Uden punkt 3 ville vi falde til `[0]` og vælge **kassen med 45 styk** — præc
 A2 skal rette.
 
 **`baseUnitCode` skal læses, aldrig antages.** Der findes varer med `BaseUnitCode: "kt"`,
-hvor basisenheden *er* en karton. Både `|| 'st'` (`horkram.js:635`) og `|| 'ks'`
-(`indkob.js:1680`) er forkerte gæt og fjernes, jf. §5.3.
+hvor basisenheden *er* en karton. Både `|| 'st'` (i `horkram.js`) og `|| 'ks'` (i `_ibAddToCart`)
+er forkerte gæt og fjernes, jf. §5.3.
+
+> Bemærk asymmetrien i dag: #419 gjorde **serveren** streng — den afviser en vare hvis
+> salgsenheden ikke kan slås op, i stedet for at gætte. **Klienten gætter stadig**
+> (`supplier_unit_code || 'ks'` efterfulgt af `salesUnits[0]`-overskrivningen). Resultatet er at
+> klienten sender et gæt, som serveren så kan komme til at acceptere fordi feltet *er* udfyldt.
+> A2 lukker den sidste halvdel.
 
 Rammer punkt 4, skal advarslen indeholde varenummeret, så varen kan slås op manuelt.
 
@@ -362,6 +395,25 @@ og brugeren kan skifte på chippen. Regel 3 er kun til de varer hvor `isDefault`
 - Enheden er klikbar → lille popover med alle `salesUnits`, hver med navn, antal basisenheder,
   pris pr. salgsenhed og kg pr. salgsenhed
 - Ved valg: gen-beregn antal (`_ibCalcQty`) og pris, gem valget
+
+> ⚠️ **Alt der er halvt indtastet dør ved næste `_ibRender()`. Lært i #477 (18.08.2026).**
+>
+> `_ibRender()` bygger hele listen forfra med `innerHTML`. Efterslæbet — snapshots, favorit-cache,
+> leverandørpost — kalder den **sekunder efter** at brugeren har åbnet noget og er begyndt at
+> skrive. Komponenten gendanner fokus og markørposition, men **ikke indholdet**: i #477 forsvandt
+> det varenummer man var i gang med at taste, uden at nogen rørte noget.
+>
+> Løsningen dér var at holde teksten uden for DOM'en i `_ibLinkDraft[productId]` og skrive den
+> tilbage ved render. **Gør det samme her**, og for de to andre steder Fase A tilføjer indtastning:
+>
+> | Tilføjes af | Hvad der kan gå tabt |
+> |---|---|
+> | A2 (dette afsnit) | åben enheds-popover + et halvt indtastet antal |
+> | A1 §4.3 | datovælgerens værdi inden den er committet |
+> | A9 §10c | draweren er `body`-appended og overlever `_ibRender` — men dens **forudfyldte felter** skal stadig kunne overleve at listen bagved gen-tegnes |
+>
+> Testcasen er den samme hver gang: åbn feltet, skriv halvdelen, **vent 5-10 sekunder** uden at
+> røre noget, og se om det stadig står der. Fejlen viser sig aldrig når man taster hurtigt.
 
 ### 5.3 Persistering
 
@@ -405,7 +457,37 @@ oversætter til basisenheder.
 - Mangler `ordered_unit_qty` (linjer bestilt før A2): antag `1`, og log en advarsel
 
 **Serverside** — `routes/goods-receipts.js` sammenligner `received` mod `expected` i
-basisenheder. Verificér at `addStock` også får basisenheder, ikke salgsenheder.
+basisenheder.
+
+> ⚠️ **Der er TRE enhedsakser, ikke to. Denne note er tilføjet 17.08.2026 efter at #358
+> blev rettet (PR #408) — spec'en ovenfor er skrevet 31.07 og går ud fra to.**
+>
+> | # | Akse | Hvem oversætter |
+> |---|---|---|
+> | 1 | Hoka salgsenhed (`kt`) → Hoka basisenhed (`ps`) | **A2** — det er dét §5.4 tilføjer |
+> | 2 | Grocy indkøbsenhed (`shopping_list.qu_id`, fx Kasse) → Grocy lagerenhed (Kilo) | `resolveToStockAmount()` i `services/quConvert.js` — **allerede løst**, kaldes fra `routes/goods-receipts.js` |
+> | 3 | Hoka basisenhed ⟷ Grocy indkøbsenhed | **ingen** — og intet garanterer at en "pose" er lig Grocys købsenhed |
+>
+> `addStock` får altså **ikke** basisenheder i dag — den får lagerenheder, og det er korrekt.
+> Klienten sender `qu_id`, serveren konverterer, og manglende konvertering fejler synligt
+> (`grocy_error` + `partially_approved`) frem for at gætte. **Byg ikke oven på antagelsen om
+> at `addStock` skal have basisenheder — den er forældet.**
+>
+> **Det A2 skal afklare er akse 3:** når `expected` beregnes som
+> `ordered_qty × ordered_unit_qty`, lander tallet i Hokas basisenhed. Den `qu_id` klienten
+> sender til `/api/goods-receipts` er Grocys indkøbsenhed fra `shopping_list`-linjen. Bindes
+> de to ikke eksplicit sammen, opstår en ny tavs enhedsfejl præcis dér hvor vi lukkede den
+> forrige — og med auto-lagertræk tændt (#305) forplanter den sig videre i consume.
+>
+> Konkret at afgøre inden Deploy 2 (Simon, med Leif på datasiden):
+> 1. Er `ordered_unit_qty` udtrykt i Hokas basisenhed eller i Grocys indkøbsenhed?
+>    Vælg **én** og skriv det i userfield-beskrivelsen i §2.
+> 2. Hvad sender varemodtagelsen som `qu_id` for en linje bestilt via A2 — indkøbsenheden
+>    fra `shopping_list` (som i dag) eller enheden fra `ordered_unit_code`?
+> 3. Er der varer hvor Hokas basisenhed ≠ Grocys indkøbsenhed? Kortlæg sammen med §9.1 —
+>    det er den samme forespørgsel, én kolonne mere.
+>
+> Findes der ingen entydig kobling for en vare: **fejl synligt**, samme princip som #358.
 
 ### 5.5 A2 og A7 rører samme kodested
 
@@ -423,6 +505,31 @@ overskrive den anden.
 ---
 
 ## 6. A3 — `basket/add`: ensartet format og synlige fejl
+
+> ℹ️ **Halvdelen er landet siden spec'en blev skrevet. Note tilføjet 17.08.2026.**
+>
+> [#419](https://github.com/liffez/bon-v2/issues/419) (merget 12.08) indførte
+> `resolveSalesUnits(products, snapMap, failedIds)` i `routes/horkram.js`, som returnerer
+> `{resolved, rejected}`. `rejected[]`-kanalen i §6.3 **findes altså allerede**, med tre
+> grunde: `lookup_failed` (opslaget kunne ikke gennemføres), `unknown_product` (varenummeret
+> findes ikke) og `invalid_number`. Kan intet sendes, røres kurven slet ikke. Frontenden
+> viser afvisningen som en vedvarende besked ved varen (`.ib-cart-error`) — også som §6.3
+> beskriver.
+>
+> **A3 skal derfor udvide den kanal, ikke opfinde den.** Byg ikke en parallel mekanisme.
+>
+> | §6-punkt | Status i koden 17.08.2026 |
+> |---|---|
+> | 6.1 ensartet format | **Uændret aktuel** — eksisterende linjer sender flad `SalesUnitQuantity`, nye sender nested `SalesUnit{Code,Quantity}` |
+> | 6.2 dedup på enhed | **Uændret aktuel** — `newIds` bygges på `ProductId` alene |
+> | 6.3 `validate=true` | **Halvt gjort** — `rejected[]` findes; `validate=false` + `triggerValidation:false` står stadig i PUT-kaldet (to steder: hovedkald + retry) |
+>
+> Når `validate=true` tændes, kommer Hokas `InvalidLineItems` oveni de afvisninger vi selv
+> producerer. **Hold de to kilder adskilt i svaret** (fx `reason: 'hoka_invalid'`) — ellers
+> kan man ikke se forskel på "vi kunne ikke slå varen op" og "Hoka afviste linjen", og det er
+> to forskellige handlinger for den der bestiller.
+>
+> A8 (§10b) bygger på `rejected[]` og har dermed allerede sit fundament.
 
 ### 6.1 Samme format på alle linjer
 
@@ -743,11 +850,25 @@ Hold resultatet op mod faktiske bestillinger via `GET /api/horkram/orders`
 | Risiko | Overskriver de varer hvor karton **er** det rigtige valg | Ingen |
 | Dokumentation | Ingen | Listen er kvitteringen på hvad der blev rettet |
 
-**Anbefaling: gennemgangsliste.** Der findes varer hvor kartonen er det rigtige — dem må vi
-ikke tromle. Og listen er dokumentation på hvad der blev rettet, hvilket der bliver brug for
-hvis der skal reklameres over en fejlbestilling.
+**Anbefaling i spec'en var gennemgangslisten.** Der findes varer hvor kartonen er det
+rigtige — dem må vi ikke tromle. Og listen er dokumentation på hvad der blev rettet, hvilket
+der bliver brug for hvis der skal reklameres over en fejlbestilling.
 
-Når A6 er kørt: sæt `indkob_trust_unit_userfields = 1` i `settings` (jf. §5.1).
+> ✅ **Beslutning truffet (august 2026): ingen af delene bygges.**
+> `INDKOB_GENNEMFOERELSE.md` Trin 5 er den gældende: hverken automatisk oprydning eller
+> gennemgangsliste. Efter Deploy 2 viser chippen den forkerte enhed på gamle koblinger, du
+> vælger den rigtige, og den gemmes. Efter et par bestillingsrunder er de varer I faktisk
+> bruger rettet — og dem I ikke bruger, betyder ikke noget.
+>
+> Der er altså **ingen kode i A6.** Tilbage står to handlinger:
+> 1. Kør §9.1 én gang for at kende omfanget (Simon)
+> 2. Sæt `indkob_trust_unit_userfields = 1` når tallet er faldet mærkbart (Leif)
+>
+> Indtil flaget er sat, bruger A2 `isDefault` frem for de gemte userfields. Det er sikkert
+> i mellemtiden.
+>
+> *(§14 listede tidligere dette som åbent med ejer Leif. Modstriden er ryddet 17.08.2026 —
+> Trin 5 vinder.)*
 
 ---
 
@@ -910,6 +1031,32 @@ initProductCreate(mount, { barcode: _ibDrawerVarenr || null, onCreated: ... });
 ```
 
 Kun varenummeret, selvom Bon lige har hentet hele produktet fra Hoka.
+
+> ⚠️ **Draweren er efter #477 det SIDSTE sted med den numeriske Hørkram-regel. Tilføjet 19.08.2026.**
+>
+> #477 rettede kobl-**panelet** (det inline i en leverandørgruppe): `_ibLinkBarcode` tager nu
+> `locationId` som argument i stedet for at udlede leverandøren af om varenummeret er rent
+> numerisk. Reglen *"kun cifre ⇒ Hørkram"* var rigtig for et katalogopslag og forkert for enhver
+> anden leverandør der også bruger tal. Panelet fik samtidig to adskilte veje — *gem leverandørens
+> eget nummer eller betegnelse* (fri tekst) kontra *slå op i Hørkrams katalog* — fordi de fører til
+> hver sit sted.
+>
+> **Draweren blev bevidst ikke rettet i #477** ("Ikke løst her"), fordi den bruges fra
+> `Uden leverandør`-blokken, hvor varen pr. definition ikke har en leverandør at hænge nummeret på.
+> Det gør den nu til det eneste tilbageværende sted hvor:
+> - varenummeret antages at være Hørkrams hvis det er numerisk
+> - teksten er Hørkram-formuleret ("Søg i Hørkram-katalog"), selv når man står i en helt anden gruppe
+>
+> **A9 skal derfor også lukke det**, og mønsteret findes allerede — kopiér det fra panelet:
+> 1. Leverandøren er et **eksplicit valg**, ikke et gæt. Kommer man fra `Uden leverandør`, er der
+>    ingen gruppe at arve den fra → spørg (dropdown over `_ibHandelssteder`), eller lad varen blive
+>    stående uden kobling frem for at gætte forkert.
+> 2. To adskilte veje som i panelet: **fri tekst** (leverandørens eget nummer *eller* faste
+>    betegnelse — `product_barcodes.barcode` er TEXT i Grocy) kontra **katalogopslag** (kun for
+>    leverandører der har et katalog, dvs. Hørkram i dag).
+> 3. INT-nummeret er tredje og sidste udvej, ikke den første virkende knap.
+>
+> Uden det bliver A9's forudfyldning bygget oven på en forkert leverandør-antagelse.
 
 ### 10c.1 Hent det fulde produkt ved valg
 
@@ -1136,7 +1283,7 @@ frontenden med felter der ikke findes, og fejlen bliver stille igen.
 
 | Punkt | Ejer |
 |---|---|
-| A6: automatisk oprydning eller gennemgangsliste? | Leif |
+| ~~A6: automatisk oprydning eller gennemgangsliste?~~ **Lukket 17.08.2026** — ingen af delene, se §9.2 | — |
 | Omfanget af forkerte `supplier_unit_qty` (§9.1) | Simon kører, Leif vurderer |
 | Er der reelt bestilt kartoner hvor I ville have poser? | Leif, via `/api/horkram/orders` |
 | Rå payload for PUT `/api/checkout/basket` (42 bytes) | Leif, valgfrit |

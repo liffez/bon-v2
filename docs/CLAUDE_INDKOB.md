@@ -1,4 +1,9 @@
 # CLAUDE_INDKOB.md
+> ⚠️ **HISTORISK — implementeret og deployet. Beskriver IKKE nuværende tilstand.**
+> Aktuel tilstand: [`CLAUDE_INDKOB_ASIS.md`](CLAUDE_INDKOB_ASIS.md).
+> Igangværende arbejde: [`indkob/`](indkob/) (Fase A = epic #471, Fase B, Fase C-skitse).
+> Linjenumre i dette dokument er forældede — brug `grep`.
+
 > Spec for shared/indkob.js — det centrale indkøbskomponent
 > Erstatter shared/shopping_list.js + shared/bestilling.js fuldstændigt.
 > Læs BON_V2_PRINCIPPER.md, bon_v2_datamodel_v2.md og CLAUDE_HORKRAM_INTEGRATION.md FØR du begynder.
@@ -13,10 +18,10 @@ og manglende sammenhæng (bestilt-status vistes ikke i listen, init-problemer, e
 
 `indkob.js` samler det hele i ét komponent med ét state-objekt og én render-logik.
 
-**Reference-implementeringer at studere:**
-- `tools/bestilling/shopping.html` — den mest komplette prototype (enrichment, favorites, basket)
-- `tools/bestilling/bestilling.html` — pills, kobling, kurv-flow
-- `tools/bestilling/horkram-scraper.html` — leverandør-UX mønstre
+**Reference-implementeringer:** de tre prototyper i `tools/bestilling/` (`shopping.html`,
+`bestilling.html`, `horkram-scraper.html`) **findes ikke længere i repoet** — de blev fjernet
+efter porten. Den implementerede kode er `shared/indkob.js` + `shared/indkob_settings.js`;
+mockup'en `docs/indkob_mockup_v3.html` er ligeledes væk.
 
 ---
 

@@ -10,11 +10,11 @@
 
 | Fil | Indhold | Status |
 |---|---|---|
-| `../CLAUDE_INDKOB_ASIS.md` | Sådan virker modulet i dag | **Skal have indsættelse** — se `ASIS_indsaettelse_12_5.md` |
-| `CLAUDE_INDKOB_FASE_A.md` | A1–A9: retter fejl | Klar til Simon |
-| `CLAUDE_INDKOB_FASE_B.md` | B1–B3: fjerner det der lyver | Klar til Simon |
-| `HUSKELISTE_indkob_fase_c.md` | Fase C-skitse | Indsættes i `../BON_V2_HUSKELISTE.md`. **Ingen spec endnu** |
-| `ASIS_indsaettelse_12_5.md` | Tre blokke til ASIS | Indsættes af Leif |
+| `../CLAUDE_INDKOB_ASIS.md` | Sådan virker modulet i dag | ✅ Indsættelsen anvendt 17.08.2026 (nyt §12.5, gammelt §12.5 → §12.6, spørgsmål 11) |
+| `CLAUDE_INDKOB_FASE_A.md` | A1–A9: retter fejl | Klar til Simon — **læs de tre noter dateret 17.08.2026** (header, §5.4, §6) |
+| `CLAUDE_INDKOB_FASE_B.md` | B1–B3: fjerner det der lyver | Klar — sporet som issue |
+| `HUSKELISTE_indkob_fase_c.md` | Fase C-skitse | ✅ Peget på fra `../BON_V2_HUSKELISTE.md`. Denne fil er source-of-truth. **Ingen spec endnu** |
+| ~~`ASIS_indsaettelse_12_5.md`~~ | Tre blokke til ASIS | ✅ Anvendt og slettet 17.08.2026 |
 
 Ingen mockup nødvendig for A og B — alt er backend eller små tilføjelser i eksisterende
 komponenter. Fase C kræver mockup før spec.
@@ -25,8 +25,31 @@ komponenter. Fase C kræver mockup før spec.
 
 - [ ] Sig til den der bestiller: **tjek salgsenheden på hoka.dk's checkout** indtil Deploy 2
       er ude. Systemet kan bestille kartoner hvor du ville have poser (Fase A §0)
-- [ ] Indsæt de tre blokke fra `ASIS_indsaettelse_12_5.md` i `../CLAUDE_INDKOB_ASIS.md`
-- [ ] Indsæt `HUSKELISTE_indkob_fase_c.md` i `../BON_V2_HUSKELISTE.md`
+- [x] ~~Indsæt de tre blokke fra `ASIS_indsaettelse_12_5.md`~~ — gjort 17.08.2026
+- [x] ~~Indsæt `HUSKELISTE_indkob_fase_c.md` i `../BON_V2_HUSKELISTE.md`~~ — gjort 17.08.2026
+      som afsnit + peger (skitsen kopieres bevidst ikke ind: to kopier ville drive fra hinanden)
+
+### Trin 0b — spec-rettelser efter kode-ændringer siden 31.07 (gjort 17.08.2026)
+
+Fase A er skrevet mod koden 31.07. Siden da er tre ting landet i drift. Alle tre er noteret
+**i** Fase A dér hvor de rammer:
+
+| Hvad | Hvor det står nu |
+|---|---|
+| **#358/PR #408** — varemodtagelsens enheds-konvertering er rettet. Der er nu **tre** enhedsakser, ikke to. A2 §5.4's antagelse om at `addStock` skal have basisenheder er forældet | A §5.4, boks dateret 17.08 |
+| **#419** — `resolveSalesUnits` + `rejected[]` findes allerede. A3 udvider kanalen, opfinder den ikke. A8's fundament er dermed halvt på plads | A §6, boks dateret 17.08 |
+| **#477** (merget 18.08) — kobl-panelet, gruppe-navne, render-livscyklus og inline varenr-håndtering. **Rører ikke regnestykket**, men tre ting fra den påvirker A2, A9 og Fase B | A §5.1, §5.2, §10c · B B1.2 + note før B2 |
+| **Linjenumre drevet ~32 linjer** efter #477 (`shared/indkob.js` 3.132 → 3.544) + næste migrationsnummer er **149** | A's header + §3 punkt 3 |
+| **A6-modstriden** mellem Trin 5 ("besluttet") og §14 ("åbent") | Ryddet: A §9.2 + §14. Trin 5 vinder — ingen kode i A6 |
+
+**Testgæld der stakker:** hverken #419 eller #477 fik kørt `T_INDKOB_LISTE` / `T_INDKOB_SETUP`
+(de kræver `.env.test` + testserver på 4322 + grocytest). Deploy 2 rører de samme tracks. Læg en
+kørsel ind **før** Deploy 2, så man kan se forskel på "fejler pga. Fase A" og "fejlede i forvejen".
+`T_INDKOB_HORKRAM`s fixtur er desuden rådden — se spec'ens §10b.
+
+⚠️ **Det ene punkt der stadig skal afgøres inden Deploy 2:** akse 3 — er
+`ordered_unit_qty` udtrykt i Hokas basisenhed eller i Grocys indkøbsenhed, og hvilken `qu_id`
+sender varemodtagelsen for en A2-bestilt linje? Tre konkrete spørgsmål i A §5.4.
 
 ---
 
@@ -166,4 +189,4 @@ Intet blokerende. To ting kan Simon selv afgøre undervejs:
 
 ---
 
-*Skrevet august 2026.*
+*Skrevet august 2026. Trin 0 + 0b gennemført 17.08.2026.*

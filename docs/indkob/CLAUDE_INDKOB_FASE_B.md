@@ -50,6 +50,18 @@ ved mount fra denne pill, og `'combined'` (efter kategori) fra "Indkøbsliste". 
 pills faktisk to indgange til samme liste med hver sit udgangspunkt, i stedet for det samme
 to gange. Det kræver ingen ny komponent.
 
+> ✅ **Blev lettere af #477 (18.08.2026).** Der fandtes ingen afmonterings-vej: efterslæbet
+> (snapshots, favoritter, leverandørpost) skrev i `contentEl` — som deles af alle office-views —
+> sekunder efter at man havde skiftet visning, og overskrev den. Klik på "Leverandører" viste
+> derfor indkøbslisten. #477 tilføjede `cleanupIndkob()`, som slipper containeren, og
+> `_ibRender()` afbryder nu når komponenten er afmonteret.
+>
+> Det betyder at der **findes en mount/unmount-livscyklus** at hænge per-pill-tilstanden på.
+> Uden den ville `_ibViewMode` sat ved mount blive overskrevet af den forrige instans' efterslæb.
+>
+> Bemærk desuden at #477's bug hørte hjemme i **B1** efter kriteriet i overskriften: man klikkede
+> ét sted og fik noget andet. Den er rettet — men den er et argument for at B ikke er kosmetik.
+
 > Pill'en får sit rigtige indhold i Fase C, hvor "Bestillinger" bliver et ægte view over
 > kladder og afsendte ordrer. Omdøbningen her er midlertidig og skal rulles tilbage da.
 
@@ -68,6 +80,16 @@ Er det for stort: fjern knappen og behold kun "📋 Kopiér liste". En knap der 
 noget er værre end ingen knap.
 
 ---
+
+> ℹ️ **B1.4 findes ikke længere — den blev løst inden den blev skrevet.** Gruppen i
+> indkøbslisten hed "Emballage" og ikke "Serviwet", fordi
+> `supplier_grocy_locations.display_name` har eksisteret siden migration 030 men **kun kunne
+> sættes med SQL**. #477 tilføjede `PATCH /api/purchasing/suppliers/grocy-locations/:id` og et
+> felt i Indkøb → Leverandører. Samme sted holdt leverandørtabellen op med at skrive
+> "Lok 2 / Lok 5 / Lok 9" og falder nu tilbage på Grocy-lokationens navn.
+>
+> Det lukker en af de fire driftsklager fra 6h (ASIS §2: "to Hørkram-blokke") — og det gør
+> B2's tema skarpere: det er stadig **skjulte felter**, bare ét færre.
 
 ## B2 — Skjulte felter og manglende valg
 

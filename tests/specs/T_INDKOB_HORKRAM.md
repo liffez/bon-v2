@@ -428,6 +428,26 @@ Vigtige fund:
 
 ---
 
+## 10b. ⚠️ Fixturen er rådden — skal skiftes før suiten siger noget (17.08.2026)
+
+BASKET_02/03 og SETUP_05 bruger **Spinat (pid 28, varenr 16991002)** som "kendt aktivt
+varenummer". Spinat står på listen over **døde Hørkram-varenumre** fundet under #419 (12 af 137
+koblinger i grocy-hq havde døde numre 9. august, heraf tre aftalevarer).
+
+Efter #419 afviser `PUT /api/horkram/basket` en vare uden snapshot i stedet for at gætte
+salgsenheden. Er varenummeret dødt, kommer varen **korrekt** retur i `rejected[]` med
+`reason: 'unknown_product'` — og BASKET_02 fejler, ikke fordi koden er gal, men fordi fixturen er.
+
+**Gør ét af to før næste kørsel:**
+1. Skift til et varenummer der er aktivt hos Hørkram i dag (bekræft med
+   `GET /api/horkram/product/:varenr`), eller
+2. kobl Spinat om til det nummer der har afløst det, i Grocy.
+
+Gælder allerede i dag — ikke kun efter indkøb Fase A. Fase A (#471) vil desuden ændre
+`supplier_unit_code`-semantikken (A2), så SETUP_05 skal gennemgås i samme ombæring.
+
+---
+
 ## 11. Findings — skal tjekkes og noteres ved første kørsel
 
 | # | Reference | Spørgsmål | Hvordan tjekkes |

@@ -1,7 +1,12 @@
 # CLAUDE_INDKOB_6H.md
+> ⚠️ **HISTORISK — implementeret og deployet. Beskriver IKKE nuværende tilstand.**
+> Aktuel tilstand: [`CLAUDE_INDKOB_ASIS.md`](CLAUDE_INDKOB_ASIS.md).
+> Igangværende arbejde: [`indkob/`](indkob/) (Fase A = epic #471, Fase B, Fase C-skitse).
+> Linjenumre i dette dokument er forældede — brug `grep`.
+
 > Spec for Fase 6h — Indkøb: samlet liste, opret/kobl-flow og kanal-labels
 > Læs `CLAUDE_INDKOB.md`, `CLAUDE_SETTINGS_INDKOB.md` OG **`shared/indkob.js`** FØR du begynder.
-> Mockup: `docs/indkob_mockup_6h.html`
+> Mockup: `docs/indkob_mockup_6h.html` — **findes ikke længere i repoet**
 > Berørte filer: `shared/indkob.js`, `shared/indkob.css`, `routes/horkram.js`
 > Genbruger uændret backend — se "Backend der genbruges".
 

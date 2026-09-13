@@ -1,4 +1,10 @@
 # CLAUDE_HORKRAM_INTEGRATION.md
+> ⚠️ **HISTORISK — port-spec fra fase 6a. Beskriver IKKE nuværende tilstand.**
+> Parseren hedder i dag `services/hokaParser.js` (ikke `horkramParser.js`), og
+> `settings/horkram.html` blev aldrig bygget — Hørkram-administrationen lever i
+> `shared/indkob_settings.js` (Tab 3). Den aktive proxy er `routes/horkram.js`.
+> Aktuel tilstand: [`CLAUDE_INDKOB_ASIS.md`](CLAUDE_INDKOB_ASIS.md) §8 + §9.
+
 > Spec for genbrug af Hørkram-integration i Bon v2
 > Læs CLAUDE_BESTILLING.md FØR denne fil.
 
