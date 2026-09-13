@@ -2,8 +2,12 @@
 *Køkkentavlen — bon-v2 og Whiteboard side om side på én touchskærm*
 
 > **Status: spec, ikke bygget.** Afventer at hardwaren er købt og står i køkkenet.
-> Det eneste der er lavet, er at Whiteboard nu må vises i en iframe
-> (`FRAME_ANCESTORS` i `whiteboard/server/index.js`).
+>
+> **Forudsætning, endnu ikke i drift:** Whiteboard skal tillade at blive vist i en
+> iframe (`FRAME_ANCESTORS` i `whiteboard/server/index.js`). Arbejdet ligger i
+> `liffez/whiteboard#22` — det er ikke merged, og `FRAME_ANCESTORS` skal desuden
+> sættes i whiteboards `.env` ved deploy. Indtil begge dele er på plads, svarer
+> whiteboard `x-frame-options: SAMEORIGIN`, og tavlens højre rude er tom.
 >
 > Spec'en dækker to ting der kan bygges uafhængigt: **tavle-shell'en** (web) og
 > **opsætningen af Raspberry Pi'en** (drift).
