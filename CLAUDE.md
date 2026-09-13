@@ -6451,6 +6451,31 @@ linjerne. Testdata og den lokale kopi er slettet. Panelet var frosset (viewport
 gør dem synlige næste gang bonen åbnes.
 
 
+### Kundemailen følger nu samme menu-rækkefølge som kort, drawer og info-modal (13. september 2026)
+
+Bekræftelsesmailen til kunden viste varerne i rå DB-rækkefølge — emballage midt i
+maden — selvom bon-kort, drawer og info-modal for længst deler én sortering
+(`sortMenuLines` i `shared/utils.js`). Mailens vareliste blev bygget **tre steder**
+(`_buildMailVars` i `bon_kort.js` og `bon_drawer.js` + `MailThread.buildVars` på
+mobil), og ingen af kopierne fik sorteringen med. Præcis den drift CLAUDE.md
+advarer om ved `_buildMailVars`.
+
+- **Én kilde**: `MailThread.buildVars` (`shared/mail_thread.js`) sorterer med
+  `sortMenuLines` FØR gruppe-opdelingen, så linjerne inde i en menu-gruppe også
+  følger reglen (som på kortet). Grupperne selv følger fortsat `sort_order`.
+  De to andre kopier delegerer nu hertil; drawerens ekstra felter
+  (`co2Transport`, `co2MedTransport`, `leveringsMetode`) er flyttet med ind.
+- **Et dødt filter er fjernet**: kopierne filtrerede på kategori `'emballage'` /
+  `'levering'`, men kategorierne hedder `06 Emballage` / `x-Levering` siden
+  normaliseringen, så emballage har hele tiden stået i mailen. Den står der
+  stadig — nu nederst. Skal den ud af kundemailen, er det en egen beslutning.
+- `kitchen/logistik.html` loader nu `mail_thread.js` (den havde draweren uden).
+
+**Tests**: `npm run test:menu-order` fik en sektion 9 (84 PASS) med B4274 som
+fixture. Mutations-testet: fjernes sorteringen, falder 4 asserts. Verificeret i
+browser mod kopi af dev-data: drawer-rækker og mailtekst er identiske, mens den rå
+DB-rækkefølge er en anden.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

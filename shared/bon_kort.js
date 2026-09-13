@@ -788,99 +788,10 @@ async function openBonMail(cardId) {
 }
 
 function _buildMailVars(bon) {
-    // Slå ens linjer sammen før mailen bygges — se shared/bon_lines.js.
-    // Uden det får kunden "1× Kartoflen slider" tre gange i stedet for "3×".
-    const lines = BonLines.mergeLines(bon.lines || []);
-    const groups = bon.menu_groups || [];
-    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-    // Menu lines (filtér emballage + levering ud — som før)
-    const menuLines = lines.filter(l => {
-        const c = (l.category || '').toLowerCase();
-        return c !== 'emballage' && c !== 'levering';
-    });
-
-    // Partitionér efter gruppe, bevar dokumenteret rækkefølge
-    const groupById = new Map(groups.map(g => [g.id, g]));
-    const groupOrder = [];
-    const linesByGroup = new Map();
-    const ungrouped = [];
-    for (const l of menuLines) {
-        const gid = l.menu_group_id;
-        if (gid && groupById.has(gid)) {
-            if (!linesByGroup.has(gid)) { linesByGroup.set(gid, []); groupOrder.push(gid); }
-            linesByGroup.get(gid).push(l);
-        } else {
-            ungrouped.push(l);
-        }
-    }
-    groupOrder.sort((a, b) => (groupById.get(a).sort_order || 0) - (groupById.get(b).sort_order || 0));
-
-    const _norm = (s) => String(s || '').trim().toLowerCase();
-    const _renderLine = (l, group, withPrice) => {
-        let comment = (l.special_request || '').trim();
-        if (comment && group) {
-            const n = _norm(comment);
-            if (n === _norm(group.title) || n === _norm(group.note)) comment = '';
-        }
-        const commentPart = comment ? ' (' + comment + ')' : '';
-        const pricePart = (withPrice && l.unit_price)
-            ? '  ' + (l.quantity * l.unit_price).toLocaleString('da-DK') + ' kr'
-            : '';
-        return l.quantity + '× ' + l.product_name + commentPart + pricePart;
-    };
-    const _buildMenu = (withPrice) => {
-        const parts = [];
-        for (const gid of groupOrder) {
-            const g = groupById.get(gid);
-            const header = (g.title || g.note || '').trim();
-            if (header) parts.push(header + ':');
-            for (const l of linesByGroup.get(gid)) {
-                parts.push((header ? '  ' : '') + _renderLine(l, g, withPrice));
-            }
-            parts.push('');
-        }
-        for (const l of ungrouped) parts.push(_renderLine(l, null, withPrice));
-        while (parts.length && parts[parts.length - 1] === '') parts.pop();
-        return parts.join('\n');
-    };
-    const menuUdenPriser = _buildMenu(false);
-    const menuMedPriser  = _buildMenu(true);
-
-    // Totals — line_total er incl. moms (jf. BON_V2_PRINCIPPER.md sektion 6b)
-    const totalInklMoms = lines.reduce((s, l) => s + (l.line_total || 0), 0);
-    const totalExMoms   = window.Moms.inclToExcl(totalInklMoms);
-    const moms          = window.Moms.momsOfIncl(totalInklMoms);
-
-    // CO2
-    const co2Lines = menuLines.filter(l => l.co2e).map(l =>
-        l.product_name + ': ' + l.co2e + ' kg CO₂e × ' + l.quantity + ' = ' + (l.co2e * l.quantity).toFixed(2)
-    ).join('\n');
-    const co2Total = menuLines.reduce((s, l) => s + ((l.co2e || 0) * l.quantity), 0).toFixed(2);
-
-    // Address/postnummer
-    const addrObj = bon.delivery_address || {};
-    const addr = typeof addrObj === 'string' ? addrObj : [addrObj.street_name, addrObj.street_nr, addrObj.postal_code, addrObj.city].filter(Boolean).join(' ');
-    const postnummer = (typeof addrObj === 'object' && addrObj.postal_code) ? String(addrObj.postal_code) : (addr.match(/(\d{4})\s/) || [])[1] || '';
-
-    return {
-        kundeNavn: bon.customer_name || bon.contact_name || '',
-        bonNummer: bon.bon_number || '',
-        leveringsDato: bon.delivery_date || '',
-        leveringsTidspunkt: bon.delivery_time || bon.pickup_time || '',
-        leveringsAdresse: addr,
-        postnummer: postnummer,
-        telefon: bon.customer_phone || '',
-        pax: String(bon.pax || ''),
-        firmanavn: bon.company_name || '',
-        menuUdenPriser: menuUdenPriser,
-        menuMedPriser: menuMedPriser,
-        totalPris: totalInklMoms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
-        totalExMoms: totalExMoms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
-        momsBeloeb: moms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
-        co2PerLinje: co2Lines,
-        co2Total: co2Total + ' kg CO₂e',
-    };
+    // Én kilde: MailThread.buildVars (shared/mail_thread.js). Kortet havde sin
+    // egen kopi, som ikke fulgte med da menu-sorteringen blev fælles — kunden
+    // fik varerne i rå rækkefølge i bekræftelsesmailen.
+    return MailThread.buildVars(bon);
 }
 
 function _renderMailModal(bonId, email, templates, vars) {

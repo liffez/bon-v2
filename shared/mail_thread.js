@@ -382,20 +382,37 @@
         });
     }
 
+    /* Transport-CO₂ til mail: kg + dansk-formateret tekst (0 hvis ukendt/afhentning). */
+    function co2Transport(bon) {
+        var hasT = bon && bon.transport_co2_source && bon.transport_co2_source !== 'none' && bon.transport_co2e_kg != null;
+        var kg = hasT ? Number(bon.transport_co2e_kg) : 0;
+        return { kg: kg, text: kg.toFixed(2).replace('.', ',') + ' kg' };
+    }
+
+    function methodLabel(method) {
+        return { bike: 'Cykelbud', taxi: 'Taxa', volvo: 'Volvo Duett', pickup: 'Afhentning' }[method] || '';
+    }
+
     /* Byg skabelon-variabler ({{kundeNavn}}, {{menuMedPriser}} …) fra en bon.
-       Kanonisk kilde — bruges på mobil; office har historisk egne kopier i
-       bon_kort.js/bon_drawer.js. Moms via window.Moms (aldrig magic-faktorer);
-       hvis Moms ikke er loadet udelades pris-felterne i stedet for at gætte. */
+       ÉN kilde — bon_kort.js og bon_drawer.js delegerer hertil. De havde
+       hver sin kopi, og da bon-kort/drawer/info-modal fik den fælles
+       menu-sortering (sortMenuLines i utils.js), fulgte mailen ikke med:
+       kunden fik varerne i rå DB-rækkefølge med emballage midt i maden.
+       Moms via window.Moms (aldrig magic-faktorer); hvis Moms ikke er
+       loadet udelades pris-felterne i stedet for at gætte. */
     function buildVars(bon) {
         bon = bon || {};
         // Ens linjer slås sammen — se shared/bon_lines.js. Uden det får kunden
         // "1× Kartoflen slider" tre gange i stedet for "3×".
         var lines = BonLines.mergeLines(bon.lines || []);
         var groups = bon.menu_groups || [];
-        var menuLines = lines.filter(function (l) {
-            var c = (l.category || '').toLowerCase();
-            return c !== 'emballage' && c !== 'levering';
-        });
+        // Samme rækkefølge som bon-kort, drawer og info-modal: kager/drikke →
+        // mad → emballage → service → levering. Sorteres FØR gruppe-opdelingen,
+        // så linjerne inde i en gruppe også følger reglen (som på kortet).
+        // (Et tidligere filter på kategori 'emballage'/'levering' var dødt —
+        // kategorierne hedder '06 Emballage'/'x-Levering' — så emballage har
+        // hele tiden stået i mailen; nu står den nederst.)
+        var menuLines = (typeof sortMenuLines === 'function') ? sortMenuLines(lines) : lines;
 
         var groupById = new Map(groups.map(function (g) { return [g.id, g]; }));
         var groupOrder = [];
@@ -450,6 +467,9 @@
         var addr = typeof addrObj === 'string' ? addrObj
             : [addrObj.street_name, addrObj.street_nr, addrObj.postal_code, addrObj.city].filter(Boolean).join(' ');
 
+        var co2Food = menuLines.reduce(function (s, l) { return s + ((l.co2e || 0) * l.quantity); }, 0);
+        var transport = co2Transport(bon);
+
         var vars = {
             kundeNavn: bon.contact_name_full || bon.customer_name || bon.contact_name || '',
             bonNummer: bon.bon_number || '',
@@ -465,7 +485,11 @@
             co2PerLinje: menuLines.filter(function (l) { return l.co2e; }).map(function (l) {
                 return l.product_name + ': ' + l.co2e + ' kg × ' + l.quantity + ' = ' + (l.co2e * l.quantity).toFixed(2);
             }).join('\n'),
-            co2Total: menuLines.reduce(function (s, l) { return s + ((l.co2e || 0) * l.quantity); }, 0).toFixed(2) + ' kg CO₂e',
+            co2Total: co2Food.toFixed(2) + ' kg CO₂e',
+            // Transport-CO₂ (Fase 3) — {{co2Total}} forbliver mad+emballage; disse lægges oveni.
+            co2Transport: transport.text,
+            co2MedTransport: (co2Food + transport.kg).toFixed(2).replace('.', ',') + ' kg CO₂e',
+            leveringsMetode: bon.transport_vehicle_label || bon.delivery_vehicle_label || methodLabel(bon.delivery_method) || '',
         };
         if (hasMoms) {
             vars.totalPris = kr(totalInkl);

@@ -3158,92 +3158,9 @@ if (typeof _fmtMailDate === 'undefined') {
     };
 }
 if (typeof _buildMailVars === 'undefined') {
-    var _buildMailVars = function(bon) {
-        // Ens linjer slås sammen — se shared/bon_lines.js.
-        var lines = BonLines.mergeLines(bon.lines || []);
-        var groups = bon.menu_groups || [];
-        var menuLines = lines.filter(function(l) { var c = (l.category||'').toLowerCase(); return c !== 'emballage' && c !== 'levering'; });
-
-        // Partitionér efter gruppe + sortér grupper på sort_order
-        var groupById = new Map(groups.map(function(g){ return [g.id, g]; }));
-        var groupOrder = [];
-        var linesByGroup = new Map();
-        var ungrouped = [];
-        menuLines.forEach(function(l) {
-            var gid = l.menu_group_id;
-            if (gid && groupById.has(gid)) {
-                if (!linesByGroup.has(gid)) { linesByGroup.set(gid, []); groupOrder.push(gid); }
-                linesByGroup.get(gid).push(l);
-            } else {
-                ungrouped.push(l);
-            }
-        });
-        groupOrder.sort(function(a,b){ return (groupById.get(a).sort_order||0) - (groupById.get(b).sort_order||0); });
-
-        var _norm = function(s){ return String(s||'').trim().toLowerCase(); };
-        var _renderLine = function(l, group, withPrice) {
-            var comment = (l.special_request || '').trim();
-            if (comment && group) {
-                var n = _norm(comment);
-                if (n === _norm(group.title) || n === _norm(group.note)) comment = '';
-            }
-            var commentPart = comment ? ' (' + comment + ')' : '';
-            var pricePart = (withPrice && l.unit_price)
-                ? '  ' + (l.quantity * l.unit_price).toLocaleString('da-DK') + ' kr'
-                : '';
-            return l.quantity + '× ' + l.product_name + commentPart + pricePart;
-        };
-        var _buildMenu = function(withPrice) {
-            var parts = [];
-            groupOrder.forEach(function(gid) {
-                var g = groupById.get(gid);
-                var header = (g.title || g.note || '').trim();
-                if (header) parts.push(header + ':');
-                linesByGroup.get(gid).forEach(function(l) {
-                    parts.push((header ? '  ' : '') + _renderLine(l, g, withPrice));
-                });
-                parts.push('');
-            });
-            ungrouped.forEach(function(l) { parts.push(_renderLine(l, null, withPrice)); });
-            while (parts.length && parts[parts.length - 1] === '') parts.pop();
-            return parts.join('\n');
-        };
-
-        // line_total er incl. moms (jf. BON_V2_PRINCIPPER.md sektion 6b)
-        var totalInklMoms = lines.reduce(function(s,l) { return s + (l.line_total||0); }, 0);
-        var totalExMoms   = window.Moms.inclToExcl(totalInklMoms);
-        var moms          = window.Moms.momsOfIncl(totalInklMoms);
-        var addrObj = bon.delivery_address || {};
-        var addr = typeof addrObj === 'string' ? addrObj : [addrObj.street_name, addrObj.street_nr, addrObj.postal_code, addrObj.city].filter(Boolean).join(' ');
-        return {
-            kundeNavn: bon.contact_name_full || '', bonNummer: bon.bon_number || '',
-            leveringsDato: bon.delivery_date || '', leveringsTidspunkt: bon.delivery_time || bon.pickup_time || '',
-            leveringsAdresse: addr, postnummer: (addrObj.postal_code || ''),
-            telefon: bon.contact_phone || '', pax: String(bon.pax || ''), firmanavn: bon.company_name || '',
-            menuUdenPriser: _buildMenu(false),
-            menuMedPriser: _buildMenu(true),
-            totalPris: totalInklMoms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
-            totalExMoms: totalExMoms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
-            momsBeloeb: moms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
-            co2PerLinje: menuLines.filter(function(l){return l.co2e;}).map(function(l){return l.product_name+': '+l.co2e+' kg × '+l.quantity+' = '+(l.co2e*l.quantity).toFixed(2);}).join('\n'),
-            co2Total: menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0).toFixed(2)+' kg CO₂e',
-            // Transport-CO₂ (Fase 3) — {{co2Total}} forbliver mad+emballage; disse lægges oveni.
-            co2Transport: _drawerCo2Transport(bon).text,
-            co2MedTransport: (menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0) + _drawerCo2Transport(bon).kg).toFixed(2).replace('.',',')+' kg CO₂e',
-            leveringsMetode: bon.transport_vehicle_label || bon.delivery_vehicle_label || _drawerMethodLabel(bon.delivery_method) || '',
-        };
-    };
-}
-
-// Transport-CO₂ for mail: kg + dansk-formateret tekst (0 hvis ukendt/afhentning).
-function _drawerCo2Transport(bon) {
-    var hasT = bon && bon.transport_co2_source && bon.transport_co2_source !== 'none' && bon.transport_co2e_kg != null;
-    var kg = hasT ? Number(bon.transport_co2e_kg) : 0;
-    return { kg: kg, text: kg.toFixed(2).replace('.', ',') + ' kg' };
-}
-
-function _drawerMethodLabel(method) {
-    return { bike: 'Cykelbud', taxi: 'Taxa', volvo: 'Volvo Duett', pickup: 'Afhentning' }[method] || '';
+    // Én kilde: MailThread.buildVars (shared/mail_thread.js). Draweren havde
+    // sin egen kopi, som ikke fulgte med da menu-sorteringen blev fælles.
+    var _buildMailVars = function(bon) { return MailThread.buildVars(bon); };
 }
 
 function _drawerApplyTemplate() {
