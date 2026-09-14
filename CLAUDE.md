@@ -566,8 +566,8 @@ Oprettes under Grocy → Manage master data → Userfields.
 | Userfield | Type (Grocy) | Bruges af | Beskrivelse |
 |-----------|-------------|-----------|-------------|
 | `HverDag` | text-single-line | Lageroptælling | Interval i dage for check-frekvens |
-| `LastCheckedAt` | datetime | Lageroptælling | ISO timestamp for sidst-tjekket |
-| `LastCheckedUnit` | text-single-line | Lageroptælling | Hvilken fysisk enhed der sidst blev talt |
+| `LastCheckedAt` | datetime | Lageroptælling, lageroversigt, varemodtagelse | ISO timestamp (UTC, `Z`) for sidst-tjekket. Skrives af optællingens "Gem og luk", varemodtagelsen (#336) og lageroversigtens "Gem" — også uden ændring (#613). |
+| `LastCheckedUnit` | text-single-line | Lageroptælling | Hvilken fysisk enhed der sidst blev talt. **Kun optællingen (og varemodtagelsen) skriver den** — lageroversigten kender ikke den fysiske enhed og rører den aldrig (#613). |
 | `co2e_per_kg` | number-decimal | CO₂-modul (F1+) | Resolvet CO₂-faktor, kg CO₂e/kg. Fyldes ved import (F4/F3). |
 | `co2e_source` | text-single-line | CO₂-modul (F1+) | `klimadb` \| `material` \| `supplier` \| `manual` \| `na` |
 | `co2e_klima_id` | text-single-line | CO₂-modul (F1+) | CONCITO Ra-ID (NULL hvis ikke fødevare) |
@@ -6499,6 +6499,97 @@ advarer om ved `_buildMailVars`.
 fixture. Mutations-testet: fjernes sorteringen, falder 4 asserts. Verificeret i
 browser mod kopi af dev-data: drawer-rækker og mailtekst er identiske, mens den rå
 DB-rækkefølge er en anden.
+
+### Lageroversigten viser "sidst tjekket" — og stempler selv (#613, 14. september 2026)
+
+Køkkenet ville kunne se hvornår en vare sidst var tjekket, uanset om det skete i
+lageroversigten eller i optællingen. Feltet fandtes (Grocy-userfield `LastCheckedAt`,
+som optællingen viser som "Sidst: dato (enhed)"), men lageroversigtens eget "Gem"
+skrev det ikke — og det er den vej køkkenet retter lageret til daglig.
+
+**Målt mod grocy-hq 14/9:** 49 af 81 varer på lager havde et stempel, det nyeste fra
+19. august. Grocys `stock_log` viste 112 rettelser siden da — ingen stemplet, alle
+20–40 s fra hinanden (én vare ad gangen = lageroversigten; optællingen skriver i ét
+ryk). Samme fejlklasse som #305/#319: handlingen skete, sporet blev aldrig sat.
+
+- **Lageroversigtens Gem stempler `LastCheckedAt`** (`_soStampChecked` i
+  [shared/stock_overview.js](shared/stock_overview.js)) — ved ændring, ved "Ingen
+  ændring" og ved "behold lagerets tal". **Et tjek uden ændring er også et tjek**
+  (beslutning, Leif): varen ER set, og tallet passede. Stemplet skrives EFTER
+  lager-skrivningen og må aldrig vælte den; fejler det, siges det i en warn-toast
+  frem for at blive slugt.
+- **Kun datoen.** `LastCheckedUnit` er optællingens felt — den bruger enheden til at
+  afgøre hvilken køl/frys-liste varen hører til (`_icVisibleInUnit`), og
+  lageroversigten kender kun Grocy-lokationen. Sættes enheden ikke, kan optællingen
+  ikke tro at varen "blev rullet" til den gamle enhed i dag.
+- **Mærke på kortet, til højre under blyanten** (ikke i enheds-linjen — den skal have
+  plads til omregningerne `≈ 0.7 Kasse · ≈ 110.8 Antal`): gråt `✓ 3d siden` /
+  `✓ 11. sep`, kursivt `aldrig tjekket`, orange ⏳ og rødt ⏰ efter `HverDag`-intervallet
+  — samme regler og farver som optællingen. Tooltip med præcis tid, enhed og interval.
+  Søjlen er 30 px knap + 2 px + 12 px tekst = 44 px = kortets indholds-minimum, så
+  kortet bliver **ikke højere** (målt: alle 114 kort 68 px, med og uden mærke). I
+  "vælg flere" skjules hele søjlen, som blyanten gjorde før — ellers ombrydes
+  enheds-linjen på brede kort, og gridet strækker hele rækken.
+- **Pille "N ikke tjekket"** (aldrig set, eller intervallet overskredet) ved siden af
+  "udløbet"/"lav", og **sortering "ældst tjekket først"** inden for hver gruppe
+  (aldrig tjekket øverst; huskes i `localStorage`).
+- **`npm run backfill:sidst-tjekket`** (`scripts/backfill-last-checked.js`) sætter
+  stemplet fra seneste `inventory-correction`/`purchase` i `stock_log` pr. produkt —
+  KUN hvor loggen er nyere end det eksisterende stempel, aldrig hvor der intet spor
+  er (vi opfinder ikke et tjek). Uden det står oversigten rød på næsten alt fra dag
+  ét: 178 af 180 varer har `HverDag=7`. Dry-run default, `--apply` skriver, `--test`
+  mod grocytest. Dry-run mod drift: 146 sættes, 32 uden spor, 2 hvor optællingen er nyere.
+
+> **Grocys `stock_log` giver HTTP 500 — men kun uden `limit`.** `/objects/stock_log`
+> og `?limit=100000` fejler på 0,4 s (hele tabellen, ~75.000 rækker, læses ind før
+> den skæres til); `?limit=20000` svarer på 0,7 s med 9 MB. Det er altså ikke
+> datamængden men det manglende loft. Kald loggen altid med `limit` + `query[]`
+> (type, dato) — som scriptet gør. Der er intet at rette i Grocy for det.
+
+> ⚠️ **`stock_log.row_created_timestamp` er LOKAL tid**, mens `LastCheckedAt` er UTC
+> med `Z`. Bekræftet mod data: optællingens stempler 17/7 kl. 14:06–14:29Z ligger ud
+> for log-rækker kl. 16:10–16:30 — præcis to timer (CEST). Skrives loggens tal råt,
+> bliver hvert stempel to timer for nyt. Scriptet konverterer Europe/Copenhagen → UTC.
+
+> ⚠️ **`/stock`'s indlejrede `product` har INGEN userfields.** Første udgave læste
+> `LastCheckedAt` derfra og viste "aldrig tjekket" på alt — fundet i browseren, ikke
+> af testen. Userfields skal læses fra `/objects/products` (`_soProductsMap`).
+> Testen har nu et indlæsnings-scenarie der fælder netop det.
+
+**Tests:** `npm run test:last-checked` — 57 asserts. `stock_overview.js` køres i en
+vm-sandkasse med stubbet API (browser-kode kan ikke `require`s); gem-stien, filter,
+sortering, rendering, indlæsning og backfill-scriptets rene regler.
+**Mutations-testet:** ni kerneregler rulles hver især tilbage og fælder 1–5 navngivne
+asserts. Regression grøn: `test:run-optaelling` 112/0. Browser-verificeret mod
+grocytest: Gem uden ændring → toast "Ingen ændring · tjek registreret", `✓ i dag`,
+stemplet landet i Grocy med enheden urørt (rullet tilbage bagefter); pille og
+sortering virker.
+
+**Deploy:** kør `npm run backfill:sidst-tjekket` på serveren (dry-run først, så
+`--apply`) efter deploy — ellers ser alt forfaldent ud den første uge.
+
+### Inaktive varer kan genaktiveres fra lageroversigten (#615, 14. september 2026)
+
+Optællingens "Varen findes ikke mere" sætter lageret til 0 og markerer varen **inaktiv**
+i Grocy — den slettes ikke. Men inaktive varer var filtreret helt ud af lageroversigten,
+så den eneste vej tilbage var Grocys eget UI, og ✎-modalens Aktiv-felt kunne i praksis
+kun bruges til at deaktivere.
+
+- **Pille "N inaktive"** i statusbaren viser en egen liste; søg/lokation/gruppe virker
+  ovenpå. Total-pillen tæller fortsat kun aktive — ikke det viste udsnit.
+- **Inaktivt kort**: dæmpet, stiplet kant, `inaktiv`-badge, intet justeringspanel (intet
+  lager at rette), og `↺ Aktivér` ved siden af ✎ i én række, så kortet ikke vokser.
+  Knappen sender **kun** `{active: 1}` — lageret røres ikke; det står på 0 efter
+  "findes ikke mere", og næste skridt er brugerens.
+- **✎-modalens Aktiv-felt virker begge veje**: varen flytter mellem de to lister i
+  stedet for bare at forsvinde ved deaktivering.
+- **Én item-bygger** (`_soItemFromProduct`) deles af "Tilføj vare", inaktiv-listen og
+  genaktivering. `_soProductsMap` rummer nu ALLE produkter (så ✎ kan åbne en inaktiv);
+  `_soAllProducts` er fortsat kun aktive. En inaktiv vare med lagerpost holdes ude af den
+  aktive liste — før stod den der, fordi `/stock` ikke filtrerer på `active`.
+
+**Tests:** `npm run test:stock-inactive` — 35 asserts (vm-sandkasse). Mutations-testet:
+seks kerneregler fælder hver 1–5 asserts. Sletning af produkter skal fortsat ske i Grocy.
 
 ## Næste opgave
 
