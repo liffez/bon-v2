@@ -2,7 +2,7 @@
 
 **Status:** Skærm og Pi i drift (september 2026) — checkpoints (§3–§6, §8) afventer implementering
 **Omfang:** Bon v2 + Whiteboard
-**Version:** 0.8
+**Version:** 0.9
 
 > **Hvad der er bygget:** §0 beskriver skærmen som den kører i dag. Resten af
 > dokumentet er den oprindelige specifikation af checkpoint-systemet
@@ -71,7 +71,8 @@ Når checkpoints bygges og skal følge brugeren på tværs af de to apps, gælde
 
 - Chromium-vinduerne via labwc-autostart (`kiosk-chromium.sh`), genstartet hvis
   de dør.
-- Panel sluk/tænd via systemd-timere (§7.3).
+- Sort skærm efter lukketid og tænd om morgenen via systemd-timere; et tryk
+  fjerner den sorte skærm (§7.3).
 - Watchdog + lokal nødside (§4.6), som kun skifter Bon-vinduet.
 - Byt-knappens server (§0.2).
 - Chromium-politik: "Oversæt denne side?" slået fra, og adgang til
@@ -411,8 +412,9 @@ Enheden gør tre ting og ikke mere:
 
 1. Chromium mod Bon og Whiteboard ved boot, side om side (§0.1), med
    `?kiosk=kokken-1` i start-URL'erne
-2. Panel slukkes via DPMS kl. **17:30**
-3. Panel tændes 06:30
+2. Skærmen bliver **sort** kl. **17:30** — et tryk bringer Bon og Whiteboard
+   tilbage (§7.3.1)
+3. Den sorte skærm fjernes 06:30
 
 Hverdage. Styret af systemd-brugertimere (`kiosk-display-off/on.timer`), og
 tiderne står i `~/kiosk/kiosk.env` — ikke i cron.
@@ -427,6 +429,43 @@ Alt andet hører hjemme i Bon — med byt-knappens server (§0.2) og nødsiden
 Opvågningstidspunktet er sat før den tidligste mødetid kl. 7, med lidt luft.
 Det udløser **ikke** §6.1 — se dér: checkpointet venter på en berøring, ikke på
 at panelet tændes.
+
+#### 7.3.1 Efter lukketid: sort skærm, ikke standby
+
+Køkkenet bruges også efter 17:30 — der laves mad kl. 18 eller 21. Skærmen skal
+derfor kunne tages i brug igen uden tastatur.
+
+**Standby kan ikke bruges.** Planen var at slukke panelet via DPMS og vække det
+ved berøring. Men iiyama ProLite T2752MSC slukker sin berøring når panelet går
+i standby — målt på Pi'en 14/9-2026 med `libinput debug-events`: `TOUCH_DOWN`
+kommer når panelet er tændt, ingen hændelser mens det er slukket. Et slukket
+panel kan altså ikke vækkes med et tryk.
+
+**I stedet lægges et sort vindue i fuld skærm over** (`kiosk-blank.py`):
+
+- Kl. 17:30 (`kiosk-display.sh off`): sort vindue over Bon og Whiteboard.
+  Panelet er tændt, berøringen virker.
+- Tryk: vinduet lukker ved **slip**, ikke ved tryk, så berøringen ikke falder
+  igennem til siden nedenunder.
+- Efter `KIOSK_WAKE_IDLE_MINUTES` (10) uden berøring bliver skærmen sort igen —
+  men kun uden for åbningstiden (`KIOSK_ON_TIME`–`KIOSK_OFF_TIME` på
+  `KIOSK_DAYS`). Det er `swayidle` der tæller (`kiosk-idle.sh`, startet fra
+  labwc-autostart, fordi den skal tale med compositoren). Det gælder også i
+  weekenden, hvor morgentimeren ikke kører.
+- Kl. 06:30 (`kiosk-display.sh on`): det sorte vindue fjernes.
+
+**Hvorfor det holder mod indbrænding:** et helt sort billede er det samme som
+intet billede for panelet. Det, der gik tabt, er strømmen: baggrundslyset er
+tændt om natten (skærmen bruger ~21 W tændt mod 1,5 W i standby — §7.1).
+
+**Nødudgange:**
+
+- Kan det sorte vindue ikke startes (fx GTK mangler), slukker `off` panelet
+  rigtigt som før og skriver det i loggen. Så vækker et tryk ikke, men
+  indbrændingen er stadig undgået.
+- `KIOSK_WAKE_IDLE_MINUTES="0"` slår det hele fra: panelet slukkes rigtigt kl.
+  17:30, og et tryk vækker det ikke.
+- `kiosk-display.sh sleep` slukker panelet rigtigt i hånden.
 
 ### 7.4 Sensorindsamling — skal adskilles fra kiosken
 
@@ -571,3 +610,8 @@ Ikke med i denne version:
    andet end både Dashboard og "I dag". Hvis den i praksis *er* "I dag"-viewet,
    falder checkpointet sammen til blot at sætte idle-målet ved dagens start —
    simplere, men så mister man Dashboardets overblik ved mødetid.
+8. **Strøm om natten.** Den sorte skærm (§7.3.1) holder baggrundslyset tændt
+   hele natten. Skal panelet i rigtig standby sent om aftenen (fx 23:00), hvor
+   ingen laver mad? Så vækker et tryk ikke længere. Alternativt kan
+   lysstyrken skrues ned over DDC/CI (`ddcutil`), hvis skærmen understøtter det
+   over Pi'ens HDMI.
