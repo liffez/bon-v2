@@ -1,8 +1,84 @@
 # CLAUDE_KIOSK.md
 
-**Status:** Specifikation — afventer implementering
+**Status:** Skærm og Pi i drift (september 2026) — checkpoints (§3–§6, §8) afventer implementering
 **Omfang:** Bon v2 + Whiteboard
-**Version:** 0.7
+**Version:** 0.8
+
+> **Hvad der er bygget:** §0 beskriver skærmen som den kører i dag. Resten af
+> dokumentet er den oprindelige specifikation af checkpoint-systemet
+> (`kiosk.js`, policy, kvitteringer), som **ikke** er bygget. Opsætning og
+> fejlsøgning af Pi'en står i `docs/kiosk/README.md`.
+
+---
+
+## 0. I drift (september 2026)
+
+Køkkenskærmen (§7.1) hænger på en Raspberry Pi 4 med Raspberry Pi OS (labwc,
+Wayland). Opsat med `docs/kiosk/install-kiosk.sh` — PR #619 i bon-v2 og #29 i
+whiteboard.
+
+### 0.1 Opdelt skærm
+
+Skærmen er delt i to Chromium-vinduer uden titellinje:
+
+| Del | Bredde | Indhold |
+|---|---|---|
+| Stor | 2/3 (1280 px) | Bon: køkkenets **dashboard** med topbar |
+| Lille | 1/3 (640 px) | **Whiteboard** (Tavlen) |
+
+- **Startvisningen er dashboardet**, ikke "I dag" som §6.1 forudsatte.
+  Kiosk-tilstand (skjult topbar) bruges kun i "I dag"-visningerne.
+- På køkkenskærmen bruger dashboardet altid sit **enkolonne-layout**
+  (oversigten i fuld bredde, kortene på én række, grafen under). Zoom blev
+  prøvet og forkastet: 1080 ÷ 1,4 = 771 px i højden var ikke nok.
+- Hvert vindue har sin egen Chromium-profil og skal logges ind én gang.
+  Whiteboard er beskyttet af Bons login og sender tilbage efter login.
+- Pi OS' panel i toppen er slået fra.
+
+### 0.2 Byt-knappen ⇄
+
+"⇄ Whiteboard stor" / "⇄ Bon stor" i Bons køkken-topbar og i Tavlens header
+bytter om på hvem der har den store del (ca. 5 sek.). Valget huskes over en
+genstart.
+
+Et vindue kan ikke flytte sig selv, så bytningen sker på Pi'en: en lille server
+på `127.0.0.1:8765` skriver vinduesreglerne om og genstarter begge vinduer.
+Knappen vises kun når serveren svarer, og appsene spørger kun når de er åbnet
+fra kiosken. **Knappen findes derfor kun på køkkenskærmen.**
+
+Det er en bevidst undtagelse fra §1.1's "enheden er tynd": vinduesplacering
+findes kun på enheden. Der er ingen forretningslogik i den.
+
+### 0.3 Login og betjening uden tastatur
+
+- **PIN-pad** på login-siden, når browseren er markeret som kiosk.
+- **"Log ud"** nederst i MERE-menuen i køkkenvisningerne.
+- **"✕ Afslut kiosk"** nederst til venstre i "I dag" — Escape findes ikke på
+  en touchskærm. På køkkenskærmen går kiosk-tilstand ikke i fuldskærm, fordi
+  Bon ellers lægger sig hen over Whiteboard.
+- Et USB-tastatur sidder i til den lejlighedsvise indtastning (§9).
+
+### 0.4 Enhedsmarkering — localStorage, ikke cookie
+
+§4.2 foreslår en cookie på `.ristetrug.dk`. Det der er bygget, er et flag i
+**localStorage pr. app**: `bon_kiosk_device` (Bon) og `wb_kiosk_device`
+(Whiteboard), sat af `?kiosk=kokken-1` i Pi'ens start-URL'er. Det er nok til
+PIN-pad, layout og byt-knap, fordi hver app kun behøver at kende sig selv.
+Når checkpoints bygges og skal følge brugeren på tværs af de to apps, gælder
+§4.2's argument stadig.
+
+### 0.5 Hvad Pi'en kører
+
+- Chromium-vinduerne via labwc-autostart (`kiosk-chromium.sh`), genstartet hvis
+  de dør.
+- Panel sluk/tænd via systemd-timere (§7.3).
+- Watchdog + lokal nødside (§4.6), som kun skifter Bon-vinduet.
+- Byt-knappens server (§0.2).
+- Chromium-politik: "Oversæt denne side?" slået fra, og adgang til
+  `127.0.0.1` tilladt for Bon og Whiteboard (ingen står ved skærmen og kan
+  svare på Chromiums spørgsmål).
+- Pi OS' skærmtastatur (`squeekboard`) er **slået fra** i Pi'ens indstillinger.
+  Det dukkede op ved sideskift.
 
 ---
 
@@ -333,17 +409,20 @@ blive vasket.
 
 Enheden gør tre ting og ikke mere:
 
-1. Chromium i kiosk-mode mod Bon ved boot, med `?kiosk=kokken-1` første gang
-2. Panel slukkes via DPMS kl. 14:15
+1. Chromium mod Bon og Whiteboard ved boot, side om side (§0.1), med
+   `?kiosk=kokken-1` i start-URL'erne
+2. Panel slukkes via DPMS kl. **17:30**
 3. Panel tændes 06:30
 
-```
-15 14 * * 1-5   <dpms off>
-30 6  * * 1-5   <dpms on>
-```
+Hverdage. Styret af systemd-brugertimere (`kiosk-display-off/on.timer`), og
+tiderne står i `~/kiosk/kiosk.env` — ikke i cron.
 
-Ni timers indbrændt dashboard hver aften er den eneste grund til punkt 2 og 3.
-Alt andet hører hjemme i Bon.
+Slukningen var planlagt til 14:15, men der er nogle gange folk på arbejde til
+kl. 17, så den er rykket til 17:30.
+
+Mange timers indbrændt dashboard hver aften er den eneste grund til punkt 2 og 3.
+Alt andet hører hjemme i Bon — med byt-knappens server (§0.2) og nødsiden
+(§4.6) som de to undtagelser.
 
 Opvågningstidspunktet er sat før den tidligste mødetid kl. 7, med lidt luft.
 Det udløser **ikke** §6.1 — se dér: checkpointet venter på en berøring, ikke på
@@ -460,10 +539,10 @@ Ikke med i denne version:
   man taster. Det USB-tastatur §7.1 allerede regner med, dækker den lejlighedsvise
   undtagelse.
 
-  Vær opmærksom på at et virtuelt tastatur **ikke kommer af sig selv**:
-  `inputmode="decimal"` er et hint til et systemtastatur, og Raspberry Pi OS med
-  Chromium har ikke noget. Trykker man i et talfelt, får det fokus, markøren
-  blinker, og der sker ikke mere. Det gælder bl.a. lageroptællingens antalsfelt,
+  Raspberry Pi OS har faktisk et skærmtastatur (`squeekboard`), og det kom
+  frem ved sideskift. Det er **slået fra** på køkkenskærmen (§0.5). Trykker man
+  i et talfelt, får det fokus, markøren blinker, og der sker ikke mere — medmindre
+  USB-tastaturet bruges. Det gælder bl.a. lageroptællingens antalsfelt,
   produktionsbatchens mængder og opskrifternes portionstal — de felter hører ikke
   til på kiosken. Analyse og fuld feltliste i #552, lukket som ikke-planlagt.
 
@@ -481,7 +560,14 @@ Ikke med i denne version:
    settings, så den kan justeres efter et par ugers drift.
 4. **Weekender og lukkedage.** `aktiv_dage` dækker det simple tilfælde. Skal
    helligdage trækkes fra samme kilde som resten af Bon?
-5. **Er "dagens opgaver" en selvstændig visning?** §6.1 peger på den som noget
+5. **Er §6.2 stadig nødvendigt?** Checkpointet skal få køkkenet til at se
+   Whiteboard, når produktionen er kørt. Med den opdelte skærm (§0.1) står
+   Whiteboard fremme hele dagen. Måske er det nu byt-knappen, der skal skifte
+   Whiteboard til den store del — eller også falder checkpointet bort.
+6. **Startvisningen.** §6.1 og §6.2 bruger "I dag" som `resume`, men skærmen
+   starter i dag på dashboardet (§0.1). Idle-målene skal genovervejes, før
+   checkpoints bygges.
+7. **Er "dagens opgaver" en selvstændig visning?** §6.1 peger på den som noget
    andet end både Dashboard og "I dag". Hvis den i praksis *er* "I dag"-viewet,
    falder checkpointet sammen til blot at sætte idle-målet ved dagens start —
    simplere, men så mister man Dashboardets overblik ved mødetid.
