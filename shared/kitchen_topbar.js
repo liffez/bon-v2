@@ -113,6 +113,24 @@ function renderKitchenTopbar(container, opts) {
         }
         dropdown.appendChild(a);
     });
+    // Log ud — nederst i MERE frem for som synlig knap, så ingen rammer den
+    // med et forkert tryk på køkkenskærmen. Login-siden husker at enheden er
+    // en kiosk og viser PIN-padden igen.
+    var logoutSep = document.createElement('div');
+    logoutSep.className = 'topbar-dropdown-sep';
+    dropdown.appendChild(logoutSep);
+    var logoutBtn = document.createElement('a');
+    logoutBtn.href = '/login.html';
+    logoutBtn.className = 'topbar-logout';
+    logoutBtn.textContent = 'Log ud';
+    logoutBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        fetch('/api/auth/logout', { method: 'POST' })
+            .catch(function() {})
+            .then(function() { window.location.href = '/login.html'; });
+    });
+    dropdown.appendChild(logoutBtn);
+
     details.appendChild(dropdown);
     nav.appendChild(details);
 

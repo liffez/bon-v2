@@ -82,6 +82,15 @@ function startClock() {
    ══════════════════════════════════════════════════════════════ */
 
 function initKiosk() {
+    // Touch-knap til at komme ud igen. På en touchskærm uden tastatur findes
+    // Escape ikke, og topbaren med KIOSK-knappen er skjult i kiosk-tilstand.
+    const exitBtn = document.createElement('button');
+    exitBtn.type = 'button';
+    exitBtn.className = 'kiosk-exit-btn';
+    exitBtn.textContent = '✕ Afslut kiosk';
+    exitBtn.addEventListener('click', exitKiosk);
+    document.body.appendChild(exitBtn);
+
     // Auto-aktiver fra URL-param
     if (new URLSearchParams(location.search).has('kiosk')) {
         enterKiosk();
@@ -99,6 +108,14 @@ function initKiosk() {
     });
 }
 
+// Er dette den fastmonterede køkkenskærm? Dér deler Bon skærmen med
+// Whiteboard, og fuldskærm ville lægge sig hen over Whiteboard. Kiosk-tilstand
+// skjuler derfor kun topbaren. Flaget sættes af kiosk-URL'en (shared/utils.js)
+// — ikke af ?kiosk alene, som også bruges fra almindelige browsere.
+function _kioskOnFixedScreen() {
+    try { return !!localStorage.getItem('bon_kiosk_device'); } catch (e) { return false; }
+}
+
 function toggleKiosk() {
     if (document.body.classList.contains('kiosk')) {
         exitKiosk();
@@ -109,6 +126,7 @@ function toggleKiosk() {
 
 function enterKiosk() {
     document.body.classList.add('kiosk');
+    if (_kioskOnFixedScreen()) return;
     if (document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {});
     }
