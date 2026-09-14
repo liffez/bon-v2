@@ -24,6 +24,10 @@ warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
 say "Installerer afhængigheder"
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends curl wlr-randr >/dev/null
+# swayidle vækker panelet ved berøring efter lukketid (kiosk-idle.sh).
+sudo apt-get install -y --no-install-recommends swayidle >/dev/null 2>&1 || warn "swayidle kunne ikke installeres — skærmen går ikke i sort igen efter idle"
+# Den sorte skærm efter lukketid (kiosk-blank.py) er et lille GTK-vindue.
+sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 >/dev/null 2>&1 || warn "python3-gi/GTK mangler — efter lukketid slukkes panelet rigtigt, og et tryk vækker det ikke"
 # wlopm er den pæneste måde at slukke panelet (ren DPMS), men er ikke i alle
 # Debian-udgaver. Vi prøver, og kiosk-display.sh falder tilbage hvis den mangler.
 sudo apt-get install -y --no-install-recommends wlopm >/dev/null 2>&1 || warn "wlopm findes ikke i apt her — kiosk-display.sh bruger wlr-randr i stedet"
@@ -39,6 +43,8 @@ mkdir -p "$DEST/bin"
 install -m 755 "$SRC/bin/kiosk-display.sh"  "$DEST/bin/"
 install -m 755 "$SRC/bin/kiosk-chromium.sh" "$DEST/bin/"
 install -m 755 "$SRC/bin/kiosk-watchdog.sh" "$DEST/bin/"
+install -m 755 "$SRC/bin/kiosk-idle.sh"     "$DEST/bin/"
+install -m 755 "$SRC/bin/kiosk-blank.py"    "$DEST/bin/"
 install -m 644 "$SRC/bin/kiosk_layout.py" "$DEST/bin/"
 install -m 755 "$SRC/bin/kiosk-layout-server.py" "$DEST/bin/"
 
@@ -101,6 +107,9 @@ case "$COMPOSITOR" in
     F="$HOME/.config/labwc/autostart"
     touch "$F"; chmod +x "$F"
     grep -qF "$MARK" "$F" || printf '\n%s\n%s &\n' "$MARK" "$LAUNCH" >> "$F"
+    # Vækning ved berøring efter lukketid. swayidle skal tale med compositoren,
+    # så den startes herfra og ikke som systemd-service.
+    grep -qF "$DEST/bin/kiosk-idle.sh" "$F" || printf '%s &\n' "$DEST/bin/kiosk-idle.sh" >> "$F"
     echo "  → $F"
     ;;
   wayfire)
@@ -225,6 +234,8 @@ Description=Kiosk: $label panelet
 [Service]
 Type=oneshot
 ExecStart=$DEST/bin/kiosk-display.sh $mode
+# Den sorte skærm startes af "off" og skal leve videre efter servicen er færdig.
+KillMode=process
 UNIT
     cat > "$UNITS/kiosk-display-$mode.timer" <<UNIT
 [Unit]
@@ -308,6 +319,7 @@ cat <<SUMMARY
   URL          $KIOSK_URL
   Device-id    $KIOSK_DEVICE_ID
   Panel        slukker $OFF_TIME · tænder $ON_TIME · $DAYS
+  Efter lukketid  sort skærm · tryk tænder den · sort igen efter ${KIOSK_WAKE_IDLE_MINUTES:-10} min uden berøring
   Watchdog     $( [ "$WITH_WATCHDOG" = 1 ] && echo "aktiv" || echo "slået fra" )
 
 Næste skridt

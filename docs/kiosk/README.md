@@ -206,11 +206,34 @@ Tjek at timerne står i kalenderen:
 systemctl --user list-timers 'kiosk-*'
 ```
 
-> **Vær opmærksom på opvågningen.** Når panelet er slukket, tænder en berøring
-> det ikke nødvendigvis igen — det er timeren kl. 06:30 der gør det. Møder nogen
-> ind før den, står de foran en sort skærm der ser død ud. Rykker mødetiden
-> permanent, så flyt `KIOSK_ON_TIME` frem; det er ikke et argument for at lade
-> panelet være tændt hele natten.
+### Efter lukketid: sort skærm, tryk for at tænde
+
+Skal der laves mad kl. 18 eller 21, trykker man på den sorte skærm, og så er
+Bon og Whiteboard der igen. Når ingen har rørt skærmen i
+`KIOSK_WAKE_IDLE_MINUTES` (10), bliver den sort igen. Det gælder også i
+weekenden. Inden for åbningstiden bliver den aldrig sort af sig selv.
+
+**Hvorfor sort og ikke slukket:** iiyama-skærmen slukker sin berøring, når
+panelet går i standby (målt på Pi'en: ingen `TOUCH_DOWN` mens panelet er
+slukket). Et slukket panel kan derfor ikke vækkes med et tryk. Kl. 17:30 lægges
+i stedet et helt sort vindue over (`bin/kiosk-blank.py`). Berøringen virker hele
+tiden, og et sort billede brænder ikke ind. Baggrundslyset er tændt om natten.
+
+Det sorte vindue lukker, når fingeren slippes, så trykket ikke rammer siden
+nedenunder. `swayidle` (`bin/kiosk-idle.sh`, startet fra labwc's autostart)
+lægger det over igen efter idle.
+
+Efterprøv det:
+
+```bash
+~/kiosk/bin/kiosk-display.sh off
+```
+
+Skærmen skal blive sort. Tryk på den — så skal Bon være der igen.
+
+Sættes `KIOSK_WAKE_IDLE_MINUTES="0"`, slukkes panelet rigtigt kl. 17:30, og et
+tryk vækker det ikke. Vil du slukke panelet rigtigt i hånden:
+`~/kiosk/bin/kiosk-display.sh sleep`.
 
 ---
 
@@ -247,6 +270,7 @@ topbaren bruges til at navigere.
 | `KIOSK_MAIN_FRACTION` | `2/3` | den store dels andel af bredden |
 | `KIOSK_MAIN_SCALE` / `SIDE_SCALE` | `1` / `1` | zoom på den store / lille del |
 | `KIOSK_OFF_TIME` / `ON_TIME` | `17:30` / `06:30` | panelet sluk/tænd, man-fre |
+| `KIOSK_WAKE_IDLE_MINUTES` | `10` | efter lukketid: sort skærm igen efter så mange minutter uden berøring (0 = sluk panelet rigtigt, tryk vækker ikke) |
 | `KIOSK_HIDE_PANEL` | `1` | skjul Pi OS' panel i toppen |
 
 Kør installeren igen efter en ændring, og genstart. Vinduesplaceringen ligger
@@ -324,7 +348,9 @@ systemctl --user disable --now kiosk-watchdog.service
 | `install-kiosk.sh` | Installerer alt. Køres på Pi'en, idempotent. |
 | `kiosk.env.example` | Skabelon → `~/kiosk/kiosk.env`. Enhedens eneste config. |
 | `bin/kiosk-chromium.sh` | Starter Chromium ved boot, genstarter den hvis den dør. |
-| `bin/kiosk-display.sh` | `on`/`off`/`status`. Fire fallbacks, husker hvad der virkede. |
+| `bin/kiosk-display.sh` | `on`/`off`/`sleep`/`status` + `idle-off`/`wake`. Fire fallbacks, husker hvad der virkede. |
+| `bin/kiosk-idle.sh` | swayidle: sort skærm igen efter idle uden for åbningstid. |
+| `bin/kiosk-blank.py` | Det sorte vindue efter lukketid. Lukker ved berøring. |
 | `bin/kiosk-watchdog.sh` | Skifter til nødvisning når Bon ikke kan nås. |
 | `offline.html` | Lokal nødside. Poller Bon, vender tilbage efter idle. |
 | `bin/kiosk_layout.py` | Vinduesreglerne — én kilde for installeren og byt-knappen. |

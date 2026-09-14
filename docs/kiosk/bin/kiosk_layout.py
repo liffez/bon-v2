@@ -93,6 +93,10 @@ def rules_block(primary):
             lines.append(f'      <action name="MoveTo" x="{x}" y="0" />')
             lines.append(f'      <action name="ResizeTo" width="{w}" height="{h}" />')
             lines.append('    </windowRule>')
+    # Den sorte skærm efter lukketid skal ligge over begge vinduer.
+    lines.append('    <windowRule identifier="bon-kiosk-blank" serverDecoration="no" skipTaskbar="yes" skipWindowSwitcher="yes">')
+    lines.append('      <action name="ToggleAlwaysOnTop" />')
+    lines.append('    </windowRule>')
     lines.append('  </windowRules>')
     lines.append('  ' + END)
     return '\n'.join(lines)
