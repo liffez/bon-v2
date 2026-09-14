@@ -81,11 +81,14 @@ async function _soLoadData() {
         rawQus.forEach(function(q) { _soQUnitsMap[q.id] = q.name; });
 
         _soLocationsMap = {};
-        _soLocationsArr = rawLocs;
+        _soLocationsArr = rawLocs.slice().sort(function(a, b) { return String(a.name).localeCompare(String(b.name), 'da'); });
         rawLocs.forEach(function(l) { _soLocationsMap[l.id] = l.name; });
 
         _soGroupsMap = {};
-        _soGroupsArr = rawGroups;
+        // Grocy leverer grupperne i oprettelses-rækkefølge, så en ny gruppe
+        // ("05 Dressinger") landede nederst i filteret. Samme sortering som
+        // gruppe-overskrifterne i listen.
+        _soGroupsArr = rawGroups.slice().sort(function(a, b) { return String(a.name).localeCompare(String(b.name), 'da'); });
         rawGroups.forEach(function(g) { _soGroupsMap[g.id] = g.name; });
 
         _soShopLocsMap = {};

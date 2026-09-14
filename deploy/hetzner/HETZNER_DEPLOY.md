@@ -436,6 +436,30 @@ journalctl -u whiteboard --since "5 min ago"
 ```
 
 ### "500 Internal Server Error" på grocy
+**Grocy svarer 500 på `/api/objects/stock_log` (uden `limit`):** loggen er ~75.000
+rækker, og PHP's `memory_limit` på 128M løber tør. Bekræft i loggen:
+
+```bash
+sudo grep -i "allowed memory" /var/log/php-fpm/grocy-hq-error.log | tail -3
+```
+
+`deploy/hetzner/php-fpm/grocy-hq.conf` sætter `memory_limit = 512M` for HQ-poolen
+alene. Rul den ud (kun den ene fil, kun HQ) og genstart FPM — det rammer alle
+Grocy-instanser et sekund, ikke Bon v2:
+
+```bash
+cd ~/bon-v2 && sudo cp deploy/hetzner/php-fpm/grocy-hq.conf /etc/php/8.5/fpm/pool.d/grocy-hq.conf && sudo php-fpm8.5 -t && sudo systemctl reload php8.5-fpm
+```
+
+Efterprøv, og hæv til 1G hvis loggen stadig melder "Allowed memory size":
+
+```bash
+curl -s -o /dev/null -w "%{http_code} %{size_download} bytes\n" -H "GROCY-API-KEY: $GROCY_HQ_KEY" https://grocy-hq.ristetrug.dk/api/objects/stock_log
+```
+
+Alt i Bon v2 kalder loggen med `limit` og filtre og har aldrig brug for det rå kald —
+grænsen hæves for at Grocy kan bruges direkte, ikke fordi Bon kræver det.
+
 PHP-FPM pool har et problem:
 ```bash
 sudo tail -f /var/log/php-fpm/grocy-hq-error.log
