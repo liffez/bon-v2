@@ -9,11 +9,12 @@
 # Startes fra labwc's autostart (swayidle skal tale med compositoren) og
 # genstarter sig selv hvis swayidle dør.
 #
-# To timeouts, fordi swayidle kun kører `resume` for en timeout der faktisk er
-# udløst:
-#   - kort (15 s): gør intet, men giver et "resume" ved næste berøring → wake.
-#     Så vækker et tryk også når timeren slukkede mens nogen stod ved skærmen.
-#   - lang (idle-minutter): slukker, men kun uden for åbningstiden.
+# Selve vækningen klarer den sorte skærm (kiosk-blank.py) selv: den forsvinder
+# ved berøring. swayidle står for resten:
+#   - lang timeout (idle-minutter): sort skærm igen, men kun uden for åbningstid.
+#   - kort timeout (15 s) med resume → wake: tænder panelet hvis det står i
+#     rigtig standby (fx efter `kiosk-display.sh sleep`) og nogen bruger
+#     tastatur eller mus. Berøring virker ikke i standby på denne skærm.
 set -uo pipefail
 
 ENV_FILE="${KIOSK_ENV_FILE:-$HOME/kiosk/kiosk.env}"
@@ -41,7 +42,7 @@ exec 9>"$LOCK"
 flock -n 9 || { log "kører allerede"; exit 0; }
 
 while true; do
-    log "lytter (sluk efter ${MINUTES} min uden berøring uden for åbningstid)"
+    log "lytter (sort skærm efter ${MINUTES} min uden berøring uden for åbningstid)"
     swayidle -w \
         timeout 15 'true' resume "$DISPLAY_SH wake" \
         timeout "$((MINUTES * 60))" "$DISPLAY_SH idle-off"
