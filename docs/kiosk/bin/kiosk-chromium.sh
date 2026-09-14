@@ -106,10 +106,10 @@ p.write_text(json.dumps(d))
 PYPREFS
 }
 
-# Zoom følger PLADSEN, ikke appen. Den store del (1280 px) zoomes 1,4, så
-# dashboardet får sit enkolonne-layout (under 960 CSS-pixel) og teksten kan
-# læses på afstand. Byt-knappen skriver hvem der har den store del.
-MAIN_SCALE="${KIOSK_MAIN_SCALE:-1.4}"
+# Zoom følger PLADSEN, ikke appen. Standard er 1: med 1,4 fik dashboardet ikke
+# plads i højden (1080 ÷ 1,4 = 771 px). Enkolonne-layoutet sætter dashboardet nu
+# selv på køkkenskærmen. Byt-knappen skriver hvem der har den store del.
+MAIN_SCALE="${KIOSK_MAIN_SCALE:-1}"
 SIDE_SCALE="${KIOSK_SIDE_SCALE:-1}"
 PRIMARY_FILE="$HOME/.config/bon-kiosk/primary"
 scale_for() {   # scale_for main|side

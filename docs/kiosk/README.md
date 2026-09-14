@@ -245,7 +245,7 @@ topbaren bruges til at navigere.
 | `KIOSK_URL` | køkkenets dashboard | venstre vindue |
 | `KIOSK_SIDE_URL` | Whiteboard | højre vindue |
 | `KIOSK_MAIN_FRACTION` | `2/3` | den store dels andel af bredden |
-| `KIOSK_MAIN_SCALE` / `SIDE_SCALE` | `1.4` / `1` | zoom på den store / lille del |
+| `KIOSK_MAIN_SCALE` / `SIDE_SCALE` | `1` / `1` | zoom på den store / lille del |
 | `KIOSK_OFF_TIME` / `ON_TIME` | `17:30` / `06:30` | panelet sluk/tænd, man-fre |
 | `KIOSK_HIDE_PANEL` | `1` | skjul Pi OS' panel i toppen |
 
