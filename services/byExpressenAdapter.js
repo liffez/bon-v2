@@ -14,7 +14,10 @@
  * instans fra delivery_vehicles.booking_api_config_json + .env-creds.
  *
  * Auth:   POST /token (HTTP Basic Auth) → { status:'ok', token } (JWT).
- *         Bearer-token på alt øvrigt. Token caches til ~30s før expiry.
+ *         Bearer-token på alt øvrigt. Token caches til ~30s før expiry — i et
+ *         MODUL-niveau-store (se TOKEN-STORE), ikke på instansen: routes/ bygger
+ *         en ny instans pr. HTTP-kald, så en instans-cache gav 0 % genbrug og
+ *         ét login pr. klik. Lobo rate-limiter /token → 429 (set i drift 14/9 2026).
  * Konv.:  svar pakkes i { data:[...], meta:{count,totalcount} }. Bool = int 0/1.
  * ════════════════════════════════════════════════════════════
  */
@@ -71,6 +74,38 @@ const DEFAULT_BOOKING_SCOPES = [
 ];
 
 /* ══════════════════════════════════════════════════════════════
+   TOKEN-STORE — delt på tværs af adapter-instanser.
+   ══════════════════════════════════════════════════════════════
+   getByExpressenAdapter() bygger bevidst en NY instans pr. request, så en
+   ændret sandkasse-indstilling slår igennem med det samme. Lå cachen på
+   instansen, døde den med requestet, og hvert klik i draweren (pris, preview,
+   ordre-status) gav et nyt POST /token. Lobo svarede 429 efter få klik.
+
+   Nøglen er (transport, base-URL, bruger):
+     - transport = fetchImpl. Produktion deler global fetch og dermed ét
+       token; en test med sin egen mock-fetch får sit eget rum, så to tests
+       ikke kan låne hinandens token og tælle /token-kald forkert.
+     - base-URL skiller sandkasse fra produktion — de har hver sit token.
+     - bruger, fordi credentials kan skiftes i .env uden genstart af noget.
+
+   `pending` deduplikerer samtidige logins: to requests der begge ser et
+   udløbet token, deler ét /token-kald i stedet for at fyre hver sit.
+   ══════════════════════════════════════════════════════════════ */
+
+const _tokenStoreByTransport = new WeakMap();   // fetchImpl → Map(key → entry)
+
+function _tokenStoreFor(fetchImpl) {
+    let store = _tokenStoreByTransport.get(fetchImpl);
+    if (!store) { store = new Map(); _tokenStoreByTransport.set(fetchImpl, store); }
+    return store;
+}
+
+/** Ryd alle cachede tokens (tests + diagnostik). */
+function resetTokenStore(fetchImpl = fetch) {
+    _tokenStoreByTransport.delete(fetchImpl);
+}
+
+/* ══════════════════════════════════════════════════════════════
    FACTORY
    ══════════════════════════════════════════════════════════════ */
 
@@ -80,8 +115,9 @@ const DEFAULT_BOOKING_SCOPES = [
  * @param {object}   opts.credentials  — { user, pass }
  * @param {function} [opts.fetchImpl]  — fetch-impl (injiceres i tests; default global fetch)
  * @param {function} [opts.now]        — () => ms (injiceres i tests; default Date.now)
+ * @param {Map}      [opts.tokenStore] — eksplicit token-store (default: delt pr. fetchImpl)
  */
-function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now = Date.now } = {}) {
+function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now = Date.now, tokenStore = null } = {}) {
     if (!config) throw new ByExpressenError('config mangler');
     if (!credentials || !credentials.user || !credentials.pass) {
         throw new ByExpressenError('credentials mangler (user/pass)');
@@ -91,15 +127,39 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
         .replace(/\/?$/, '/');
     if (!base || base === '/') throw new ByExpressenError('base/sandbox url mangler i config');
 
-    // Token-cache på instans-niveau
-    let _token = null;
-    let _expiresAt = 0;
+    // Token-cache: delt på tværs af instanser (se TOKEN-STORE øverst).
+    const _store = tokenStore || _tokenStoreFor(fetchImpl);
+    const _storeKey = base + '\u0000' + credentials.user;
+    function _entry() {
+        let e = _store.get(_storeKey);
+        if (!e) { e = { token: null, expiresAt: 0, pending: null }; _store.set(_storeKey, e); }
+        return e;
+    }
+    function _dropToken() {
+        const e = _entry();
+        e.token = null; e.expiresAt = 0;
+    }
 
     /* ── AUTH ─────────────────────────────────────────────── */
 
     async function getToken() {
-        if (_token && now() < _expiresAt - 30_000) return _token;
+        const e = _entry();
+        if (e.token && now() < e.expiresAt - 30_000) return e.token;
+        // Et login er allerede i gang for samme (base, bruger) — del det.
+        if (e.pending) return e.pending;
 
+        e.pending = _fetchToken()
+            .then((tok) => {
+                e.token = tok;
+                const payload = decodeJwtPayload(tok);
+                e.expiresAt = payload && payload.exp ? payload.exp * 1000 : now() + 9 * 60 * 1000; // fallback 9 min
+                return tok;
+            })
+            .finally(() => { e.pending = null; });
+        return e.pending;
+    }
+
+    async function _fetchToken() {
         const basic = 'Basic ' + Buffer.from(`${credentials.user}:${credentials.pass}`).toString('base64');
         // VIGTIGT: scopes ANMODES i body'en. Uden body → token får scope:[] → 403
         // på alt. Serveren giver snittet af (anmodet, tilladt-i-frontend).
@@ -119,14 +179,13 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
         if (res.status === 401) {
             throw new ByExpressenError('Authentication failed mod /token', { status: 401, code: 'auth_failed', body });
         }
+        if (res.status === 429) {
+            throw new ByExpressenError(rateLimitMessage(res, 'login'), { status: 429, code: 'rate_limited', body });
+        }
         if (!res.ok || !body || !body.token) {
             throw new ByExpressenError('Uventet svar fra /token (status ' + res.status + ')', { status: res.status, body });
         }
-
-        _token = body.token;
-        const payload = decodeJwtPayload(_token);
-        _expiresAt = payload && payload.exp ? payload.exp * 1000 : now() + 9 * 60 * 1000; // fallback 9 min
-        return _token;
+        return body.token;
     }
 
     /* ── GENERISK AUTH'ET KALD (Bearer) med 401-retry-én-gang ── */
@@ -149,12 +208,16 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
 
         // Token udløbet midt i — re-auth én gang
         if (res.status === 401 && !_isRetry) {
-            _token = null; _expiresAt = 0;
+            _dropToken();
             return authedFetch(method, path, { body, _isRetry: true });
         }
 
         // 204 = tom body (fx DELETE)
         if (res.status === 204) return { ok: true, status: 204, data: null };
+
+        if (res.status === 429) {
+            throw new ByExpressenError(rateLimitMessage(res, `${method} ${path}`), { status: 429, code: 'rate_limited' });
+        }
 
         const parsed = await safeJson(res);
         if (res.status === 403) {
@@ -393,7 +456,7 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
         listWebhooks,
         deleteWebhook,
         // til tests/diagnostik
-        _peekToken: () => ({ token: _token, expiresAt: _expiresAt }),
+        _peekToken: () => { const e = _entry(); return { token: e.token, expiresAt: e.expiresAt }; },
     };
 }
 
@@ -588,6 +651,18 @@ function getByExpressenAdapter(opts = {}) {
     return createByExpressenAdapter({ config, credentials, fetchImpl: opts.fetchImpl });
 }
 
+/* ── intern: læsbar 429-besked. Lobo sender evt. Retry-After (sekunder). ── */
+function rateLimitMessage(res, what) {
+    let wait = null;
+    try {
+        const ra = res.headers && typeof res.headers.get === 'function' ? res.headers.get('retry-after') : null;
+        const n = ra != null ? parseInt(ra, 10) : NaN;
+        if (Number.isFinite(n) && n > 0) wait = n;
+    } catch { /* headers mangler i nogle mocks */ }
+    const when = wait ? `om ${wait} sek.` : 'om lidt';
+    return `By-expressen afviser lige nu (for mange kald — ${what}). Prøv igen ${when}.`;
+}
+
 /* ── intern: parse json uden at kaste ── */
 async function safeJson(res) {
     try { return await res.json(); } catch { return null; }
@@ -607,4 +682,5 @@ module.exports = {
     mapLoboEvent,
     EVENT_MAP,
     decodeJwtPayload,
+    resetTokenStore,
 };

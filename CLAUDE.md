@@ -3929,6 +3929,35 @@ Browser-verificeret i begge zoner mod live ORS: 5 km → taxa 250 kr, 21,9 km �
 40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr; pille med og uden tal;
 Lobo-svaret stubbet med driftens egne tal for at se renderingen. Testdata ryddet.
 
+### By-expressen: ét login pr. klik gav 429 fra `/token` (14. september 2026)
+
+Draweren viste *"Uventet svar fra /token (status 429)"* på alle By-ex-knapper. Det er
+ikke en syntaks-token, men Lobos login-endpoint der afviste os: **429 = Too Many
+Requests**. Spec'en (`CLAUDE_LEVERING_LOBO.md`) advarede om streng rate-limit på
+netop `/token` og krævede modul-niveau-cache — men adapteren cachede tokenet **på
+instansen**, og `getByExpressenAdapter()` bygger bevidst en ny instans pr. HTTP-kald,
+så en ændret sandkasse-indstilling slår igennem uden genstart. Resultat: 0 % genbrug.
+Hvert klik (pris, preview, ordre-status ved drawer-åbning) var et nyt login.
+
+- **Token-store på modul-niveau** i [services/byExpressenAdapter.js](services/byExpressenAdapter.js),
+  nøglet på `(fetchImpl, base-URL, bruger)`. Base-URL skiller sandkasse fra produktion;
+  `fetchImpl` gør at en test med egen mock-fetch aldrig låner en anden tests token
+  (WeakMap pr. transport). Produktion deler global `fetch` → ét token i ~10 min.
+- **Samtidige logins deles** (`pending`-promise): to requests der begge ser et udløbet
+  token, fyrer ét `/token`, ikke to. Et fejlet login efterlader intet hængende.
+- **401 rydder det delte token**, så næste instans også re-auther (samme som før,
+  bare på det rigtige objekt).
+- **429 er nu en forståelig fejl** med `code: 'rate_limited'` — *"By-expressen afviser
+  lige nu (for mange kald — login). Prøv igen om 30 sek."* (Retry-After vises når Lobo
+  sender den). Gælder både `/token` og authede kald. Frontenden viser serverens
+  besked direkte, så teksten når helt ud i draweren.
+
+**Tests:** `tests/byexpressen_adapter.test.js` 30 → **37** (regressionen er tre
+instanser → ét login; plus dedupe, sandkasse/prod-adskillelse, transport-isolation,
+401-rydning og de to 429-cases). **Mutations-testet:** fem tilbagerulninger fælder hver
+sine navngivne tests. Regression grøn: lobo_booking + lobo_webhook (71 i alt),
+delivery spor1-unit 105, spor2-unit 42, spor2-routes 24, booking-confirmed-by 10.
+
 ### Leveringspris: afstandstrappe + "sidst taget" (6. august 2026)
 > Fortsættelse af sektionen ovenfor. Driften leverede tre oplysninger der ændrede designet:
 > Food dækker kun byområdet · til Høje Taastrup har vi taget 400 kr · en taxa koster 605 kr i dag.
