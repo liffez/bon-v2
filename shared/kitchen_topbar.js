@@ -26,6 +26,52 @@ var MORE_ITEMS = [
 ];
 
 /**
+ * Byt-knap ⇄ på køkkenskærmen: giver Bon eller Whiteboard den store del af
+ * skærmen. Selve bytningen sker på Pi'en (docs/kiosk/bin/kiosk-layout-server.py),
+ * så knappen vises KUN når den svarer på 127.0.0.1. Vi spørger kun på en enhed
+ * der er markeret som kiosk — ellers ville alle browsere ringe til localhost
+ * og få Chromiums "vil du give adgang til lokale enheder?" i hovedet.
+ */
+var KIOSK_LAYOUT_URL = 'http://127.0.0.1:8765';
+
+function _addKioskLayoutButton(right) {
+    var device = null;
+    try { device = localStorage.getItem('bon_kiosk_device'); } catch (e) { /* spærret */ }
+    if (!device || typeof fetch !== 'function') return;
+
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    if (ctrl) setTimeout(function() { ctrl.abort(); }, 1500);
+
+    fetch(KIOSK_LAYOUT_URL + '/layout', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(state) {
+            if (!state || !state.primary) return;
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'kiosk-swap-btn';
+            var label = state.primary === 'bon' ? '⇄ Whiteboard stor' : '⇄ Bon stor';
+            btn.textContent = label;
+            btn.title = 'Byt om på Bon og Whiteboard på skærmen';
+            btn.addEventListener('click', function() {
+                btn.disabled = true;
+                btn.textContent = 'Bytter…';
+                fetch(KIOSK_LAYOUT_URL + '/layout/swap', { method: 'POST', cache: 'no-store' })
+                    .then(function(r) {
+                        // Ved succes genstarter Pi'en dette vindue om et øjeblik.
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                    })
+                    .catch(function() {
+                        btn.disabled = false;
+                        btn.textContent = label;
+                        btn.title = 'Kunne ikke bytte — prøv igen';
+                    });
+            });
+            right.insertBefore(btn, right.firstChild);
+        })
+        .catch(function() { /* ingen kiosk-server her — ingen knap */ });
+}
+
+/**
  * @param {HTMLElement} container - element to prepend topbar to (usually document.body)
  * @param {object} opts
  * @param {object} opts.user - currentUser from checkAuth() (needs .role)
@@ -113,6 +159,24 @@ function renderKitchenTopbar(container, opts) {
         }
         dropdown.appendChild(a);
     });
+    // Log ud — nederst i MERE frem for som synlig knap, så ingen rammer den
+    // med et forkert tryk på køkkenskærmen. Login-siden husker at enheden er
+    // en kiosk og viser PIN-padden igen.
+    var logoutSep = document.createElement('div');
+    logoutSep.className = 'topbar-dropdown-sep';
+    dropdown.appendChild(logoutSep);
+    var logoutBtn = document.createElement('a');
+    logoutBtn.href = '/login.html';
+    logoutBtn.className = 'topbar-logout';
+    logoutBtn.textContent = 'Log ud';
+    logoutBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        fetch('/api/auth/logout', { method: 'POST' })
+            .catch(function() {})
+            .then(function() { window.location.href = '/login.html'; });
+    });
+    dropdown.appendChild(logoutBtn);
+
     details.appendChild(dropdown);
     nav.appendChild(details);
 
@@ -225,6 +289,8 @@ function renderKitchenTopbar(container, opts) {
             right.appendChild(opts.rightSlot);
         }
     }
+
+    _addKioskLayoutButton(right);
 
     header.appendChild(right);
 

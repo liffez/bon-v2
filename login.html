@@ -86,6 +86,50 @@
         .login-card button:hover { opacity: 0.9; }
         .login-card button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        /* ── PIN-pad (kun på kiosken) ──
+           Raspberry Pi OS har intet skærmtastatur, så en fastmonteret
+           touchskærm kunne kun logge ind med et fysisk tastatur. */
+        .pin-pad {
+            display: none;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: var(--space-m);
+        }
+        body.kiosk-login .pin-pad { display: grid; }
+        body.kiosk-login #submit-btn { display: none; }
+        body.kiosk-login .login-card { max-width: 440px; }
+
+        .login-card .pin-pad button {
+            margin-top: 0;
+            min-height: 76px;
+            font-size: 30px;
+            font-weight: 600;
+            color: var(--color-text);
+            background: var(--color-background);
+            border: 1px solid var(--color-border);
+            border-radius: 10px;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .login-card .pin-pad button:active { background: var(--color-border); }
+        .login-card .pin-pad .pad-ok {
+            color: #fff;
+            background: var(--brand-primary);
+            border-color: var(--brand-primary);
+            font-size: 22px;
+        }
+        .login-card .pin-pad .pad-back { font-size: 26px; }
+
+        /* Maskér PIN'en uden type=password: et password-felt får Chromium
+           til at tilbyde "Gem adgangskode?" oven på kiosken, og der står
+           ingen til at trykke den væk. */
+        body.kiosk-login #identity {
+            -webkit-text-security: disc;
+            letter-spacing: 0.3em;
+            text-align: center;
+        }
+
         .error-msg {
             margin-top: var(--space-s);
             color: var(--color-red);
@@ -122,7 +166,21 @@
         <form id="login-form" autocomplete="on">
             <input type="text" id="identity" placeholder="PIN eller email" autocomplete="username" autofocus>
             <input type="password" id="password-field" placeholder="Password" autocomplete="current-password">
-            <button type="submit">Log ind</button>
+            <div class="pin-pad" id="pin-pad" aria-label="PIN-tastatur">
+                <button type="button" data-key="1">1</button>
+                <button type="button" data-key="2">2</button>
+                <button type="button" data-key="3">3</button>
+                <button type="button" data-key="4">4</button>
+                <button type="button" data-key="5">5</button>
+                <button type="button" data-key="6">6</button>
+                <button type="button" data-key="7">7</button>
+                <button type="button" data-key="8">8</button>
+                <button type="button" data-key="9">9</button>
+                <button type="button" data-key="back" class="pad-back" aria-label="Slet">⌫</button>
+                <button type="button" data-key="0">0</button>
+                <button type="button" data-key="ok" class="pad-ok">Log ind</button>
+            </div>
+            <button type="submit" id="submit-btn">Log ind</button>
             <div class="error-msg" id="error-msg"></div>
         </form>
     </div>
@@ -133,6 +191,49 @@
             if (role === 'kitchen_personal') return '/mobile/';
             return '/kitchen/';
         }
+
+        // Hvor skal vi hen efter login? `next` sendes af checkAuth (kiosken) og af
+        // bud-popoutet (routes/delivery_views.js) som en sti. Login-gaten foran
+        // whiteboard/sop/grocy (deploy/hetzner/nginx/snippets/bon-auth.conf) sender
+        // en HEL adresse på et søster-subdomæne — uden den blev man efter login
+        // stående i Bon i stedet for at komme tilbage til Whiteboard.
+        // "//evil.dk" og "/\\evil.dk" er protokol-relative og ville sende brugeren væk;
+        // en fuld adresse skal være https og ligge under samme domæne som os.
+        function safeNextPath() {
+            const next = new URLSearchParams(location.search).get('next');
+            if (!next) return null;
+            if (next[0] === '/') {
+                return (next[1] === '/' || next[1] === '\\') ? null : next;
+            }
+            let url;
+            try { url = new URL(next); } catch (e) { return null; }
+            if (url.protocol !== 'https:') return null;
+            const here = location.hostname;
+            const parent = here.split('.').slice(-2).join('.');
+            const sameSite = url.hostname === here
+                || (here.includes('.') && url.hostname.endsWith('.' + parent));
+            return sameSite ? url.href : null;
+        }
+
+        function afterLogin(role) {
+            window.location.href = safeNextPath() || getDefaultZone(role);
+        }
+
+        // Kiosken kommer hertil med ?kiosk (direkte), med kiosk-URL'en i `next`, eller
+        // fra en browser der har husket at den er en kiosk (shared/utils.js).
+        // ?kiosk=off glemmer det igen — fx på en office-pc hvor nogen har testet.
+        const KIOSK_DEVICE_KEY = 'bon_kiosk_device';
+        const kioskMode = (() => {
+            const params = new URLSearchParams(location.search);
+            try {
+                if (params.get('kiosk') === 'off') { localStorage.removeItem(KIOSK_DEVICE_KEY); return false; }
+                if (localStorage.getItem(KIOSK_DEVICE_KEY)) return true;
+            } catch (e) { /* spærret localStorage — falder tilbage på URL'en */ }
+            if (params.has('kiosk')) return true;
+            const next = safeNextPath();
+            return !!next && new URLSearchParams((next.split('?')[1] || '').split('#')[0]).has('kiosk');
+        })();
+        if (kioskMode) document.body.classList.add('kiosk-login');
 
         const identityEl = document.getElementById('identity');
         const passwordEl = document.getElementById('password-field');
@@ -193,7 +294,7 @@
                 }
 
                 const user = await res.json();
-                window.location.href = getDefaultZone(user.role);
+                afterLogin(user.role);
             } catch (err) {
                 errorEl.textContent = 'Netværksfejl — prøv igen';
                 btn.disabled = false;
@@ -206,14 +307,30 @@
                 const res = await fetch('/api/auth/me');
                 if (res.ok) {
                     const user = await res.json();
-                    window.location.href = getDefaultZone(user.role);
+                    afterLogin(user.role);
                 }
             } catch {}
         })();
 
+        // PIN-pad: skriver i det samme felt som et fysisk tastatur, så begge virker.
+        if (kioskMode) {
+            identityEl.placeholder = 'PIN';
+            identityEl.setAttribute('inputmode', 'none');
+            identityEl.setAttribute('autocomplete', 'off');
+            document.getElementById('pin-pad').addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-key]');
+                if (!btn) return;
+                const key = btn.dataset.key;
+                if (key === 'ok') { form.requestSubmit(); return; }
+                if (key === 'back') identityEl.value = identityEl.value.slice(0, -1);
+                else identityEl.value += key;
+                identityEl.dispatchEvent(new Event('input'));
+            });
+        }
+
         // Mobil auto-redirect — touch + smal skærm → send direkte til mobil-login
         // ?desktop=1 i URL eller localStorage 'preferDesktop' forhindrer redirect
-        if (window.innerWidth < 640 && 'ontouchstart' in window
+        if (!kioskMode && window.innerWidth < 640 && 'ontouchstart' in window
             && !localStorage.getItem('preferDesktop')
             && !new URLSearchParams(location.search).has('desktop')) {
             window.location.href = '/mobile/login.html';

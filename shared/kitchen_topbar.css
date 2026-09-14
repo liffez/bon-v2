@@ -115,6 +115,14 @@
     font-size: 13px; font-weight: 700; color: white; cursor: pointer;
 }
 
+/* Byt-knap — kun på køkkenskærmen (shared/kitchen_topbar.js) */
+.kiosk-swap-btn {
+    padding: 7px 12px; min-height: 34px; border: 1.5px solid rgba(255,255,255,0.3); border-radius: 6px;
+    background: rgba(255,255,255,0.10); font-family: inherit; white-space: nowrap;
+    font-size: 13px; font-weight: 700; color: white; cursor: pointer;
+}
+.kiosk-swap-btn:disabled { opacity: .6; cursor: progress; }
+
 /* "Tilbage til Office"-knap — vises i kitchen-topbar for office/admin/salg */
 .topbar-back-to-office {
     display: inline-flex;

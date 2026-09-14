@@ -372,6 +372,16 @@
             .right-col     { grid-column:1 / 3; grid-row:auto; flex-direction:row; flex-wrap:wrap; }
             .right-col > * { flex:1; min-width:250px; }
         }
+        /* Køkkenskærmen: altid enkolonne-layoutet (oversigten i fuld bredde,
+           kortene på én række, grafen under) — også i den store del på
+           1280 px. Driften foretrak det layout; førhen fik vi det kun ved at
+           zoome, og så var der ikke plads i højden. Klassen sættes af
+           kiosk-flaget nedenfor, ikke af skærmstørrelsen. */
+        body.kiosk-screen .content { grid-template-columns:1fr 1fr; }
+        body.kiosk-screen .card-today    { grid-column:1 / 3; }
+        body.kiosk-screen .card-chart    { grid-column:1 / 3; }
+        body.kiosk-screen .right-col     { grid-column:1 / 3; grid-row:auto; flex-direction:row; flex-wrap:wrap; }
+        body.kiosk-screen .right-col > * { flex:1; min-width:250px; }
         @media (max-width:600px) {
             .content { grid-template-columns:1fr; }
             .card-today, .card-chart { grid-column:1; }
@@ -384,6 +394,11 @@
     </style>
 </head>
 <body class="zone-kitchen" data-help-page="kitchen-dashboard" data-help-page-name="Køkken — Dashboard">
+<script>
+    // Køkkenskærmen husker at den er en kiosk (shared/utils.js). Sættes før
+    // indholdet tegnes, så layoutet ikke hopper.
+    try { if (localStorage.getItem('bon_kiosk_device')) document.body.classList.add('kiosk-screen'); } catch (e) {}
+</script>
 
 <!-- ══ CONTENT ══ -->
 <main class="content">

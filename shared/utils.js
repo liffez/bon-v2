@@ -962,8 +962,38 @@ function parseEmailsFromNotes(notes) {
     return emails;
 }
 
+// ─── Kiosk-enhed ────────────────────────────────────────────
+// Den fastmonterede køkkenskærm åbner Bon med ?kiosk=<device-id>. Så snart man
+// navigerer videre (fx fra dashboardet til "I dag" via topbaren), er parameteren
+// væk — derfor husker browseren det. Udløber sessionen på en side uden ?kiosk,
+// får login-siden stadig PIN-padden; ellers står skærmen uden tastatur.
+// localStorage er pr. origin, hvilket er nok her: login-siden ligger på samme.
+// Nulstilles med /login.html?kiosk=off.
+var KIOSK_DEVICE_KEY = 'bon_kiosk_device';
+(function rememberKioskDevice() {
+    try {
+        var v = new URLSearchParams(location.search).get('kiosk');
+        if (v !== null && v !== 'off') localStorage.setItem(KIOSK_DEVICE_KEY, v || '1');
+    } catch (e) { /* localStorage kan være spærret — så virker ?kiosk stadig */ }
+})();
+
+function isKioskDevice() {
+    try {
+        if (new URLSearchParams(location.search).has('kiosk')) return true;
+        return !!localStorage.getItem(KIOSK_DEVICE_KEY);
+    } catch (e) { return false; }
+}
+
 async function checkAuth(redirectTo) {
-    if (redirectTo === undefined) redirectTo = '/login.html';
+    if (redirectTo === undefined) {
+        redirectTo = '/login.html';
+        // Kiosken skal tilbage til SIN side efter login. Uden `next` sender login-siden
+        // køkken-rollen til sin standardzone, og siden man stod på er tabt.
+        // `kiosk` får også login-siden til at vise PIN-padden.
+        if (isKioskDevice()) {
+            redirectTo += '?kiosk=1&next=' + encodeURIComponent(location.pathname + location.search);
+        }
+    }
     try {
         var res = await fetch('/api/auth/me');
         if (!res.ok) {
