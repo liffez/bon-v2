@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bon er ikke tilgængelig</title>
+<style>
+  :root {
+    --bg: #1c1917; --fg: #f5f4f2; --dim: #a8a29e;
+    --accent: #8e631f; --warn: #e0b33a; --ok: #4d9a5a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 4vh 4vw; gap: 3vh;
+    cursor: none; user-select: none; -webkit-user-select: none;
+  }
+  .mark { font-size: clamp(48px, 9vw, 104px); line-height: 1; }
+  h1 { font-size: clamp(28px, 4.5vw, 52px); margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  p  { font-size: clamp(16px, 2vw, 22px); margin: 0; color: var(--dim); max-width: 46ch; line-height: 1.5; }
+  .clock { font-size: clamp(40px, 7vw, 84px); font-weight: 300; font-variant-numeric: tabular-nums; }
+  .status {
+    display: inline-flex; align-items: center; gap: .6em;
+    font-size: clamp(15px, 1.8vw, 20px); color: var(--dim);
+    border: 1px solid #44403c; border-radius: 999px; padding: .55em 1.2em;
+  }
+  .dot { width: .7em; height: .7em; border-radius: 50%; background: var(--warn); }
+  .dot.ok { background: var(--ok); }
+  .back { color: var(--ok); font-size: clamp(18px, 2.4vw, 26px); }
+  .actions { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
+  a.btn {
+    cursor: none; text-decoration: none; color: var(--fg);
+    background: var(--accent); padding: 1rem 2rem; border-radius: 10px;
+    font-size: clamp(17px, 2.1vw, 23px); font-weight: 600;
+  }
+  a.btn.ghost { background: transparent; border: 1px solid #57534e; color: var(--dim); }
+  .foot { font-size: 14px; color: #78716c; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="mark" id="mark">📡</div>
+  <h1 id="head">Bon kan ikke nås</h1>
+  <div class="clock" id="clock">--:--</div>
+  <p id="lead">Skærmen har mistet forbindelsen til Bon. Maden, ordrerne og
+     dagens data fejler ingenting — det er kun vejen hertil der er nede.</p>
+
+  <div class="actions">
+    <a class="btn" id="slzb" href="#" hidden>Se temperaturer (lokalt)</a>
+    <a class="btn ghost" id="retry" href="#">Prøv igen nu</a>
+  </div>
+
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">Prøver at nå Bon …</span></div>
+  <div class="back" id="back" hidden></div>
+
+  <div class="foot" id="foot"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Udfyldes af install-kiosk.sh ud fra kiosk.env.
+  var BON_URL    = '__BON_URL__';
+  var PROBE_URL  = '__PROBE_URL__';
+  var IDLE_SEC   = parseInt('__IDLE_SECONDS__', 10) || 120;
+  var SLZB_URL   = '__SLZB_URL__';
+
+  var elMark   = document.getElementById('mark');
+  var elHead   = document.getElementById('head');
+  var elLead   = document.getElementById('lead');
+  var elClock  = document.getElementById('clock');
+  var elDot    = document.getElementById('dot');
+  var elStatus = document.getElementById('statusText');
+  var elBack   = document.getElementById('back');
+  var elFoot   = document.getElementById('foot');
+  var elSlzb   = document.getElementById('slzb');
+
+  if (SLZB_URL && SLZB_URL.indexOf('__') !== 0) {
+    elSlzb.href = SLZB_URL;
+    elSlzb.hidden = false;
+  }
+
+  function two(n) { return n < 10 ? '0' + n : '' + n; }
+  function tick() {
+    var d = new Date();
+    elClock.textContent = two(d.getHours()) + ':' + two(d.getMinutes());
+  }
+  tick();
+  setInterval(tick, 10000);
+
+  // ── Idle-sporing ────────────────────────────────────────────────────────
+  // §4.4: aktivitet = pointerdown, keydown, scroll, wheel. Vi navigerer først
+  // tilbage når skærmen har stået urørt — ellers river vi siden væk under
+  // en der står og læser temperaturerne.
+  var lastTouch = Date.now();
+  ['pointerdown', 'keydown', 'scroll', 'wheel'].forEach(function (evt) {
+    window.addEventListener(evt, function () { lastTouch = Date.now(); }, { passive: true });
+  });
+  function idleSeconds() { return Math.floor((Date.now() - lastTouch) / 1000); }
+
+  // ── Nåbarheds-probe ─────────────────────────────────────────────────────
+  // Billed-probe frem for fetch: siden ligger på file://, hvor en fetch mod
+  // https rammer origin-regler. Et <img> mod et rigtigt aktiv fra Bon er
+  // uafhængigt af det og svarer entydigt: onload = nåelig, onerror = ikke.
+  function probe(cb) {
+    var img = new Image();
+    var done = false;
+    function finish(ok) { if (!done) { done = true; cb(ok); } }
+    img.onload  = function () { finish(true); };
+    img.onerror = function () { finish(false); };
+    setTimeout(function () { finish(false); }, 8000);
+    img.src = PROBE_URL + (PROBE_URL.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now();
+  }
+
+  var online = false;
+
+  function render() {
+    if (!online) {
+      elMark.textContent = '📡';
+      elHead.textContent = 'Bon kan ikke nås';
+      elLead.textContent = 'Skærmen har mistet forbindelsen til Bon. Maden, '
+        + 'ordrerne og dagens data fejler ingenting — det er kun vejen hertil '
+        + 'der er nede.';
+      elDot.classList.remove('ok');
+      elStatus.textContent = 'Prøver at nå Bon …';
+      elBack.hidden = true;
+      elFoot.textContent = 'Skærmen skifter selv tilbage når Bon svarer igen.';
+      return;
+    }
+    // Overskriften skal følge tilstanden. Ellers står der "Bon kan ikke nås"
+    // samtidig med at statuslinjen siger at den svarer, og så tror køkkenet
+    // ikke på nogen af delene.
+    elMark.textContent = '✓';
+    elHead.textContent = 'Forbindelsen er tilbage';
+    elLead.textContent = 'Skærmen finder selv tilbage til Bon.';
+    elDot.classList.add('ok');
+    elStatus.textContent = 'Bon svarer igen';
+    var wait = IDLE_SEC - idleSeconds();
+    elBack.hidden = false;
+    elBack.textContent = wait > 0
+      ? 'Vender tilbage om ' + wait + ' sek. — rør skærmen for at blive her'
+      : 'Vender tilbage …';
+    elFoot.textContent = 'Tryk "Prøv igen nu" hvis du ikke vil vente.';
+  }
+
+  function loop() {
+    probe(function (ok) {
+      online = ok;
+      render();
+      if (ok && idleSeconds() >= IDLE_SEC) {
+        // replace(), ikke assign() — §4.4: history må ikke vokse hen over en dag.
+        location.replace(BON_URL);
+        return;
+      }
+      setTimeout(loop, ok ? 2000 : 10000);
+    });
+  }
+
+  document.getElementById('retry').addEventListener('click', function (e) {
+    e.preventDefault();
+    location.replace(BON_URL);
+  });
+
+  render();
+  loop();
+})();
+</script>
+</body>
+</html>
