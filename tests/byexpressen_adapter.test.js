@@ -125,6 +125,121 @@ test('getToken cacher token og kalder ikke /token igen før udløb', async () =>
     assert.strictEqual(tokenCalls.length, 1, 'kun ét /token-kald pga. cache');
 });
 
+/* ── TOKEN-STORE på tværs af instanser (drifts-fejl 14/9 2026: 429 fra /token) ──
+   routes/ bygger en NY adapter pr. HTTP-kald. Lå cachen på instansen, gav
+   hvert klik i draweren et nyt login, og Lobo rate-limitede os. */
+
+test('to adapter-instanser med samme transport deler ét token (regression: 429 fra /token)', async () => {
+    const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    const fetchImpl = mockFetch((url) => {
+        if (url.endsWith('/token')) return resp(201, { status: 'ok', token: tok });
+        return resp(200, { data: [], meta: { count: 0, totalcount: 0 } });
+    });
+    // Som routes/delivery.js: en ny instans pr. request.
+    const a = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    await a.getProducts();
+    const b = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    await b.getProducts();
+    const c = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    await c.getProducts();
+    const tokenCalls = fetchImpl.calls.filter(x => x.url.endsWith('/token'));
+    assert.strictEqual(tokenCalls.length, 1, 'tre requests → ét login, ikke tre');
+    assert.strictEqual(c._peekToken().token, tok, 'tredje instans ser det cachede token');
+});
+
+test('samtidige logins deles — to parallelle kald på tomt cache giver ét /token', async () => {
+    const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const fetchImpl = mockFetch(async (url) => {
+        if (url.endsWith('/token')) { await gate; return resp(201, { status: 'ok', token: tok }); }
+        return resp(200, { data: [], meta: { count: 0, totalcount: 0 } });
+    });
+    const a = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    const b = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    const p1 = a.getProducts();
+    const p2 = b.getProducts();
+    await new Promise(r => setImmediate(r));
+    release();
+    await Promise.all([p1, p2]);
+    const tokenCalls = fetchImpl.calls.filter(x => x.url.endsWith('/token'));
+    assert.strictEqual(tokenCalls.length, 1, 'de to samtidige requests delte ét login');
+});
+
+test('sandkasse og produktion har hver sit token — samme bruger, forskellig base', async () => {
+    const tokS = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600, jti: 'sandbox' });
+    const tokP = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600, jti: 'prod' });
+    const fetchImpl = mockFetch((url) => {
+        if (url.endsWith('/token')) return resp(201, { status: 'ok', token: url.includes('/sandbox/') ? tokS : tokP });
+        return resp(200, { data: [], meta: { count: 0, totalcount: 0 } });
+    });
+    const sandbox = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    const prod = createByExpressenAdapter({ config: { ...CONFIG, use_sandbox: false }, credentials: CREDS, fetchImpl });
+    assert.strictEqual(await sandbox.getToken(), tokS);
+    assert.strictEqual(await prod.getToken(), tokP, 'produktion låner ikke sandkassens token');
+    assert.strictEqual(fetchImpl.calls.filter(x => x.url.endsWith('/token')).length, 2);
+});
+
+test('forskellig transport (fetchImpl) deler IKKE token — tests isoleres fra hinanden', async () => {
+    const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    const f1 = mockFetch(() => resp(201, { status: 'ok', token: tok }));
+    const f2 = mockFetch(() => resp(201, { status: 'ok', token: tok }));
+    await createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl: f1 }).getToken();
+    await createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl: f2 }).getToken();
+    assert.strictEqual(f1.calls.length, 1);
+    assert.strictEqual(f2.calls.length, 1, 'anden transport hentede sit eget token');
+});
+
+test('401 på et authed kald rydder det DELTE token, så næste instans også re-auther', async () => {
+    const tok1 = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600, jti: '1' });
+    const tok2 = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600, jti: '2' });
+    let tokenCalls = 0;
+    const fetchImpl = mockFetch((url, init) => {
+        if (url.endsWith('/token')) { tokenCalls++; return resp(201, { status: 'ok', token: tokenCalls === 1 ? tok1 : tok2 }); }
+        // tok1 afvises (udløbet hos Lobo), tok2 accepteres
+        if (init.headers.Authorization === 'Bearer ' + tok1) return resp(401, { status: 'error [Unauthorized]' });
+        return resp(200, { data: [], meta: { count: 0, totalcount: 0 } });
+    });
+    const a = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    await a.getProducts();
+    const b = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    assert.strictEqual(await b.getToken(), tok2, 'ny instans ser det fornyede token, ikke det afviste');
+    assert.strictEqual(tokenCalls, 2);
+});
+
+test('429 fra /token giver en læsbar besked med code=rate_limited (ikke "Uventet svar")', async () => {
+    const fetchImpl = mockFetch(() => ({
+        status: 429, ok: false,
+        headers: { get: (h) => h.toLowerCase() === 'retry-after' ? '30' : null },
+        json: async () => ({ status: 'error [Too Many Requests]' }),
+    }));
+    const a = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    await assert.rejects(a.getToken(), (e) => {
+        assert.ok(e instanceof ByExpressenError);
+        assert.strictEqual(e.status, 429);
+        assert.strictEqual(e.code, 'rate_limited');
+        assert.ok(!/Uventet svar/.test(e.message), 'ikke den intetsigende tekst: ' + e.message);
+        assert.ok(/By-expressen afviser/.test(e.message), 'siger hvem der afviser: ' + e.message);
+        assert.ok(/30 sek/.test(e.message), 'Retry-After vises: ' + e.message);
+        return true;
+    });
+    assert.strictEqual(a._peekToken().token, null, 'et afvist login cacher intet');
+});
+
+test('429 på et authed kald → code=rate_limited, og et fejlet /token blokerer ikke næste forsøg', async () => {
+    const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    let n = 0;
+    const fetchImpl = mockFetch((url) => {
+        if (url.endsWith('/token')) { n++; return n === 1 ? resp(429, {}) : resp(201, { status: 'ok', token: tok }); }
+        return resp(429, {});
+    });
+    const a = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl });
+    await assert.rejects(a.getToken(), (e) => e.code === 'rate_limited');
+    // Andet forsøg: /token svarer nu 201, men GET /products svarer 429
+    await assert.rejects(a.getProducts(), (e) => e.code === 'rate_limited' && e.status === 429 && /om lidt/.test(e.message));
+    assert.strictEqual(n, 2, 'pending-dedupe efterlod ikke et hængende login efter fejlen');
+});
+
 test('getToken re-auther når cachet token er tæt på udløb', async () => {
     const shortTok = makeJwt({ exp: 1000 });   // for længst udløbet ift. fast now
     const freshTok = makeJwt({ exp: 9_999_999_999 });

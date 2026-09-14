@@ -131,7 +131,8 @@ BY_EX_CODE=<password>
 | `registerWebhook(event, url, headerAuth?)` | `POST /webhooks` | `{id, hmac_key, hmac_algorithm}` — **gem `hmac_key`** |
 | `listWebhooks()` / `deleteWebhook(id)` | `GET` / `DELETE /webhooks` | Opsætnings-vedligehold |
 
-**Token-cache:** modul-niveau `{token, expiresAt}`. Returnér cached hvis `now < expiresAt − 30s`. Ved `401`: én re-auth + retry.
+**Token-cache:** modul-niveau `{token, expiresAt}`, nøglet på (fetchImpl, base-URL, bruger). Returnér cached hvis `now < expiresAt − 30s`. Ved `401`: én re-auth + retry. Samtidige logins deles via `pending`-promise.
+> ⚠️ Første implementering lagde cachen på *instansen* — og `getByExpressenAdapter()` bygger en ny instans pr. request, så hvert klik gav et login. Lobo svarede 429 i drift 14. sep. 2026. Cachen SKAL leve på tværs af instanser (`_tokenStoreFor` i adapteren); `429` mappes til `code: 'rate_limited'` med læsbar besked.
 
 ---
 
