@@ -146,6 +146,17 @@ const P = (id, name, active, extra) => Object.assign({ id, name, active, qu_id_s
     sandbox._soApplyEditToLocal(1, { active: '1' }, {});
     ok(sandbox._soStockData.some(i => i.product_id === 1), 'streng-"1" fra bulk-select virker også');
 
+    // ── 8. "N varer" rydder alle filtre ──
+    console.log('8. "N varer"-pillen rydder alle filtre');
+    el('soSearch').value = 'ost'; el('soGroupFilter').value = '2'; sandbox._soActiveStatusFilter = 'unchecked';
+    sandbox._soApplyFilters();
+    ok(sandbox._soHasAnyFilter(), 'filtre er slået til');
+    ok(/so-pill-clear/.test(el('soStatusBar').innerHTML) && /Alle \d+ varer/.test(el('soStatusBar').innerHTML), 'pillen hedder "Alle N varer" og er klikbar');
+    sandbox._soClearAllFilters();
+    eq([el('soSearch').value, el('soGroupFilter').value, el('soLocationFilter').value, sandbox._soActiveStatusFilter], ['', '', '', ''], 'søgning, gruppe, lokation og status ryddet');
+    eq(sandbox._soFilteredData.length, sandbox._soStockData.length, 'alle aktive vises');
+    ok(!/so-pill-clear/.test(el('soStatusBar').innerHTML) && !/Alle \d+ varer/.test(el('soStatusBar').innerHTML), 'uden filtre er pillen kun en tæller ("N varer")');
+
     console.log('\n' + pass + ' PASS · ' + fail + ' FAIL');
     process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

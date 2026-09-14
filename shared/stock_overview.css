@@ -56,6 +56,11 @@
 .so-status-pill:hover { filter: brightness(0.95); }
 
 .so-pill-total   { background: rgba(142,99,31,0.1); color: var(--brand-primary); cursor: default; }
+/* Med filtre slået til bliver "N varer" til "Alle N varer" og kan klikkes for at
+   rydde dem. Ingen kant: to markerede piller ved siden af hinanden læses som to
+   aktive filtre. Teksten bærer betydningen. */
+.so-pill-total.so-pill-clear { cursor: pointer; }
+.so-pill-total.so-pill-clear:hover { filter: brightness(0.92); }
 .so-pill-expired { background: rgba(188,24,27,0.12); color: var(--color-red); }
 .so-pill-duesoon { background: rgba(232,168,50,0.15); color: var(--color-orange); }
 .so-pill-low     { background: rgba(117,148,179,0.15); color: var(--color-blue); }
