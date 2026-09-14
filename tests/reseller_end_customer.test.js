@@ -116,7 +116,9 @@ test('forhandler-ordre lander på forhandleren, ikke på det tastede firmanavn',
 
     const bon = lastBon();
     assert.equal(bon.company_id, 1, 'bonnen ligger på Able');
-    assert.equal(bon.end_customer_name, 'Systematic  (Able)', 'det tastede navn overlever som slutkunde');
+    // Dobbelt mellemrum samles til ét — det var netop den slags varianter der
+    // gav en firma-række pr. skrivemåde (#607).
+    assert.equal(bon.end_customer_name, 'Systematic (Able)', 'det tastede navn overlever som slutkunde');
     assert.equal(companyCount(), before, 'ingen ny firma-række oprettet');
     assert.equal(bon.customer_id, 1, 'kunden er stadig Ables kontakt');
 });
@@ -149,14 +151,20 @@ test('den stående rabat rammer forhandler-ordren', async () => {
     assert.equal(lastBon().offer_discount_percent, 12.5);
 });
 
-test('uden forhandler-markering ville rabatten IKKE ramme — det er hele pointen', async () => {
+test('uden forhandler-markering er det tastede navn en note, ikke en slutkunde', async () => {
     // Kontrolprøve: samme firma, samme rabat, men markeringen slået fra.
+    // Siden #567 beholder en kendt bestiller sit eget firma uanset hvad hun
+    // taster — så bonnen bliver på Able og arver rabatten også uden flaget.
+    // Det flaget stadig afgør alene: om navnet er en SLUTKUNDE (bonnens felt)
+    // eller bare noget kunden skrev (en linje i ønskerne).
     _testDb.prepare('UPDATE companies SET is_reseller = 0 WHERE id = 1').run();
     await post('/webhook/bestilling', order({ company: 'Systematic' }));
 
     const bon = lastBon();
-    assert.notEqual(bon.company_id, 1, 'bonnen forlader Able — som før rettelsen');
-    assert.equal(bon.offer_discount_percent, 0, 'og så er der ingen rabat at arve');
+    assert.equal(bon.company_id, 1, 'kendt bestiller → eget firma (#567)');
+    assert.equal(bon.offer_discount_percent, 12.5, 'og rabatten følger med');
+    assert.equal(bon.end_customer_name, null, 'men uden flaget er navnet ikke en slutkunde');
+    assert.match(bon.customer_wishes, /Firma: Systematic/, 'det står i ønskerne i stedet');
 });
 
 // ─────────────────────────────────────────────────────────────

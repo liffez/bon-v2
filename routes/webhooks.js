@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
 const { createBon } = require('../db/helpers');
+const { resolveOrderCompany, appendWishesLine } = require('../services/orderCompanyResolver');
 const { broadcast } = require('../shared/sse');
 const { verifyLoboRequest, applyWebhookEvent, calibrateLoboSignature } = require('../services/lobo_webhook');
 
@@ -129,49 +130,42 @@ async function handleBestilling(data) {
   const firstName = navnDele[0] || '';
   const lastName  = navnDele.slice(1).join(' ') || null;
 
-  // 4. Find eller opret firma
-  let companyId = null;
-  if (data.f5?.trim()) {
-    const existing = db.prepare(
-      'SELECT id FROM companies WHERE name = ? AND is_active = 1 LIMIT 1'
-    ).get(data.f5.trim());
+  // 4. Find bestilleren på email (før firmaet — reglen skal vide hvem der
+  //    bestiller, så bestillerens eget firma kan beholdes)
+  const emailTrimmed = data.f3?.trim() || '';
+  const existingCustomer = emailTrimmed
+    ? db.prepare('SELECT id, company_id FROM customers WHERE email = ? AND is_active = 1 LIMIT 1')
+        .get(emailTrimmed) || null
+    : null;
 
-    if (existing) {
-      companyId = existing.id;
-    } else {
-      const res = db.prepare(
-        'INSERT INTO companies (name, is_active) VALUES (?, 1)'
-      ).run(data.f5.trim());
-      companyId = Number(res.lastInsertRowid);
-    }
-  }
-
-  // 5. Udtræk EAN fra faktura-info (13 cifre)
+  // 5. Firma — samme delte regel som routes/web-orders.js (#567 + #607):
+  //    forhandler → bestillerens eget firma → matcher (CVR → EAN → e-mail →
+  //    navnelighed) → nyt firma. HTML-entiteter afkodes i resolveren.
   const invoiceInfo = data.f12 || '';
-  const eanMatch = invoiceInfo.match(/\b\d{13}\b/);
-  const ean = eanMatch ? eanMatch[0] : null;
+  const resolved = resolveOrderCompany(db, {
+    typedName: data.f5,
+    email: emailTrimmed,
+    invoiceInfo,
+    existingCustomer,
+  });
+  const companyId = resolved.companyId;
+  const ean = resolved.ean;
 
-  // Gem EAN på firma hvis fundet og firma findes
-  if (ean && companyId) {
+  // Gem EAN på firma hvis fundet og firma findes — ikke på en forhandler, dér
+  // hører EAN'et til slutkunden.
+  if (ean && companyId && !resolved.reseller) {
     db.prepare("UPDATE companies SET ean = ? WHERE id = ? AND (ean IS NULL OR ean = '')")
       .run(ean, companyId);
   }
 
-  // 6. Find eller opret kunde
-  // Match på email (mest præcist)
-  let customerId = null;
-  if (data.f3?.trim()) {
-    const existing = db.prepare(
-      'SELECT id FROM customers WHERE email = ? AND is_active = 1 LIMIT 1'
-    ).get(data.f3.trim());
-    if (existing) customerId = existing.id;
-  }
+  // 6. Opret kunde hvis vi ikke kendte bestilleren
+  let customerId = existingCustomer?.id || null;
 
   if (!customerId) {
     const res = db.prepare(`
       INSERT INTO customers (first_name, last_name, email, phone, company_id, is_active)
       VALUES (?, ?, ?, ?, ?, 1)
-    `).run(firstName, lastName, data.f3?.trim() || null, data.f4?.trim() || null, companyId);
+    `).run(firstName, lastName, emailTrimmed || null, data.f4?.trim() || null, companyId);
     customerId = Number(res.lastInsertRowid);
   }
 
@@ -209,12 +203,14 @@ async function handleBestilling(data) {
     delivery_type: deliveryType,
     delivery_address_id: addressId,
     pax: data.f8 ? parseInt(data.f8) : null,
-    customer_wishes: data.f9 || null,
+    customer_wishes: appendWishesLine(data.f9 || null, resolved.wishesLine),
     invoice_info: invoiceInfo || null,
     day_contact_name: data.f11_navn || null,
     day_contact_phone: data.f11_tlf || null,
+    end_customer_name: resolved.endCustomerName,
     changelog_field: 'webhook',
-    changelog_message: `Oprettet via bestillingsformular (${data.f3 || data.f2})`,
+    changelog_message: `Oprettet via bestillingsformular (${data.f3 || data.f2})` +
+      (resolved.note ? ` — ${resolved.note}` : ''),
   });
 
   console.log(`[webhook] Bon #${bonNumber} oprettet (id=${bonId}, kunde=${firstName} ${lastName || ''})`);

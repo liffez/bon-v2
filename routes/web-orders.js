@@ -9,6 +9,7 @@ const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
 const { createBon } = require('../db/helpers');
+const { resolveOrderCompany, appendWishesLine } = require('../services/orderCompanyResolver');
 
 // ─── POST /webhook/bestilling ──────────────────────────────────────────────
 // Offentligt endpoint — ingen auth, altid 200 (fejl logges, vises ikke til kunden)
@@ -196,56 +197,37 @@ async function handleWebOrder(data) {
       ).get(emailTrimmed) || null
     : null;
 
-  // 5. Forhandler-undtagelsen (migration 167)
+  // 5. Firma — én delt regel for begge indgange (#567 + #607)
   //
-  // Bestiller en kendt kunde, hvis eget firma er markeret som forhandler, er
-  // firma-feltet slutkundens navn — ikke den der skal betale. Bonnen lander på
-  // FORHANDLEREN, og teksten gemmes som end_customer_name.
+  // services/orderCompanyResolver.js afgør det, i denne rækkefølge:
+  //   forhandler (migration 167) → bestillerens eget firma → matcher
+  //   (CVR → EAN → e-mail → navnelighed) → nyt firma.
   //
-  // Uden reglen oprettede webhooken en firma-række pr. skrivemåde
-  // ("Systematic / able", "Systematic  (Able)", "Cisco / able" …), og bonnen
-  // forlod forhandlerens kartotek — så hverken e-conomic-kundenummeret,
-  // omsætningen eller den stående rabat fulgte med.
-  //
-  // Kender vi ikke bestilleren (ny medarbejder hos forhandleren), falder vi
-  // tilbage til den gamle adfærd. Det er det ærlige udfald: vi gætter ikke på
-  // hvem der er forhandler ud fra et navn nogen har tastet.
-  const reseller = existingCustomer?.company_id
-    ? db.prepare(
-        'SELECT id, name FROM companies WHERE id = ? AND is_active = 1 AND is_reseller = 1'
-      ).get(existingCustomer.company_id) || null
-    : null;
+  // Før lå der et eksakt navne-opslag her, som oprettede en firma-række pr.
+  // skrivemåde ("University of Copenhagen" ved siden af "Københavns
+  // Universitet", `LANDBRUG &amp; FØDEVARER` ved siden af "Landbrug &
+  // Fødevarer"). Kunden blev derimod slået op på e-mail og ramte altid rigtigt
+  // — så bonnen lå på ét firma og kunden på et andet.
+  const resolved = resolveOrderCompany(db, {
+    typedName: data.company,
+    email: emailTrimmed,
+    invoiceInfo: data.ean_info,
+    cvr: data.cvr,
+    ean: data.ean,
+    // Bevidst INGEN by som tiebreaker: leveringsadressen er ikke firmaets
+    // adresse, og matcheren ville diskvalificere et firma i Frederiksberg der
+    // får leveret i København.
+    existingCustomer,
+  });
 
-  const typedCompany = data.company?.trim() || '';
-
-  let companyId = null;
-  let endCustomerName = null;
-
-  if (reseller) {
-    companyId = reseller.id;
-    // Står forhandlerens eget navn i feltet, bestiller de til sig selv —
-    // det er ikke en slutkunde.
-    const sameAsReseller = typedCompany.toLowerCase() === (reseller.name || '').trim().toLowerCase();
-    endCustomerName = (typedCompany && !sameAsReseller) ? typedCompany : null;
-  } else if (typedCompany) {
-    const existing = db.prepare(
-      'SELECT id FROM companies WHERE name = ? AND is_active = 1 LIMIT 1'
-    ).get(typedCompany);
-
-    if (existing) {
-      companyId = existing.id;
-    } else {
-      const res = db.prepare(
-        'INSERT INTO companies (name, is_active) VALUES (?, 1)'
-      ).run(typedCompany);
-      companyId = Number(res.lastInsertRowid);
-    }
-  }
+  const reseller        = resolved.reseller;
+  const typedCompany    = resolved.typedName;   // afkodet — aldrig `&amp;`
+  const companyId       = resolved.companyId;
+  const endCustomerName = resolved.endCustomerName;
 
   // 6. EAN fra faktura-info
   const eanInfo = data.ean_info || '';
-  const eanMatch = eanInfo.match(/\b\d{13}\b/);
-  const ean = eanMatch ? eanMatch[0] : null;
+  const ean = resolved.ean;
 
   // Ikke på en forhandler: et EAN i en forhandler-ordre hører til SLUTKUNDEN,
   // ikke til forhandleren. Skrev vi det på forhandlerens firma-række, ville
@@ -292,7 +274,7 @@ async function handleWebOrder(data) {
 
   // 9. Opret bon (fælles helper — #237)
   const pax = data.pax ? parseInt(data.pax) : null;
-  const customerWishes = buildCustomerWishes(data);
+  const customerWishes = appendWishesLine(buildCustomerWishes(data), resolved.wishesLine);
 
   // Saml leverings-info: extra-tekst (etage/indgang) gemmes i delivery_notes
   const deliveryNotes = data.delivery_extra?.trim() || null;
@@ -312,12 +294,11 @@ async function handleWebOrder(data) {
     end_customer_name: endCustomerName,
     delivery_notes: deliveryNotes,
     changelog_field: 'web_order',
-    changelog_message: reseller
-      // Forklarer HVORFOR bonnen ikke ligger på det firmanavn der blev tastet.
-      // Uden linjen ser det ud som om nogen har rettet firmaet i hånden.
-      ? `Oprettet via web-bestilling (${data.email || fullName}) — lagt på forhandleren ${reseller.name}` +
-        (endCustomerName ? `, slutkunde: ${endCustomerName}` : '')
-      : `Oprettet via web-bestilling (${data.email || fullName})`,
+    // Forklarer HVORFOR bonnen ligger hvor den ligger, når det ikke er det
+    // firmanavn der blev tastet. Uden linjen ser det ud som om nogen har
+    // rettet firmaet i hånden.
+    changelog_message: `Oprettet via web-bestilling (${data.email || fullName})` +
+      (resolved.note ? ` — ${resolved.note}` : ''),
     broadcast_extra: { source: 'web_order' },
   });
 
@@ -335,7 +316,7 @@ async function handleWebOrder(data) {
     fullName,
     data.email?.trim() || null,
     data.phone?.trim() || null,
-    data.company?.trim() || null,
+    typedCompany || null,
     data.delivery_date || null,
     data.delivery_time || null,
     addr.tekst || data.address_text || null,
@@ -413,7 +394,10 @@ async function handleWebOrder(data) {
     // læseren tror bonnen ligger dér.
     const firmaBlok = reseller
       ? `Firma: ${reseller.name} (forhandler)` + (endCustomerName ? `\nSlutkunde: ${endCustomerName}` : '')
-      : (typedCompany ? `Firma: ${typedCompany}` : '');
+      : resolved.companyName
+        // Firmaet bonnen ligger på — og det kunden skrev, når det er noget andet.
+        ? `Firma: ${resolved.companyName}` + (resolved.typedDiffers ? `\nKunden skrev: ${typedCompany}` : '')
+        : (typedCompany ? `Firma: ${typedCompany}` : '');
     const ownerOenskerBlok = data.wishes?.trim() ? `Ønsker:\n${data.wishes.trim()}` : '(Ingen ønsker)';
 
     sendFromTemplate({
