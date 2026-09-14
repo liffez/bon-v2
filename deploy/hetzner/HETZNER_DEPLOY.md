@@ -437,10 +437,21 @@ journalctl -u whiteboard --since "5 min ago"
 
 ### "500 Internal Server Error" på grocy
 **Grocy svarer 500 på `/api/objects/stock_log` (uden `limit`):** loggen er ~75.000
-rækker, og PHP's `memory_limit` på 128M løber tør. Bekræft i loggen:
+rækker, og PHP's `memory_limit` på 128M løber tør. Målt 14/9-2026: tærsklen ligger
+mellem 30.000 og 32.000 rækker uanset `offset` — altså antallet, ikke dataene —
+hvilket er ~4 KB pr. række i PHP. 75.000 rækker ≈ 320 MB + JSON-output.
+
+Loggen kan være tom selvom det er fejlen: grep'et nedenfor gav intet første gang.
+Enten findes `/var/log/php-fpm/` ikke (så skriver PHP ingenting), eller pool-filen
+på serveren afviger fra repoets. Tjek begge dele — og lad ikke et tomt grep stoppe
+udrulningen; den rigtige test er `curl` bagefter.
 
 ```bash
-sudo grep -i "allowed memory" /var/log/php-fpm/grocy-hq-error.log | tail -3
+sudo ls -la /var/log/php-fpm/ 2>&1 | head -3; sudo diff ~/bon-v2/deploy/hetzner/php-fpm/grocy-hq.conf /etc/php/8.5/fpm/pool.d/grocy-hq.conf && echo "pool-fil = repo"
+```
+
+```bash
+sudo grep -ih "allowed memory" /var/log/php8.5-fpm.log /var/log/php-fpm/*.log 2>/dev/null | tail -3
 ```
 
 `deploy/hetzner/php-fpm/grocy-hq.conf` sætter `memory_limit = 512M` for HQ-poolen
