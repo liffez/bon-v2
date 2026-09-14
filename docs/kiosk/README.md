@@ -206,11 +206,33 @@ Tjek at timerne står i kalenderen:
 systemctl --user list-timers 'kiosk-*'
 ```
 
-> **Vær opmærksom på opvågningen.** Når panelet er slukket, tænder en berøring
-> det ikke nødvendigvis igen — det er timeren kl. 06:30 der gør det. Møder nogen
-> ind før den, står de foran en sort skærm der ser død ud. Rykker mødetiden
-> permanent, så flyt `KIOSK_ON_TIME` frem; det er ikke et argument for at lade
-> panelet være tændt hele natten.
+### Efter lukketid: tryk for at tænde
+
+Skal der laves mad kl. 18 eller 21, trykker man på den sorte skærm: panelet
+tænder, og man kan logge ind. Når ingen har rørt det i `KIOSK_WAKE_IDLE_MINUTES`
+(10), slukker det igen. Det gælder også i weekenden. Inden for åbningstiden
+slukker det aldrig af sig selv — dér bestemmer timerne.
+
+Det er `swayidle` der lytter (`bin/kiosk-idle.sh`, startet fra labwc's
+autostart). Efterprøv det efter lukketid, eller ved at slukke i hånden:
+
+```bash
+~/kiosk/bin/kiosk-display.sh off
+```
+
+Tryk på skærmen — den skal tænde inden for et sekund. Sker det ikke:
+
+```bash
+pgrep -a swayidle
+~/kiosk/bin/kiosk-display.sh status
+```
+
+> **Det første tryk rammer også siden.** Skærmen tænder, men trykket når
+> Chromium alligevel. Tryk på et tomt sted, fx overskriften.
+>
+> **Virker vækningen ikke med `wlr_randr`-metoden** (se `status`), er det fordi
+> den slukker selve udgangen, og så har berøringsskærmen intet at ramme.
+> `wlopm` slukker kun panelet og er den der skal bruges her.
 
 ---
 
@@ -247,6 +269,7 @@ topbaren bruges til at navigere.
 | `KIOSK_MAIN_FRACTION` | `2/3` | den store dels andel af bredden |
 | `KIOSK_MAIN_SCALE` / `SIDE_SCALE` | `1` / `1` | zoom på den store / lille del |
 | `KIOSK_OFF_TIME` / `ON_TIME` | `17:30` / `06:30` | panelet sluk/tænd, man-fre |
+| `KIOSK_WAKE_IDLE_MINUTES` | `10` | efter lukketid: sluk igen efter så mange minutter uden berøring (0 = tryk vækker ikke) |
 | `KIOSK_HIDE_PANEL` | `1` | skjul Pi OS' panel i toppen |
 
 Kør installeren igen efter en ændring, og genstart. Vinduesplaceringen ligger
@@ -324,7 +347,8 @@ systemctl --user disable --now kiosk-watchdog.service
 | `install-kiosk.sh` | Installerer alt. Køres på Pi'en, idempotent. |
 | `kiosk.env.example` | Skabelon → `~/kiosk/kiosk.env`. Enhedens eneste config. |
 | `bin/kiosk-chromium.sh` | Starter Chromium ved boot, genstarter den hvis den dør. |
-| `bin/kiosk-display.sh` | `on`/`off`/`status`. Fire fallbacks, husker hvad der virkede. |
+| `bin/kiosk-display.sh` | `on`/`off`/`status` + `wake`/`idle-off`. Fire fallbacks, husker hvad der virkede. |
+| `bin/kiosk-idle.sh` | swayidle: tryk tænder panelet efter lukketid, slukker igen efter idle. |
 | `bin/kiosk-watchdog.sh` | Skifter til nødvisning når Bon ikke kan nås. |
 | `offline.html` | Lokal nødside. Poller Bon, vender tilbage efter idle. |
 | `bin/kiosk_layout.py` | Vinduesreglerne — én kilde for installeren og byt-knappen. |
