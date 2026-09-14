@@ -106,6 +106,7 @@ async function _soLoadData() {
             var daysUntilExpiry = Infinity;
             var amount = parseFloat(item.amount) || 0;
             var product = item.product || _soProductsMap[item.product_id] || {};
+            var fullProduct = _soProductsMap[item.product_id] || product;
             var minStock = parseFloat(item.min_stock_amount) || 0;
 
             if (amount > 0 && item.best_before_date && item.best_before_date !== '2999-12-31') {
@@ -142,9 +143,20 @@ async function _soLoadData() {
                 product_group_id:   product.product_group_id,
                 product_group_name: _soGroupsMap[product.product_group_id] || '',
                 min_stock_amount:   minStock,
-                alt_conv:           _soAltConv(product)
+                alt_conv:           _soAltConv(product),
+                // "Sidst tjekket" — Grocy-userfields skrevet af optællingen,
+                // varemodtagelsen og (fra #613) lageroversigtens eget Gem.
+                // Læses fra /objects/products (_soProductsMap): det `product`,
+                // /stock indlejrer, bærer INGEN userfields, så alt ville stå
+                // som "aldrig tjekket" (fundet ved browser-verifikation).
+                last_checked:       _soLastChecked(fullProduct),
+                last_checked_unit:  (fullProduct.userfields || {}).LastCheckedUnit || null,
+                check_interval:     _soCheckInterval(fullProduct),
+                check:              null
             };
         });
+        _soStockData.forEach(_soRecalcCheck);
+        _soSortMode = _soLoadSortMode();
 
         // Sort by name
         _soStockData.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
@@ -172,6 +184,10 @@ function _soBuildShell() {
         '  <button class="so-filter-btn so-add-btn" id="soAddBtn" title="Tilføj en vare der ikke står på listen">+ Tilføj vare</button>',
         '  <select class="so-select" id="soLocationFilter"><option value="">Alle lokationer</option></select>',
         '  <select class="so-select" id="soGroupFilter"><option value="">Alle grupper</option></select>',
+        '  <select class="so-select" id="soSortSel" title="Rækkefølge inden for hver gruppe">',
+        '    <option value="name">Sortér: navn</option>',
+        '    <option value="checked">Sortér: ældst tjekket først</option>',
+        '  </select>',
         '  <button class="so-filter-btn" id="soSelectModeBtn" title="Vælg flere">&#x2610;</button>',
         '</div>',
         '<div class="so-selection-bar" id="soSelectionBar">',
@@ -252,6 +268,9 @@ function _soPopulateFilters() {
                 return '<option value="' + g.id + '">' + esc(g.name) + '</option>';
             }).join('');
     }
+
+    var sortSel = document.getElementById('soSortSel');
+    if (sortSel) sortSel.value = _soSortMode;
 
     var addLocSel = document.getElementById('soAddLocFilter');
     if (addLocSel) {
@@ -393,6 +412,9 @@ function _soHandleChange(e) {
     if (e.target.id === 'soLocationFilter' || e.target.id === 'soGroupFilter') {
         _soApplyFilters();
     }
+    if (e.target.id === 'soSortSel') {
+        _soSetSortMode(e.target.value);
+    }
     if (e.target.id === 'soAddLocFilter') {
         _soRenderAddList();
     }
@@ -424,7 +446,11 @@ function _soApplyFilters() {
         if (search && item.name.toLowerCase().indexOf(search) === -1) return false;
         if (locationId && String(item.location_id) !== locationId) return false;
         if (groupId && String(item.product_group_id) !== groupId) return false;
-        if (status && item.status !== status) return false;
+        if (status === 'unchecked') {
+            if (!_soIsUnchecked(item)) return false;
+        } else if (status && item.status !== status) {
+            return false;
+        }
         return true;
     });
 
@@ -441,11 +467,12 @@ function _soUpdateStatusBar() {
     if (!bar) return;
 
     var total   = _soFilteredData.length;
-    var expired = 0, duesoon = 0, low = 0;
+    var expired = 0, duesoon = 0, low = 0, unchecked = 0;
     _soFilteredData.forEach(function(i) {
         if (i.status === 'expired') expired++;
         if (i.status === 'duesoon') duesoon++;
         if (i.status === 'low')     low++;
+        if (_soIsUnchecked(i))      unchecked++;
     });
 
     var html = '<span class="so-status-pill so-pill-total">' + total + ' varer</span>';
@@ -464,6 +491,12 @@ function _soUpdateStatusBar() {
         html += '<span class="so-status-pill so-pill-low' +
             (_soActiveStatusFilter === 'low' ? ' active' : '') +
             '" data-filter="low">' + low + ' lav beholdning</span>';
+    }
+    if (unchecked > 0) {
+        html += '<span class="so-status-pill so-pill-unchecked' +
+            (_soActiveStatusFilter === 'unchecked' ? ' active' : '') +
+            '" data-filter="unchecked" title="Aldrig tjekket, eller tjek-intervallet er overskredet">' +
+            unchecked + ' ikke tjekket</span>';
     }
 
     bar.innerHTML = html;
@@ -528,6 +561,7 @@ function _soRenderGrid() {
     var html = '';
 
     sortedGroups.forEach(function(group) {
+        group.items = _soSortItems(group.items);
         html += '<div class="so-group-header">' + esc(group.label) + ' (' + group.items.length + ')</div>';
         html += '<div class="so-grid' + selectClass + '">';
         group.items.forEach(function(item) {
@@ -584,6 +618,8 @@ function _soRenderCard(item) {
         }).join(' &middot; ') + '</span>';
     }
 
+    var checkHtml = _soRenderCheck(item);
+
     // Min stock warning
     var minHtml = '';
     if (item.min_stock_amount > 0 && item.amount < item.min_stock_amount) {
@@ -623,7 +659,13 @@ function _soRenderCard(item) {
         altHtml + expiryHtml + minHtml + newHtml +
         '  </div>' +
         '</div>' +
-        '<button class="so-edit-btn" title="Rediger vare">&#x270E;</button>' +
+        // Højre-søjle: blyant øverst, "sidst tjekket" under. Søjlen er præcis
+        // så høj som kortets indholds-minimum (44px), så mærket aldrig gør
+        // kortet højere — og det stjæler ikke plads fra enheds-omregningerne.
+        '<div class="so-card-side">' +
+        '  <button class="so-edit-btn" title="Rediger vare">&#x270E;</button>' +
+        checkHtml +
+        '</div>' +
         '</div>' +
         expandHtml +
         '</div>';
@@ -767,21 +809,31 @@ async function _soAdjustInventory(productId) {
                 item.amount = fresh;
                 item.isNew  = false;
                 _soRecalcStatus(item);
+                var stampedKeep = await _soStampChecked(item);
                 _soCloseExpand(productId);
                 _soApplyFilters();
-                _soShowToast(esc(item.name) + ': beholdt lagerets tal (' + _soRound(fresh) + ' ' + esc(item.qu_name) + ')', 'info');
+                _soShowToast(esc(item.name) + ': beholdt lagerets tal (' + _soRound(fresh) + ' ' + esc(item.qu_name) + ')' +
+                    (stampedKeep ? ' · tjek registreret' : ''), 'info');
                 return;
             }
             item.amount = fresh;   // så "diff" i kvitteringen nedenfor er sand
         }
 
         if (Math.abs(newAmount - item.amount) < 0.01) {
+            // #613 — et tjek uden ændring er også et tjek. Varen ER set, og
+            // tallet passede; det skal stå på varen, ellers ser den "aldrig
+            // tjekket" ud, selvom nogen lige har stået med den i hånden.
+            var stampedSame = await _soStampChecked(item);
             _soCloseExpand(productId);
-            _soShowToast('Ingen ændring', 'info');
+            _soApplyFilters();
+            _soShowToast('Ingen ændring' + (stampedSame ? ' · tjek registreret' : ''), 'info');
             return;
         }
 
         await postGrocyInventory(productId, newAmount, item.best_before_date || null);
+        // Stemplet skrives EFTER lager-skrivningen og må aldrig vælte den:
+        // fejler stemplingen, er tallet stadig gemt, og det siges højt.
+        await _soStampChecked(item);
 
         var diff = _soRound(newAmount - item.amount);
         var sign = diff > 0 ? '+' : '';
@@ -978,8 +1030,13 @@ function _soAddProductToList(productId) {
         product_group_name: _soGroupsMap[p.product_group_id] || '',
         min_stock_amount:   parseFloat(p.min_stock_amount) || 0,
         alt_conv:           _soAltConv(p),
+        last_checked:       _soLastChecked(p),
+        last_checked_unit:  (p.userfields || {}).LastCheckedUnit || null,
+        check_interval:     _soCheckInterval(p),
+        check:              null,
         isNew:              true             // ingen lagerpost i Grocy endnu
     };
+    _soRecalcCheck(item);
 
     _soStockData.push(item);
     _soStockData.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
@@ -1025,6 +1082,130 @@ function _soRecalcStatus(item) {
     if (item.amount <= 0) {
         item.status = 'low';
     }
+}
+
+// ── "Sidst tjekket" (#613) ─────────────────────────────────
+// Samme regler som optællingen (_icComputeCheckStatus i inventory_check.js):
+// forfaldent når dage siden > HverDag, snart ved > 80 %, aldrig tjekket
+// tæller som forfaldent hvis varen har et interval. Kopieret frem for delt,
+// fordi lageroversigten også skal virke på sider uden inventory_check.js.
+
+var _soSortMode = 'name';
+
+function _soLastChecked(product) {
+    var raw = (product && product.userfields || {}).LastCheckedAt;
+    if (!raw) return null;
+    // Skrives som UTC (toISOString); Grocy kan strippe 'Z' ved returnering.
+    var d = (typeof parseServerDate === 'function') ? parseServerDate(raw) : new Date(raw);
+    return (d && !isNaN(d.getTime())) ? d : null;
+}
+
+function _soCheckInterval(product) {
+    var v = (product && product.userfields || {}).HverDag;
+    if (v === undefined || v === null || v === '') return null;
+    var n = parseInt(v, 10);
+    return (isNaN(n) || n <= 0) ? null : n;
+}
+
+function _soCheckStatus(intervalDays, lastChecked, now) {
+    now = now || new Date();
+    if (!lastChecked) {
+        return { status: intervalDays ? 'overdue' : 'never', daysSince: null };
+    }
+    var ds = Math.floor((now - lastChecked) / (1000 * 60 * 60 * 24));
+    if (!intervalDays) return { status: 'neutral', daysSince: ds };
+    if (ds > intervalDays)          return { status: 'overdue', daysSince: ds };
+    if (ds / intervalDays > 0.8)    return { status: 'soon',    daysSince: ds };
+    return { status: 'ok', daysSince: ds };
+}
+
+function _soRecalcCheck(item) {
+    item.check = _soCheckStatus(item.check_interval, item.last_checked);
+}
+
+// Pillen "ikke tjekket": aldrig set, eller intervallet er overskredet.
+function _soIsUnchecked(item) {
+    var c = item.check || _soCheckStatus(item.check_interval, item.last_checked);
+    return c.status === 'overdue' || c.status === 'never';
+}
+
+function _soFormatSince(date, now) {
+    now = now || new Date();
+    var ds = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+    if (ds <= 0) return 'i dag';
+    if (ds === 1) return 'i går';
+    if (ds < 7)   return ds + 'd siden';
+    return date.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' });
+}
+
+function _soRenderCheck(item) {
+    var c = item.check || _soCheckStatus(item.check_interval, item.last_checked);
+    var cls = 'so-check-' + c.status;
+    var text, title;
+    if (!item.last_checked) {
+        text  = 'aldrig tjekket';
+        title = 'Ingen har registreret et tjek på varen endnu';
+        if (item.check_interval) title += ' · tjek-interval ' + item.check_interval + ' dage';
+    } else {
+        var icon = c.status === 'overdue' ? '\u23F0 ' : c.status === 'soon' ? '\u23F3 ' : '\u2713 ';
+        text  = icon + _soFormatSince(item.last_checked);
+        title = 'Sidst tjekket ' + item.last_checked.toLocaleString('da-DK', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+        if (item.last_checked_unit) title += ' i ' + item.last_checked_unit;
+        if (item.check_interval) {
+            title += ' · interval ' + item.check_interval + ' dage';
+            if (c.status === 'overdue') title += ' · forfaldent (' + c.daysSince + ' dage siden)';
+            else if (c.status === 'soon') title += ' · snart forfaldent';
+        }
+    }
+    return '<span class="so-check ' + cls + '" title="' + esc(title) + '">' + esc(text) + '</span>';
+}
+
+// Skriver KUN datoen. LastCheckedUnit er optællingens felt: den bruger enheden
+// til at afgøre hvilken køl/frys-liste varen hører til, og lageroversigten
+// kender ikke den fysiske enhed — kun Grocy-lokationen. Beslutning 14/9-2026.
+// Returnerer true hvis stemplet landede; fejl siges højt men kastes ikke.
+async function _soStampChecked(item) {
+    var stamp = new Date();
+    try {
+        await putGrocyProductUserfields(item.product_id, { LastCheckedAt: stamp.toISOString() });
+    } catch (err) {
+        _soShowToast(esc(item.name) + ': gemt, men tjek-stemplet kunne ikke skrives (' + esc(err.message) + ')', 'warn');
+        return false;
+    }
+    item.last_checked = stamp;
+    _soRecalcCheck(item);
+    var prod = _soProductsMap[item.product_id];
+    if (prod) {
+        prod.userfields = prod.userfields || {};
+        prod.userfields.LastCheckedAt = stamp.toISOString();
+    }
+    return true;
+}
+
+// ── Sortering inden for gruppe ─────────────────────────────
+function _soLoadSortMode() {
+    try { var v = localStorage.getItem('so_sort_mode'); if (v === 'checked') return v; } catch (e) { /* privat vindue */ }
+    return 'name';
+}
+function _soSetSortMode(mode) {
+    _soSortMode = (mode === 'checked') ? 'checked' : 'name';
+    try { localStorage.setItem('so_sort_mode', _soSortMode); } catch (e) { /* ignorer */ }
+    _soRenderGrid();
+}
+// Ældst tjekket først: aldrig tjekket øverst, derefter stigende dato; navn som tiebreak.
+function _soSortItems(items) {
+    var arr = items.slice();
+    if (_soSortMode !== 'checked') {
+        arr.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
+        return arr;
+    }
+    arr.sort(function(a, b) {
+        var ta = a.last_checked ? a.last_checked.getTime() : -Infinity;
+        var tb = b.last_checked ? b.last_checked.getTime() : -Infinity;
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        return a.name.localeCompare(b.name, 'da');
+    });
+    return arr;
 }
 
 function _soRound(num, decimals) {
@@ -1332,6 +1513,10 @@ function _soCloseEdit() {
 // Browser ignores this block since `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-        _soRecalcStatus: _soRecalcStatus
+        _soRecalcStatus: _soRecalcStatus,
+        _soCheckStatus:  _soCheckStatus,
+        _soFormatSince:  _soFormatSince,
+        _soIsUnchecked:  _soIsUnchecked,
+        _soSortItems:    _soSortItems
     };
 }

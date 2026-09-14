@@ -435,8 +435,8 @@
 
 .so-edit-btn {
     flex-shrink: 0;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     border: 1px solid var(--color-border);
     border-radius: 6px;
     background: var(--color-background);
@@ -453,6 +453,10 @@
 
 /* Skjul blyant i vaelg-flere-tilstand — brug "Rediger valgte" i stedet */
 .so-grid.so-select-mode .so-edit-btn { display: none; }
+/* I "vælg flere" forsvinder hele højre-søjlen, som blyanten gjorde før #613.
+   Bliver mærket stående alene, tager dets bredde plads fra enheds-linjen, som
+   så ombrydes på de bredeste kort — og gridet strækker hele rækken med. */
+.so-grid.so-select-mode .so-card-side { display: none; }
 
 .so-sel-edit { border-color: rgba(142,99,31,0.4); color: var(--brand-primary); }
 .so-sel-edit:hover { background: var(--brand-primary-light); }
@@ -690,3 +694,28 @@
 
     .so-toast { max-width: 100%; }
 }
+
+/* ── "Sidst tjekket" (#613) ─────────────────── */
+/* Gråt som udgangspunkt: et tjek der er i orden skal ikke råbe. Farve kun når
+   intervallet (HverDag) er ved at løbe ud eller er overskredet — samme farver
+   som optællingens ⏳/⏰-badges, så de to skærme siger det samme. */
+/* Søjlen under blyanten: 30px knap + 2px + 12px tekst = 44px = kortets
+   indholds-minimum (.so-card-main min-height). Mærket gør altså aldrig kortet
+   højere end det allerede er. */
+.so-card-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    flex-shrink: 0;
+    min-height: 44px;
+    justify-content: flex-start;
+}
+.so-check { font-weight: 500; white-space: nowrap; font-size: 11px; line-height: 12px; }
+.so-check-ok,
+.so-check-neutral { color: var(--color-text-dim); }
+.so-check-never   { color: var(--color-text-dim); font-style: italic; }
+.so-check-soon    { color: var(--color-orange); }
+.so-check-overdue { color: var(--color-red); }
+
+.so-pill-unchecked { background: rgba(142,99,31,0.12); color: var(--brand-primary); }
