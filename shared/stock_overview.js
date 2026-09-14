@@ -349,10 +349,12 @@ function _soHandleClick(e) {
         return;
     }
 
-    // Status pill click -> filter
+    // Status pill click -> filter ("N varer" rydder alt)
     var pill = target.closest('.so-status-pill[data-filter]');
     if (pill) {
-        _soToggleStatusFilter(pill.getAttribute('data-filter'));
+        var pf = pill.getAttribute('data-filter');
+        if (pf === '__all__') _soClearAllFilters();
+        else _soToggleStatusFilter(pf);
         return;
     }
 
@@ -455,6 +457,27 @@ function _soToggleStatusFilter(status) {
     _soApplyFilters();
 }
 
+function _soHasAnyFilter() {
+    var searchEl = document.getElementById('soSearch');
+    var locEl    = document.getElementById('soLocationFilter');
+    var grpEl    = document.getElementById('soGroupFilter');
+    return !!(_soActiveStatusFilter ||
+        (searchEl && searchEl.value.trim()) ||
+        (locEl && locEl.value) ||
+        (grpEl && grpEl.value));
+}
+
+function _soClearAllFilters() {
+    var searchEl = document.getElementById('soSearch');
+    var locEl    = document.getElementById('soLocationFilter');
+    var grpEl    = document.getElementById('soGroupFilter');
+    if (searchEl) searchEl.value = '';
+    if (locEl)    locEl.value = '';
+    if (grpEl)    grpEl.value = '';
+    _soActiveStatusFilter = '';
+    _soApplyFilters();
+}
+
 function _soApplyFilters() {
     var searchEl = document.getElementById('soSearch');
     var locEl    = document.getElementById('soLocationFilter');
@@ -508,7 +531,12 @@ function _soUpdateStatusBar(activeMatches, inactiveCount) {
         if (_soIsUnchecked(i))      unchecked++;
     });
 
-    var html = '<span class="so-status-pill so-pill-total">' + total + ' varer</span>';
+    // "N varer" er også vejen tilbage: ét klik rydder status-pille, søgning,
+    // lokation og gruppe. Uden filtre er den blot en tæller.
+    var filtered = _soHasAnyFilter();
+    var html = '<span class="so-status-pill so-pill-total' + (filtered ? ' so-pill-clear' : '') +
+        '" data-filter="__all__" title="' + (filtered ? 'Vis alle aktive varer — ryd alle filtre' : 'Alle aktive varer') + '">' +
+        (filtered ? 'Alle ' : '') + total + ' varer</span>';
 
     if (expired > 0) {
         html += '<span class="so-status-pill so-pill-expired' +
@@ -1643,6 +1671,8 @@ if (typeof module !== 'undefined' && module.exports) {
         _soFormatSince:  _soFormatSince,
         _soIsUnchecked:  _soIsUnchecked,
         _soSortItems:    _soSortItems,
+        _soClearAllFilters: _soClearAllFilters,
+        _soHasAnyFilter:    _soHasAnyFilter,
         _soItemFromProduct: _soItemFromProduct,
         _soMoveToActive:    _soMoveToActive,
         _soMoveToInactive:  _soMoveToInactive
