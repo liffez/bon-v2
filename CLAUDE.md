@@ -159,6 +159,8 @@ bon-v2/
 │   ├── delivery_calc.js      ← Single-bon leverings-forslag: afstand + vogn-anbefaling (Spor 2)
 │   ├── route_planner.js      ← Rute-orchestrator: computeRoute/applyRouteProposal (Spor 2)
 │   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
+│   ├── companyMatcher.js     ← matchCompany (CVR → EAN → e-mail → navnelighed), similarity, normalizeName
+│   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js      ← getDb() singleton (lazy init + migrations)
@@ -5733,13 +5735,75 @@ Testdata ryddet.
   > freder dem alligevel og siger det højt, frem for at bygge en heuristik der
   > skal kende forskel på maskinens tekst og menneskets.
 
-**Bredere fund, ikke løst her:** af 114 web-bestillinger i drift ligger **39** på et
-andet firma end kundens eget — `University of Copenhagen` mod `Københavns
-Universitet`, `ATV` mod `Akademiet for de tekniske videnskaber`, `Stromma` mod
-`Stromma Danmark A/S`. Fri tekst i et firma-felt er en dubletmaskine: 246 firmaer i
-basen har hverken CVR, EAN, kundenummer eller mere end én bon. Forhandler-reglen
-rører kun de firmaer der er markeret; den generelle sag er
-[#567](https://github.com/liffez/bon-v2/issues/567).
+**Bredere fund — løst 14. september 2026 (se næste afsnit):** af 114 web-bestillinger
+i drift lå **39** på et andet firma end kundens eget — `University of Copenhagen` mod
+`Københavns Universitet`, `ATV` mod `Akademiet for de tekniske videnskaber`, `Stromma`
+mod `Stromma Danmark A/S`. Fri tekst i et firma-felt er en dubletmaskine: 246 firmaer i
+basen havde hverken CVR, EAN, kundenummer eller mere end én bon. Forhandler-reglen
+rørte kun de firmaer der er markeret; den generelle sag var
+[#567](https://github.com/liffez/bon-v2/issues/567) + [#607](https://github.com/liffez/bon-v2/issues/607).
+
+### Web-bestillingens firma: kendt bestiller beholder sit firma, resten matches (#567 + #607, 14. september 2026)
+
+Begge indgange fra bestillingsformularen — `routes/web-orders.js` (den nye) og
+`routes/webhooks.js` (den gamle f-felt-formular) — slog firmaet op på **eksakt
+navn** og oprettede en ny række når strengen ikke ramte tegn for tegn. Kunden blev
+derimod slået op på e-mail og ramte altid rigtigt, så bonnen lå på ét firma og
+kunden på et andet. "Landbrug & Fødevarer" fandtes **13 gange**, flere af dem som
+det bogstavelige `LANDBRUG &amp; FØDEVARER` — et `&` blev escapet på vej ind og
+gemt sådan, hvilket garanterede at navnematchet aldrig fandt den rigtige række.
+
+**Reglen bor ét sted:** `services/orderCompanyResolver.js` (`resolveOrderCompany`),
+kaldt af begge ruter. Forhandler-undtagelsen (migration 167) landede i sin tid kun i
+den ene rute, fordi de havde hver sin kopi. Rækkefølgen (beslutning, Leif, 13. sep.):
+
+| # | Betingelse | Udfald |
+|---|---|---|
+| 1 | bestillerens eget firma er en **forhandler** (`is_reseller`) | bonnen på forhandleren, det tastede navn = `end_customer_name` (uændret fra 167) |
+| 2 | **kender vi bestilleren** (e-mail) og har hun et *aktivt* firma | **behold det.** Ingen ny række. Det tastede navn gemmes som `Firma: X` i kundeønskerne + i changelog'en |
+| 3 | ellers | `matchCompany` (CVR → EAN → e-mail → navnelighed ≥ 85 %) — kun aktive firmaer. Rammer det en forhandler, gælder 1 |
+| 4 | intet match | **ny række** — med afkodet navn, og changelog siger `nyt firma oprettet: X` |
+
+- **HTML-entiteter afkodes FØR alt andet** (`decodeEntities`: navngivne inkl.
+  `&aelig;`/`&oslash;`/`&aring;`, numeriske, og to lag for `&amp;amp;`).
+  `normalizeName()` redder det ikke: den fjerner ikke-alfanumeriske tegn, så
+  `&amp;` bliver tokenet `amp`, der overlever normaliseringen. Et escapet navn
+  gemmes aldrig — hverken i `companies`, `web_orders.company` eller som slutkunde.
+- **CVR og EAN trækkes ud af faktura-teksten.** EAN = 13 cifre (som før). CVR =
+  8 cifre **kun med "CVR" foran** (`CVR 25529529`, `cvr-nr.: …`, `CVR DK…`) — et
+  nøgent 8-cifret tal i et fritekstfelt er lige så tit et telefonnummer.
+  Formularen har intet CVR-felt; kommer der ét (`data.cvr`), vinder det over teksten.
+- **Ingen by som tiebreaker.** Leveringsadressen er ikke firmaets adresse, og
+  matcheren ville diskvalificere et firma i Frederiksberg der får leveret i København.
+- **`matchCompany` fik `{ activeOnly: true }`** (opt-in — berigelse og kampagner er
+  uændrede). En række lagt væk af "Ryd tomme firmaer" må ikke få nye bons ved at
+  ligne det tastede navn.
+- **`similarity`'s delstreng-regel tæller nu kun hele ord.** `kable` og
+  `sustainable foods` indeholder begge `able` og ville ellers score 0,95 mod
+  forhandleren Able — og lægge en fremmed bon dér med "Kable ApS" som slutkunde.
+  De 24 matcher-tests bruger allerede ord-grænser og er uændrede.
+- **Synligt for office:** changelog-linjen på bonnen siger *hvorfor* den ligger hvor
+  den ligger (`kunden skrev firma "X" — beholdt kundens firma Y`, `firma "X" matchet
+  på navnelighed 90 % → Y`, `nyt firma oprettet: X`), og ejer-mailen viser både
+  bonnens firma og `Kunden skrev: X`. Et forkert navnelighed-match skal kunne SES.
+- Kendt risiko (fra #567): en person der reelt har skiftet arbejdsgiver bliver
+  hængende på det gamle firma. `Firma: X`-noten er dét der gør det opdageligt;
+  rettelsen er "Flyt til firma" i Kunde 360°.
+
+**Tests**: `npm run test:web-order-firma` — 26 nye asserts mod de ægte endpoints
+over HTTP (:memory:-DB af de rigtige migrations, begge indgange) + forhandler-
+og matcher-suiterne. **Mutations-testet:** syv regler rulles hver især tilbage og
+fælder navngivne asserts (kerneregel 1: 9 · afkodning: 3 · matcheren: 9 ·
+forhandler: 5 · activeOnly: 1 · ord-grænse: 1 · CVR-præfiks: 1). Første udgave af
+afkodnings-testen bestod af den forkerte grund — `Landbrug &amp; Fødevarer` matcher
+også uden afkodning, fordi token-overlap ignorerer det ekstra `amp`; fixturen bruger nu
+`Bager &amp; S&oslash;n`, hvor uafkodet giver 0,4. Regression grøn: web-order-lines
+e2e 12, standing_discount, web_order_flag, forhandler 22, kampagner 124.
+
+**Ikke gjort her:** de eksisterende dubletrækker retter ikke sig selv — det er #606
+(oprydning), som nu kan køres uden at rodet vender tilbage. Og en kendt bestiller
+UDEN firma får ikke automatisk det matchede/oprettede firma sat på sin kunde-række;
+det er uændret fra før.
 
 ### Flyver: "Gå til bon" førte ingen steder hen (1. september 2026)
 

@@ -29,6 +29,11 @@ function normalizeName(name) {
         .trim();
 }
 
+/** Er `part` indeholdt i `whole` som en sammenhængende ord-sekvens? */
+function containsWords(whole, part) {
+    return (' ' + whole + ' ').includes(' ' + part + ' ');
+}
+
 /**
  * Similarity-score 0.0-1.0 mellem to firmanavne.
  * Token-set Jaccard + substring-check efter suffix-normalisering.
@@ -39,7 +44,11 @@ function similarity(a, b) {
     const nb = normalizeName(b);
     if (!na || !nb) return 0;
     if (na === nb) return 1.0;
-    if (na.includes(nb) || nb.includes(na)) return 0.95;
+    // Indeholdt som HELE ord, ikke som vilkårlig delstreng: "kable" og
+    // "sustainable foods" indeholder begge "able", men er ikke Able. Rammer
+    // først når matcheren bruges på web-bestillinger (#607), hvor et falsk
+    // match lægger en fremmed bon på en forhandler.
+    if (containsWords(na, nb) || containsWords(nb, na)) return 0.95;
     const tokA = new Set(na.split(' ').filter(t => t.length > 1));
     const tokB = new Set(nb.split(' ').filter(t => t.length > 1));
     if (tokA.size === 0 || tokB.size === 0) return 0;
@@ -72,19 +81,26 @@ function similarity(a, b) {
  *   5. Ingen → null
  *
  * Bemærk: ekskluderer altid firmaer med is_internal = 1.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.activeOnly=false]  Kun `is_active = 1`. Opt-in, så
+ *   berigelse og kampagner (der gerne må ramme en lagt-væk række) er uændrede.
+ *   Web-bestillinger bruger den: en række lagt væk af "Ryd tomme firmaer" må
+ *   ikke få nye bons ved at ligne det tastede navn.
  */
-function matchCompany(db, { name, cvr, ean, email, city } = {}) {
+function matchCompany(db, { name, cvr, ean, email, city } = {}, { activeOnly = false } = {}) {
+    const active = activeOnly ? ' AND co.is_active = 1' : '';
     if (cvr) {
         const cleanCvr = String(cvr).replace(/\D/g, '');
         if (cleanCvr.length === 8) {
-            const r = db.prepare('SELECT id, name FROM companies WHERE cvr = ? AND is_internal = 0').get(cleanCvr);
+            const r = db.prepare(`SELECT co.id, co.name FROM companies co WHERE co.cvr = ? AND co.is_internal = 0${active}`).get(cleanCvr);
             if (r) return { match_type: 'cvr_exact', company_id: r.id, confidence: 1.0, company_name: r.name };
         }
     }
     if (ean) {
         const cleanEan = String(ean).replace(/\s/g, '');
         if (cleanEan.length === 13) {
-            const r = db.prepare('SELECT id, name FROM companies WHERE ean = ? AND is_internal = 0').get(cleanEan);
+            const r = db.prepare(`SELECT co.id, co.name FROM companies co WHERE co.ean = ? AND co.is_internal = 0${active}`).get(cleanEan);
             if (r) return { match_type: 'ean_exact', company_id: r.id, confidence: 1.0, company_name: r.name };
         }
     }
@@ -97,7 +113,7 @@ function matchCompany(db, { name, cvr, ean, email, city } = {}) {
               AND cp.kind = 'email'
               AND cp.value = ?
               AND cp.is_active = 1
-              AND co.is_internal = 0
+              AND co.is_internal = 0${active}
             LIMIT 1
         `).get(email.toLowerCase());
         if (r) return { match_type: 'email_match', company_id: r.id, confidence: 0.95, company_name: r.name };
@@ -111,7 +127,7 @@ function matchCompany(db, { name, cvr, ean, email, city } = {}) {
             SELECT co.id, co.name, addr.city AS city
             FROM companies co
             LEFT JOIN addresses addr ON addr.id = co.address_id
-            WHERE co.is_internal = 0
+            WHERE co.is_internal = 0${active}
         `).all();
         const cityLower = city ? city.toLowerCase() : null;
         let best = null;
