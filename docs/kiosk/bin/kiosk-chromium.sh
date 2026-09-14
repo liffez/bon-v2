@@ -18,6 +18,11 @@ ENV_FILE="${KIOSK_ENV_FILE:-$HOME/kiosk/kiosk.env}"
 LAYOUT="${KIOSK_LAYOUT:-single}"
 MAIN_URL="${1:-${KIOSK_URL:-https://bon.ristetrug.dk/kitchen/today.html?kiosk}}"
 SIDE_URL="${KIOSK_SIDE_URL:-}"
+# Whiteboard skal vide at den kører på køkkenskærmen, ellers viser den ikke
+# byt-knappen. Den husker det selv (localStorage), præcis som Bon gør.
+if [ -n "$SIDE_URL" ] && [[ "$SIDE_URL" != *kiosk=* ]]; then
+    case "$SIDE_URL" in (*\?*) SIDE_URL="$SIDE_URL&kiosk=${KIOSK_DEVICE_ID:-1}";; (*) SIDE_URL="$SIDE_URL?kiosk=${KIOSK_DEVICE_ID:-1}";; esac
+fi
 
 # Watchdogen (§4.6) skriver nødsidens sti hertil når Bon ikke kan nås, og
 # rydder filen igen når den kan. Kun HOVED-vinduet (Bon) skifter; vi læser
@@ -101,11 +106,20 @@ p.write_text(json.dumps(d))
 PYPREFS
 }
 
-# Zoom pr. vindue. Dashboardet skifter til sit enkolonne-layout (oversigten
-# i fuld bredde, kortene på én række) under 960 CSS-pixel. 1280 px ÷ 1,4 ≈ 914,
-# og teksten bliver samtidig til at læse på afstand i køkkenet.
+# Zoom følger PLADSEN, ikke appen. Den store del (1280 px) zoomes 1,4, så
+# dashboardet får sit enkolonne-layout (under 960 CSS-pixel) og teksten kan
+# læses på afstand. Byt-knappen skriver hvem der har den store del.
 MAIN_SCALE="${KIOSK_MAIN_SCALE:-1.4}"
 SIDE_SCALE="${KIOSK_SIDE_SCALE:-1}"
+PRIMARY_FILE="$HOME/.config/bon-kiosk/primary"
+scale_for() {   # scale_for main|side
+    local primary; primary="$(cat "$PRIMARY_FILE" 2>/dev/null || echo bon)"
+    if [ "$primary" = "whiteboard" ]; then
+        [ "$1" = "side" ] && echo "$MAIN_SCALE" || echo "$SIDE_SCALE"
+    else
+        [ "$1" = "main" ] && echo "$MAIN_SCALE" || echo "$SIDE_SCALE"
+    fi
+}
 
 # run_window <navn> <class> <standard-url> <tilstand: app|kiosk>
 # Chromium dør en sjælden gang. Uden løkken bliver halvdelen af skærmen sort
@@ -121,8 +135,7 @@ run_window() {
         fi
         clear_crash_flag "$profile"
         disable_translate "$profile"
-        local scale="$MAIN_SCALE"
-        [ "$name" = "side" ] && scale="$SIDE_SCALE"
+        local scale; scale="$(scale_for "$name")"
         echo "[kiosk] $name åbner $url (zoom $scale)"
         if [ "$mode" = "kiosk" ]; then
             "$BIN" "${COMMON[@]}" --user-data-dir="$profile" --class="$class" \

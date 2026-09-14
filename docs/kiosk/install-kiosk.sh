@@ -39,6 +39,8 @@ mkdir -p "$DEST/bin"
 install -m 755 "$SRC/bin/kiosk-display.sh"  "$DEST/bin/"
 install -m 755 "$SRC/bin/kiosk-chromium.sh" "$DEST/bin/"
 install -m 755 "$SRC/bin/kiosk-watchdog.sh" "$DEST/bin/"
+install -m 644 "$SRC/bin/kiosk_layout.py" "$DEST/bin/"
+install -m 755 "$SRC/bin/kiosk-layout-server.py" "$DEST/bin/"
 
 if [ ! -f "$DEST/kiosk.env" ]; then
     install -m 644 "$SRC/kiosk.env.example" "$DEST/kiosk.env"
@@ -174,51 +176,12 @@ if [ "$COMPOSITOR" = "labwc" ]; then
             fi
         fi
 
-        # Chromium på Wayland ignorerer --class: et --app-vindue får app_id
-        # "chrome-<vært>__<sti>-<profil>", fx chrome-bon.ristetrug.dk__kitchen_-Default.
-        # Reglerne matcher derfor på værten i URL'en (målt på Pi'en 14/9-2026).
-        # Den gamle --class står med som ekstra regel, så XWayland/X11 også rammes.
-        host_of() { printf '%s' "$1" | sed -E 's#^[A-Za-z]+://##; s#[/?\#].*$##'; }
-        MAIN_HOST="$(host_of "$KIOSK_URL")"
-        SIDE_HOST="$(host_of "${KIOSK_SIDE_URL:-}")"
-        MAIN_IDS="chrome-${MAIN_HOST}__*,chrome-*offline.html*,bon-kiosk-main"
-        SIDE_IDS="chrome-${SIDE_HOST}__*,bon-kiosk-side"
-        echo "  vinduer: Bon = chrome-${MAIN_HOST}__* · Whiteboard = chrome-${SIDE_HOST}__*"
-
-        python3 - "$LABWC_RC" "$MAIN_W" "$SIDE_W" "$SCREEN_H" "$MAIN_IDS" "$SIDE_IDS" <<'PYRULES' || warn "Kunne ikke skrive vinduesregler i $LABWC_RC — vinduerne placeres ikke side om side"
-import re, sys, pathlib
-path, main_w, side_w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
-main_ids = [i for i in sys.argv[5].split(',') if i]
-side_ids = [i for i in sys.argv[6].split(',') if i]
-p = pathlib.Path(path)
-s = p.read_text()
-START, END = '<!-- bon-v2 kiosk: start -->', '<!-- bon-v2 kiosk: slut -->'
-def rules(ids, x, w):
-    out = []
-    for ident in ids:
-        out.append(f'    <windowRule identifier="{ident}" serverDecoration="no" skipTaskbar="yes" skipWindowSwitcher="yes" />')
-        out.append(f'    <windowRule identifier="{ident}">')
-        out.append(f'      <action name="MoveTo" x="{x}" y="0" />')
-        out.append(f'      <action name="ResizeTo" width="{w}" height="{h}" />')
-        out.append('    </windowRule>')
-    return '\n'.join(out)
-block = START + "\n  <windowRules>\n" + rules(main_ids, 0, main_w) + "\n" + rules(side_ids, main_w, side_w) + "\n  </windowRules>\n  " + END
-# Fjern en tidligere udgave af vores blok, så installeren kan køres igen.
-s = re.sub(r'[ \t]*' + re.escape(START) + r'.*?' + re.escape(END) + r'[ \t]*\n?', '', s, flags=re.S)
-if '<windowRules>' in s:
-    print('  ! rc.xml har allerede egne <windowRules> — vores blok lægges ved siden af. Tjek at vinduerne placeres rigtigt.')
-m = None
-for root in ('</labwc_config>', '</openbox_config>'):
-    i = s.rfind(root)
-    if i != -1:
-        m = i
-        break
-if m is None:
-    sys.exit('rc.xml har hverken </labwc_config> eller </openbox_config> — rører den ikke')
-s = s[:m] + '  ' + block + '\n' + s[m:]
-p.write_text(s)
-print('  → ' + path)
-PYRULES
+        # Reglerne skrives af kiosk_layout.py — samme kode som byt-knappen
+        # bruger, så de to aldrig er uenige om hvor et vindue står. Den læser
+        # kiosk.env fra miljøet og husker hvilken app der har den store del.
+        ( set -a; . "$DEST/kiosk.env"; set +a
+          python3 "$DEST/bin/kiosk_layout.py" rules "$LABWC_RC" ) \
+            || warn "Kunne ikke skrive vinduesregler i $LABWC_RC — vinduerne placeres ikke side om side"
 
         # Få labwc til at læse filen igen. Gælder nye vinduer — de eksisterende
         # får reglerne ved næste genstart.
@@ -291,6 +254,39 @@ WantedBy=default.target
 UNIT
 fi
 
+# Byt-knappen: en lille server på 127.0.0.1 der bytter Bon og Whiteboard.
+# Knapperne i appsene vises kun når den svarer — altså kun på denne skærm.
+if [ "$LAYOUT" = "split" ]; then
+    cat > "$UNITS/kiosk-layout.service" <<UNIT
+[Unit]
+Description=Kiosk: byt Bon og Whiteboard (kun 127.0.0.1)
+
+[Service]
+ExecStart=/bin/bash -c 'set -a; . $DEST/kiosk.env; set +a; exec python3 $DEST/bin/kiosk-layout-server.py'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+UNIT
+fi
+
+# Chromium-politik for kiosken:
+#  - TranslateEnabled=false: "Oversæt denne side?" dukkede op på hver dansk side.
+#    Et --disable-features-flag virker ikke, fordi Pi'ens wrapper sender sit eget.
+#  - LocalNetworkAccessAllowedForUrls: nyere Chromium spørger om lov før en
+#    hjemmeside må kalde 127.0.0.1. Der står ingen ved skærmen til at svare ja,
+#    så Bon og Whiteboard får lov på forhånd — kun til at nå byt-knappens server.
+POLICY_DIR=/etc/chromium/policies/managed
+MAIN_ORIGIN="$(printf '%s' "$KIOSK_URL" | sed -E 's#^([A-Za-z]+://[^/?\#]+).*#\1#')"
+SIDE_ORIGIN="$(printf '%s' "${KIOSK_SIDE_URL:-}" | sed -E 's#^([A-Za-z]+://[^/?\#]+).*#\1#')"
+say "Chromium-politik i $POLICY_DIR"
+sudo mkdir -p "$POLICY_DIR"
+printf '{\n  "TranslateEnabled": false,\n  "LocalNetworkAccessAllowedForUrls": ["%s"%s]\n}\n' \
+    "$MAIN_ORIGIN" "$( [ -n "$SIDE_ORIGIN" ] && printf ', "%s"' "$SIDE_ORIGIN" )" \
+    | sudo tee "$POLICY_DIR/bon-kiosk.json" >/dev/null
+cat "$POLICY_DIR/bon-kiosk.json" | sed 's/^/  /'
+
 # Uden linger stoppes brugerens systemd når ingen er logget ind, og timerne dør.
 sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || warn "kunne ikke sætte linger — timere kan dø når du logger ud af SSH"
 
@@ -298,6 +294,10 @@ systemctl --user daemon-reload
 systemctl --user enable --now kiosk-display-off.timer kiosk-display-on.timer >/dev/null
 if [ "$WITH_WATCHDOG" = "1" ]; then
     systemctl --user enable --now kiosk-watchdog.service >/dev/null
+fi
+if [ "$LAYOUT" = "split" ]; then
+    systemctl --user enable kiosk-layout.service >/dev/null
+    systemctl --user restart kiosk-layout.service
 fi
 
 # ── 5. Kvittering ───────────────────────────────────────────────────────────
@@ -330,5 +330,6 @@ Næste skridt
 
   Timere:   systemctl --user list-timers 'kiosk-*'
   Watchdog: journalctl --user -u kiosk-watchdog -f
+  Byt-knap: journalctl --user -u kiosk-layout -f   (stor del: cat ~/.config/bon-kiosk/primary)
 
 SUMMARY

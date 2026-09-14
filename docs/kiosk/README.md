@@ -244,7 +244,8 @@ topbaren bruges til at navigere.
 | `KIOSK_LAYOUT` | `split` | `single` = ét vindue i fuld skærm |
 | `KIOSK_URL` | køkkenets dashboard | venstre vindue |
 | `KIOSK_SIDE_URL` | Whiteboard | højre vindue |
-| `KIOSK_MAIN_FRACTION` | `2/3` | venstre vindues andel af bredden |
+| `KIOSK_MAIN_FRACTION` | `2/3` | den store dels andel af bredden |
+| `KIOSK_MAIN_SCALE` / `SIDE_SCALE` | `1.4` / `1` | zoom på den store / lille del |
 | `KIOSK_OFF_TIME` / `ON_TIME` | `17:30` / `06:30` | panelet sluk/tænd, man-fre |
 | `KIOSK_HIDE_PANEL` | `1` | skjul Pi OS' panel i toppen |
 
@@ -255,6 +256,26 @@ tidligere udgave af filen gemmes som `rc.xml.bak-kiosk`.
 **Panelet** kan ikke auto-skjule sig under labwc, så installeren kommenterer
 dets linje ud i `/etc/xdg/labwc/autostart` (backup: `autostart.bak-kiosk`).
 Gendan med `sudo cp /etc/xdg/labwc/autostart.bak-kiosk /etc/xdg/labwc/autostart`.
+
+### Byt-knappen ⇄
+
+"⇄ Whiteboard stor" / "⇄ Bon stor" i Bons køkken-topbar og i Tavlens header
+bytter om på hvem der har den store del. Pi'en skriver vinduesreglerne om og
+genstarter begge vinduer — det tager omkring 5 sekunder. Valget huskes over
+en genstart (`~/.config/bon-kiosk/primary`), og zoomen følger pladsen.
+
+Knappen findes **kun på Pi'en**: den vises først når
+`kiosk-layout.service` svarer på `127.0.0.1:8765`, og appsene spørger kun
+når de er åbnet fra kiosken (`?kiosk=…`, husket i browseren). Serveren tager
+kun imod kald fra Bons og Tavlens egne adresser.
+
+Chromium spørger normalt om lov før en hjemmeside må kalde `127.0.0.1`. Den
+tilladelse gives på forhånd i `/etc/chromium/policies/managed/bon-kiosk.json`,
+som også slår "Oversæt denne side?" fra.
+
+```bash
+journalctl --user -u kiosk-layout -f
+```
 
 ### PIN-padden
 
@@ -306,6 +327,8 @@ systemctl --user disable --now kiosk-watchdog.service
 | `bin/kiosk-display.sh` | `on`/`off`/`status`. Fire fallbacks, husker hvad der virkede. |
 | `bin/kiosk-watchdog.sh` | Skifter til nødvisning når Bon ikke kan nås. |
 | `offline.html` | Lokal nødside. Poller Bon, vender tilbage efter idle. |
+| `bin/kiosk_layout.py` | Vinduesreglerne — én kilde for installeren og byt-knappen. |
+| `bin/kiosk-layout-server.py` | Byt-knappens modtager, kun på 127.0.0.1. |
 
 ---
 
