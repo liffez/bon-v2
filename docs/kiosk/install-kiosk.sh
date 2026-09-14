@@ -28,6 +28,17 @@ sudo apt-get install -y --no-install-recommends curl wlr-randr >/dev/null
 sudo apt-get install -y --no-install-recommends swayidle >/dev/null 2>&1 || warn "swayidle kunne ikke installeres — skærmen går ikke i sort igen efter idle"
 # Den sorte skærm efter lukketid (kiosk-blank.py) er et lille GTK-vindue.
 sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 >/dev/null 2>&1 || warn "python3-gi/GTK mangler — efter lukketid slukkes panelet rigtigt, og et tryk vækker det ikke"
+# ddcutil skruer lysstyrken ned mens den sorte skærm vises (et sort billede
+# sparer ellers ingen strøm). Kræver adgang til /dev/i2c-* via i2c-gruppen.
+if sudo apt-get install -y --no-install-recommends ddcutil >/dev/null 2>&1; then
+    getent group i2c >/dev/null && sudo usermod -aG i2c "$USER" \
+        || warn "i2c-gruppen findes ikke — ddcutil virker måske kun med sudo"
+else
+    warn "ddcutil kunne ikke installeres — lysstyrken skrues ikke ned om aftenen"
+fi
+# Emoji-skrifttype: Pi OS har ingen som standard, så emojis i Bon og
+# Whiteboard vises som tomme firkanter.
+sudo apt-get install -y --no-install-recommends fonts-noto-color-emoji >/dev/null 2>&1 || warn "fonts-noto-color-emoji kunne ikke installeres — emojis vises ikke"
 # wlopm er den pæneste måde at slukke panelet (ren DPMS), men er ikke i alle
 # Debian-udgaver. Vi prøver, og kiosk-display.sh falder tilbage hvis den mangler.
 sudo apt-get install -y --no-install-recommends wlopm >/dev/null 2>&1 || warn "wlopm findes ikke i apt her — kiosk-display.sh bruger wlr-randr i stedet"
@@ -221,15 +232,18 @@ fi
 say "Opretter timere ($DAYS — sluk $OFF_TIME, tænd $ON_TIME)"
 mkdir -p "$UNITS"
 
+# En tidligere testudgave havde en standby-timer. iiyama-skærmen kommer ikke
+# ud af standby igen uden genstart, så den fjernes.
+systemctl --user disable --now kiosk-display-sleep.timer >/dev/null 2>&1 || true
+rm -f "$UNITS/kiosk-display-sleep.timer" "$UNITS/kiosk-display-sleep.service"
 for mode in off on; do
-    if [ "$mode" = off ]; then
-        when="$OFF_TIME"; label="slukker"
-    else
-        when="$ON_TIME";  label="tænder"
-    fi
+    case "$mode" in
+        off) when="$OFF_TIME"; label="gør skærmen sort" ;;
+        on)  when="$ON_TIME";  label="tænder" ;;
+    esac
     cat > "$UNITS/kiosk-display-$mode.service" <<UNIT
 [Unit]
-Description=Kiosk: $label panelet
+Description=Kiosk: $label
 
 [Service]
 Type=oneshot
@@ -239,7 +253,7 @@ KillMode=process
 UNIT
     cat > "$UNITS/kiosk-display-$mode.timer" <<UNIT
 [Unit]
-Description=Kiosk: $label panelet $DAYS kl. $when
+Description=Kiosk: $label $DAYS kl. $when
 
 [Timer]
 OnCalendar=$DAYS *-*-* $when:00
@@ -319,7 +333,7 @@ cat <<SUMMARY
   URL          $KIOSK_URL
   Device-id    $KIOSK_DEVICE_ID
   Panel        slukker $OFF_TIME · tænder $ON_TIME · $DAYS
-  Efter lukketid  sort skærm · tryk tænder den · sort igen efter ${KIOSK_WAKE_IDLE_MINUTES:-10} min uden berøring
+  Efter lukketid  sort skærm (lysstyrke ${KIOSK_NIGHT_BRIGHTNESS:-0}) · tryk tænder den · sort igen efter ${KIOSK_WAKE_IDLE_MINUTES:-10} min uden berøring
   Watchdog     $( [ "$WITH_WATCHDOG" = 1 ] && echo "aktiv" || echo "slået fra" )
 
 Næste skridt

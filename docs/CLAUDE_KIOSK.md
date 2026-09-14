@@ -2,7 +2,7 @@
 
 **Status:** Skærm og Pi i drift (september 2026) — checkpoints (§3–§6, §8) afventer implementering
 **Omfang:** Bon v2 + Whiteboard
-**Version:** 0.9
+**Version:** 0.10
 
 > **Hvad der er bygget:** §0 beskriver skærmen som den kører i dag. Resten af
 > dokumentet er den oprindelige specifikation af checkpoint-systemet
@@ -455,17 +455,30 @@ panel kan altså ikke vækkes med et tryk.
 - Kl. 06:30 (`kiosk-display.sh on`): det sorte vindue fjernes.
 
 **Hvorfor det holder mod indbrænding:** et helt sort billede er det samme som
-intet billede for panelet. Det, der gik tabt, er strømmen: baggrundslyset er
-tændt om natten (skærmen bruger ~21 W tændt mod 1,5 W i standby — §7.1).
+intet billede for panelet.
+
+**Strøm.** Et sort billede sparer ikke strøm — baggrundslyset er tændt (skærmen
+bruger ~21 W tændt mod 1,5 W i standby, §7.1). Hele tiden uden for åbningstid
+ville det være ~130 kWh om året. To greb:
+
+- **Lysstyrken skrues ned** over DDC/CI mens den sorte skærm vises
+  (`ddcutil setvcp 10 0`, bus 20 på Pi'en — afprøvet 14/9-2026). Den
+  oprindelige værdi gemmes og sættes tilbage når vinduet lukker.
+- **Standby er fravalgt — det er ikke bare et spørgsmål om berøring.**
+  Afprøvet 14/9-2026: efter ~1 minut i standby kommer skærmen ikke tilbage
+  med `wlopm --on`, `wlr-randr --off/--on` ("failed to apply configuration")
+  eller DDC (VCP `d6` "Unsupported feature code"). Kun genstart af Pi'en.
+  Tastatur og berøring når ellers frem til Pi'en i standby.
 
 **Nødudgange:**
 
-- Kan det sorte vindue ikke startes (fx GTK mangler), slukker `off` panelet
-  rigtigt som før og skriver det i loggen. Så vækker et tryk ikke, men
-  indbrændingen er stadig undgået.
-- `KIOSK_WAKE_IDLE_MINUTES="0"` slår det hele fra: panelet slukkes rigtigt kl.
-  17:30, og et tryk vækker det ikke.
-- `kiosk-display.sh sleep` slukker panelet rigtigt i hånden.
+- Kan det sorte vindue ikke startes (fx GTK mangler), skrues kun lysstyrken
+  ned, og panelet bliver tændt. Standby bruges ikke som nødudgang — skærmen
+  ville ikke komme igen.
+- `KIOSK_WAKE_IDLE_MINUTES="0"`: skærmen bliver ikke sort igen efter idle,
+  først næste aften kl. 17:30.
+- `kiosk-display.sh sleep` sætter panelet i standby i hånden, men advarer:
+  på denne skærm kræver det genstart af Pi'en at få billedet igen.
 
 ### 7.4 Sensorindsamling — skal adskilles fra kiosken
 
@@ -610,8 +623,3 @@ Ikke med i denne version:
    andet end både Dashboard og "I dag". Hvis den i praksis *er* "I dag"-viewet,
    falder checkpointet sammen til blot at sætte idle-målet ved dagens start —
    simplere, men så mister man Dashboardets overblik ved mødetid.
-8. **Strøm om natten.** Den sorte skærm (§7.3.1) holder baggrundslyset tændt
-   hele natten. Skal panelet i rigtig standby sent om aftenen (fx 23:00), hvor
-   ingen laver mad? Så vækker et tryk ikke længere. Alternativt kan
-   lysstyrken skrues ned over DDC/CI (`ddcutil`), hvis skærmen understøtter det
-   over Pi'ens HDMI.
