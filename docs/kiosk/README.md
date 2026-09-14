@@ -217,7 +217,17 @@ weekenden. Inden for åbningstiden bliver den aldrig sort af sig selv.
 panelet går i standby (målt på Pi'en: ingen `TOUCH_DOWN` mens panelet er
 slukket). Et slukket panel kan derfor ikke vækkes med et tryk. Kl. 17:30 lægges
 i stedet et helt sort vindue over (`bin/kiosk-blank.py`). Berøringen virker hele
-tiden, og et sort billede brænder ikke ind. Baggrundslyset er tændt om natten.
+tiden, og et sort billede brænder ikke ind.
+
+**Strøm:** et sort billede sparer ikke strøm, for baggrundslyset er tændt. Mens
+den sorte skærm vises, skrues lysstyrken derfor ned over DDC/CI (`ddcutil`,
+`KIOSK_NIGHT_BRIGHTNESS`), og den oprindelige lysstyrke sættes tilbage, når
+nogen trykker.
+
+**Ingen standby.** Panelet går aldrig i standby af sig selv: iiyama-skærmen
+slukker berøringen i standby, og efter ~1 minut kommer den slet ikke tilbage —
+hverken med `wlopm`, `wlr-randr` eller DDC (`d6` understøttes ikke). Kun en
+genstart af Pi'en hjælper. `kiosk-display.sh sleep` findes stadig, men advarer.
 
 Det sorte vindue lukker, når fingeren slippes, så trykket ikke rammer siden
 nedenunder. `swayidle` (`bin/kiosk-idle.sh`, startet fra labwc's autostart)
@@ -231,9 +241,8 @@ Efterprøv det:
 
 Skærmen skal blive sort. Tryk på den — så skal Bon være der igen.
 
-Sættes `KIOSK_WAKE_IDLE_MINUTES="0"`, slukkes panelet rigtigt kl. 17:30, og et
-tryk vækker det ikke. Vil du slukke panelet rigtigt i hånden:
-`~/kiosk/bin/kiosk-display.sh sleep`.
+Sættes `KIOSK_WAKE_IDLE_MINUTES="0"`, bliver skærmen ikke sort igen efter
+idle — først næste aften kl. 17:30.
 
 ---
 
@@ -270,7 +279,9 @@ topbaren bruges til at navigere.
 | `KIOSK_MAIN_FRACTION` | `2/3` | den store dels andel af bredden |
 | `KIOSK_MAIN_SCALE` / `SIDE_SCALE` | `1` / `1` | zoom på den store / lille del |
 | `KIOSK_OFF_TIME` / `ON_TIME` | `17:30` / `06:30` | panelet sluk/tænd, man-fre |
-| `KIOSK_WAKE_IDLE_MINUTES` | `10` | efter lukketid: sort skærm igen efter så mange minutter uden berøring (0 = sluk panelet rigtigt, tryk vækker ikke) |
+| `KIOSK_NIGHT_BRIGHTNESS` | `0` | lysstyrke mens skærmen er sort (`off` = rør den ikke) |
+| `KIOSK_DDC_BUS` | `20` | I2C-bus til `ddcutil` (`sudo ddcutil detect`) |
+| `KIOSK_WAKE_IDLE_MINUTES` | `10` | efter lukketid: sort skærm igen efter så mange minutter uden berøring (0 = først igen næste aften) |
 | `KIOSK_HIDE_PANEL` | `1` | skjul Pi OS' panel i toppen |
 
 Kør installeren igen efter en ændring, og genstart. Vinduesplaceringen ligger

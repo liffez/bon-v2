@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 # kiosk-display.sh on|off|sleep|blank|unblank|idle-off|wake|status
 #
-# Efter lukketid skal et tryk kunne tænde skærmen. Men iiyama-skærmen slukker
-# sin berøring når panelet går i standby, så "off" lægger i stedet en sort
-# skærm over (kiosk-blank.py), der forsvinder ved berøring. Et sort billede
-# brænder ikke ind. Er vækning slået fra (KIOSK_WAKE_IDLE_MINUTES=0), eller
-# kan den sorte skærm ikke startes, slukkes panelet rigtigt som før.
+# Efter lukketid skal et tryk kunne tænde skærmen. Men iiyama ProLite
+# T2752MSC slukker sin berøring i standby — og kommer ikke engang ud af
+# standby igen efter ~1 minut (hverken wlopm, wlr-randr eller DDC; kun genstart
+# af Pi'en). Derfor går panelet ALDRIG i standby automatisk. Efter lukketid
+# lægges en sort skærm over (kiosk-blank.py) med lysstyrken skruet ned over
+# DDC/CI (KIOSK_NIGHT_BRIGHTNESS). Et tryk fjerner den og sætter lyset tilbage.
 #
-#   off       sort skærm (eller rigtig sluk, se ovenfor) — timeren kl. OFF_TIME
-#   on        fjern sort skærm + tænd panelet — timeren kl. ON_TIME
-#   sleep     sluk panelet rigtigt (standby). Berøring vækker det IKKE.
-#   idle-off  kiosk-idle.sh: sort skærm efter idle, men kun uden for åbningstid
-#   wake      kiosk-idle.sh: tænd panelet hvis det er i standby (fx tastatur)
+#   off       sort skærm + lys ned — timeren kl. OFF_TIME
+#   on        fjern sort skærm, lys op, tænd panelet — timeren kl. ON_TIME
+#   idle-off  kiosk-idle.sh: sort skærm igen efter idle uden for åbningstid
+#   restore   sæt lysstyrken tilbage (kaldes når den sorte skærm lukker)
+#   sleep     rigtig standby i hånden. PAS PÅ: iiyama-skærmen kommer ikke
+#             tilbage uden genstart af Pi'en.
+#   wake      tænd panelet hvis det står i standby (virker kun kort efter)
 #
-# Slukker og tænder panelet (CLAUDE_KIOSK.md §7.3, punkt 2 og 3).
-# Eneste grund er indbrænding: ni timers stillestående dashboard hver aften.
+# Grunden til det hele er indbrænding: stillestående dashboard hver aften
+# (CLAUDE_KIOSK.md §7.3).
 #
-# Der findes ikke ét kald der virker på tværs af Pi-modeller og compositors,
-# så vi prøver dem i rækkefølge og LOGGER hvilken der virkede. Efter første
+# Der findes ikke ét kald der tænder/slukker panelet på tværs af Pi-modeller og
+# compositors, så vi prøver dem i rækkefølge og LOGGER hvilken der virkede. Efter første
 # kørsel ved du hvad din maskine bruger — læs `kiosk-display.sh status`.
 #
 # Rækkefølgen er valgt efter hvor lidt de forstyrrer:
@@ -72,6 +75,9 @@ start_blank() {
     if blank_running; then
         echo blank > "$PANEL_FILE"
         log "sort skærm — tryk for at tænde"
+        dim_brightness
+        # Trykkede nogen mens vi skruede ned, er vinduet væk igen — lys op.
+        blank_running || restore_brightness
         return 0
     fi
     log "sort skærm kunne ikke startes (se $STATE_DIR/blank.log)"
@@ -79,18 +85,53 @@ start_blank() {
 }
 
 stop_blank() {
-    blank_running || return 0
-    pkill -f -- "$BLANK_PY"
-    log "sort skærm fjernet"
+    if blank_running; then
+        pkill -f -- "$BLANK_PY"
+        log "sort skærm fjernet"
+    fi
+    restore_brightness
 }
 
-# Er vi inden for åbningstiden? KIOSK_DAYS i systemd-form: "Mon-Fri",
-# "Mon..Fri" eller "Mon,Wed,Fri". Klokkeslæt som HH:MM.
-in_hours() {
-    local days="${KIOSK_DAYS:-Mon-Fri}" on="${KIOSK_ON_TIME:-06:30}" off="${KIOSK_OFF_TIME:-17:30}"
-    local today now part a b n na nb hit=0
+# ── Lysstyrke over DDC/CI ───────────────────────────────────────────────────
+# VCP 10 er lysstyrke. Den oprindelige værdi gemmes før vi skruer ned, så en
+# manuelt valgt lysstyrke på skærmen kommer tilbage — ikke en hardkodet 100.
+BRIGHT_FILE="$STATE_DIR/brightness"
+
+ddc() {
+    command -v ddcutil >/dev/null || return 1
+    ddcutil ${KIOSK_DDC_BUS:+--bus "$KIOSK_DDC_BUS"} "$@"
+}
+
+dim_brightness() {
+    local night="${KIOSK_NIGHT_BRIGHTNESS:-0}" cur
+    [ "$night" = "off" ] && return 0
+    command -v ddcutil >/dev/null || return 0
+    if [ ! -s "$BRIGHT_FILE" ]; then
+        # "VCP 10 C 75 100" → 75
+        cur="$(ddc getvcp 10 --brief 2>/dev/null | awk '{print $4}')"
+        case "$cur" in ''|*[!0-9]*) log "kunne ikke læse lysstyrken over DDC/CI — lader den være"; return 0 ;; esac
+        [ "$cur" -gt "$night" ] || return 0
+        echo "$cur" > "$BRIGHT_FILE"
+    fi
+    ddc setvcp 10 "$night" >/dev/null 2>&1 && log "lysstyrke $night" || log "kunne ikke skrue ned over DDC/CI"
+}
+
+restore_brightness() {
+    [ -s "$BRIGHT_FILE" ] || return 0
+    local v; v="$(cat "$BRIGHT_FILE")"
+    if ddc setvcp 10 "$v" >/dev/null 2>&1; then
+        rm -f "$BRIGHT_FILE"
+        log "lysstyrke $v"
+    else
+        log "kunne ikke sætte lysstyrken tilbage til $v over DDC/CI"
+    fi
+}
+
+# Er i dag en af KIOSK_DAYS? Systemd-form: "Mon-Fri", "Mon..Fri" eller
+# "Mon,Wed,Fri".
+day_matches() {
+    local days="${KIOSK_DAYS:-Mon-Fri}" today part a b n na nb hit=0
     today="${KIOSK_NOW_DOW:-$(date +%u)}"       # 1=man … 7=søn
-    now="${KIOSK_NOW_HM:-$(date +%H:%M)}"
     dow() { case "$1" in Mon) echo 1;; Tue) echo 2;; Wed) echo 3;; Thu) echo 4;; Fri) echo 5;; Sat) echo 6;; Sun) echo 7;; *) echo 0;; esac; }
     for part in $(printf '%s' "$days" | tr ',' ' '); do
         part="${part/../-}"
@@ -99,9 +140,18 @@ in_hours() {
         [ "$na" -gt 0 ] && [ "$nb" -gt 0 ] || continue
         for n in $(seq "$na" "$nb"); do [ "$n" = "$today" ] && hit=1; done
     done
-    [ "$hit" = 1 ] || return 1
-    # HH:MM sammenlignes som tal (0630 < 1730).
-    [ "$((10#${now/:/}))" -ge "$((10#${on/:/}))" ] && [ "$((10#${now/:/}))" -lt "$((10#${off/:/}))" ]
+    [ "$hit" = 1 ]
+}
+
+# HH:MM som tal (06:30 → 630), så tider kan sammenlignes.
+hm() { local t="${1/:/}"; echo "$((10#$t))"; }
+now_hm() { hm "${KIOSK_NOW_HM:-$(date +%H:%M)}"; }
+
+# Åbningstid: KIOSK_DAYS, KIOSK_ON_TIME..KIOSK_OFF_TIME.
+in_hours() {
+    day_matches || return 1
+    local now; now="$(now_hm)"
+    [ "$now" -ge "$(hm "${KIOSK_ON_TIME:-06:30}")" ] && [ "$now" -lt "$(hm "${KIOSK_OFF_TIME:-17:30}")" ]
 }
 
 # Første output wlr-randr rapporterer, hvis intet er valgt i kiosk.env.
@@ -165,17 +215,17 @@ apply() {
 
 case "${1:-}" in
     off)
-        if wake_enabled && start_blank; then
-            exit 0
-        fi
-        wake_enabled && log "falder tilbage til rigtig sluk — berøring vækker ikke"
-        apply off
+        start_blank && exit 0
+        # Ingen standby som nødudgang: skærmen kommer ikke tilbage af sig selv.
+        log "sort skærm kunne ikke startes — skruer kun lyset ned, panelet bliver tændt"
+        dim_brightness
         ;;
     on)
         stop_blank
         apply on
         ;;
     sleep)
+        log "ADVARSEL: iiyama-skærmen kommer ikke ud af standby igen uden genstart af Pi'en"
         stop_blank
         apply off
         ;;
@@ -183,11 +233,12 @@ case "${1:-}" in
     unblank) stop_blank ;;
     idle-off)
         in_hours && exit 0          # åbningstid: timerne bestemmer, ikke idle
-        blank_running && exit 0
         [ "$(cat "$PANEL_FILE" 2>/dev/null)" = off ] && exit 0
+        blank_running && exit 0
         log "ingen berøring efter lukketid"
-        start_blank || apply off
+        start_blank || dim_brightness
         ;;
+    restore) restore_brightness ;;
     wake)
         # Kaldes ved aktivitet. Kun hvis panelet står i rigtig standby.
         [ "$(cat "$PANEL_FILE" 2>/dev/null)" = off ] || exit 0
@@ -201,13 +252,14 @@ case "${1:-}" in
         echo "Output  : $(detect_output 2>/dev/null || echo '<ukendt>')"
         echo "Metode  : $( [ -r "$STATE_FILE" ] && cat "$STATE_FILE" || echo '<endnu ikke fundet>' )"
         echo "Panel   : $(cat "$PANEL_FILE" 2>/dev/null || echo '<ukendt>')$(blank_running && echo ' (sort skærm vises)')"
-        echo "Vækning : $(wake_enabled && echo "ja — sort skærm efter lukketid, sort igen efter ${KIOSK_WAKE_IDLE_MINUTES:-10} min" || echo 'slået fra — panelet slukkes rigtigt')"
+        echo "Efter lukketid : sort skærm, tryk fjerner den$(wake_enabled && echo ", sort igen efter ${KIOSK_WAKE_IDLE_MINUTES:-10} min" || echo " (sort igen efter idle er slået fra)")"
+        echo "Nat-lys : ${KIOSK_NIGHT_BRIGHTNESS:-0}$( [ -s "$BRIGHT_FILE" ] && echo " (skruet ned, gemt: $(cat "$BRIGHT_FILE"))")"
         echo "Åbent   : $(in_hours && echo "ja (${KIOSK_DAYS:-Mon-Fri} ${KIOSK_ON_TIME:-06:30}–${KIOSK_OFF_TIME:-17:30})" || echo nej)"
         echo "Findes  :"
-        for c in wlopm wlr-randr vcgencmd xset swayidle; do
+        for c in wlopm wlr-randr vcgencmd xset swayidle ddcutil; do
             printf '  %-10s %s\n' "$c" "$(command -v "$c" 2>/dev/null || echo 'nej')"
         done
         printf '  %-10s %s\n' "gtk" "$(python3 -c 'import gi; gi.require_version("Gtk","3.0"); from gi.repository import Gtk' 2>/dev/null && echo ja || echo 'nej (python3-gi mangler)')"
         ;;
-    *) echo "brug: $(basename "$0") on|off|sleep|blank|unblank|idle-off|wake|status" >&2; exit 2 ;;
+    *) echo "brug: $(basename "$0") on|off|sleep|blank|unblank|idle-off|wake|restore|status" >&2; exit 2 ;;
 esac

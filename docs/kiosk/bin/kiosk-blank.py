@@ -12,9 +12,13 @@ nedenunder. Kører kun i ét eksemplar (kiosk-display.sh sørger for det).
 """
 import os
 import signal
+import subprocess
 import sys
+import warnings
 
 os.environ.setdefault('GDK_BACKEND', 'wayland')
+# override_background_color er forældet i GTK 3, men virker og er det simpleste.
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 import gi  # noqa: E402
 gi.require_version('Gtk', '3.0')
@@ -59,7 +63,12 @@ def main():
 
     # kiosk-display.sh on (kl. 06:30) sender SIGTERM.
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, close)
-    Gtk.main()
+    try:
+        Gtk.main()
+    finally:
+        # Lysstyrken blev skruet ned da vinduet kom op — sæt den tilbage.
+        display_sh = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'kiosk-display.sh')
+        subprocess.run([display_sh, 'restore'], check=False)
     return 0
 
 
