@@ -471,6 +471,12 @@ curl -s -o /dev/null -w "%{http_code} %{size_download} bytes\n" -H "GROCY-API-KE
 Alt i Bon v2 kalder loggen med `limit` og filtre og har aldrig brug for det rå kald —
 grænsen hæves for at Grocy kan bruges direkte, ikke fordi Bon kræver det.
 
+**Rullet ud 14. september 2026.** `diff` viste at serverens pool-fil kun afveg med den
+nye blok; efter `cp` + `php-fpm8.5 -t` + `reload` svarer det rå kald `200` med
+35.536.374 bytes (~75.000 rækker). 512M var nok — der var ikke brug for 1G. Loggen
+skrev i øvrigt aldrig "Allowed memory size", så et tomt grep beviser ingenting her;
+`curl`-testen gør.
+
 PHP-FPM pool har et problem:
 ```bash
 sudo tail -f /var/log/php-fpm/grocy-hq-error.log
