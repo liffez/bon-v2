@@ -118,6 +118,7 @@
     "test:event-rest-prep-http": "node --experimental-sqlite scripts/test-event-rest-prep-http.js",
     "test:wish-lines": "node scripts/test-wish-lines.js",
     "test:last-checked": "node scripts/test-last-checked.js",
+    "test:stock-inactive": "node scripts/test-stock-inactive.js",
     "backfill:sidst-tjekket": "node --env-file=.env scripts/backfill-last-checked.js",
     "test:web-order-flag": "node --experimental-sqlite --test tests/web_order_flag.test.js"
   },

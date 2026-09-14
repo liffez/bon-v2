@@ -6568,6 +6568,29 @@ sortering virker.
 **Deploy:** kør `npm run backfill:sidst-tjekket` på serveren (dry-run først, så
 `--apply`) efter deploy — ellers ser alt forfaldent ud den første uge.
 
+### Inaktive varer kan genaktiveres fra lageroversigten (#615, 14. september 2026)
+
+Optællingens "Varen findes ikke mere" sætter lageret til 0 og markerer varen **inaktiv**
+i Grocy — den slettes ikke. Men inaktive varer var filtreret helt ud af lageroversigten,
+så den eneste vej tilbage var Grocys eget UI, og ✎-modalens Aktiv-felt kunne i praksis
+kun bruges til at deaktivere.
+
+- **Pille "N inaktive"** i statusbaren viser en egen liste; søg/lokation/gruppe virker
+  ovenpå. Total-pillen tæller fortsat kun aktive — ikke det viste udsnit.
+- **Inaktivt kort**: dæmpet, stiplet kant, `inaktiv`-badge, intet justeringspanel (intet
+  lager at rette), og `↺ Aktivér` ved siden af ✎ i én række, så kortet ikke vokser.
+  Knappen sender **kun** `{active: 1}` — lageret røres ikke; det står på 0 efter
+  "findes ikke mere", og næste skridt er brugerens.
+- **✎-modalens Aktiv-felt virker begge veje**: varen flytter mellem de to lister i
+  stedet for bare at forsvinde ved deaktivering.
+- **Én item-bygger** (`_soItemFromProduct`) deles af "Tilføj vare", inaktiv-listen og
+  genaktivering. `_soProductsMap` rummer nu ALLE produkter (så ✎ kan åbne en inaktiv);
+  `_soAllProducts` er fortsat kun aktive. En inaktiv vare med lagerpost holdes ude af den
+  aktive liste — før stod den der, fordi `/stock` ikke filtrerer på `active`.
+
+**Tests:** `npm run test:stock-inactive` — 35 asserts (vm-sandkasse). Mutations-testet:
+seks kerneregler fælder hver 1–5 asserts. Sletning af produkter skal fortsat ske i Grocy.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

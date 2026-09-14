@@ -19,7 +19,8 @@
 // STATE
 // ════════════════════════════════════════════════════════════
 
-var _soStockData      = [];   // processed stock items
+var _soStockData      = [];   // processed stock items (aktive varer)
+var _soInactiveItems  = [];   // inaktive varer (#615) — vises kun bag pillen "inaktive"
 var _soAllProducts    = [];   // all active products (for add-product)
 var _soProductsMap    = {};   // product_id -> product
 var _soQUnitsMap      = {};   // qu_id -> unit name
@@ -95,16 +96,20 @@ async function _soLoadData() {
         _soShopLocsArr = rawShopLocs;
         rawShopLocs.forEach(function(s) { _soShopLocsMap[s.id] = s.name; });
 
+        // Kortet rummer ALLE produkter, så ✎-modalen også kan åbne en inaktiv vare
+        // (#615). _soAllProducts (til "Tilføj vare") er fortsat kun de aktive.
         _soProductsMap = {};
-        _soAllProducts = rawProducts.filter(function(p) {
-            if (p.active === undefined || p.active === null) return true;
-            return p.active === '1' || p.active === 1 || p.active === true;
-        });
-        _soAllProducts.forEach(function(p) { _soProductsMap[p.id] = p; });
+        rawProducts.forEach(function(p) { _soProductsMap[p.id] = p; });
+        _soAllProducts = rawProducts.filter(_soIsActiveProduct);
 
         // Process stock
         var now = new Date();
-        _soStockData = rawStock.map(function(item) {
+        // Inaktive varer hører ikke til i den aktive liste, heller ikke hvis de
+        // stadig har en lagerpost — de samles i _soInactiveItems nedenfor.
+        _soStockData = rawStock.filter(function(item) {
+            var fp = _soProductsMap[item.product_id];
+            return !fp || _soIsActiveProduct(fp);
+        }).map(function(item) {
             var status = 'ok';
             var daysUntilExpiry = Infinity;
             var amount = parseFloat(item.amount) || 0;
@@ -160,6 +165,13 @@ async function _soLoadData() {
         });
         _soStockData.forEach(_soRecalcCheck);
         _soSortMode = _soLoadSortMode();
+
+        // Inaktive varer (#615): egen liste, beholdning fra /stock hvis der er en.
+        var stockByPid = {};
+        rawStock.forEach(function(item) { stockByPid[item.product_id] = item; });
+        _soInactiveItems = rawProducts.filter(function(p) { return !_soIsActiveProduct(p); })
+            .map(function(p) { return _soItemFromProduct(p, stockByPid[p.id] || null, true); });
+        _soInactiveItems.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
 
         // Sort by name
         _soStockData.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
@@ -308,6 +320,15 @@ function _soHandleClick(e) {
         return;
     }
 
+    // Genaktivér (#615)
+    var reBtn = target.closest('.so-reactivate-btn');
+    if (reBtn) {
+        e.stopPropagation();
+        var rcard = reBtn.closest('.so-card');
+        if (rcard) _soReactivate(parseInt(rcard.getAttribute('data-id')));
+        return;
+    }
+
     // Edit pencil on a card
     var editBtn = target.closest('.so-edit-btn');
     if (editBtn) {
@@ -393,8 +414,8 @@ function _soHandleClick(e) {
         var pid = parseInt(card.getAttribute('data-id'));
         if (_soSelectMode) {
             _soToggleSelect(pid);
-        } else {
-            _soToggleExpand(pid);
+        } else if (!card.classList.contains('so-inactive')) {
+            _soToggleExpand(pid);       // en inaktiv vare har intet lager at justere
         }
         return;
     }
@@ -445,19 +466,26 @@ function _soApplyFilters() {
     var groupId    = grpEl.value;
     var status     = _soActiveStatusFilter;
 
-    _soFilteredData = _soStockData.filter(function(item) {
+    // Søg/lokation/gruppe gælder begge lister; status-pillen vælger hvilken.
+    function base(item) {
         if (search && item.name.toLowerCase().indexOf(search) === -1) return false;
         if (locationId && String(item.location_id) !== locationId) return false;
         if (groupId && String(item.product_group_id) !== groupId) return false;
-        if (status === 'unchecked') {
-            if (!_soIsUnchecked(item)) return false;
-        } else if (status && item.status !== status) {
-            return false;
-        }
         return true;
-    });
+    }
+    var activeMatches   = _soStockData.filter(base);
+    var inactiveMatches = _soInactiveItems.filter(base);
 
-    _soUpdateStatusBar();
+    if (status === 'inactive') {
+        _soFilteredData = inactiveMatches;
+    } else {
+        _soFilteredData = activeMatches.filter(function(item) {
+            if (status === 'unchecked') return _soIsUnchecked(item);
+            return !status || item.status === status;
+        });
+    }
+
+    _soUpdateStatusBar(activeMatches, inactiveMatches.length);
     _soRenderGrid();
 }
 
@@ -465,13 +493,15 @@ function _soApplyFilters() {
 // STATUS BAR
 // ════════════════════════════════════════════════════════════
 
-function _soUpdateStatusBar() {
+function _soUpdateStatusBar(activeMatches, inactiveCount) {
     var bar = document.getElementById('soStatusBar');
     if (!bar) return;
+    activeMatches = activeMatches || _soFilteredData;
+    inactiveCount = inactiveCount || 0;
 
-    var total   = _soFilteredData.length;
+    var total   = activeMatches.length;
     var expired = 0, duesoon = 0, low = 0, unchecked = 0;
-    _soFilteredData.forEach(function(i) {
+    activeMatches.forEach(function(i) {
         if (i.status === 'expired') expired++;
         if (i.status === 'duesoon') duesoon++;
         if (i.status === 'low')     low++;
@@ -500,6 +530,12 @@ function _soUpdateStatusBar() {
             (_soActiveStatusFilter === 'unchecked' ? ' active' : '') +
             '" data-filter="unchecked" title="Aldrig tjekket, eller tjek-intervallet er overskredet">' +
             unchecked + ' ikke tjekket</span>';
+    }
+    if (inactiveCount > 0) {
+        html += '<span class="so-status-pill so-pill-inactive' +
+            (_soActiveStatusFilter === 'inactive' ? ' active' : '') +
+            '" data-filter="inactive" title="Varer der er sat inaktive (fx \'Varen findes ikke mere\' i optællingen). Kan genaktiveres herfra.">' +
+            inactiveCount + ' inaktive</span>';
     }
 
     bar.innerHTML = html;
@@ -621,7 +657,7 @@ function _soRenderCard(item) {
         }).join(' &middot; ') + '</span>';
     }
 
-    var checkHtml = _soRenderCheck(item);
+    var checkHtml = item.inactive ? '' : _soRenderCheck(item);
 
     // Min stock warning
     var minHtml = '';
@@ -630,7 +666,9 @@ function _soRenderCard(item) {
     }
 
     // Netop hentet frem: har endnu ingen lagerpost i Grocy
-    var newHtml = item.isNew ? '<span class="so-new-badge">ingen beholdning endnu</span>' : '';
+    var newHtml = item.isNew && !item.inactive ? '<span class="so-new-badge">ingen beholdning endnu</span>' : '';
+    // #615 — inaktiv: ingen justering (varen er taget af listerne), men en vej tilbage.
+    var inactiveHtml = item.inactive ? '<span class="so-inactive-badge">inaktiv</span>' : '';
 
     // Select box
     var selectBoxHtml = '<div class="so-select-box' + (isSelected ? ' so-selected' : '') + '">' +
@@ -651,6 +689,25 @@ function _soRenderCard(item) {
         '  <button class="so-shop-btn" title="Tilføj til indkøbsliste">+ Indkøbsliste</button>' +
         '</div>' +
         '</div>';
+
+    if (item.inactive) {
+        return '<div class="so-card so-inactive' + selectedClass + '" data-id="' + item.product_id + '">' +
+            '<div class="so-card-main">' +
+            selectBoxHtml +
+            '<div class="so-card-info">' +
+            '  <div class="so-card-name">' + esc(item.name) + '</div>' +
+            '  <div class="so-card-meta">' +
+            '    <span class="so-card-amount">' + amountText + '</span>' +
+            inactiveHtml +
+            '  </div>' +
+            '</div>' +
+            '<div class="so-card-side so-card-side-row">' +
+            '  <button class="so-reactivate-btn" title="Gør varen aktiv igen — den kommer tilbage på listerne">&#x21BA; Aktivér</button>' +
+            '  <button class="so-edit-btn" title="Rediger vare">&#x270E;</button>' +
+            '</div>' +
+            '</div>' +
+            '</div>';
+    }
 
     return '<div class="so-card ' + statusClass + selectedClass + expandedClass + '" data-id="' + item.product_id + '">' +
         '<div class="so-card-main">' +
@@ -1017,29 +1074,7 @@ function _soAddProductToList(productId) {
         return;
     }
 
-    var item = {
-        product_id:         parseInt(p.id),
-        name:               p.name || 'Ukendt',
-        amount:             0,
-        amount_opened:      0,
-        qu_id:              p.qu_id_stock,
-        qu_name:            _soQUnitsMap[p.qu_id_stock] || '',
-        best_before_date:   null,
-        daysUntilExpiry:    Infinity,
-        status:             'low',            // 0 på lager
-        location_id:        p.location_id,
-        location_name:      _soLocationsMap[p.location_id] || '',
-        product_group_id:   p.product_group_id,
-        product_group_name: _soGroupsMap[p.product_group_id] || '',
-        min_stock_amount:   parseFloat(p.min_stock_amount) || 0,
-        alt_conv:           _soAltConv(p),
-        last_checked:       _soLastChecked(p),
-        last_checked_unit:  (p.userfields || {}).LastCheckedUnit || null,
-        check_interval:     _soCheckInterval(p),
-        check:              null,
-        isNew:              true             // ingen lagerpost i Grocy endnu
-    };
-    _soRecalcCheck(item);
+    var item = _soItemFromProduct(p, null, false);   // isNew: ingen lagerpost i Grocy endnu
 
     _soStockData.push(item);
     _soStockData.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
@@ -1085,6 +1120,93 @@ function _soRecalcStatus(item) {
     if (item.amount <= 0) {
         item.status = 'low';
     }
+}
+
+// ── Inaktive varer (#615) ──────────────────────────────────
+
+function _soIsActiveProduct(p) {
+    if (!p || p.active === undefined || p.active === null) return true;
+    return p.active === '1' || p.active === 1 || p.active === true;
+}
+
+// Ét sted at bygge et kort-item ud fra et Grocy-produkt (+ evt. lagerpost).
+// Bruges af "Tilføj vare", inaktiv-listen og genaktivering, så de tre ikke
+// kan drive fra hinanden.
+function _soItemFromProduct(p, stockRow, inactive) {
+    var amount = stockRow ? (parseFloat(stockRow.amount) || 0) : 0;
+    var item = {
+        product_id:         parseInt(p.id),
+        name:               p.name || 'Ukendt',
+        amount:             amount,
+        amount_opened:      stockRow ? (parseFloat(stockRow.amount_opened) || 0) : 0,
+        qu_id:              p.qu_id_stock,
+        qu_name:            _soQUnitsMap[p.qu_id_stock] || '',
+        best_before_date:   stockRow ? stockRow.best_before_date : null,
+        daysUntilExpiry:    Infinity,
+        status:             'low',
+        location_id:        p.location_id,
+        location_name:      _soLocationsMap[p.location_id] || '',
+        product_group_id:   p.product_group_id,
+        product_group_name: _soGroupsMap[p.product_group_id] || '',
+        min_stock_amount:   parseFloat(p.min_stock_amount) || 0,
+        alt_conv:           _soAltConv(p),
+        last_checked:       _soLastChecked(p),
+        last_checked_unit:  (p.userfields || {}).LastCheckedUnit || null,
+        check_interval:     _soCheckInterval(p),
+        check:              null,
+        isNew:              !stockRow,
+        inactive:           !!inactive
+    };
+    _soRecalcStatus(item);
+    _soRecalcCheck(item);
+    return item;
+}
+
+function _soMoveToActive(id) {
+    var idx = _soInactiveItems.findIndex(function(it) { return it.product_id === id; });
+    if (idx === -1) return null;
+    var item = _soInactiveItems.splice(idx, 1)[0];
+    item.inactive = false;
+    item.isNew = item.amount <= 0;
+    _soRecalcStatus(item);
+    if (!_soStockData.some(function(it) { return it.product_id === id; })) {
+        _soStockData.push(item);
+        _soStockData.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
+    }
+    var prod = _soProductsMap[id];
+    if (prod) prod.active = '1';
+    return item;
+}
+
+function _soMoveToInactive(id) {
+    var idx = _soStockData.findIndex(function(it) { return it.product_id === id; });
+    if (idx === -1) return null;
+    var item = _soStockData.splice(idx, 1)[0];
+    item.inactive = true;
+    if (!_soInactiveItems.some(function(it) { return it.product_id === id; })) {
+        _soInactiveItems.push(item);
+        _soInactiveItems.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
+    }
+    var prod = _soProductsMap[id];
+    if (prod) prod.active = '0';
+    return item;
+}
+
+// "↺ Aktivér": sætter KUN active=1. Lageret røres ikke — det står på 0 efter
+// "Varen findes ikke mere", og det er brugerens næste skridt at give det et tal.
+async function _soReactivate(id) {
+    var item = _soInactiveItems.find(function(it) { return it.product_id === id; });
+    if (!item) return;
+    if (!confirm('Gør "' + item.name + '" aktiv igen?\n\nVaren kommer tilbage på lageroversigten og i optællingen.')) return;
+    try {
+        await putGrocyProduct(id, { active: 1 });
+    } catch (err) {
+        _soShowToast('Kunne ikke aktivere ' + esc(item.name) + ': ' + esc(err.message), 'error');
+        return;
+    }
+    _soMoveToActive(id);
+    _soApplyFilters();
+    _soShowToast(esc(item.name) + ' er aktiv igen' + (item.amount <= 0 ? ' — står på listen med 0 på lager, klik den for at give den et tal' : ''), 'success');
 }
 
 // ── "Sidst tjekket" (#613) ─────────────────────────────────
@@ -1486,10 +1608,10 @@ function _soApplyEditToLocal(id, master, user) {
         }
     }
 
-    // Deaktiveret -> fjern fra visningen (filtreres alligevel fra ved reload)
-    if (master.hasOwnProperty('active') && (master.active === 0 || master.active === '0')) {
-        _soStockData = _soStockData.filter(function(it) { return it.product_id !== id; });
-        return;
+    // Aktiv-flaget flytter varen mellem de to lister (#615) — begge veje.
+    if (master.hasOwnProperty('active')) {
+        if (master.active === 0 || master.active === '0') { _soMoveToInactive(id); return; }
+        _soMoveToActive(id);
     }
 
     var item = _soStockData.find(function(it) { return it.product_id === id; });
@@ -1520,6 +1642,9 @@ if (typeof module !== 'undefined' && module.exports) {
         _soCheckStatus:  _soCheckStatus,
         _soFormatSince:  _soFormatSince,
         _soIsUnchecked:  _soIsUnchecked,
-        _soSortItems:    _soSortItems
+        _soSortItems:    _soSortItems,
+        _soItemFromProduct: _soItemFromProduct,
+        _soMoveToActive:    _soMoveToActive,
+        _soMoveToInactive:  _soMoveToInactive
     };
 }

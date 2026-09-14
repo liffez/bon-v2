@@ -719,3 +719,42 @@
 .so-check-overdue { color: var(--color-red); }
 
 .so-pill-unchecked { background: rgba(142,99,31,0.12); color: var(--brand-primary); }
+
+/* ── Inaktive varer (#615) ──────────────────── */
+.so-pill-inactive { background: rgba(0,0,0,0.06); color: var(--color-text-dim); }
+
+.so-card.so-inactive {
+    border-left-color: var(--color-border);
+    border-left-style: dashed;
+    background: var(--color-background);
+}
+.so-card.so-inactive .so-card-name { color: var(--color-text-dim); }
+.so-inactive-badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-dim);
+    border: 1px dashed var(--color-border);
+    border-radius: 4px;
+    padding: 0 6px;
+}
+/* Én række: [↺ Aktivér] [✎] — samme højde som blyanten, så kortet ikke vokser */
+.so-card-side-row {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    min-height: 0;
+}
+.so-reactivate-btn {
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid rgba(142,99,31,0.4);
+    border-radius: 6px;
+    background: var(--brand-primary-light);
+    color: var(--brand-primary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.so-reactivate-btn:hover { border-color: var(--brand-primary); }
