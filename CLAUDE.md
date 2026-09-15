@@ -161,6 +161,7 @@ bon-v2/
 │   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
 │   ├── companyMatcher.js     ← matchCompany (CVR → EAN → e-mail → navnelighed), similarity, normalizeName
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
+│   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js      ← getDb() singleton (lazy init + migrations)
@@ -6883,6 +6884,46 @@ sync-overskrivning, aldrig-sendte med igen, ingen beløbsrettelse) fælder hver 
 navngivne asserts. Browser-verificeret mod en kopi af driftsdata; kopien og `.env.test`
 slettet efter brug.
 
+### Firma 360°: "Find i e-conomic" (#502, 16. september 2026)
+
+Kartotekets største blokering for faktureringen er firmaer uden e-conomic-kundenummer.
+Juni-reviewet (`economic-customer-match.js`) matchede e-conomic → Bon i ét batch, og
+307 navnematch blev aldrig godkendt. Batch-vejen er tung og kan ikke svare på det
+kontoret spørger om: *"jeg står på dette firma — findes det i e-conomic?"*
+
+- **Knappen** ligger i Firma 360° → Stamdata ved siden af "Berig fra CVR". Den slår
+  firmaet op i e-conomic på **EAN → CVR → navn** (+ juridisk navn), viser kandidaterne
+  med hvorfor de er med, og kobler kundenummeret med ét klik gennem det eksisterende
+  `PATCH /companies/:id/economic` — samme changelog som blyanten på rækken.
+- **Søgningen bor ét sted:** `services/economicCustomerLookup.js`. Faktureringens
+  "Foreslå kunde fra e-conomic" havde sin egen kopi i `routes/invoices.js`; den kalder
+  nu den samme funktion, så de to ikke kan drive fra hinanden.
+- **EAN før CVR, og et delt CVR er ikke et fact.** Målt live: KU's CVR 29979812 gav
+  "Københavns Universitet Plen" som første bud for både Farmaci, Psykologi og Geo, fordi
+  CVR'et udpeger organisationen, ikke afdelingen. Har flere e-conomic-kort samme CVR,
+  markeres de `cvr_shared` (paraply) og rangeres som navneforslag, og navnet søges
+  alligevel. `ean` og et CVR med **ét** kort er facts.
+- **Navnelighed måles på navnets kerne.** Uden fyldord ("Københavns Universitet",
+  "for", "ApS" …) — ellers lignede paraplyens navn afdelingen mere end afdelingens eget
+  kort gjorde. Søgeordet mod e-conomic er det længste betydende ord, ikke det første
+  ("Fødevarevidenskab", ikke "Institut").
+- **"Bruges allerede af …"** på en kandidat: et andet Bon-firma peger på samme kort.
+  Det er enten en dublet i Bon (læg dem sammen) eller en afdeling der deler kort;
+  koblingen spørger før den gør det.
+- Målt på driftskopiens 83 ukoblede firmaer uden batch-match: knappen finder 66 af dem
+  (8 på EAN, 14 på entydigt CVR, 6 paraply, 38 på navn); 17 findes ikke i e-conomic.
+
+> ⚠️ `.f3-btn-sm` står EFTER `.f3-btn-primary` i CSS'en og satte baggrunden hvid igen —
+> "Kobl"-knappen var hvid tekst på hvid. Set i browseren, ikke af testen.
+
+**Tests:** `npm run test:economic-forslag` — 9 asserts (e-conomic stubbet på adapterens
+`rest` i REST-API'ets egen form; route, rangering og "bruges allerede af" rammes ægte).
+**Mutations-testet:** paraply → fact, ingen kerne-strip, CVR før EAN, juridisk navn
+ignoreret, `in_use_by` tom — hver fælder sin assert. Regression: `test:economic` 91/0,
+`test:firma-opret` 14/0. Browser-verificeret med ægte klik mod live e-conomic på en
+lokal dev-DB: EAN-match øverst, ti KU-paraplykort nedenunder, Kobl → toast → 892 på
+rækken → changelog; testdata ryddet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -7352,6 +7393,7 @@ PATCH  /api/payment-types/:id                            routes/payment_types.js
 GET    /api/invoices/queue?include_done=1                routes/invoices.js
 PATCH  /api/companies/:id/economic                       routes/companies.js
 PATCH  /api/companies/:id/commercial                     routes/companies.js (stående rabat + forhandler-markering)
+GET    /api/companies/:id/economic-suggest               routes/companies.js ("Find i e-conomic": kandidater + hvem der allerede bruger kortet; #502)
 GET    /api/companies/:id/enrich-preview                 routes/companies.js (CVR diff uden gem)
 POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
 POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)

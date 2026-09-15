@@ -20,6 +20,7 @@
     "test:forhandler": "node --experimental-sqlite --test tests/reseller_end_customer.test.js",
     "test:ean-opslag": "node --experimental-sqlite --test tests/ean_lookup.test.js",
     "test:firma-opret": "node --experimental-sqlite --test tests/company_create.test.js",
+    "test:economic-forslag": "node --experimental-sqlite --test tests/economic_customer_suggest.test.js",
     "test:web-order-firma": "node --experimental-sqlite --test tests/web_order_company_match.test.js tests/reseller_end_customer.test.js tests/companyMatcher.test.js",
     "test:kunde-flyt": "node --experimental-sqlite --test tests/customer_move.test.js",
     "test:soeg-id": "node --experimental-sqlite --test tests/search_by_id.test.js",

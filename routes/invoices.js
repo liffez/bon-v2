@@ -554,20 +554,9 @@ function _contactScore(personName, contactName) {
     return _nameScore(personName, contactName);
 }
 
-async function _searchEconomicCustomers({ cvr, ean, name }) {
-    const enc = encodeURIComponent;
-    const out = [], seen = new Set();
-    const add = (arr, match) => { for (const k of (arr || [])) { const n = String(k.customerNumber); if (!seen.has(n)) { seen.add(n); out.push({ number: n, name: k.name || '', cvr: k.corporateIdentificationNumber || '', ean: k.ean || '', match }); } } };
-    const d = _digits(cvr);
-    if (d) { const r = await eco.rest('/customers?filter=' + enc('corporateIdentificationNumber$eq:' + d)).catch(() => null); add(r?.collection, 'cvr'); }
-    const e = _digits(ean);
-    if (e) { const r = await eco.rest('/customers?filter=' + enc('ean$eq:' + e)).catch(() => null); add(r?.collection, 'ean'); }
-    if (out.length === 0 && name) {
-        const word = (String(name).split(/\s+/).find(w => w.length >= 3) || name).replace(/[^\wæøåÆØÅ]/gi, '');
-        if (word) { const r = await eco.rest('/customers?filter=' + enc('name$like:' + word) + '&pagesize=10').catch(() => null); add(r?.collection, 'name'); }
-    }
-    return out;
-}
+// Firma-opslaget (CVR → EAN → navn) bor i services/economicCustomerLookup.js og
+// deles med Firma 360°'s "Find i e-conomic" (#502).
+const { searchEconomicCustomers: _searchEconomicCustomers } = require('../services/economicCustomerLookup');
 
 router.get('/:bonId/economic-customer-suggest', requireAuth(), handle(async (req, res) => {
     if (!eco.isConfigured()) return res.status(503).json({ error: 'e-conomic er ikke konfigureret' });
