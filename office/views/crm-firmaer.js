@@ -215,7 +215,16 @@ async function cfCvrSearch(raw, opts = {}) {
     }).join('');
     // Registret er ikke altid til at søge i (et datterselskab kan hedde noget
     // andet end det kunden skriver under) — udvejen til Virk skal stå der.
-    const virk = `<a class="cf-new-cvr-virk" href="https://datacvr.virk.dk/soegeresultater?fritekst=${encodeURIComponent(q)}" target="_blank" rel="noopener">Søg videre på datacvr.virk.dk ↗</a>`;
+    // Ved et EAN-opslag kan Virk ikke søge på tallet (set i drift: "0 resultater"),
+    // så linket bruger det fundne CVR, og NemHandelsregistret får sit eget link.
+    const isEan = digits.length === 13 && digits === q.replace(/\s/g, '');
+    const virkQ = isEan ? (hits[0] && hits[0].cvr) : q;
+    const virk = (virkQ
+        ? `<a class="cf-new-cvr-virk" href="https://datacvr.virk.dk/soegeresultater?fritekst=${encodeURIComponent(virkQ)}" target="_blank" rel="noopener">Søg videre på datacvr.virk.dk${isEan ? ' (CVR ' + esc(virkQ) + ')' : ''} ↗</a>`
+        : '')
+      + (isEan
+        ? `<a class="cf-new-cvr-virk" href="https://registration.nemhandel.dk/NemHandelRegisterWeb/public/participant/info?keytype=GLN&key=${encodeURIComponent(digits)}&lang=da" target="_blank" rel="noopener">Se EAN i NemHandelsregistret ↗</a>`
+        : '');
     out.innerHTML = (rows || '<div class="cf-new-cvr-empty">Ingen match i CVR.</div>') + virk;
     out.querySelectorAll('.cf-new-cvr-hit').forEach(el => el.addEventListener('click', () => cfApplyCvr(hits[+el.dataset.i])));
 }
