@@ -726,10 +726,7 @@ async function _f3RenderBons(el) {
             </table>
         `;
         el.querySelectorAll('tr[data-bon-id]').forEach(tr => {
-            tr.addEventListener('click', () => {
-                const bonId = tr.dataset.bonId;
-                if (_f3State.opts.openDrawer) _f3State.opts.openDrawer(bonId);
-            });
+            tr.addEventListener('click', () => _f3OpenBon(tr.dataset.bonId));
         });
     } catch (err) {
         el.innerHTML = `<div class="f3-error">Fejl: ${escapeHtml(err.message)}</div>`;
@@ -751,7 +748,7 @@ async function _f3RenderTilbud(el) {
                 <thead><tr><th>Tilbud#</th><th>Dato</th><th>Pax</th><th>Status</th><th>Beløb</th></tr></thead>
                 <tbody>
                     ${list.map(q => `
-                        <tr>
+                        <tr data-quote-id="${q.id}" title="Åbn tilbuddet">
                             <td>${q.bon_number || q.id}</td>
                             <td>${_f3FormatDate(q.delivery_date)}</td>
                             <td>${q.pax || '—'}</td>
@@ -762,10 +759,25 @@ async function _f3RenderTilbud(el) {
                 </tbody>
             </table>
         `;
+        el.querySelectorAll('tr[data-quote-id]').forEach(tr => {
+            tr.addEventListener('click', () => {
+                const qid = parseInt(tr.dataset.quoteId, 10);
+                if (typeof _k3OpenQuote === 'function') _k3OpenQuote(qid);
+            });
+        });
     } catch (err) {
         el.innerHTML = `<div class="f3-error">Fejl: ${escapeHtml(err.message)}</div>`;
     }
 }
+
+// Åbn en bon i draweren. opts.openDrawer kan mangle når viewet er mountet via
+// openFirma360 (re-init uden opts) — window.openDrawer er office-shellens egen.
+function _f3OpenBon(bonId) {
+    if (!bonId) return;
+    if (typeof _f3State.opts?.openDrawer === 'function') _f3State.opts.openDrawer(bonId);
+    else if (typeof window.openDrawer === 'function') window.openDrawer(bonId);
+}
+window._f3OpenBon = _f3OpenBon;
 
 // ─── MAIL-FANEN (placeholder) ──────────────────────────────────
 
@@ -826,7 +838,11 @@ function _f3RenderAktivitet(el) {
         const whoOn = a.customer_name && a.customer_name.trim()
             ? `<span class="f3-act-who" title="Aktiviteten ligger på denne kontaktperson">${escapeHtml(a.customer_name.trim())}</span>`
             : (isFlag ? '<span class="f3-act-who f3-act-who-company">på firmaet</span>' : '');
-        const bon = a.bon_number ? `<span class="f3-act-bon">#${escapeHtml(a.bon_number)}</span>` : '';
+        const bon = a.bon_number
+            ? (a.bon_id
+                ? `<span class="f3-act-bon f3-act-bon-link" data-bon-id="${a.bon_id}" title="Åbn bonnen">#${escapeHtml(a.bon_number)}</span>`
+                : `<span class="f3-act-bon">#${escapeHtml(a.bon_number)}</span>`)
+            : '';
         const sent = a.sentiment ? `<span class="f3-act-sent ${a.sentiment}">${_F3_SENT[a.sentiment] || a.sentiment}</span>` : '';
         const purpose = a.purpose_label ? `<span class="f3-act-purpose">${a.purpose_emoji || ''} ${escapeHtml(a.purpose_label)}</span>` : '';
 
@@ -851,6 +867,9 @@ function _f3RenderAktivitet(el) {
             <div class="f3-card-h"><span class="f3-card-title">Aktivitet på tværs af firmaets kontaktpersoner (${activities.length})</span></div>
             <div class="f3-card-b"><div class="f3-act-list">${rows}</div></div>
         </div>`;
+    el.querySelectorAll('.f3-act-bon-link[data-bon-id]').forEach(span => {
+        span.addEventListener('click', () => _f3OpenBon(span.dataset.bonId));
+    });
 }
 
 // ─── BERIG-FLOW (Fase 3: fuld modal-UI med diff-checkboxes) ────

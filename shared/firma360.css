@@ -1071,6 +1071,8 @@
 }
 .f3-act-who-company { color: var(--color-text-dim, #8a8580); background: rgba(0,0,0,.05); font-style: italic; }
 .f3-act-bon { font-size: 10px; font-weight: 700; color: #3a6a9a; }
+.f3-act-bon-link { cursor: pointer; }
+.f3-act-bon-link:hover { text-decoration: underline; }
 .f3-act-time { margin-left: auto; font-size: 11px; color: var(--color-text-dim, #8a8580); white-space: nowrap; }
 .f3-act-text { font-size: 12.5px; color: var(--color-text, #2a2723); white-space: pre-wrap; line-height: 1.4; }
 .f3-act-note { font-size: 12px; color: var(--color-text-dim, #8a8580); font-style: italic; margin-top: 2px; }

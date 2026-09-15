@@ -1311,6 +1311,8 @@ function _k3RenderShell() {
             .k3-tl-time { font-size: 11px; color: var(--color-text-dim); margin-left: auto; white-space: nowrap; }
             .k3-tl-text { color: var(--color-text-dim); font-size: 13px; line-height: 1.5; }
             .k3-tl-footer { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+            .k3-tl-bon-link { cursor: pointer; }
+            .k3-tl-bon-link:hover { text-decoration: underline; }
             .k3-tl-bon-ref {
                 display: inline-flex; align-items: center; gap: 4px;
                 padding: 3px 8px; border-radius: 6px; font-size: 11px;
@@ -1783,7 +1785,7 @@ function _k3RenderOrders(el) {
     if (!orders.length) { el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--color-text-dim);">Ingen ordrer</div>'; return; }
 
     el.innerHTML = orders.map(o =>
-        '<div class="k3-order-row" onclick="' + (_k3Opts.openDrawer ? '_k3Opts.openDrawer(' + o.id + ')' : '') + '">' +
+        '<div class="k3-order-row" title="Åbn bonnen" onclick="_k3OpenPlannedBon(' + o.id + ')">' +
             '<span class="k3-order-bon">#' + o.bon_number + '</span>' +
             '<span>' + o.delivery_date + '</span>' +
             '<span>' + (o.pax || '—') + ' pax</span>' +
@@ -1953,7 +1955,11 @@ function _k3RenderActivity(el) {
                     (isDismissed && a.note ? '<div class="k3-tl-dismiss-note">' + esc(a.note) + '</div>' : '') +
                     ((sentBadge || a.bon_number) ? '<div class="k3-tl-footer">' +
                         sentBadge +
-                        (a.bon_number ? '<span class="k3-tl-bon-ref">#' + a.bon_number + '</span>' : '') +
+                        (a.bon_number
+                            ? (a.bon_id
+                                ? '<span class="k3-tl-bon-ref k3-tl-bon-link" title="Åbn bonnen" onclick="_k3OpenPlannedBon(' + a.bon_id + ')">#' + esc(String(a.bon_number)) + '</span>'
+                                : '<span class="k3-tl-bon-ref">#' + esc(String(a.bon_number)) + '</span>')
+                            : '') +
                     '</div>' : '') +
                 '</div>' +
             '</div>';

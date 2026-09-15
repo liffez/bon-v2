@@ -17,7 +17,14 @@ let _kontMounted = null;   // 'personer' | 'firmaer'
 let _kontOpts = {};
 
 function initKontakter(container, opts = {}) {
-    _kontOpts = opts;
+    // Re-init fra openFirma360/closeFirma360 sender ingen opts. Behold dem vi
+    // fik fra switchView (openDrawer m.fl.) i stedet for at nulstille — ellers
+    // mister Firma 360° og Kunde 360° drawer-åbneren, og klik på en bon-række
+    // gør ingenting. Sikkerhedsnet: window.openDrawer findes altid i office.
+    _kontOpts = { ..._kontOpts, ...opts };
+    if (typeof _kontOpts.openDrawer !== 'function' && typeof window.openDrawer === 'function') {
+        _kontOpts.openDrawer = window.openDrawer;
+    }
 
     const params = new URLSearchParams(window.location.search);
     let initialTab = params.get('tab');
@@ -124,7 +131,7 @@ window.openFirma360 = function openFirma360(companyId) {
         const contentEl = document.getElementById('office-content');
         if (contentEl) {
             contentEl.innerHTML = '';
-            initKontakter(contentEl);
+            initKontakter(contentEl, _kontOpts);
         }
     }
 };
@@ -137,7 +144,7 @@ window.closeFirma360 = function closeFirma360() {
     const contentEl = document.getElementById('office-content');
     if (contentEl) {
         contentEl.innerHTML = '';
-        initKontakter(contentEl);
+        initKontakter(contentEl, _kontOpts);
     }
 };
 
