@@ -393,7 +393,7 @@ async function handleWebOrder(data) {
     // maden er til. Ellers står der bare slutkundens navn under "Firma", og
     // læseren tror bonnen ligger dér.
     const firmaBlok = reseller
-      ? `Firma: ${reseller.name} (forhandler)` + (endCustomerName ? `\nSlutkunde: ${endCustomerName}` : '')
+      ? `Firma: ${reseller.name} (formidler)` + (endCustomerName ? `\nSlutkunde: ${endCustomerName}` : '')
       : resolved.companyName
         // Firmaet bonnen ligger på — og det kunden skrev, når det er noget andet.
         ? `Firma: ${resolved.companyName}` + (resolved.typedDiffers ? `\nKunden skrev: ${typedCompany}` : '')

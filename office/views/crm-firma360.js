@@ -314,7 +314,11 @@ function _f3FormatDiscount(pct) {
 }
 
 /**
- * Forhandler-markering (migration 167).
+ * Formidler-markering (migration 167; kolonnen hedder stadig is_reseller).
+ *
+ * Ordet i UI'et er "formidler", ikke "forhandler": Able videresælger ikke
+ * maden, de bestiller den på vegne af deres kunder. "Forhandler" fik
+ * kontoret til at tro at rækkerne under Able skulle have hver deres firma.
  *
  * Et firma der bestiller for ANDRE. Web-webhooken lægger så bonnen på dette
  * firma i stedet for på det firmanavn bestilleren taster — og gemmer det
@@ -324,11 +328,11 @@ function _f3FormatDiscount(pct) {
 function _f3RenderResellerRow(company) {
     const on = !!company.is_reseller;
     return `<div class="f3-row">
-        <span class="f3-lbl">Forhandler</span>
+        <span class="f3-lbl">Formidler</span>
         <span class="f3-val f3-reseller-val">
             <label class="f3-reseller-lbl">
                 <input type="checkbox" id="f3-reseller-cb"${on ? ' checked' : ''}>
-                <span>Bestiller for egne kunder</span>
+                <span>Bestiller på vegne af sine kunder</span>
             </label>
             <span class="f3-muted f3-reseller-hint">Web-ordrer fra firmaets kontakter lander her, og firma-feltet gemmes som slutkunde på bonnen.</span>
         </span>
@@ -451,7 +455,7 @@ async function _f3ToggleReseller(e) {
     const name = _f3State.data?.company?.name || 'firmaet';
 
     if (on && !window.confirm(
-        'Markér "' + name + '" som forhandler?\n\n' +
+        'Markér "' + name + '" som formidler?\n\n' +
         'Web-bestillinger fra firmaets kontakter lægges herefter på ' + name +
         ' — og det de skriver i Firma-feltet gemmes som slutkunde på bonnen ' +
         'i stedet for at oprette et nyt firma.'
@@ -470,7 +474,7 @@ async function _f3ToggleReseller(e) {
         return;
     }
     await _f3Reload();
-    _f3ShowToast(on ? 'Markeret som forhandler' : 'Forhandler-markering fjernet', 'success');
+    _f3ShowToast(on ? 'Markeret som formidler' : 'Formidler-markering fjernet', 'success');
 }
 
 // ─── Påmindelser (CLAUDE_KUNDE_FLAGS.md) ────────────────────

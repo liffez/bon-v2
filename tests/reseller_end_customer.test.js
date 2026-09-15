@@ -138,7 +138,7 @@ test('changelog forklarer hvorfor bonnen ikke ligger på det tastede navn', asyn
     const cl = _testDb.prepare(
         "SELECT new_value FROM changelog WHERE entity_type='bon' AND entity_id=? AND action='create'"
     ).get(bon.id);
-    assert.match(cl.new_value, /forhandleren Able/);
+    assert.match(cl.new_value, /formidleren Able/);
     assert.match(cl.new_value, /slutkunde: Systematic/);
 });
 
