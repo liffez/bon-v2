@@ -8,6 +8,8 @@ const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoi
 const { extractContacts } = require('../services/contactExtractor');
 const { matchCompany } = require('../services/companyMatcher');
 const { ensureContactPoint } = require('../services/leadCreate');
+const eco = require('../services/economicAdapter');
+const { searchEconomicCustomers } = require('../services/economicCustomerLookup');
 
 // GET /api/companies?q=
 router.get('/', handle((req, res) => {
@@ -147,6 +149,28 @@ router.patch('/:id/economic', handle((req, res) => {
     });
 
     res.json({ ok: true });
+}));
+
+// GET /api/companies/:id/economic-suggest — find firmaets kunde i e-conomic (#502)
+// CVR → EAN → navn, KUN læsning. Koblingen sker via PATCH /:id/economic.
+// Hver kandidat siger om et ANDET Bon-firma allerede peger på det nummer — det er
+// enten en dublet i Bon (læg dem sammen) eller en afdeling der deler kort.
+router.get('/:id/economic-suggest', handle(async (req, res) => {
+    if (!eco.isConfigured()) return res.status(503).json({ error: 'e-conomic er ikke konfigureret' });
+    const db = getDb();
+    const co = db.prepare('SELECT id, name, legal_name, cvr, ean, economic_customer_id FROM companies WHERE id = ?').get(req.params.id);
+    if (!co) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    // Juridisk navn tæller med i navnesøgningen ("KU FOOD" mod e-conomics
+    // "Institut for Fødevarevidenskab").
+    const candidates = await searchEconomicCustomers({ cvr: co.cvr, ean: co.ean, name: co.name, altName: co.legal_name });
+    const inUse = db.prepare('SELECT id, name FROM companies WHERE economic_customer_id = ? AND id != ? AND is_active = 1');
+    for (const c of candidates) c.in_use_by = inUse.all(c.number, co.id);
+
+    res.json({
+        company: { id: co.id, name: co.name, cvr: co.cvr, ean: co.ean, economic_customer_id: co.economic_customer_id },
+        candidates,
+    });
 }));
 
 // PATCH /api/companies/:id/identifiers — ret CVR / juridisk navn / EAN manuelt

@@ -446,6 +446,10 @@
     font-family: inherit;
 }
 .f3-btn-sm:hover { background: #faf8f3; }
+/* .f3-btn-sm står EFTER .f3-btn-primary og satte ellers baggrunden hvid igen —
+   "Kobl"-knappen i Find i e-conomic blev hvid tekst på hvid. */
+.f3-btn-sm.f3-btn-primary { background: var(--brand-primary, #8e631f); border-color: var(--brand-primary, #8e631f); color: white; }
+.f3-btn-sm.f3-btn-primary:hover { background: #6f4d18; border-color: #6f4d18; }
 
 .f3-enriched-note {
     margin-top: 8px;
@@ -1083,3 +1087,22 @@
 .f3-act-sent.negative { background: var(--color-sentiment-neg-bg, #FBE9E9); color: var(--color-sentiment-neg, #C94040); }
 .f3-act-purpose { font-size: 10px; color: var(--color-text-dim, #8a8580); }
 .f3-act-user { margin-left: auto; font-size: 10px; color: var(--color-text-dim, #8a8580); }
+
+/* ── Find i e-conomic (#502) ───────────────────────────── */
+.f3-eco-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 22px; border-bottom: 1px solid var(--color-border, #d7d1ca); font-size: 13px;
+}
+.f3-eco-row:last-child { border-bottom: none; }
+.f3-eco-row.current { background: #f3f8f3; }
+.f3-eco-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.f3-eco-main .mono { font-feature-settings: "tnum"; font-size: 12px; }
+.f3-eco-tag {
+    display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    background: #f0ecdf; color: #7c6a43;
+}
+.f3-eco-tag.fact { background: #e3f0e6; color: #2f6e3f; }
+.f3-eco-inuse { font-size: 12px; color: #9a6b12; }
+.f3-eco-inuse a { color: inherit; text-decoration: underline; }
+.f3-eco-saved { font-size: 12px; color: #2f6e3f; font-weight: 600; white-space: nowrap; }

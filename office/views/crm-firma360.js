@@ -185,6 +185,7 @@ function _f3RenderOversigt(el) {
 
                     <div class="f3-actions">
                         <button class="f3-btn f3-btn-primary" id="f3-enrich-btn">⟳ Berig fra CVR</button>
+                        <button class="f3-btn" id="f3-eco-find-btn" title="Slå firmaet op i e-conomic på CVR, EAN og navn, og kobl kundenummeret">🔍 Find i e-conomic</button>
                         <button class="f3-btn" id="f3-paste-btn">📋 Tilføj fra kontaktside</button>
                     </div>
                     ${company.last_enriched_at ? `<div class="f3-enriched-note">Sidst beriget ${_f3FormatDate(company.last_enriched_at)} · ${escapeHtml(company.last_enriched_source || 'CVR')}</div>` : ''}
@@ -224,6 +225,7 @@ function _f3RenderOversigt(el) {
     // Event-binding
     el.querySelector('#f3-enrich-btn')?.addEventListener('click', _f3OpenEnrich);
     el.querySelector('#f3-paste-btn')?.addEventListener('click', _f3OpenPaste);
+    el.querySelector('#f3-eco-find-btn')?.addEventListener('click', _f3OpenEconomicFind);
     el.querySelectorAll('.f3-edit-btn[data-edit-field]').forEach(btn =>
         btn.addEventListener('click', () => _f3StartEditField(btn.dataset.editField)));
     // Tom række: hele rækken er klikbar, ikke kun den lille blyant.
@@ -1122,6 +1124,112 @@ function _f3CloseEnrichModal() {
 
 function _f3HandleEscape(e) {
     if (e.key === 'Escape') _f3CloseEnrichModal();
+}
+
+// ─── FIND I E-CONOMIC (#502) ──────────────────────────────────
+// Slår firmaet op i e-conomic på CVR → EAN → navn og lader kontoret koble
+// kundenummeret med ét klik. Læser kun; koblingen går gennem det samme
+// PATCH /companies/:id/economic som blyanten på e-conomic-rækken.
+
+async function _f3OpenEconomicFind() {
+    const btn = document.getElementById('f3-eco-find-btn');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Søger i e-conomic…';
+    try {
+        const r = await suggestCompanyEconomic(_f3State.companyId);
+        _f3RenderEconomicFindModal(r);
+    } catch (err) {
+        _f3ShowToast('Kunne ikke søge i e-conomic: ' + (err.body?.error || err.message), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔍 Find i e-conomic'; }
+    }
+}
+
+function _f3RenderEconomicFindModal(r) {
+    const co = r.company || {};
+    const cands = r.candidates || [];
+    const current = co.economic_customer_id ? String(co.economic_customer_id) : '';
+    const keyBits = [co.cvr ? `CVR ${co.cvr}` : null, co.ean ? `EAN ${co.ean}` : null].filter(Boolean).join(' · ') || 'hverken CVR eller EAN sat';
+    const MATCH_LBL = { cvr: 'samme CVR', ean: 'samme EAN', cvr_shared: 'samme CVR · paraply', name: 'navnelighed' };
+
+    let rows;
+    if (!cands.length) {
+        rows = `<div class="f3-empty" style="padding:18px 22px;">Ingen kunde i e-conomic matcher ${escapeHtml(keyBits)} eller navnet.
+            <div class="f3-muted" style="margin-top:6px">Kunden skal oprettes i e-conomic først — det kan gøres fra faktureringen på en af firmaets bons ("Foreslå kunde fra e-conomic" → "Opret i e-conomic").</div></div>`;
+    } else {
+        rows = cands.map(c => {
+            const isCurrent = current && current === String(c.number);
+            const fact = c.match === 'cvr' || c.match === 'ean';
+            const tag = `<span class="f3-eco-tag ${fact ? 'fact' : ''}">${MATCH_LBL[c.match] || c.match}${!fact ? ` ${Math.round((c.score || 0) * 100)} %` : ''}</span>`;
+            const ids = [c.cvr ? `CVR ${escapeHtml(c.cvr)}` : null, c.ean ? `EAN ${escapeHtml(c.ean)}` : null].filter(Boolean).join(' · ');
+            const inUse = (c.in_use_by || []).length
+                ? `<div class="f3-eco-inuse">⚠ Bruges allerede af ${c.in_use_by.map(u => `<a href="#" data-goto="${u.id}">${escapeHtml(u.name)}</a>`).join(', ')} — dublet i Bon, eller en afdeling der deler kort</div>`
+                : '';
+            return `<div class="f3-eco-row ${isCurrent ? 'current' : ''}">
+                <div class="f3-eco-main">
+                    <div><strong>#${escapeHtml(c.number)}</strong> ${escapeHtml(c.name)} ${tag}</div>
+                    ${ids ? `<div class="f3-muted mono">${ids}</div>` : ''}
+                    ${inUse}
+                </div>
+                ${isCurrent
+                    ? '<span class="f3-eco-saved">koblet ✓</span>'
+                    : `<button class="f3-btn f3-btn-sm f3-btn-primary" type="button" data-couple="${escapeHtml(c.number)}">Kobl</button>`}
+            </div>`;
+        }).join('');
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'f3-overlay';
+    overlay.innerHTML = `
+        <div class="f3-modal" id="f3-eco-find-modal">
+            <div class="f3-modal-h">
+                <div>
+                    <h2>🔍 Find i e-conomic</h2>
+                    <div class="f3-modal-sub">${escapeHtml(co.name || '')} · ${escapeHtml(keyBits)}${current ? ` · koblet til #${escapeHtml(current)}` : ' · ikke koblet'}</div>
+                </div>
+                <button class="f3-modal-close" type="button" data-close>×</button>
+            </div>
+            <div class="f3-modal-b">
+                <div class="f3-diff-section">
+                    <div class="f3-diff-section-h">Kunder i e-conomic<span class="lbl-extra">— EAN og et entydigt CVR er facts; paraply-CVR og navnelighed er forslag</span></div>
+                    ${rows}
+                </div>
+            </div>
+            <div class="f3-modal-f">
+                <div class="f3-modal-f-info">Koblingen afgør hvilken kunde firmaets fakturaer sendes til.</div>
+                <div class="f3-modal-f-actions">
+                    <button class="f3-btn" type="button" data-close>Luk</button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    _f3State.modalEl = overlay;
+
+    closeOnOutsideClick(overlay, _f3CloseEnrichModal);
+    overlay.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', _f3CloseEnrichModal));
+    document.addEventListener('keydown', _f3HandleEscape);
+    overlay.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        _f3CloseEnrichModal();
+        if (typeof window.openFirma360 === 'function') window.openFirma360(Number(a.dataset.goto));
+    }));
+    overlay.querySelectorAll('[data-couple]').forEach(b => b.addEventListener('click', async () => {
+        const number = b.dataset.couple;
+        const other = cands.find(c => String(c.number) === number)?.in_use_by || [];
+        if (other.length && !window.confirm(`Kunde #${number} bruges allerede af ${other.map(u => u.name).join(', ')}. Kobl alligevel?`)) return;
+        b.disabled = true; b.textContent = 'Gemmer…';
+        try {
+            await patchCompanyEconomic(_f3State.companyId, number);
+        } catch (err) {
+            b.disabled = false; b.textContent = 'Kobl';
+            _f3ShowToast('Kunne ikke gemme: ' + (err.message || 'fejl'), 'error');
+            return;
+        }
+        _f3CloseEnrichModal();
+        await _f3Reload();
+        _f3ShowToast(`Koblet til e-conomic-kunde #${number}`, 'success');
+    }));
 }
 
 // ─── PASTE-FLOW (Fase 4: manuel "Tilføj fra kontaktside") ───────

@@ -1076,6 +1076,11 @@ function createEconomicCustomer(bonId, opts) {
     });
 }
 
+// Find firmaets kunde i e-conomic (CVR → EAN → navn) — Firma 360° (#502).
+function suggestCompanyEconomic(companyId) {
+    return apiFetch('/companies/' + companyId + '/economic-suggest');
+}
+
 function patchCompanyEconomic(companyId, economicCustomerId) {
     return apiFetch('/companies/' + companyId + '/economic', {
         method: 'PATCH',
