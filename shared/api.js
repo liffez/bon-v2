@@ -111,6 +111,20 @@ function fetchPriceCategories() {
     return apiFetch('/price-categories');
 }
 
+/* ── COMPANIES ───────────────────────────────────────────── */
+
+/** "Findes firmaet allerede?" — samme matcher som web-bestillingen (#612). */
+function matchCompanyLookup(params) {
+    const qs = new URLSearchParams(Object.fromEntries(
+        Object.entries(params || {}).filter(([, v]) => v != null && String(v).trim() !== '')
+    )).toString();
+    return apiFetch('/companies/match' + (qs ? '?' + qs : ''));
+}
+
+function createCompany(data) {
+    return apiFetch('/companies', { method: 'POST', body: JSON.stringify(data) });
+}
+
 /* ── ADDRESSES ───────────────────────────────────────────── */
 
 function createAddress(data) {

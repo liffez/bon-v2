@@ -96,6 +96,84 @@
     border-color: var(--brand-primary, #8e631f);
 }
 
+/* + Nyt firma (#612) — knap i toolbaren + formular i modalen */
+.cf-new-btn {
+    padding: 8px 14px;
+    border: 1px solid var(--brand-primary, #8e631f);
+    background: var(--brand-primary, #8e631f);
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.cf-new-btn:hover { filter: brightness(1.08); }
+.cf-new { display: flex; flex-direction: column; gap: 12px; min-width: 420px; max-width: 560px; }
+.cf-new-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cf-new-field { display: flex; flex-direction: column; gap: 4px; position: relative; }
+.cf-new-field label { font-size: 12px; font-weight: 600; color: var(--color-text-dim, #7c8089); }
+.cf-new-field input, .cf-new-field textarea {
+    box-sizing: border-box; width: 100%;
+    padding: 8px 10px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+    font-size: 13px; font-family: inherit;
+}
+.cf-new-field input:focus, .cf-new-field textarea:focus { outline: none; border-color: var(--brand-primary, #8e631f); }
+.cf-new-req { color: #bc181b; }
+.cf-new-inline { display: flex; gap: 6px; }
+.cf-new-inline input { flex: 1; }
+.cf-new-mini {
+    padding: 6px 12px; border: 1px solid var(--brand-primary, #8e631f);
+    background: var(--brand-primary, #8e631f); color: white;
+    font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.cf-new-mini:disabled { opacity: .6; cursor: default; }
+.cf-new-mini-ghost { background: white; color: var(--brand-primary, #8e631f); }
+.cf-new-hint { font-size: 11px; color: var(--color-text-dim, #7c8089); }
+.cf-new-cvr-results {
+    border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; background: white;
+    max-height: 220px; overflow-y: auto; display: flex; flex-direction: column;
+}
+.cf-new-cvr-hit {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    padding: 8px 10px; border: 0; border-bottom: 1px solid var(--color-border, #d7d1ca);
+    background: white; text-align: left; cursor: pointer; font-family: inherit;
+}
+.cf-new-cvr-hit:hover { background: var(--brand-primary-light, #f1e6b2); }
+.cf-new-cvr-hit-name { font-size: 13px; font-weight: 600; }
+.cf-new-cvr-hit-meta { font-size: 11px; color: var(--color-text-dim, #7c8089); }
+.cf-new-cvr-empty { padding: 8px 10px; font-size: 12px; color: var(--color-text-dim, #7c8089); }
+.cf-new-cvr-virk { padding: 6px 10px; font-size: 11px; color: var(--brand-primary, #8e631f); }
+.cf-new-dawa-results {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 5;
+    border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; background: white;
+    max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,.08);
+}
+.cf-new-dawa-item { padding: 8px 10px; font-size: 13px; cursor: pointer; }
+.cf-new-dawa-item:hover { background: var(--brand-primary-light, #f1e6b2); }
+.cf-new-dawa-selected { font-size: 12px; color: #2e7d32; }
+.cf-new-match {
+    border: 1px solid #e0b84a; background: #fff8e1; border-radius: 6px; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.cf-new-match-title { font-size: 13px; }
+.cf-new-match-how { color: var(--color-text-dim, #7c8089); font-size: 12px; }
+.cf-new-match-meta { font-size: 12px; color: var(--color-text-dim, #7c8089); }
+.cf-new-match-actions { display: flex; gap: 8px; margin-top: 4px; }
+.cf-new-error { color: #bc181b; font-size: 12px; }
+.cf-new-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.cf-new-cancel {
+    padding: 8px 14px; border: 1px solid var(--color-border, #d7d1ca); background: white;
+    border-radius: 6px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.cf-new-submit {
+    padding: 8px 16px; border: 1px solid var(--brand-primary, #8e631f); background: var(--brand-primary, #8e631f);
+    color: white; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.cf-new-submit:disabled { opacity: .6; cursor: default; }
+/* display:flex på boksene ville ellers overtrumfe [hidden] — set i browseren som en tom gul bjælke. */
+.cf-new-match[hidden], .cf-new-cvr-results[hidden], .cf-new-dawa-results[hidden] { display: none; }
+
 .cf-status {
     font-size: 12px;
     color: var(--color-text-dim, #7c8089);

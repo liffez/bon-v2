@@ -38,6 +38,7 @@ function initCrmFirmaer(container, opts = {}) {
                     <button class="cf-chip" data-stage="dormant">Sovende</button>
                 </div>
                 <input class="cf-search" type="search" placeholder="Søg firma, CVR, juridisk navn eller #id…" />
+                <button type="button" class="cf-new-btn" id="cf-new-btn">+ Nyt firma</button>
             </div>
             <div class="cf-status" id="cf-status"></div>
             <div id="cf-select-bar"></div>
@@ -67,7 +68,265 @@ function initCrmFirmaer(container, opts = {}) {
         }, 280);
     });
 
+    container.querySelector('#cf-new-btn').addEventListener('click', cfOpenNewFirma);
+
     cfLoad();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   + Nyt firma (#612)
+
+   Et firma kunne kun opstå som biprodukt: via "+ Ny kunde" (som kræver en
+   person der måske ikke findes) eller via en bon med et ukendt firmanavn.
+   Oprydningen i kartoteket kræver at man kan lave den RIGTIGE række i hånden.
+
+   Før oprettelse spørges /api/companies/match (samme matcher som web-
+   bestillingen bruger), så et firma der allerede findes vises som
+   "Findes allerede: …" med Åbn / Opret alligevel — i stedet for at blive
+   endnu en dublet (#607). Serveren spærrer ikke: afdelinger under samme
+   CVR er separate firmaer, så kontoret afgør.
+   ══════════════════════════════════════════════════════════════ */
+
+const _cfNew = { cvrAddress: null, dawa: null, confirmedMatchId: null };
+
+function cfOpenNewFirma() {
+    if (typeof openModal !== 'function') { alert('Modal-komponenten er ikke indlæst'); return; }
+    _cfNew.cvrAddress = null; _cfNew.dawa = null; _cfNew.confirmedMatchId = null;
+
+    openModal({
+        title: 'Nyt firma',
+        bodyHtml: `
+        <div class="cf-new">
+            <div class="cf-new-field">
+                <label>Slå firma op i CVR</label>
+                <div class="cf-new-inline">
+                    <input type="text" id="cfn-cvrq" placeholder="Firmanavn eller CVR-nummer, fx CAP Partner">
+                    <button type="button" class="cf-new-mini" id="cfn-cvr-search">Søg</button>
+                </div>
+                <div class="cf-new-cvr-results" id="cfn-cvr-results" hidden></div>
+                <div class="cf-new-hint">CVR er ikke påkrævet — firmaet kan oprettes med navnet alene og beriges senere.</div>
+            </div>
+            <div class="cf-new-field">
+                <label>Firmanavn <span class="cf-new-req">*</span></label>
+                <input type="text" id="cfn-name" autocomplete="organization">
+            </div>
+            <div class="cf-new-row">
+                <div class="cf-new-field"><label>CVR</label><input type="text" id="cfn-cvr" inputmode="numeric" maxlength="8" placeholder="8 cifre"></div>
+                <div class="cf-new-field"><label>EAN</label><input type="text" id="cfn-ean" inputmode="numeric" maxlength="13" placeholder="13 cifre"></div>
+            </div>
+            <div class="cf-new-row">
+                <div class="cf-new-field"><label>Telefon</label><input type="text" id="cfn-phone" inputmode="tel"></div>
+                <div class="cf-new-field"><label>E-mail</label><input type="email" id="cfn-email"></div>
+            </div>
+            <div class="cf-new-field cf-new-dawa">
+                <label>Adresse</label>
+                <input type="text" id="cfn-dawa" placeholder="Begynd at skrive — vælg fra listen" autocomplete="off">
+                <div class="cf-new-dawa-results" id="cfn-dawa-results" hidden></div>
+                <div class="cf-new-dawa-selected" id="cfn-dawa-selected" hidden></div>
+            </div>
+            <div class="cf-new-field">
+                <label>Noter</label>
+                <textarea id="cfn-notes" rows="2"></textarea>
+            </div>
+            <div class="cf-new-match" id="cfn-match" hidden></div>
+            <div class="cf-new-error" id="cfn-error" hidden></div>
+            <div class="cf-new-actions">
+                <button type="button" class="cf-new-cancel" id="cfn-cancel">Annullér</button>
+                <button type="button" class="cf-new-submit" id="cfn-submit">Opret firma</button>
+            </div>
+        </div>`,
+    });
+
+    const $ = (id) => document.getElementById(id);
+    $('cfn-cancel').addEventListener('click', () => closeModal());
+    $('cfn-submit').addEventListener('click', cfSubmitNewFirma);
+    $('cfn-cvr-search').addEventListener('click', () => cfCvrSearch($('cfn-cvrq').value));
+    $('cfn-cvrq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); cfCvrSearch($('cfn-cvrq').value); } });
+    // Enter i et felt = opret, som i en almindelig formular — men ikke i textarea.
+    ['cfn-name', 'cfn-cvr', 'cfn-ean', 'cfn-phone', 'cfn-email'].forEach(id => {
+        $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); cfSubmitNewFirma(); } });
+    });
+    // Rettes noget efter et "findes allerede", skal matchet spørges igen.
+    ['cfn-name', 'cfn-cvr', 'cfn-ean', 'cfn-email'].forEach(id => {
+        $(id).addEventListener('input', () => { _cfNew.confirmedMatchId = null; $('cfn-match').hidden = true; });
+    });
+    cfBindDawa();
+    requestAnimationFrame(() => $('cfn-cvrq').focus());
+}
+
+/**
+ * Ét felt til begge CVR-opslag: 8 cifre → direkte opslag på nummeret; ellers
+ * navnesøgning (cvrapi først — præcis på korte navne — Virk ES som fuzzy
+ * fallback). Samme to kilder som KundeSoeg.cvrSearchByName.
+ */
+async function cfCvrSearch(raw) {
+    const q = (raw || '').trim();
+    const out = document.getElementById('cfn-cvr-results');
+    const btn = document.getElementById('cfn-cvr-search');
+    if (q.length < 2) return;
+    btn.disabled = true; btn.textContent = '…';
+    out.hidden = false; out.innerHTML = '<div class="cf-new-cvr-empty">Søger…</div>';
+
+    const digits = q.replace(/\D/g, '');
+    const tryUrl = async (url) => {
+        try { const r = await fetch(url); if (!r.ok) return null; const d = await r.json(); return d; } catch (_) { return null; }
+    };
+    let hits = [];
+    if (digits.length === 8 && digits === q.replace(/\s/g, '')) {
+        const d = await tryUrl('/api/cvr/' + digits);
+        if (d && (d.name || d.cvr)) hits = [d];
+    } else {
+        hits = (await tryUrl('/api/cvr/search?q=' + encodeURIComponent(q)))
+            || (await tryUrl('/api/cvr/virk-search?q=' + encodeURIComponent(q)))
+            || [];
+        if (!Array.isArray(hits)) hits = [];
+    }
+    btn.disabled = false; btn.textContent = 'Søg';
+
+    const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const rows = hits.map((r, i) => {
+        const meta = [r.cvr ? 'CVR ' + r.cvr : null, [r.zipcode, r.city].filter(Boolean).join(' '), r.status].filter(Boolean).join('  ·  ');
+        return `<button type="button" class="cf-new-cvr-hit" data-i="${i}"><span class="cf-new-cvr-hit-name">${esc(r.name || '(uden navn)')}</span>${meta ? `<span class="cf-new-cvr-hit-meta">${esc(meta)}</span>` : ''}</button>`;
+    }).join('');
+    // Registret er ikke altid til at søge i (et datterselskab kan hedde noget
+    // andet end det kunden skriver under) — udvejen til Virk skal stå der.
+    const virk = `<a class="cf-new-cvr-virk" href="https://datacvr.virk.dk/soegeresultater?fritekst=${encodeURIComponent(q)}" target="_blank" rel="noopener">Søg videre på datacvr.virk.dk ↗</a>`;
+    out.innerHTML = (rows || '<div class="cf-new-cvr-empty">Ingen match i CVR.</div>') + virk;
+    out.querySelectorAll('.cf-new-cvr-hit').forEach(el => el.addEventListener('click', () => cfApplyCvr(hits[+el.dataset.i])));
+}
+
+function cfApplyCvr(r) {
+    const $ = (id) => document.getElementById(id);
+    if (r.name) $('cfn-name').value = r.name;
+    if (r.cvr) $('cfn-cvr').value = r.cvr;
+    if (r.phone && !$('cfn-phone').value) $('cfn-phone').value = r.phone;
+    if (r.email && !$('cfn-email').value) $('cfn-email').value = r.email;
+    // Adressen fra CVR gemmes som fallback — DAWA-valget vinder hvis der vælges ét.
+    _cfNew.cvrAddress = r.address ? { address: r.address, zipcode: r.zipcode || '', city: r.city || '' } : null;
+    if (r.address && !_cfNew.dawa) {
+        $('cfn-dawa').value = [r.address, [r.zipcode, r.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    }
+    $('cfn-cvr-results').hidden = true;
+    _cfNew.confirmedMatchId = null; $('cfn-match').hidden = true;
+}
+
+function cfBindDawa() {
+    const input = document.getElementById('cfn-dawa');
+    const results = document.getElementById('cfn-dawa-results');
+    const selected = document.getElementById('cfn-dawa-selected');
+    let timer = null;
+    input.addEventListener('input', () => {
+        clearTimeout(timer);
+        _cfNew.dawa = null;
+        const q = input.value.trim();
+        if (q.length < 3 || typeof dawaAutocomplete !== 'function') { results.hidden = true; return; }
+        timer = setTimeout(async () => {
+            try {
+                const data = await dawaAutocomplete(q);
+                if (!data.length) { results.hidden = true; return; }
+                results.innerHTML = data.map((it, i) => `<div class="cf-new-dawa-item" data-i="${i}">${it.tekst}</div>`).join('');
+                results.hidden = false;
+                results.querySelectorAll('.cf-new-dawa-item').forEach(el => el.addEventListener('click', () => {
+                    const it = data[+el.dataset.i];
+                    // Autocomplete-elementet bærer de flade felter på .adresse (x = lon, y = lat).
+                    const a = it.adresse || {};
+                    _cfNew.dawa = {
+                        street_name: a.vejnavn || '', street_nr: a.husnr || '',
+                        postal_code: a.postnr || '', city: a.postnrnavn || '',
+                        lat: a.y != null ? Number(a.y) : null, lon: a.x != null ? Number(a.x) : null,
+                        label: it.tekst,
+                    };
+                    input.value = it.tekst;
+                    results.hidden = true;
+                    selected.hidden = false;
+                    selected.textContent = '✓ ' + it.tekst;
+                }));
+            } catch (err) { console.warn('[cf] DAWA:', err.message); }
+        }, 300);
+    });
+    document.addEventListener('click', (e) => {
+        if (typeof clickedOutside === 'function' ? clickedOutside(e, input, results) : !results.contains(e.target)) results.hidden = true;
+    });
+}
+
+/** Adresse-række til POST /api/companies: DAWA-valget først, ellers CVR's adresse. */
+async function cfResolveAddressId() {
+    if (_cfNew.dawa && _cfNew.dawa.street_name) {
+        const r = await createAddress(_cfNew.dawa);
+        return r.id;
+    }
+    const c = _cfNew.cvrAddress;
+    if (c && c.address) {
+        const m = c.address.match(/^(.+?)\s+(\d+\S*)$/);
+        const r = await createAddress({
+            street_name: m ? m[1] : c.address, street_nr: m ? m[2] : null,
+            postal_code: c.zipcode || null, city: c.city || null,
+        });
+        return r.id;
+    }
+    return null;
+}
+
+async function cfSubmitNewFirma() {
+    const $ = (id) => document.getElementById(id);
+    const errEl = $('cfn-error'); errEl.hidden = true;
+    const name = $('cfn-name').value.trim();
+    const cvr = $('cfn-cvr').value.replace(/\D/g, '');
+    const ean = $('cfn-ean').value.replace(/\s/g, '');
+    const phone = $('cfn-phone').value.trim();
+    const email = $('cfn-email').value.trim();
+    const notes = $('cfn-notes').value.trim();
+    const fail = (msg) => { errEl.textContent = msg; errEl.hidden = false; };
+
+    if (!name) { fail('Firmanavn er påkrævet.'); $('cfn-name').focus(); return; }
+    if (cvr && cvr.length !== 8) { fail('CVR skal være 8 cifre.'); $('cfn-cvr').focus(); return; }
+    if (ean && !/^\d{13}$/.test(ean)) { fail('EAN skal være 13 cifre.'); $('cfn-ean').focus(); return; }
+
+    const submit = $('cfn-submit');
+    submit.disabled = true;
+    try {
+        // 1. Findes det allerede? Spørges hver gang, medmindre kontoret netop har
+        //    sagt "opret alligevel" til PRÆCIS dette match.
+        const { match } = await matchCompanyLookup({ name, cvr, ean, email });
+        if (match && _cfNew.confirmedMatchId !== match.company_id) {
+            cfShowMatch(match);
+            submit.disabled = false;
+            return;
+        }
+        // 2. Adresse (valgfri), så firma.
+        const address_id = await cfResolveAddressId();
+        const res = await createCompany({ name, cvr: cvr || null, ean: ean || null, phone: phone || null, email: email || null, notes: notes || null, address_id });
+        closeModal();
+        if (typeof window.openFirma360 === 'function') window.openFirma360(res.id);
+        else cfLoad();
+    } catch (err) {
+        fail('Kunne ikke oprette: ' + (err.message || 'ukendt fejl'));
+        submit.disabled = false;
+    }
+}
+
+function cfShowMatch(m) {
+    const box = document.getElementById('cfn-match');
+    const how = { cvr_exact: 'samme CVR', ean_exact: 'samme EAN', email_match: 'samme e-mail', name_fuzzy: 'lignende navn' }[m.match_type] || m.match_type;
+    const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const meta = [m.cvr ? 'CVR ' + m.cvr : null, [m.postal_code, m.city].filter(Boolean).join(' '), `${m.bons} bon${m.bons === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+    box.hidden = false;
+    box.innerHTML = `
+        <div class="cf-new-match-title">Findes allerede? <strong>${esc(m.name)}</strong> <span class="cf-new-match-how">(${esc(how)})</span></div>
+        <div class="cf-new-match-meta">${esc(meta)}</div>
+        <div class="cf-new-match-actions">
+            <button type="button" class="cf-new-mini" id="cfn-match-open">Åbn ${esc(m.name)}</button>
+            <button type="button" class="cf-new-mini cf-new-mini-ghost" id="cfn-match-anyway">Opret alligevel</button>
+        </div>`;
+    document.getElementById('cfn-match-open').addEventListener('click', () => {
+        closeModal();
+        if (typeof window.openFirma360 === 'function') window.openFirma360(m.company_id);
+    });
+    document.getElementById('cfn-match-anyway').addEventListener('click', () => {
+        _cfNew.confirmedMatchId = m.company_id;
+        box.hidden = true;
+        cfSubmitNewFirma();
+    });
 }
 
 async function cfLoad() {
