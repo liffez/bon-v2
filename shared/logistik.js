@@ -457,8 +457,8 @@ function _logBindPriceCalc() {
 function _logPcSearch(q) {
     var dawa = document.getElementById('logPcDawa');
     if (!dawa) return;
-    fetch('https://api.dataforsyningen.dk/adresser/autocomplete?q=' + encodeURIComponent(q) + '&per_side=6')
-        .then(function(r) { return r.json(); })
+    // København først, laveste postnr først — se dawaAutocomplete i utils.js
+    dawaAutocomplete(q)
         .then(function(list) {
             if (!document.getElementById('logPcDawa')) return;
             if (!Array.isArray(list) || !list.length) { dawa.hidden = true; dawa.innerHTML = ''; return; }

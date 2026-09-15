@@ -2236,8 +2236,8 @@ function _evOpenEventModal(ev) {
         if (q.length < 3) { addrResults.style.display = 'none'; return; }
         dawaTimer = setTimeout(async () => {
             try {
-                const resp = await fetch(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${encodeURIComponent(q)}&per_side=5`);
-                const data = await resp.json();
+                // København først, laveste postnr først — se dawaAutocomplete i utils.js
+                const data = await dawaAutocomplete(q);
                 addrResults.innerHTML = '';
                 if (!Array.isArray(data) || data.length === 0) { addrResults.style.display = 'none'; return; }
                 addrResults.style.display = 'block';

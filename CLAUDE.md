@@ -6684,6 +6684,40 @@ kun bruges til at deaktivere.
 **Tests:** `npm run test:stock-inactive` — 35 asserts (vm-sandkasse). Mutations-testet:
 seks kerneregler fælder hver 1–5 asserts. Sletning af produkter skal fortsat ske i Grocy.
 
+### DAWA-adressesøgning: København først (15. september 2026)
+
+Adresselisten i bon-draweren, tilbud, events, Kunde 360°, prisberegneren og på
+kundernes bestillingsside viste dem der lå længst væk først — og var kort.
+"Vesterbrogade 10" gav Viborg, Kolding, Gilleleje og otte etager i Hedensted;
+København V var der slet ikke. Målt mod DAWA: **heller ikke blandt de første 30**,
+så at hente flere og sortere klient-side hjælper ikke — adressen mangler i svaret.
+
+- **`dawaAutocomplete(q, {limit, fuzzy})`** i [shared/utils.js](shared/utils.js) spørger
+  DAWA **to gange parallelt**: afgrænset til hovedstadsområdet (`kommunekode`-filter,
+  20 kommuner) og uden filter. Lokale hits først, resten bagefter, **hver blok sorteret
+  efter postnummer** (laveste = København), dubletter på adresse-id fjernet, 10 forslag.
+  Fejler den lokale forespørgsel, vises den globale alene — ranking-laget må ikke
+  vælte søgningen.
+- **Fælde:** DAWA svarer **0 hits** når `fuzzy=true` kombineres med et filter. Den
+  lokale forespørgsel kører derfor altid uden fuzzy; kun den globale får det.
+- Fem call sites bytter deres `fetch` ud én-til-én (samme item-form `{tekst, adresse}`):
+  bon_drawer, crm-kunde360, events, logistik (prisberegner), tilbud.
+  **`public/embed/bestilling.html` bærer en KOPI** (`dawaSearch`) — siden er single-file
+  uden imports. Testen asserterer at kopien giver samme svar som utils.js.
+- **Tilbud gemmer nu adressen fra DAWA's felter**, ikke ved at splitte teksten på
+  komma/mellemrum. Splitningen gav husnr `"1."` på etage-adresser
+  (`Vesterbrogade 10, 1., 1620 …`) og aldrig koordinater. Kaldte desuden det
+  generelle `/autocomplete`-endpoint og læste `d.adresse.href`, som ikke findes dér.
+
+**Tests:** `npm run test:dawa` — 12 asserts (den rigtige utils.js i vm-sandkasse med
+fetch-attrap + paritet mod bestillingssidens kopi). Mutations-testet: fem
+tilbagerulninger (global først · lokal fuzzy · ingen dedupe · ingen postnr-sortering ·
+kommuneliste drevet fra hinanden i kopien) fælder hver sine navngivne asserts.
+Browser-verificeret mod live DAWA i bestillingsside, bon-drawer, tilbud og prisberegner;
+adresserne lander i `addresses` med rigtige felter og koordinater.
+
+**Ikke rørt:** `tools/bestilling_v2.html` (den gamle formbuilder-formular, ude af drift).
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

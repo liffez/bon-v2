@@ -16,6 +16,7 @@
     "test:help": "node scripts/test-help-visibility.js",
     "test:nav": "node --test --test-force-exit tests/safe_navigate.test.js tests/sse_stream.test.js",
     "test:modal": "node --test tests/modal_outside_click.test.js",
+    "test:dawa": "node --test tests/dawa_autocomplete.test.js",
     "test:forhandler": "node --experimental-sqlite --test tests/reseller_end_customer.test.js",
     "test:web-order-firma": "node --experimental-sqlite --test tests/web_order_company_match.test.js tests/reseller_end_customer.test.js tests/companyMatcher.test.js",
     "test:kunde-flyt": "node --experimental-sqlite --test tests/customer_move.test.js",
