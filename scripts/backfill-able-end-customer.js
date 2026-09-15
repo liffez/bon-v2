@@ -68,6 +68,17 @@ const MAPPING = {
     'cafe-2965': 'Dignity',                                             // Bryggervangen 55, "3 sal i receptionen" — cafe-2985: Dignity
     'cafe-3110': 'Dignity',                                             // Bryggervangen 55, "3 sal i receptionen" — do.
     'cafe-2754': 'Dignity',                                             // Bryggervangen 55 — do.
+    // Leif, 15. sep.: Ellehammersvej 26 i Kastrup er Per Aarsleff; Lautrupsgade 7/9
+    // er Cisco hele vejen (7. sal var et lånt lokale nedenunder).
+    'cafe-2863': 'Per Aarsleff',                                        // Ellehammersvej 26, Kastrup
+    'cafe-2881': 'Per Aarsleff',                                        // Ellehammersvej 26, Kastrup
+    'cafe-3104': 'Per Aarsleff',                                        // Ellehammervej 26, Kastrup
+    'cafe-3178': 'Per Aarsleff',                                        // Ellehammersvej 26, Kastrup
+    'cafe-2673': 'Cisco',                                               // Lautrupsgade 7, 9. sal
+    'cafe-3067': 'Cisco',                                               // Lautrupsgade 7, 7. sal
+    'cafe-3127': 'Cisco',                                               // Lautrupsgade 7, 7. sal
+    'cafe-2868': 'Cisco',                                               // Lautrupsgade 9, 7. sal
+    'cafe-3158': 'Cisco',                                               // Lautrupgade 7, 7. sal
 };
 
 const APPLY   = process.argv.includes('--apply');
