@@ -82,7 +82,9 @@ function computeRfmScores() {
             ROUND(COALESCE(AVG(b.pax), 0), 1) AS avg_guests,
             COALESCE(SUM(b.total_price), 0) AS total_revenue,
             ROUND(COALESCE(AVG(b.total_price), 0), 0) AS avg_order_value,
-            CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER) AS days_since_last,
+            -- En bon med leveringsdato i fremtiden er en booket ordre: kunden er
+            -- aktiv i dag, ikke om -317 dage. Klampes til 0 så R aldrig bliver > 100.
+            MAX(0, CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER)) AS days_since_last,
             MIN(b.delivery_date) AS first_order_date,
             MAX(b.delivery_date) AS last_order_date
         FROM bons b
@@ -97,7 +99,9 @@ function computeRfmScores() {
     `).all(lookbackStr);
 
     if (rawRows.length === 0) {
-        return { computed: 0, personalCreated, elapsed_ms: Date.now() - start };
+        // Ingen ordrer i vinduet overhovedet → alt der stadig bærer en score er forældet.
+        const reset = transaction(db, () => resetStaleScores(db, []));
+        return { computed: 0, reset, personalCreated, elapsed_ms: Date.now() - start };
     }
 
     // 4. Beregn min/max for normalisering
@@ -142,6 +146,7 @@ function computeRfmScores() {
     }
 
     // 7. UPSERT ind i rfm_scores (i én transaction)
+    let staleReset = 0;
     transaction(db, () => {
         const upsert = db.prepare(`
             INSERT INTO rfm_scores (
@@ -177,6 +182,14 @@ function computeRfmScores() {
                 s.auto_stage
             );
         }
+
+        // Firmaer der HAVDE en score, men ikke længere har ordrer i vinduet —
+        // typisk fordi deres bons er flyttet til et andet firma (Scalepoint →
+        // Able) eller sammenlagt væk. Upsertet ovenfor rører dem ikke, og
+        // lead-fallbacken nedenfor rammer kun firmaer der slet ikke står i
+        // tabellen, så uden dette blev den gamle score stående for evigt:
+        // 56 ordrer og VIP nr. 1 på et firma med 0 bons.
+        staleReset = resetStaleScores(db, scored.map(s => s.company_id));
 
         // Firmaer uden ordrer i lookback → lead (kun hvis ikke locked)
         db.prepare(`
@@ -217,9 +230,49 @@ function computeRfmScores() {
 
     return {
         computed: scored.length,
+        reset: staleReset,
         personalCreated,
         elapsed_ms: Date.now() - start,
     };
+}
+
+/**
+ * Nulstil scores på firmaer der ikke er med i denne kørsel.
+ *
+ * `currentIds` er de firmaer der HAR ordrer i vinduet. Alle andre rækker med
+ * order_count > 0 er forældede og sættes til 0 — tal, datoer og scores — så
+ * de ikke længere kan optræde som VIP på ordrer de ikke har.
+ *
+ * Stage: en låst stage røres aldrig. Ellers 'dormant' hvis firmaet nogensinde
+ * har haft en rigtig ordre (den er bare faldet ud af lookback-vinduet), og
+ * 'lead' hvis der ikke er en eneste bon tilbage på det.
+ *
+ * Returnerer antal nulstillede rækker.
+ */
+function resetStaleScores(db, currentIds) {
+    return db.prepare(`
+        UPDATE rfm_scores SET
+            order_count = 0, total_guests = 0, avg_guests = 0,
+            total_revenue = 0, avg_order_value = 0,
+            days_since_last = NULL, first_order_date = NULL, last_order_date = NULL,
+            r_score = 0, f_score = 0, m_score = 0, rfm_total = 0,
+            stage = CASE
+                WHEN stage_locked = 1 THEN stage
+                WHEN EXISTS (
+                    SELECT 1 FROM bons b
+                    WHERE b.company_id = rfm_scores.company_id
+                      AND (b.is_offer = 0 OR b.is_offer IS NULL)
+                      AND b.is_internal = 0
+                      AND b.status_id NOT IN (
+                          SELECT id FROM status_definitions WHERE code IN ('AFLYST', 'TILBUD')
+                      )
+                ) THEN 'dormant'
+                ELSE 'lead'
+            END,
+            computed_at = datetime('now')
+        WHERE order_count > 0
+          AND company_id NOT IN (SELECT value FROM json_each(?))
+    `).run(JSON.stringify(currentIds)).changes;
 }
 
 /**

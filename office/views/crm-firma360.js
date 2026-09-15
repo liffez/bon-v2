@@ -705,6 +705,21 @@ async function _f3SaveKontakt() {
 
 // ─── BONS-FANEN ────────────────────────────────────────────────
 
+const F3_BONS_SORT_KEY = 'f3_bons_sort';
+const F3_BONS_COLS = [
+    { key: 'bon_number',    label: 'Bon#',   val: b => b.bon_number || '' },
+    { key: 'delivery_date', label: 'Dato',   val: b => b.delivery_date || '' },
+    { key: 'customer',      label: 'Kunde',  val: b => _f3BonCustomerText(b).toLowerCase() },
+    { key: 'pax',           label: 'Pax',    val: b => Number(b.pax) || 0 },
+    { key: 'status',        label: 'Status', val: b => b.status_label || b.status_code || '' },
+    { key: 'total_price',   label: 'Beløb',  val: b => Number(b.total_price) || 0 },
+];
+
+function _f3BonsSortPref() {
+    try { const v = JSON.parse(localStorage.getItem(F3_BONS_SORT_KEY)); if (v && v.key) return v; } catch {}
+    return { key: 'delivery_date', dir: 'asc' };   // = API'ets egen rækkefølge
+}
+
 async function _f3RenderBons(el) {
     el.innerHTML = '<div class="f3-loading">Henter bons…</div>';
     try {
@@ -714,29 +729,76 @@ async function _f3RenderBons(el) {
             el.innerHTML = '<div class="f3-empty">Ingen bons på dette firma.</div>';
             return;
         }
-        el.innerHTML = `
-            <table class="f3-table">
-                <thead><tr><th>Bon#</th><th>Dato</th><th>Kunde</th><th>Pax</th><th>Status</th><th>Beløb</th></tr></thead>
-                <tbody>
-                    ${list.map(b => `
-                        <tr data-bon-id="${b.id}">
-                            <td>${b.bon_number || b.id}</td>
-                            <td>${_f3FormatDate(b.delivery_date)}</td>
-                            <td>${escapeHtml((b.customer_first_name || '') + ' ' + (b.customer_last_name || '')) || '<span class="f3-muted">—</span>'}</td>
-                            <td>${b.pax || '—'}</td>
-                            <td>${statusBadgeHtml(b.status_code, { label: b.status_label })}</td>
-                            <td>${formatKr(b.total_price || 0)}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
-        el.querySelectorAll('tr[data-bon-id]').forEach(tr => {
-            tr.addEventListener('click', () => _f3OpenBon(tr.dataset.bonId));
-        });
+        let sort = _f3BonsSortPref();
+
+        const draw = () => {
+            const col = F3_BONS_COLS.find(c => c.key === sort.key) || F3_BONS_COLS[1];
+            const sign = sort.dir === 'asc' ? 1 : -1;
+            // Stabil sortering: ens værdier beholder API'ets rækkefølge
+            const sorted = list.map((b, i) => ({ b, i })).sort((x, y) => {
+                const a = col.val(x.b), c = col.val(y.b);
+                const cmp = typeof a === 'number' ? a - c : String(a).localeCompare(String(c), 'da');
+                return cmp !== 0 ? cmp * sign : x.i - y.i;
+            }).map(x => x.b);
+
+            el.innerHTML = `
+                <table class="f3-table f3-table-sortable">
+                    <thead><tr>${F3_BONS_COLS.map(c => `
+                        <th data-sort="${c.key}" class="${c.key === sort.key ? 'f3-sorted' : ''}"
+                            title="Sortér efter ${c.label}">${c.label}${c.key === sort.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                    `).join('')}</tr></thead>
+                    <tbody>
+                        ${sorted.map(b => `
+                            <tr data-bon-id="${b.id}">
+                                <td>${b.bon_number || b.id}</td>
+                                <td>${_f3FormatDate(b.delivery_date)}</td>
+                                <td>${_f3BonCustomer(b)}</td>
+                                <td>${b.pax || '—'}</td>
+                                <td>${statusBadgeHtml(b.status_code, { label: b.status_label })}</td>
+                                <td>${formatKr(b.total_price || 0)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            el.querySelectorAll('tr[data-bon-id]').forEach(tr => {
+                tr.addEventListener('click', () => _f3OpenBon(tr.dataset.bonId));
+            });
+            el.querySelectorAll('th[data-sort]').forEach(th => {
+                th.addEventListener('click', () => {
+                    const key = th.dataset.sort;
+                    sort = { key, dir: sort.key === key && sort.dir === 'asc' ? 'desc' : 'asc' };
+                    try { localStorage.setItem(F3_BONS_SORT_KEY, JSON.stringify(sort)); } catch {}
+                    draw();
+                });
+            });
+        };
+        draw();
     } catch (err) {
         el.innerHTML = `<div class="f3-error">Fejl: ${escapeHtml(err.message)}</div>`;
     }
+}
+
+/** Ren tekst til sortering — samme sammensætning som cellen viser. */
+function _f3BonCustomerText(b) {
+    const who = (b.contact_name_full || b.customer_name || '').trim();
+    const end = (b.end_customer_name || '').trim();
+    return [who, end].filter(Boolean).join(' → ');
+}
+
+/**
+ * Kunde-cellen i Bons-fanen. `/api/bons` leverer kontaktpersonen som
+ * `contact_name_full` (ikke first/last hver for sig — kolonnen stod tom i drift
+ * fordi der blev læst felter der ikke findes). På en formidler-ordre (Able)
+ * er slutkunden det navn man leder efter, så den vises med pil som i bon-listen.
+ */
+function _f3BonCustomer(b) {
+    const who = (b.contact_name_full || b.customer_name || '').trim();
+    const end = (b.end_customer_name || '').trim();
+    if (!who && !end) return '<span class="f3-muted">—</span>';
+    if (!end) return escapeHtml(who);
+    const title = escapeHtml((who || 'Bestilleren') + ' bestiller for ' + end);
+    return `<span title="${title}">${escapeHtml(who)}${who ? ' → ' : ''}${escapeHtml(end)}</span>`;
 }
 
 // ─── TILBUD-FANEN ──────────────────────────────────────────────
