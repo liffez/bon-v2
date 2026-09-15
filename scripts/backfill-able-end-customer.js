@@ -6,12 +6,12 @@
 // `bons.end_customer_name` kom til med migration 167 (27. august 2026). Før den
 // skrev kontoret hvem maden var til i fritekst — "Det er til Lundbeckfonden",
 // "Det er til vores kunde: Bigum." — i interne noter eller kundeønsker. 60
-// Able-bons står uden slutkunde; 17 af dem nævner tydeligt hvem det var til.
+// Able-bons stod uden slutkunde; 26 af dem nævner tydeligt hvem det var til.
 //
 // Listen nedenfor er LÆST AF ET MENNESKE, ikke udledt af et regex. Fri tekst
 // kan ikke afgøres automatisk ("Att: Hans Donnerborg" er en person, "Levering
-// hos able" er Able selv), og et gæt ville se ud som en måling bagefter. De 43
-// bons uden et tydeligt spor røres ikke.
+// hos able" er Able selv), og et gæt ville se ud som en måling bagefter. Bons
+// uden et tydeligt spor røres ikke.
 //
 // Skriver KUN hvor feltet er tomt og bonnen ligger på Able — findes der allerede
 // en slutkunde, vinder den. Idempotent: anden kørsel siger "0 skrives".
@@ -48,6 +48,16 @@ const MAPPING = {
     'cafe-3232': 'Per Aarsleff - Kontor i Lyngby',                      // wishes: "Det er til Per Aarsleff i Lyngby."
     'cafe-3204': 'Bigum',                                               // wishes: "Det er til vores kunde: Bigum."
     'B4193':     'TBWA Copenhagen A/S',                                 // wishes: "Firmanavn: TBWA Copenhagen A/S"
+    // Anden gennemgang (15. sep.) — navnet står i teksten, min første søgning var for smal:
+    'cafe-3414': 'Scalepoint Technologies Denmark A/S',                 // inv: "Bestilling til Scalepoint Technologies Denmark A/S"
+    'cafe-2899': 'Scalepoint Technologies Denmark A/S',                 // notes: "Firmaet hedder Scalepoint Technologies Denmark A/S"
+    'cafe-2434': 'Lundbeckfonden',                                      // notes: "Lundbeckfonden"
+    'cafe-2933': 'Cisco',                                               // notes: "Delivery to the 9th floor. Company: Cisco."
+    'cafe-2931': 'Cisco',                                               // wishes: "Cisco ønsker følgende: …"
+    'cafe-3062': 'Per Aarsleff - Kontor i Lyngby',                      // notes: "Per Aarsleff - Kontor i Lyngby - DTU Lyngby Campus"
+    'cafe-3200': 'Per Aarsleff - Kontor i Lyngby',                      // kitchen: "Skriv Per Aarsleff på denne kasse"
+    'cafe-2921': 'Domutech',                                            // notes: "3.sal Domutech."
+    'B4184':     'Systematic',                                          // notes: "Leveringen er til kunden Systematic."
 };
 
 const APPLY   = process.argv.includes('--apply');
