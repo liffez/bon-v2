@@ -113,7 +113,10 @@ function main() {
     console.log(`\n${plan.length} skrives · ${skipped.length} springes over`);
     if (!plan.length || !APPLY) return;
 
-    const backup = DB_PATH.replace(/\.db$/, '') + '.pre-able-endcustomer.db';
+    // Tidsstempel i navnet: VACUUM INTO nægter at overskrive, og scriptet køres
+    // flere gange efterhånden som listen vokser. UTC er fint her — det er et filnavn.
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, ''); // utc-ok: filnavn
+    const backup = DB_PATH.replace(/\.db$/, '') + `.pre-able-endcustomer-${stamp}.db`;
     db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
     console.log(`Backup: ${backup}`);
 
