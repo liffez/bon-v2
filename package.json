@@ -27,6 +27,7 @@
     "test:mark-internal": "node --experimental-sqlite --test tests/mark_internal_companies.test.js",
     "ryd:forhandler-firmaer": "node --experimental-sqlite scripts/merge-reseller-junk-companies.js",
     "backfill:able-slutkunde": "node --experimental-sqlite scripts/backfill-able-end-customer.js",
+    "remap:slettede-opskrifter": "node --experimental-sqlite scripts/remap-deleted-recipes.js",
     "ryd:tomme-firmaer": "node --experimental-sqlite scripts/audit-empty-companies.js",
     "test:labor": "node --test tests/labor_location.test.js tests/open_shift.test.js tests/wage_csv.test.js",
     "test:drift-cost": "node --experimental-sqlite scripts/test-drift-event-cost.js",

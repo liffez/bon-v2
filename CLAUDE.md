@@ -225,6 +225,7 @@ bon-v2/
 │   ├── merge-ean-duplicates.js ← Merger firmaer med samme EAN
 │   ├── enrich-cvr.js          ← CVR-berigelse via Virk ES + NemHandel
 │   ├── fix-cvr.js             ← Manuel CVR-rettelse
+│   ├── remap-deleted-recipes.js ← Slettede Grocy-opskrifter → levende tvilling i bon_lines (#441; dry-run, backup)
 │   └── backfill-geocode.js    ← Geokoder addresses uden coords via DAWA (Spor 2)
 ├── BonConfig.js
 ├── BonConfigBar.js
@@ -6965,6 +6966,29 @@ bon-listen gør. Kolonnerne kan sorteres ved klik (▲/▼, huskes i `localStora
 
 **Ikke gjort her:** de to Scalepoint-firmarækker (#3558, #3638) har hverken bons eller
 kunder — de hører til i CRM → Værktøjer → "Ryd tomme firmaer".
+
+### Slettede Grocy-opskrifter peges på deres tvilling (#441, 16. september 2026)
+
+`npm run remap:slettede-opskrifter` (`scripts/remap-deleted-recipes.js`) flytter
+`bon_lines.grocy_recipe_id` fra en slettet opskrift til den levende tvilling, så gamle
+bons ikke blokerer faktureringen for evigt. Kun **ægte tvillinger** — samme vare
+oprettet igen under nyt id: `133 → 94 Trøflen - slider` (varenr 92) og
+`163 → 167 Cookie knæk`. Navn, antal og pris på linjen er urørte; kun koblingen flyttes.
+
+> ⚠️ **Issuets første bud var forkert.** "134 → 88" og "138 → 76" pegede på Kyllingen
+> og Lyse boller — tallene var e-conomic-varenumre, ikke recipe-id'er. Efterprøvet mod
+> grocy-hq før listen blev skrevet. Udgåede varer (Tomaten, Humus'en, Paté …) og
+> afløsninger med et *andet* produkt (Muffin → Brownie) er bevidst ikke med; de
+> faktureres via engangsbeløb (#474). Falafel Bowl og Temptyen har ingen tvilling.
+
+Tre værn, alle efterprøvet ved at bryde dem: kilden skal være **væk** i Grocy (ellers er
+den ikke et spøgelse), målet skal **findes og hedde det samme**, og linjeantal + beløbssum
+over hele `bon_lines` verificeres i transaktionen og ruller tilbage hvis de flytter sig.
+Kræver Grocy-adgang — kør på serveren. Dry-run default, `VACUUM INTO`-backup, én
+changelog-linje pr. berørt bon, idempotent (anden kørsel: 0 linjer).
+
+Målt mod driftskopien 15/9: 54 linjer på 50 bons — **ingen af dem på åbne bons**, så
+i dag blokerer intet. Værdien er at det ikke kan ske igen når en gammel bon åbnes.
 
 ## Næste opgave
 
