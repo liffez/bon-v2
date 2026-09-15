@@ -720,7 +720,7 @@ async function _f3RenderBons(el) {
                         <tr data-bon-id="${b.id}">
                             <td>${b.bon_number || b.id}</td>
                             <td>${_f3FormatDate(b.delivery_date)}</td>
-                            <td>${escapeHtml((b.customer_first_name || '') + ' ' + (b.customer_last_name || '')) || '<span class="f3-muted">—</span>'}</td>
+                            <td>${_f3BonCustomer(b)}</td>
                             <td>${b.pax || '—'}</td>
                             <td>${statusBadgeHtml(b.status_code, { label: b.status_label })}</td>
                             <td>${formatKr(b.total_price || 0)}</td>
@@ -735,6 +735,21 @@ async function _f3RenderBons(el) {
     } catch (err) {
         el.innerHTML = `<div class="f3-error">Fejl: ${escapeHtml(err.message)}</div>`;
     }
+}
+
+/**
+ * Kunde-cellen i Bons-fanen. `/api/bons` leverer kontaktpersonen som
+ * `contact_name_full` (ikke first/last hver for sig — kolonnen stod tom i drift
+ * fordi der blev læst felter der ikke findes). På en formidler-ordre (Able)
+ * er slutkunden det navn man leder efter, så den vises med pil som i bon-listen.
+ */
+function _f3BonCustomer(b) {
+    const who = (b.contact_name_full || b.customer_name || '').trim();
+    const end = (b.end_customer_name || '').trim();
+    if (!who && !end) return '<span class="f3-muted">—</span>';
+    if (!end) return escapeHtml(who);
+    const title = escapeHtml((who || 'Bestilleren') + ' bestiller for ' + end);
+    return `<span title="${title}">${escapeHtml(who)}${who ? ' → ' : ''}${escapeHtml(end)}</span>`;
 }
 
 // ─── TILBUD-FANEN ──────────────────────────────────────────────

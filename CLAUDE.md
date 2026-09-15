@@ -6883,6 +6883,47 @@ sync-overskrivning, aldrig-sendte med igen, ingen beløbsrettelse) fælder hver 
 navngivne asserts. Browser-verificeret mod en kopi af driftsdata; kopien og `.env.test`
 slettet efter brug.
 
+### RFM: en score overlevede de bons den var regnet på (16. september 2026)
+
+Kundeindsigt viste **Scalepoint Technologies Denmark A/S** som VIP nr. 1 med 56 ordrer,
+149.262 kr og "Sidst ordre 2027-03-04 · −317d". Firmaet har **0 bons** — de 56 ligger på
+Able, hvor Scalepoint er slutkunde. Og vi har ikke leveret noget i 2027.
+
+To fejl, én i kode og én i data:
+
+- **`computeRfmScores` opdaterede aldrig et firma hvis bons var flyttet væk.** Upsertet
+  rammer kun firmaer MED ordrer i vinduet, og lead-fallbacken kun firmaer der slet ikke
+  står i `rfm_scores`. En række fra april beholdt derfor sine tal for evigt, uanset hvor
+  mange gange man trykkede "Gem & genberegn". Ny `resetStaleScores()` nulstiller alt på
+  rækker der ikke er med i kørslen: tal, datoer, scores. Stage bliver `dormant` hvis
+  firmaet stadig har en rigtig bon (den er bare faldet ud af lookback-vinduet), `lead`
+  hvis der ingen er, og en låst stage røres aldrig. Målt på driftskopien: **95 rækker**
+  nulstilles ved første kørsel — 7 uden bons overhovedet (Scalepoint, PWS, RR, …) og 88
+  hvis ordrer er gledet ud af de 24 måneder. Kundeindsigt-listen flytter sig altså
+  synligt efter deploy; det er de rigtige tal der kommer frem.
+- **Recency blev negativ af en fremtidig bon**, og R-scoren løb over 100 (143 og 123 i
+  listen). `days_since_last` klampes nu til 0: en booket ordre er frisk, ikke "−317
+  dage siden".
+- **`cafe-3320`** (Able, v1-import) stod med leveringsdato **2027**-03-04; naboerne
+  cafe-3322..3325 ligger alle på 2026-03-04. Rettes i drift med
+  `npm run fix:bon-dato -- --bon cafe-3320 --to 2026-03-04 --apply` (dry-run uden
+  `--apply`, backup via `VACUUM INTO`, changelog-linje, idempotent). Tryk derefter
+  "Gem & genberegn".
+
+**Tests:** `npm run test:rfm-stale` — 29 asserts mod en temp-DB af de rigtige migrations
+(bons flyttes til et andet firma, ordre glider ud af vinduet, tomt vindue, låst stage,
+fremtidig dato). **Mutations-testet:** uden nulstilling falder 11, uden klamp 2, dormant→lead 2.
+Regression grøn: test-reactivation 19, campaigns_from_suggestion 20.
+
+**Samme runde: Kunde-kolonnen i Firma 360° → Bons var tom.** `/api/bons` leverer
+kontaktpersonen som `contact_name_full`, men fanen læste `customer_first_name` og
+`customer_last_name`, som ikke findes. `_f3BonCustomer()` læser det rigtige felt og viser
+slutkunden med pil på formidler-ordrer (`Theresa Mortensen → Lundbeckfonden`), som
+bon-listen gør.
+
+**Ikke gjort her:** de to Scalepoint-firmarækker (#3558, #3638) har hverken bons eller
+kunder — de hører til i CRM → Værktøjer → "Ryd tomme firmaer".
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
