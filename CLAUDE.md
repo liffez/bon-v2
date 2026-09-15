@@ -6765,6 +6765,16 @@ banken", "flyttet fra en faktura de var gættet på" og "fakturabeløb rettet".
 Uenigheds-linjen hedder "betalt i banken, men står stadig åbne hos e-conomic" — det er
 den forventede tilstand, ikke en fejl.
 
+**Hullet i nummer-koblingen (fundet ved drifttest samme dag).** Numre blev kun koblet
+fra delta-scanningen af *nye* fakturaer. Var Bon-bonnen ikke faktureret i Bon endnu da
+e-conomic-fakturaen blev scannet, var der ingen række at skrive nummeret på — og
+vandmærket rykkede videre, så der blev aldrig spurgt igen. Fakturaen stod derefter som
+"åben hos e-conomic uden kobling i Bon" (drift: #B4169, #B4130, #B4226, #B4194, #B4256,
+#B4253), og bankposteringen "4159" (6.554 kr) lå som usikkert gæt på B4169. Den ubetalte
+liste er fuld tilstand og bærer samme overskrifter, så `reconcile` kobler nu også fra den
+(`linkInvoice` er én funktion for begge kilder; tæller ikke som scannet, rykker ikke
+vandmærket). Reconcile-testen 48/0, +7 asserts.
+
 **Deploy:** ingen migration. Tryk **⟳ Synk e-conomic** én gang efter deploy — den kører
 nummer-matchet på de eksisterende bankposteringer (driftskopien: 106 koblinger, heraf
 4 nye betalte og 74 historiske omkoblinger uden ændret betalt-status) og retter beløbene.

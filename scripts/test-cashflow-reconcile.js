@@ -204,6 +204,29 @@ assert(betalt('B7700').betalt === 0, 'stadig åben hos e-conomic → stadig ubet
 r = await reconcile(db, { dryRun: false });
 assert(r.amountsCorrected === 0, `anden kørsel retter intet (fik ${r.amountsCorrected})`);
 
+/* ══ 10. Den ubetalte liste kobler også numre ═══════════════════════════ */
+console.log('\n— Kobling fra den ubetalte liste (hullet: bon faktureret i Bon EFTER scanningen) —');
+// Faktura 4159 er bogført for længst (før vandmærket) med "#B4169" i overskriften.
+// cf_invoice B4169 opstod først bagefter og har intet nummer. Delta-scanningen ser
+// den aldrig igen — men den står på den ubetalte liste.
+makeInvoice('B4169', { beloeb: 6475.5 });
+db.prepare(`INSERT OR REPLACE INTO cf_meta (key, value) VALUES ('economic_booked_until', '2026-09-11')`).run();
+UNPAID = [inv('4159', { heading: '#B4169', remainder: 6554.25, gross: 6554.25, date: '2026-08-24' })];
+BOOKED = [];
+r = await reconcile(db, { dryRun: false });
+const b4169 = db.prepare(`SELECT economic_number, betalt, beloeb FROM cf_invoices WHERE id = 'B4169'`).get();
+assert(b4169.economic_number === '4159', `nummer 4159 gemt på B4169 fra den ubetalte liste (fik ${b4169.economic_number})`);
+assert(r.scanned === 0 && r.newWatermark === '2026-09-11', 'tæller ikke som scannet og rykker ikke vandmærket');
+assert(!r.unlinkedOpen.some(u => u.booked_no === '4159'), 'står ikke længere som "åben uden kobling i Bon"');
+assert(b4169.betalt === 0, 'åben hos e-conomic → stadig ubetalt');
+assert(mirrorRow('4159')?.gross_amount === 6554.25, 'spejlet kender nu 4159 (bruttobeløb til bank-matchet)');
+assert(b4169.beloeb === 6554.25, `beløbet rettet til e-conomics 6554,25 (fik ${b4169.beloeb})`);
+// …og så kan bankposteringen "4159" kobles via nummeret og markere betalt
+const { matchByEconomicNumber } = require('../services/cashflowReconcile');
+db.prepare(`INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-09-10', '4159', 6554.25)`).run();
+const mm = matchByEconomicNumber(db, { dryRun: false });
+assert(mm.paid === 1 && betalt('B4169').betalt === 1, `bankposteringen "4159" kobler og markerer betalt (fik paid=${mm.paid})`);
+
 console.log(`\n${pass} PASS · ${fail} FAIL\n`);
 
 }

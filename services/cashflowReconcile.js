@@ -110,9 +110,15 @@ async function reconcile(db, { dryRun = true, since } = {}) {
     const mirror = [];                             // spejl af ALLE bogførte fakturaer (cf_economic_invoices)
     const seenNum = new Set();
     const bookedNos = new Set();                   // numre set i dette scan
-    for (const inv of booked) {
-        scanned++;
-        if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
+    // Én kobling for begge kilder. Før koblede vi KUN fra delta-scanningen: var
+    // Bon-bonnen ikke faktureret i Bon endnu da e-conomic-fakturaen blev scannet,
+    // fandtes der ingen række at skrive nummeret på — og vandmærket rykkede videre,
+    // så der blev aldrig spurgt igen. Fakturaen stod derefter som "åben hos
+    // e-conomic uden kobling i Bon", selv om overskriften bar bon-nummeret
+    // (drift, sep 2026: #B4169, #B4130, #B4226, #B4194, #B4256, #B4253). Den
+    // ubetalte liste er fuld tilstand og bærer samme overskrifter — så den
+    // kobler også, hver gang.
+    const linkInvoice = (inv) => {
         const heading = inv.notes?.heading || '';
         const ecoNo = inv.bookedInvoiceNumber != null ? String(inv.bookedInvoiceNumber) : null;
         // Spejl ENHVER bogført faktura (også uden bon-nr i overskrift) — grundlaget for
@@ -126,7 +132,7 @@ async function reconcile(db, { dryRun = true, since } = {}) {
             });
         }
         const bonNums = heading.match(/\d{3,5}/g) || [];   // ét eller flere bon-numre i overskriften
-        if (!bonNums.length) { noHeading++; continue; }     // tom/beskrivende overskrift (fx "Michelin")
+        if (!bonNums.length) { noHeading++; return; }       // tom/beskrivende overskrift (fx "Michelin")
         for (const num of bonNums) {
             const cf = cfByNum.get(num);
             if (!cf) continue;                              // bon-nr uden cf_invoice (ikke Bon-v2-bon)
@@ -139,6 +145,15 @@ async function reconcile(db, { dryRun = true, since } = {}) {
                 numberChanges.push({ cf_id: cf.id, economic_number: ecoNo });
             }
         }
+    };
+    for (const inv of booked) {
+        scanned++;
+        if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
+        linkInvoice(inv);
+    }
+    for (const inv of unpaidList) {
+        if (inv.bookedInvoiceNumber != null && bookedNos.has(digits(inv.bookedInvoiceNumber))) continue;
+        linkInvoice(inv);                          // tæller ikke som "scannet", rykker ikke vandmærket
     }
 
     /* ── BETALT-AKSEN på fuld tilstand ──────────────────────────────────────
