@@ -223,6 +223,49 @@ assert(fig2.outstanding.total === fig.outstanding.total, `aldrig sendt tæller s
 assert(fig2.likelyPaid.count === 2, `…men tæller i sandsynligt betalt, som fanen (got ${fig2.likelyPaid.count})`);
 assert(fig.expected30.total <= fig.outstanding.total, `forventet ind ≤ udestående (samme udeladelse)`);
 
+console.log('\n— e-conomic-fakturaer uden kobling: liste + manuel kobling (Derby-casen) —');
+const { economicUnlinked, linkEconomicInvoice } = require('../routes/cashflow');
+// B4255: event-salgsbon, 7.350 kr, markeret betalt af et FORKERT beløbs-gæt der siden er flyttet
+// væk. E-conomic har to åbne fakturaer til den uden bon-nr i overskriften.
+db.prepare(`INSERT INTO cf_invoices (id, kunde, beloeb, forfald, betalt, betalt_dato) VALUES ('B4255', 'Derby', 7350, '2026-09-13', 1, '2026-09-10')`).run();
+db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading) VALUES ('4202', '2026-09-03', 2432, 2432, 'Madbilletter til Derby')`).run();
+db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading) VALUES ('4204', '2026-09-08', 4225, 4225, 'Madbilletter på Derby, Travbanen')`).run();
+db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading) VALUES ('4300', '2026-09-08', 500, 0, 'Betalt og ukoblet')`).run();
+let ul = economicUnlinked(db);
+assert(ul.some(r => r.booked_no === '4202') && ul.some(r => r.booked_no === '4204'), 'begge Derby-fakturaer står som ukoblede');
+assert(!ul.some(r => r.booked_no === '4300'), 'afregnede (remainder 0) vises ikke');
+assert(!ul.some(r => r.booked_no === '4131'), 'koblede numre vises ikke');
+let lr = linkEconomicInvoice(db, { booked_no: '4202', bon_number: 'B4255' });
+const b4255 = () => db.prepare(`SELECT economic_number, beloeb, betalt, betalt_dato, noter FROM cf_invoices WHERE id='B4255'`).get();
+assert(lr.ok && !lr.created && lr.invoice_id === 'B4255', `første faktura sættes på bonens egen række (got ${JSON.stringify(lr)})`);
+assert(b4255().economic_number === '4202' && b4255().beloeb === 2432, `nummer + e-conomics beløb på B4255 (got ${JSON.stringify(b4255())})`);
+assert(b4255().betalt === 0 && lr.unpaid_again === true, 'åben hos e-conomic + ingen bankpostering → ubetalt igen (gættet rulles tilbage)');
+assert(/koblet manuelt/.test(b4255().noter || ''), 'sporet står i noterne');
+lr = linkEconomicInvoice(db, { booked_no: '4204', bon_number: 'B4255' });
+const extra = db.prepare(`SELECT * FROM cf_invoices WHERE economic_number = '4204'`).get();
+assert(lr.ok && lr.created && extra && extra.id === '4204', `anden faktura bliver en ekstra række (got ${JSON.stringify(lr)})`);
+assert(extra.bon_id === null && extra.beloeb === 4225 && extra.betalt === 0 && extra.kunde === 'Derby', `ekstra række: uden bon_id, e-conomics beløb, ubetalt, bonens kunde (got ${JSON.stringify(extra)})`);
+assert(extra.forfald === '2026-09-22', `forfald = fakturadato + 14 dage (got ${extra.forfald})`);
+assert(economicUnlinked(db).every(r => !['4202','4204'].includes(r.booked_no)), 'begge er væk fra listen bagefter');
+const figD = outstandingFigures(db, '2026-09-15', '2026-10-15');
+assert(figD.outstanding.count >= 2, 'de tæller nu som udestående');
+lr = linkEconomicInvoice(db, { booked_no: '4204', bon_number: 'B4145' });
+assert(lr.error && lr.status === 409, `et nummer kan ikke kobles til to bons (got ${JSON.stringify(lr)})`);
+lr = linkEconomicInvoice(db, { booked_no: '9999', bon_number: 'B4255' });
+assert(lr.error && lr.status === 404, 'ukendt faktura afvises');
+lr = linkEconomicInvoice(db, { booked_no: '4300', bon_number: 'B0000' });
+assert(lr.error && lr.status === 404, 'bon uden faktura i pengestrømmen afvises');
+// Afregnet hos e-conomic (remainder 0) → kobling markerer betalt
+db.prepare(`INSERT INTO cf_invoices (id, kunde, beloeb, forfald, betalt) VALUES ('B4300', 'X', 500, '2026-09-20', 0)`).run();
+lr = linkEconomicInvoice(db, { booked_no: '4300', bon_number: 'B4300' });
+assert(lr.ok && db.prepare(`SELECT betalt FROM cf_invoices WHERE id='B4300'`).get().betalt === 1, 'afregnet hos e-conomic → betalt ved kobling');
+// Bank-match i samme greb: en postering med nummeret i teksten kobles og markerer betalt
+db.prepare(`INSERT INTO cf_invoices (id, kunde, beloeb, forfald, betalt) VALUES ('B4310', 'Y', 900, '2026-09-20', 0)`).run();
+db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading) VALUES ('4310', '2026-09-08', 950, 950, 'Uden bon-nr')`).run();
+db.prepare(`INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-09-12', 'FAKTURA 4310', 950)`).run();
+lr = linkEconomicInvoice(db, { booked_no: '4310', bon_number: 'B4310' });
+assert(lr.bank_paid === 1 && db.prepare(`SELECT betalt FROM cf_invoices WHERE id='B4310'`).get().betalt === 1, `bankposteringen kobles i samme greb (got ${JSON.stringify(lr)})`);
+
 console.log('\n— syncCashflowInvoice: bon-opdatering ruller ikke betalt tilbage, og et bogført beløb står —');
 const bon8 = makeBon({ bon_number: 'B1008', status_code: 'FAKTURERET', total_price: 1500 });
 syncCashflowInvoice(db, bon8);

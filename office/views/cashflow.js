@@ -277,6 +277,9 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
             <span class="cf-notinv-cta">Se listen →</span>
         </div>` : ''}
 
+        <!-- Åbne hos e-conomic uden kobling i Bon (fyldes efter load) -->
+        <div id="cfUnlinkedHost"></div>
+
         <!-- Main grid -->
         <div class="cf-main-grid">
             <div>
@@ -477,6 +480,8 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
     }
 
     // "Aldrig faktureret"-båndet → åbn fanen med listen (#319)
+    _cfRenderUnlinked(el);
+
     const likelySub = el.querySelector('#cfLikelyPaidSub');
     if (likelySub) {
         const open = () => _cfSwitchInvTab('sandsynlig', true);
@@ -1756,6 +1761,62 @@ function _cfShowToast(msg, isError) {
     toast.classList.add('cf-toast-show');
     clearTimeout(toast._t);
     toast._t = setTimeout(() => toast.classList.remove('cf-toast-show'), 3500);
+}
+
+/* ── Åbne fakturaer hos e-conomic uden kobling i Bon ──
+   Listen stod før kun i afstemningens alert() og kunne ikke handles på. Her kan
+   kontoret skrive bon-nummeret og koble — så følger betalt-status, beløb og
+   bank-match med. Vises kun når der er noget at koble. */
+async function _cfRenderUnlinked(el) {
+    const host = el.querySelector('#cfUnlinkedHost');
+    if (!host) return;
+    let rows = [];
+    try { rows = (await fetchEconomicUnlinked()).rows || []; } catch { return; }
+    if (!rows.length) { host.innerHTML = ''; return; }
+    const kr = (n) => Math.round(n || 0).toLocaleString('da-DK') + ' kr';
+    host.innerHTML = `
+        <details class="cf-unlinked">
+            <summary>
+                <span class="cf-unlinked-title">${rows.length} ${rows.length === 1 ? 'åben faktura' : 'åbne fakturaer'} hos e-conomic har ingen kobling i Bon — ${kr(rows.reduce((s, r) => s + (r.remainder || 0), 0))}</span>
+                <span class="cf-unlinked-sub">Overskriften bærer intet bon-nummer, så de kan kun kobles i hånden. Skriv bon-nummeret og tryk Kobl — så følger betalt-status, beløb og bank-match med.</span>
+            </summary>
+            <table class="cf-unlinked-table">
+                ${rows.map(r => `
+                <tr data-no="${_cfEsc(r.booked_no)}">
+                    <td class="cf-unlinked-no">${_cfEsc(r.booked_no)}</td>
+                    <td class="cf-unlinked-date">${_cfEsc(r.date || '')}</td>
+                    <td class="cf-unlinked-amt">${kr(r.remainder)}</td>
+                    <td class="cf-unlinked-head">${_cfEsc(r.heading || '(ingen overskrift)')}</td>
+                    <td class="cf-unlinked-act">
+                        <input type="text" class="cf-unlinked-bon" placeholder="Bon-nr, fx B4255" aria-label="Bon-nummer til faktura ${_cfEsc(r.booked_no)}">
+                        <button type="button" class="cf-btn cf-btn-ghost cf-unlinked-link">Kobl</button>
+                    </td>
+                </tr>`).join('')}
+            </table>
+        </details>`;
+    const doLink = async (tr) => {
+        const input = tr.querySelector('.cf-unlinked-bon');
+        const bon = (input.value || '').trim();
+        if (!bon) { input.focus(); return; }
+        const btn = tr.querySelector('.cf-unlinked-link');
+        btn.disabled = true;
+        try {
+            const r = await linkEconomicInvoice({ booked_no: tr.dataset.no, bon_number: bon });
+            const dele = [`Faktura ${tr.dataset.no} koblet til ${r.invoice_id}`];
+            if (r.created) dele.push('oprettet som ekstra faktura på bonnen');
+            if (r.unpaid_again) dele.push('bonnen var markeret betalt uden dækning — nu ubetalt igen');
+            if (r.bank_paid) dele.push(`${r.bank_paid} bankpostering matchede og markerede betalt`);
+            _cfShowToast(dele.join(' · '));
+            _cfRenderOverblik();
+        } catch (err) {
+            _cfShowToast(err.message || 'Kunne ikke koble', true);
+            btn.disabled = false;
+        }
+    };
+    host.querySelectorAll('.cf-unlinked-link').forEach(b => { b.onclick = () => doLink(b.closest('tr')); });
+    host.querySelectorAll('.cf-unlinked-bon').forEach(i => {
+        i.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); doLink(i.closest('tr')); } };
+    });
 }
 
 /* ── Re-render metrics-strip uden full re-render af hele overblikket ── */

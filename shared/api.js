@@ -1669,6 +1669,12 @@ function reconcileCashflow(opts) {
         body: JSON.stringify(opts || {}),
     });
 }
+function fetchEconomicUnlinked() {
+    return apiFetch('/cashflow/economic/unlinked');
+}
+function linkEconomicInvoice(data) {
+    return apiFetch('/cashflow/economic/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+}
 function fetchReconcileStatus() {
     return apiFetch('/cashflow/reconcile/status');
 }

@@ -6775,6 +6775,21 @@ liste er fuld tilstand og bærer samme overskrifter, så `reconcile` kobler nu o
 (`linkInvoice` er én funktion for begge kilder; tæller ikke som scannet, rykker ikke
 vandmærket). Reconcile-testen 48/0, +7 asserts.
 
+**Manuel kobling af e-conomic-fakturaer uden bon-nummer (Derby-casen).** De fakturaer
+der er tilbage på listen "åbne hos e-conomic uden kobling i Bon" har intet bon-nummer i
+overskriften ("Madbilletter til Derby") og kan kun kobles af et menneske. Listen lå før
+kun i afstemningens alert og kunne ikke handles på. Nu ligger den som et panel på
+Overblik (`GET /api/cashflow/economic/unlinked` — ud fra spejlet, uden netværk) med
+bon-nummer-felt + Kobl (`POST /api/cashflow/economic/link`). Reglen i `linkEconomicInvoice`:
+har bonens cf_invoice intet nummer, sættes det dér (beløbet bliver e-conomics); har den
+allerede ét — Derby: 4202 + 4204 til B4255 — oprettes en **ekstra række uden bon_id**, så
+sync'en ikke rører den og afstemningen ejer den via nummeret. Betalt-status følger
+e-conomic i samme greb: åben dér uden bankpostering bag → ubetalt igen. Det er den ene
+situation hvor et beløbs-gæt må rulles tilbage uden e-conomic-nummer på rækken: B4255 stod
+"betalt" af "FAKTURA 4186" (som er B4128), og et menneske har netop sagt hvad den rigtige
+faktura er. Bank-matchet kører bagefter, så en postering med nummeret i teksten kobles med.
+Kan ikke kobles til to bons (409). Sync-testen +17 asserts (100 PASS).
+
 **Deploy:** ingen migration. Tryk **⟳ Synk e-conomic** én gang efter deploy — den kører
 nummer-matchet på de eksisterende bankposteringer (driftskopien: 106 koblinger, heraf
 4 nye betalte og 74 historiske omkoblinger uden ændret betalt-status) og retter beløbene.
