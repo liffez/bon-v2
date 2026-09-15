@@ -227,7 +227,7 @@ router.patch('/:id/commercial', handle((req, res) => {
                 userId: getUserId(req),
                 notes: k === 'discount_percent'
                     ? 'stående rabat — gælder bons oprettet herefter'
-                    : 'forhandler-markering — web-ordrer lægges på dette firma',
+                    : 'formidler-markering — web-ordrer lægges på dette firma',
             });
         }
     });

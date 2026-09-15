@@ -5569,6 +5569,19 @@ ikke forfaldsdatoer skæve.)
 Bon spørger tavlen — altså den API-kobling der er valgt fra ovenfor.
 ### Forhandler-ordrer: hvem betaler, og hvem er maden til? (27. august 2026)
 
+> **Ordet i UI'et er "Formidler" siden 15. september 2026** (Firma 360°, bekræftelser,
+> ejer-mail, changelog-noter). Able videresælger ikke maden — de bestiller den på vegne
+> af deres kunder — og "forhandler" fik kontoret til at tro at hver slutkunde skulle
+> have sin egen firma-række. Kolonnen hedder stadig `is_reseller`; kun teksten er ny.
+> Slutkunden får IKKE sin egen firma-række; navnet hører til på bonnen.
+>
+> **`npm run backfill:able-slutkunde`** skriver slutkunden på de Able-bons der er ældre
+> end feltet, ud fra en liste et menneske har læst (17 bons: Lundbeckfonden, Worksome,
+> BLS Capital, Scalepoint, Dignity, Per Aarsleff, Bigum, TBWA …). 43 bons uden et tydeligt
+> spor røres ikke — fri tekst afgøres ikke af et regex. Dry-run default, `--apply` tager
+> backup, idempotent. Kørt mod en kopi af driftsdata 15. september: 17 skrevet, anden
+> kørsel 0.
+
 Able er et frokostbestillings-firma. De lægger ordren ind på **vores egen**
 bestillingsformular for deres kunder — og skriver slutkundens navn i formularens
 **Firma-felt**, fordi der ikke er noget andet felt at skrive det i.

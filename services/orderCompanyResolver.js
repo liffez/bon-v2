@@ -159,7 +159,7 @@ function resolveOrderCompany(db, p = {}) {
         // til sig selv.
         out.reseller = { id: company.id, name: company.name };
         out.endCustomerName = out.typedDiffers ? typedName : null;
-        out.note = `lagt på forhandleren ${company.name}` +
+        out.note = `lagt på formidleren ${company.name}` +
             (how ? ` (matchet på ${how})` : '') +
             (out.endCustomerName ? `, slutkunde: ${out.endCustomerName}` : '');
         return out;
