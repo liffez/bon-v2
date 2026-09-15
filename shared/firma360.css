@@ -1083,3 +1083,8 @@
 .f3-act-sent.negative { background: var(--color-sentiment-neg-bg, #FBE9E9); color: var(--color-sentiment-neg, #C94040); }
 .f3-act-purpose { font-size: 10px; color: var(--color-text-dim, #8a8580); }
 .f3-act-user { margin-left: auto; font-size: 10px; color: var(--color-text-dim, #8a8580); }
+
+/* Bons-fanen: klikbare kolonneoverskrifter */
+.f3-table-sortable th { cursor: pointer; user-select: none; white-space: nowrap; }
+.f3-table-sortable th:hover { color: var(--brand-primary); }
+.f3-table-sortable th.f3-sorted { color: var(--brand-primary); }

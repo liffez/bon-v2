@@ -6919,7 +6919,8 @@ Regression grøn: test-reactivation 19, campaigns_from_suggestion 20.
 kontaktpersonen som `contact_name_full`, men fanen læste `customer_first_name` og
 `customer_last_name`, som ikke findes. `_f3BonCustomer()` læser det rigtige felt og viser
 slutkunden med pil på formidler-ordrer (`Theresa Mortensen → Lundbeckfonden`), som
-bon-listen gør.
+bon-listen gør. Kolonnerne kan sorteres ved klik (▲/▼, huskes i `localStorage`
+`f3_bons_sort`); standard er API'ets egen rækkefølge, dato stigende.
 
 **Ikke gjort her:** de to Scalepoint-firmarækker (#3558, #3638) har hverken bons eller
 kunder — de hører til i CRM → Værktøjer → "Ryd tomme firmaer".
