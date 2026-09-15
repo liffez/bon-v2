@@ -37,7 +37,7 @@ function initCrmFirmaer(container, opts = {}) {
                     <button class="cf-chip" data-stage="vip">⭐ VIP</button>
                     <button class="cf-chip" data-stage="dormant">Sovende</button>
                 </div>
-                <input class="cf-search" type="search" placeholder="Søg firma, CVR, juridisk navn eller #id…" />
+                <input class="cf-search" type="search" placeholder="Søg firma, CVR, EAN, juridisk navn eller #id…" />
                 <button type="button" class="cf-new-btn" id="cf-new-btn">+ Nyt firma</button>
             </div>
             <div class="cf-status" id="cf-status"></div>
@@ -87,11 +87,11 @@ function initCrmFirmaer(container, opts = {}) {
    CVR er separate firmaer, så kontoret afgør.
    ══════════════════════════════════════════════════════════════ */
 
-const _cfNew = { cvrAddress: null, dawa: null, confirmedMatchId: null };
+const _cfNew = { cvrAddress: null, dawa: null, confirmedMatchId: null, legalName: null };
 
 function cfOpenNewFirma() {
     if (typeof openModal !== 'function') { alert('Modal-komponenten er ikke indlæst'); return; }
-    _cfNew.cvrAddress = null; _cfNew.dawa = null; _cfNew.confirmedMatchId = null;
+    _cfNew.cvrAddress = null; _cfNew.dawa = null; _cfNew.confirmedMatchId = null; _cfNew.legalName = null;
 
     openModal({
         title: 'Nyt firma',
@@ -100,7 +100,7 @@ function cfOpenNewFirma() {
             <div class="cf-new-field">
                 <label>Slå firma op i CVR</label>
                 <div class="cf-new-inline">
-                    <input type="text" id="cfn-cvrq" placeholder="Firmanavn eller CVR-nummer, fx CAP Partner">
+                    <input type="text" id="cfn-cvrq" placeholder="Firmanavn, CVR-nummer eller EAN, fx CAP Partner">
                     <button type="button" class="cf-new-mini" id="cfn-cvr-search">Søg</button>
                 </div>
                 <div class="cf-new-cvr-results" id="cfn-cvr-results" hidden></div>
@@ -155,9 +155,10 @@ function cfOpenNewFirma() {
 }
 
 /**
- * Ét felt til begge CVR-opslag: 8 cifre → direkte opslag på nummeret; ellers
+ * Ét felt til alle tre opslag: 8 cifre → CVR-nummer; 13 cifre → EAN via
+ * NemHandelsregistret (den registrerede enhed + CVR + juridisk enhed); ellers
  * navnesøgning (cvrapi først — præcis på korte navne — Virk ES som fuzzy
- * fallback). Samme to kilder som KundeSoeg.cvrSearchByName.
+ * fallback). Samme to navne-kilder som KundeSoeg.cvrSearchByName.
  */
 async function cfCvrSearch(raw) {
     const q = (raw || '').trim();
@@ -172,7 +173,17 @@ async function cfCvrSearch(raw) {
         try { const r = await fetch(url); if (!r.ok) return null; const d = await r.json(); return d; } catch (_) { return null; }
     };
     let hits = [];
-    if (digits.length === 8 && digits === q.replace(/\s/g, '')) {
+    if (digits.length === 13 && digits === q.replace(/\s/g, '')) {
+        const d = await tryUrl('/api/cvr/ean/' + digits);
+        // Enheden fra NemHandel er navnet (afdelingen er firma-rækkens niveau);
+        // den juridiske enhed bag CVR'et vises som meta og gemmes som legal_name.
+        if (d && (d.unit_name || d.cvr)) hits = [{
+            name: d.unit_name || (d.legal && d.legal.name) || '',
+            cvr: d.cvr, ean: d.ean,
+            legal_name: d.legal ? d.legal.name : null,
+            status: d.legal ? 'juridisk enhed: ' + d.legal.name : 'EAN ' + d.ean,
+        }];
+    } else if (digits.length === 8 && digits === q.replace(/\s/g, '')) {
         const d = await tryUrl('/api/cvr/' + digits);
         if (d && (d.name || d.cvr)) hits = [d];
     } else {
@@ -199,6 +210,8 @@ function cfApplyCvr(r) {
     const $ = (id) => document.getElementById(id);
     if (r.name) $('cfn-name').value = r.name;
     if (r.cvr) $('cfn-cvr').value = r.cvr;
+    if (r.ean) $('cfn-ean').value = r.ean;
+    _cfNew.legalName = r.legal_name || null;
     if (r.phone && !$('cfn-phone').value) $('cfn-phone').value = r.phone;
     if (r.email && !$('cfn-email').value) $('cfn-email').value = r.email;
     // Adressen fra CVR gemmes som fallback — DAWA-valget vinder hvis der vælges ét.
@@ -295,7 +308,7 @@ async function cfSubmitNewFirma() {
         }
         // 2. Adresse (valgfri), så firma.
         const address_id = await cfResolveAddressId();
-        const res = await createCompany({ name, cvr: cvr || null, ean: ean || null, phone: phone || null, email: email || null, notes: notes || null, address_id });
+        const res = await createCompany({ name, cvr: cvr || null, ean: ean || null, phone: phone || null, email: email || null, notes: notes || null, address_id, legal_name: _cfNew.legalName });
         closeModal();
         if (typeof window.openFirma360 === 'function') window.openFirma360(res.id);
         else cfLoad();

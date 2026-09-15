@@ -80,7 +80,7 @@ router.get('/:id', handle((req, res) => {
 router.post('/', handle((req, res) => {
     const db = getDb();
     const { name, cvr, ean, phone, email, invoice_method,
-            default_payment_type, default_price_category_id, notes, address_id } = req.body;
+            default_payment_type, default_price_category_id, notes, address_id, legal_name } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Firmanavn mangler' });
 
     const cleanCvr = cvr ? String(cvr).replace(/\D/g, '') : null;
@@ -97,11 +97,12 @@ router.post('/', handle((req, res) => {
     transaction(db, () => {
         const result = db.prepare(`
             INSERT INTO companies (name, cvr, ean, phone, email, invoice_method,
-                                   default_payment_type, default_price_category_id, notes, address_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   default_payment_type, default_price_category_id, notes, address_id, legal_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(String(name).trim(), cleanCvr || null, cleanEan || null, phone || null, email || null,
                invoice_method || null, default_payment_type || null,
-               default_price_category_id || null, notes || null, addrId);
+               default_price_category_id || null, notes || null, addrId,
+               legal_name ? String(legal_name).trim() : null);
         id = Number(result.lastInsertRowid);
 
         if (email) ensureContactPoint(db, 'company', id, 'email', email, 'manual');

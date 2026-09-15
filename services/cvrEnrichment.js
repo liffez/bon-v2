@@ -274,4 +274,4 @@ async function enrich({ cvr, ean, email, navn } = {}) {
     };
 }
 
-module.exports = { enrich, similarity, normalizeName };
+module.exports = { enrich, similarity, normalizeName, nemhandelLookup };

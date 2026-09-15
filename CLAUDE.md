@@ -5878,6 +5878,24 @@ måske ikke findes) eller via en bon med et ukendt firmanavn. Oprydningen i kart
 > en tom gul bjælke under Noter indtil `.cf-new-match[hidden] { display: none }` — set i
 > browseren, ikke af testen.
 
+**EAN-opslag (samme dag, opfølgning).** Samme felt tager nu også **13 cifre**: nyt
+`GET /api/cvr/ean/:ean` slår op i **NemHandelsregistret** (`nemhandelLookup`, som hidtil kun
+blev brugt til batch-berigelse) og får den *registrerede enhed* + CVR — fx
+`50570000 - KU-NS-SCIENCE-FAK (959)` · 29979812 — og henter derefter den juridiske enhed bag
+CVR'et fra cvrapi ("Københavns Universitet"). EAN er den stærkeste nøgle for institutionerne,
+netop dem der laver dubletter, og det er det tal kunden faktisk skriver på ordren.
+
+- Hittet udfylder **navn = enheden** (afdelingen er firma-rækkens niveau — KU har mange),
+  CVR, EAN og `legal_name` = den juridiske enhed. `POST /api/companies` tager nu `legal_name`.
+- **Adressen fra cvrapi sendes bevidst ikke med** — den er hovedsædets (Nørregade 10), og en
+  afdeling ligger sjældent dér. Adressen vælges med DAWA.
+- Er cvrapi nede, kommer enheden og CVR stadig; `legal` er null. En ukendt EAN giver 404.
+- Firmaer-listens søgefelt matcher nu også på EAN.
+- `npm run test:ean-opslag` — 7 asserts; NemHandel og cvrapi stubbes med svar i registrenes
+  egen form (HTML-fragmentet er klippet fra et live-svar 15/9), routen/parseren/søgningen rammes
+  ægte. Mutations-testet (EAN ude af søgningen, cvrapi-fejl vælter routen, parseren mister CVR).
+  Live: KU Science, KU Sund og et ukendt EAN svarer som forventet.
+
 **Tests**: `npm run test:firma-opret` — 12 asserts mod de ægte endpoints over HTTP
 (`:memory:` af de rigtige migrations). **Mutations-testet:** kontaktpunkter (fælder 2,
 heraf e-mail-matchet — det er *derfor* de skal skrives), `activeOnly` (1), adresse-
@@ -7293,6 +7311,7 @@ GET    /api/companies/:id                                routes/companies.js
 POST   /api/companies                                    routes/companies.js (+address_id; e-mail/telefon → kontaktpunkter; changelog)
 GET    /api/cvr/:cvr                                     routes/cvr.js
 GET    /api/cvr/search?q=                                routes/cvr.js
+GET    /api/cvr/ean/:ean                                 routes/cvr.js (NemHandel: registreret enhed + CVR; cvrapi: juridisk enhed)
 GET    /api/price-categories                             routes/price_categories.js
 POST   /api/addresses                                    routes/addresses.js
 PATCH  /api/bons/:id            { ...fields }            routes/bons.js

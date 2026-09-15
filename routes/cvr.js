@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { nemhandelLookup } = require('../services/cvrEnrichment');
 
 const VIRK_USER = process.env.VIRK_ES_USER;
 const VIRK_PASS = process.env.VIRK_ES_PASS;
@@ -103,6 +104,40 @@ router.get('/search', async (req, res) => {
     } catch (err) {
         console.error('CVR-søgning fejlede:', err.message);
         res.status(502).json({ error: 'CVR-søgning fejlede' });
+    }
+});
+
+// GET /api/cvr/ean/:ean — hvem ER det EAN?
+//
+// EAN er den stærkeste nøgle for institutionerne (KU, kommunerne) — netop dem
+// der laver dubletter — og det er det tal kunden faktisk skriver på ordren.
+// NemHandelsregistret svarer med den REGISTREREDE ENHED ("50570000 -
+// KU-NS-SCIENCE-FAK (959)") + CVR; cvrapi giver den juridiske enhed bag CVR'et
+// ("Københavns Universitet"). Begge returneres: enheden er det rigtige niveau
+// for en firma-række i Bon (afdelinger er separate firmaer), den juridiske
+// enhed er til legal_name. Adressen fra cvrapi er hovedsædets og sendes
+// bevidst IKKE med som firmaets adresse — en afdeling ligger sjældent dér.
+// Skal stå FØR /:cvr, ellers fanger den ruten.
+router.get('/ean/:ean', async (req, res) => {
+    const ean = String(req.params.ean || '').replace(/\D/g, '');
+    if (ean.length !== 13) return res.status(400).json({ error: 'EAN skal være 13 cifre' });
+    try {
+        const nh = await nemhandelLookup(ean);
+        if (!nh) return res.status(404).json({ error: 'EAN ikke fundet i NemHandelsregistret' });
+        let legal = null;
+        if (nh.cvr) {
+            try {
+                const r = await fetch(`https://cvrapi.dk/api?country=dk&vat=${nh.cvr}`, {
+                    headers: { 'User-Agent': 'Bon v2 - ristetrug.dk' },
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (r.ok) legal = mapCvrResult(await r.json());
+            } catch (e) { console.warn('[cvr/ean] cvrapi fejlede:', e.message); }
+        }
+        res.json({ ean, unit_name: nh.enhedsnavn, cvr: nh.cvr, legal });
+    } catch (err) {
+        console.error('EAN-opslag fejlede:', err.message);
+        res.status(502).json({ error: 'EAN-opslag fejlede' });
     }
 });
 
