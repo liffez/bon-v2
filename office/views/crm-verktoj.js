@@ -796,8 +796,12 @@ function _mergeUpdateConfirmBtn() {
 }
 window._mergeUpdateConfirmBtn = _mergeUpdateConfirmBtn;
 
-function mergeCancel() {
-    if (!confirm('Vil du virkelig annullere denne sammenlægning?')) return;
+// "Annullér" midt i guiden spørger først — der kan ligge et halvfærdigt valg.
+// "Sammenlæg flere" efter en gennemført sammenlægning har intet at kaste væk og
+// må ikke spørge om man vil "annullere" noget der allerede er gemt.
+function mergeCancel(opts = {}) {
+    const ask = opts.ask !== false;
+    if (ask && !confirm('Vil du virkelig annullere denne sammenlægning?')) return;
     _mergeState = { winner: null, loser: null, preview: null, field_choices: {}, user_notes: '' };
     document.getElementById('merge-step2').style.display = 'none';
     document.getElementById('merge-step3').style.display = 'none';
@@ -839,7 +843,7 @@ async function mergeExecute() {
                     <code style="background:white;padding:4px 8px;border-radius:3px;font-family:monospace;font-size:11px;display:inline-block;margin-top:4px">node --experimental-sqlite scripts/undo-merge.js ${result.changelog_id}</code>
                 </div>
             </div>
-            <button class="st-btn" onclick="mergeCancel()">Sammenlæg flere</button>
+            <button class="st-btn" onclick="mergeCancel({ ask: false })">Sammenlæg flere</button>
         `;
     } catch (err) {
         btn.disabled = false;
