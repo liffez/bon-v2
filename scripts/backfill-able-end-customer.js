@@ -115,7 +115,8 @@ function main() {
 
     // Tidsstempel i navnet: VACUUM INTO nægter at overskrive, og scriptet køres
     // flere gange efterhånden som listen vokser. UTC er fint her — det er et filnavn.
-    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, ''); // utc-ok: filnavn
+    // Millisekunder + pid: to kørsler i samme sekund gav samme navn i test.
+    const stamp = new Date().toISOString().replace(/[-:.]/g, '').replace(/Z$/, '') + '-' + process.pid; // utc-ok: filnavn
     const backup = DB_PATH.replace(/\.db$/, '') + `.pre-able-endcustomer-${stamp}.db`;
     db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
     console.log(`Backup: ${backup}`);
