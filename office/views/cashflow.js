@@ -211,7 +211,22 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
             <div class="cf-metric warning">
                 <div class="cf-metric-label">Udestående fakturaer (incl moms)</div>
                 <div class="cf-metric-value">${_cfFmt(stats.outstanding_total)}</div>
-                <div class="cf-metric-sub">${stats.outstanding_count} fakturaer · heraf moms-forpligtelse: ${_cfFmt(stats.outstanding_vat_liability || 0)}</div>
+                <div class="cf-metric-sub">${stats.outstanding_count} fakturaer sendt, ikke betalt · heraf moms: ${_cfFmt(stats.outstanding_vat_liability || 0)}${
+                    stats.not_invoiced_count > 0
+                        ? ` · ${stats.not_invoiced_count} aldrig sendt holdt ude`
+                        : ''
+                }</div>${
+                    // Bankens virkelighed før e-conomic er ajour: posteringer der LIGNER en
+                    // betaling af fakturaen, men ikke er bekræftet. Klik → bekræft dem, og
+                    // de forlader tallet. Nummer-verificerede matches står her aldrig — de
+                    // er allerede markeret betalt.
+                    stats.outstanding_likely_paid_count > 0
+                        ? `<div class="cf-metric-sub cf-likely-paid-sub" id="cfLikelyPaidSub" role="button" tabindex="0"
+                                title="Åbn fanen 'Sandsynlig betalt' og bekræft">
+                             <strong>${stats.outstanding_likely_paid_count}</strong> ser betalt ud i banken (${_cfFmt(stats.outstanding_likely_paid_total)}) — bekræft →
+                           </div>`
+                        : ''
+                }
             </div>
             <div class="cf-metric alert">
                 <div class="cf-metric-label">Forfaldne (incl moms, ikke betalt)</div>
@@ -261,6 +276,9 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
             </div>
             <span class="cf-notinv-cta">Se listen →</span>
         </div>` : ''}
+
+        <!-- Åbne hos e-conomic uden kobling i Bon (fyldes efter load) -->
+        <div id="cfUnlinkedHost"></div>
 
         <!-- Main grid -->
         <div class="cf-main-grid">
@@ -418,12 +436,16 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                 `${r.openInEconomic} fakturaer er ubetalte hos e-conomic (${kr(r.openInEconomicTotal)})`,
                 `${r.flipped} rettet fra forfalden til betalt`,
                 `${r.scanned} ${r.scanned === 1 ? 'ny faktura' : 'nye fakturaer'} scannet · ${r.numbered ?? 0} fakturanr gemt`,
-                `${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`,
+                `${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`
+                    + (r.linkedPaid ? ` · ${r.linkedPaid} markeret betalt ud fra banken` : '')
+                    + (r.linkedMoved ? ` · ${r.linkedMoved} flyttet fra en faktura de var gættet på` : ''),
             ];
+            // e-conomics fakturabeløb slår bonens total (ældre rækker manglede leveringen).
+            if (r.amountsCorrected) linjer.push(`${r.amountsCorrected} fakturabeløb rettet til e-conomics tal`);
             // Uenighed = vi siger betalt, e-conomic siger stadig åben. Vi flipper
             // ikke tilbage af os selv (det ville genoplive fakturaer kontoret har
             // afskrevet med vilje) — men det skal siges højt.
-            if (r.conflicts) linjer.push(`\n⚠ ${r.conflicts} står som betalt hos os, men er stadig åbne hos e-conomic:\n   ` +
+            if (r.conflicts) linjer.push(`\nℹ ${r.conflicts} er betalt i banken, men står stadig åbne hos e-conomic (betalingen er ikke bogført endnu):\n   ` +
                 r.conflictRows.slice(0, 8).map(c => `${c.cf_id} (faktura ${c.booked_no})`).join(', '));
             if (r.unknownNumbers) linjer.push(`${r.unknownNumbers} fakturanr kendes ikke hos e-conomic — urørt`);
             // Betalingsposteringerne er det der giver rytmen ægte datoer at lære af.
@@ -458,6 +480,17 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
     }
 
     // "Aldrig faktureret"-båndet → åbn fanen med listen (#319)
+    _cfRenderUnlinked(el);
+
+    const likelySub = el.querySelector('#cfLikelyPaidSub');
+    if (likelySub) {
+        const open = () => _cfSwitchInvTab('sandsynlig', true);
+        likelySub.onclick = open;
+        likelySub.onkeydown = (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
+        };
+    }
+
     const notInvBanner = el.querySelector('#cfNotInvBanner');
     if (notInvBanner) {
         const open = () => _cfSwitchInvTab('ikke_faktureret', true);
@@ -1728,6 +1761,62 @@ function _cfShowToast(msg, isError) {
     toast.classList.add('cf-toast-show');
     clearTimeout(toast._t);
     toast._t = setTimeout(() => toast.classList.remove('cf-toast-show'), 3500);
+}
+
+/* ── Åbne fakturaer hos e-conomic uden kobling i Bon ──
+   Listen stod før kun i afstemningens alert() og kunne ikke handles på. Her kan
+   kontoret skrive bon-nummeret og koble — så følger betalt-status, beløb og
+   bank-match med. Vises kun når der er noget at koble. */
+async function _cfRenderUnlinked(el) {
+    const host = el.querySelector('#cfUnlinkedHost');
+    if (!host) return;
+    let rows = [];
+    try { rows = (await fetchEconomicUnlinked()).rows || []; } catch { return; }
+    if (!rows.length) { host.innerHTML = ''; return; }
+    const kr = (n) => Math.round(n || 0).toLocaleString('da-DK') + ' kr';
+    host.innerHTML = `
+        <details class="cf-unlinked">
+            <summary>
+                <span class="cf-unlinked-title">${rows.length} ${rows.length === 1 ? 'åben faktura' : 'åbne fakturaer'} hos e-conomic har ingen kobling i Bon — ${kr(rows.reduce((s, r) => s + (r.remainder || 0), 0))}</span>
+                <span class="cf-unlinked-sub">Overskriften bærer intet bon-nummer, så de kan kun kobles i hånden. Skriv bon-nummeret og tryk Kobl — så følger betalt-status, beløb og bank-match med.</span>
+            </summary>
+            <table class="cf-unlinked-table">
+                ${rows.map(r => `
+                <tr data-no="${_cfEsc(r.booked_no)}">
+                    <td class="cf-unlinked-no">${_cfEsc(r.booked_no)}</td>
+                    <td class="cf-unlinked-date">${_cfEsc(r.date || '')}</td>
+                    <td class="cf-unlinked-amt">${kr(r.remainder)}</td>
+                    <td class="cf-unlinked-head">${_cfEsc(r.heading || '(ingen overskrift)')}</td>
+                    <td class="cf-unlinked-act">
+                        <input type="text" class="cf-unlinked-bon" placeholder="Bon-nr, fx B4255" aria-label="Bon-nummer til faktura ${_cfEsc(r.booked_no)}">
+                        <button type="button" class="cf-btn cf-btn-ghost cf-unlinked-link">Kobl</button>
+                    </td>
+                </tr>`).join('')}
+            </table>
+        </details>`;
+    const doLink = async (tr) => {
+        const input = tr.querySelector('.cf-unlinked-bon');
+        const bon = (input.value || '').trim();
+        if (!bon) { input.focus(); return; }
+        const btn = tr.querySelector('.cf-unlinked-link');
+        btn.disabled = true;
+        try {
+            const r = await linkEconomicInvoice({ booked_no: tr.dataset.no, bon_number: bon });
+            const dele = [`Faktura ${tr.dataset.no} koblet til ${r.invoice_id}`];
+            if (r.created) dele.push('oprettet som ekstra faktura på bonnen');
+            if (r.unpaid_again) dele.push('bonnen var markeret betalt uden dækning — nu ubetalt igen');
+            if (r.bank_paid) dele.push(`${r.bank_paid} bankpostering matchede og markerede betalt`);
+            _cfShowToast(dele.join(' · '));
+            _cfRenderOverblik();
+        } catch (err) {
+            _cfShowToast(err.message || 'Kunne ikke koble', true);
+            btn.disabled = false;
+        }
+    };
+    host.querySelectorAll('.cf-unlinked-link').forEach(b => { b.onclick = () => doLink(b.closest('tr')); });
+    host.querySelectorAll('.cf-unlinked-bon').forEach(i => {
+        i.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); doLink(i.closest('tr')); } };
+    });
 }
 
 /* ── Re-render metrics-strip uden full re-render af hele overblikket ── */

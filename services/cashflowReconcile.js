@@ -110,9 +110,15 @@ async function reconcile(db, { dryRun = true, since } = {}) {
     const mirror = [];                             // spejl af ALLE bogførte fakturaer (cf_economic_invoices)
     const seenNum = new Set();
     const bookedNos = new Set();                   // numre set i dette scan
-    for (const inv of booked) {
-        scanned++;
-        if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
+    // Én kobling for begge kilder. Før koblede vi KUN fra delta-scanningen: var
+    // Bon-bonnen ikke faktureret i Bon endnu da e-conomic-fakturaen blev scannet,
+    // fandtes der ingen række at skrive nummeret på — og vandmærket rykkede videre,
+    // så der blev aldrig spurgt igen. Fakturaen stod derefter som "åben hos
+    // e-conomic uden kobling i Bon", selv om overskriften bar bon-nummeret
+    // (drift, sep 2026: #B4169, #B4130, #B4226, #B4194, #B4256, #B4253). Den
+    // ubetalte liste er fuld tilstand og bærer samme overskrifter — så den
+    // kobler også, hver gang.
+    const linkInvoice = (inv) => {
         const heading = inv.notes?.heading || '';
         const ecoNo = inv.bookedInvoiceNumber != null ? String(inv.bookedInvoiceNumber) : null;
         // Spejl ENHVER bogført faktura (også uden bon-nr i overskrift) — grundlaget for
@@ -126,7 +132,7 @@ async function reconcile(db, { dryRun = true, since } = {}) {
             });
         }
         const bonNums = heading.match(/\d{3,5}/g) || [];   // ét eller flere bon-numre i overskriften
-        if (!bonNums.length) { noHeading++; continue; }     // tom/beskrivende overskrift (fx "Michelin")
+        if (!bonNums.length) { noHeading++; return; }       // tom/beskrivende overskrift (fx "Michelin")
         for (const num of bonNums) {
             const cf = cfByNum.get(num);
             if (!cf) continue;                              // bon-nr uden cf_invoice (ikke Bon-v2-bon)
@@ -139,6 +145,15 @@ async function reconcile(db, { dryRun = true, since } = {}) {
                 numberChanges.push({ cf_id: cf.id, economic_number: ecoNo });
             }
         }
+    };
+    for (const inv of booked) {
+        scanned++;
+        if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
+        linkInvoice(inv);
+    }
+    for (const inv of unpaidList) {
+        if (inv.bookedInvoiceNumber != null && bookedNos.has(digits(inv.bookedInvoiceNumber))) continue;
+        linkInvoice(inv);                          // tæller ikke som "scannet", rykker ikke vandmærket
     }
 
     /* ── BETALT-AKSEN på fuld tilstand ──────────────────────────────────────
@@ -270,8 +285,34 @@ async function reconcile(db, { dryRun = true, since } = {}) {
         });
     }
 
+    // ── Fakturabeløbet er e-conomics, ikke bonens ─────────────────────────
+    // cf_invoices.beloeb blev sat fra bonens total da den blev faktureret — og
+    // ældre rækker mangler leveringen (total_price uden delivery_price). Kunden
+    // betaler det tal der står på fakturaen i e-conomic, så det er DET beløb
+    // "Udestående" skal summere og bank-matchet skal tolerere. Kun 1:1-koblinger:
+    // en samlefaktura (ét nummer, flere bons) kan ikke fordeles uden at gætte.
+    const grossByNo = new Map();
+    for (const m of db.prepare(`SELECT booked_no, gross_amount FROM cf_economic_invoices`).all()) {
+        if (m.gross_amount != null) grossByNo.set(digits(m.booked_no), m.gross_amount);
+    }
+    for (const m of mirror) if (m.gross_amount != null) grossByNo.set(digits(m.booked_no), m.gross_amount);
+    const cfAmount = new Map(db.prepare(`SELECT id, beloeb FROM cf_invoices`).all().map(r => [r.id, r.beloeb]));
+    const amountChanges = [];
+    for (const [no, rows] of numbersToApply) {
+        if (rows.length !== 1) continue;
+        const gross = grossByNo.get(no);
+        const cur = cfAmount.get(rows[0].id);
+        if (!(gross > 0) || cur == null || Math.abs(gross - cur) < 0.01) continue;
+        amountChanges.push({ cf_id: rows[0].id, booked_no: no, from: cur, to: gross });
+    }
+    if (!dryRun && amountChanges.length) {
+        const updAmt = db.prepare(`UPDATE cf_invoices SET beloeb = ? WHERE id = ?`);
+        for (const c of amountChanges) updAmt.run(c.to, c.cf_id);
+    }
+
     return {
         scanned, matched, flipped, numbered, mirrored: mirror.length, mirrorCleared,
+        amountsCorrected: amountChanges.length, amountChanges,
         conflicts: conflictRows.length, unknownNumbers,
         openInEconomic: unpaidByNo.size,
         openInEconomicTotal: r2([...unpaidByNo.values()].reduce((s, i) => s + (i.remainder || 0), 0)),
@@ -294,52 +335,131 @@ function getTolerance(db) {
 }
 
 /**
- * Kobl umatchede bank-indbetalinger til fakturaer via e-conomics bogførte
- * fakturanummer i bankteksten ("FAKTURA 3957" → cf_invoices.economic_number=3957).
- * VERIFICERET link: nummer i tekst OG beløb inden for tolerance (også allerede
- * betalte fakturaer — disse er afregnet, men ikke koblet 1:1 i bank-visningen).
- * Rører IKKE betalt-status (det ejer reconcile/e-conomic). Idempotent.
- * @returns {{ linked, changes }}
+ * Kobl bank-indbetalinger til fakturaer via e-conomics bogførte fakturanummer i
+ * bankteksten ("FAKTURA 3957" → cf_invoices.economic_number = 3957).
+ *
+ * Nummeret i bankteksten er det stærkeste signal vi har — kunden skriver selv
+ * hvilken regning hun betaler. Derfor:
+ *
+ *   1. Det VINDER over et beløbs-gæt. `runMatchLogic` matcher på beløb + dato og
+ *      kan lægge "FAKTURA 4131" på en anden faktura der tilfældigvis koster det
+ *      samme (set i drift: 4131 → B4228, mens B4145 — som ER 4131 — stod åben).
+ *      En tx hvis nuværende match er et gæt (conf < 95) flyttes til den faktura
+ *      nummeret peger på. Manuelle matches (conf 100) røres aldrig.
+ *   2. Det MARKERER BETALT. Kontoret skal kunne se bankens virkelighed mellem
+ *      e-conomic-opdateringerne — det er hele pointen med pengestrømmen. Den
+ *      næste synk mod e-conomic er upåvirket: en faktura vi siger er betalt og
+ *      e-conomic siger er åben, rapporteres som uenighed og flippes ikke tilbage.
+ *   3. Beløbet tjekkes mod e-conomics EGET fakturabeløb (spejlet) når vi kender
+ *      det — cf_invoices.beloeb kan mangle leveringen (ældre rækker), og så
+ *      falder et rigtigt nummer-match på beløbstolerancen.
+ *   4. Spejlets overskrift ("#B4130") bruges også: en bogført faktura hvis nummer
+ *      ingen cf_invoice bærer, kan stadig kobles gennem bon-nummeret i overskriften.
+ *
+ * Flyttes en tx væk fra en faktura, rulles den KUN tilbage til ubetalt hvis
+ * (a) ingen anden bankpostering peger på den, OG (b) e-conomic selv siger at
+ * fakturaen stadig er åben (spejlets restbeløb > 0). Så var vores "betalt" et
+ * beløbs-gæt uden dækning. Siger e-conomic betalt — eller kender vi ikke
+ * fakturaen dér — bliver den stående: afstemningen daterer en e-conomic-
+ * bekræftet betaling med bankposteringens dato, så datoen alene kan ikke skelne
+ * "gættet" fra "bekræftet". Målt mod driftsdata rullede den første udgave 25
+ * e-conomic-betalte fakturaer tilbage; denne rører kun de reelt åbne.
+ *
+ * Værn: nummer i tekst er ikke nok alene — beløbet skal passe (relativ tolerance
+ * eller op til +extraMax kr over). Et tilfældigt firecifret tal må ikke koble.
+ *
+ * @returns {{ linked:number, paid:number, moved:number, changes:Array }}
  */
 function matchByEconomicNumber(db, { dryRun = false } = {}) {
     const { relativePct, extraMax } = getTolerance(db);
     const ratio = relativePct / 100;
 
-    // economic_number → [{id, beloeb}]   (én samlefaktura → flere bons deler nummer)
+    const cfRows = db.prepare(`SELECT id, beloeb, betalt, betalt_dato, economic_number FROM cf_invoices`).all();
+    const cfById = new Map(cfRows.map(r => [r.id, r]));
+    const cfByIdDigits = new Map();
+    for (const r of cfRows) { const k = digits(r.id); if (k && !cfByIdDigits.has(k)) cfByIdDigits.set(k, r); }
+
+    // economic_number → [cf-rækker]   (én samlefaktura → flere bons deler nummer)
     const byNum = new Map();
-    for (const i of db.prepare(`SELECT id, beloeb, economic_number FROM cf_invoices
-                                WHERE economic_number IS NOT NULL AND economic_number != ''`).all()) {
-        const k = digits(i.economic_number);
+    for (const r of cfRows) {
+        const k = digits(r.economic_number);
         if (!k) continue;
         if (!byNum.has(k)) byNum.set(k, []);
-        byNum.get(k).push(i);
+        byNum.get(k).push(r);
+    }
+    // e-conomics eget fakturabeløb pr. nummer + overskrift → bon-nr → cf-række
+    const grossByNo = new Map();
+    const openAtEconomic = new Set();                     // numre e-conomic stadig har som ubetalte
+    for (const m of db.prepare(`SELECT booked_no, gross_amount, remainder, heading FROM cf_economic_invoices`).all()) {
+        const no = digits(m.booked_no);
+        if (!no) continue;
+        if (m.gross_amount != null) grossByNo.set(no, m.gross_amount);
+        if (m.remainder > 0) openAtEconomic.add(no);
+        if (byNum.has(no)) continue;                       // nummeret er allerede koblet direkte
+        for (const bn of (m.heading || '').match(/\d{3,6}/g) || []) {
+            const cf = cfByIdDigits.get(bn);
+            if (cf) { byNum.set(no, [cf]); break; }
+        }
     }
 
-    const unmatched = db.prepare(`SELECT id, tekst, beloeb FROM cf_transactions
-        WHERE matched_invoice_id IS NULL AND beloeb > 0 AND ignored = 0`).all();
+    // Kandidater: ukoblede — OG dem hvis nuværende match kun er et beløbs-gæt.
+    // 95 = nummer-match (denne funktion / runMatchLogic med nummer), 100 = manuel.
+    const cands = db.prepare(`SELECT id, dato, tekst, beloeb, matched_invoice_id, match_confidence FROM cf_transactions
+        WHERE beloeb > 0 AND ignored = 0
+          AND (matched_invoice_id IS NULL OR COALESCE(match_confidence, 0) < 95)`).all();
+
+    const fits = (tx, inv, no) => {
+        const base = grossByNo.get(no) ?? inv.beloeb;
+        if (!(base > 0)) return false;
+        const diff = tx.beloeb - base;
+        return Math.abs(diff) / base <= ratio || (diff > 0 && diff <= extraMax);
+    };
 
     const changes = [];
-    for (const tx of unmatched) {
+    for (const tx of cands) {
         const nums = tx.tekst.match(/\d{3,6}/g) || [];
         let hit = null;
         for (const n of nums) {
-            const cands = byNum.get(n);
-            if (!cands) continue;
-            for (const inv of cands) {
-                const diff = tx.beloeb - inv.beloeb;
-                const within = Math.abs(diff) / Math.abs(inv.beloeb) <= ratio || (diff > 0 && diff <= extraMax);
-                if (within) { hit = inv; break; }       // nummer + beløb → høj sikkerhed
+            for (const inv of byNum.get(n) || []) {
+                if (fits(tx, inv, n)) { hit = inv; break; }   // nummer + beløb → høj sikkerhed
             }
             if (hit) break;
         }
-        if (hit) changes.push({ tx_id: tx.id, invoice_id: hit.id });
+        if (!hit) continue;
+        const from = tx.matched_invoice_id && tx.matched_invoice_id !== hit.id ? tx.matched_invoice_id : null;
+        changes.push({ tx_id: tx.id, tx_dato: tx.dato, invoice_id: hit.id, from_invoice_id: from,
+                       marks_paid: hit.betalt !== 1 });
+        hit.betalt = 1;                                     // to tx'er på samme faktura → kun én "paid"
     }
 
+    let paid = 0, moved = changes.filter(c => c.from_invoice_id).length;
     if (!dryRun && changes.length) {
         const upd = db.prepare(`UPDATE cf_transactions SET matched_invoice_id = ?, match_confidence = 95 WHERE id = ?`);
+        const markPaid = db.prepare(`UPDATE cf_invoices SET betalt = 1, betalt_dato = ?, betalingstype = COALESCE(betalingstype, 'bank')
+                                     WHERE id = ? AND betalt = 0`);
+        const anyTx = db.prepare(`SELECT COUNT(*) AS n FROM cf_transactions WHERE matched_invoice_id = ?`);
+        const unpay = db.prepare(`UPDATE cf_invoices SET betalt = 0, betalt_dato = NULL WHERE id = ? AND betalt = 1`);
+        // Pas 1: flyt alle links (og rul de nu dækningsløse fakturaer tilbage).
         for (const c of changes) upd.run(c.invoice_id, c.tx_id);
+        for (const c of changes) {
+            if (!c.from_invoice_id) continue;
+            const prev = cfById.get(c.from_invoice_id);
+            if (!prev || prev.betalt !== 1) continue;
+            const stillOpen = openAtEconomic.has(digits(prev.economic_number));
+            if (stillOpen && anyTx.get(c.from_invoice_id).n === 0 && unpay.run(c.from_invoice_id).changes > 0) {
+                c.unpaid_previous = true;
+            }
+        }
+        // Pas 2: markér betalt — EFTER alle flytninger, så en faktura der først blev
+        // rullet tilbage og så fik sin rigtige postering ender som betalt.
+        for (const c of changes) {
+            if (markPaid.run(c.tx_dato, c.invoice_id).changes > 0) { paid++; c.marks_paid = true; }
+            else c.marks_paid = false;
+        }
+    } else {
+        paid = changes.filter(c => c.marks_paid).length;
     }
-    return { linked: changes.length, changes };
+    return { linked: changes.length, paid, moved, changes };
 }
 
 module.exports = { reconcile, fetchBookedSince, fetchUnpaid, matchByEconomicNumber };

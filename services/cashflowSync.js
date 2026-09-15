@@ -10,8 +10,14 @@
  *     ikke kreditfakturaer der venter på bankoverførsel.
  *   - Tilbud (is_offer=1) og interne bons (is_internal=1) springes over.
  *   - Bons med total_price ≤ 0 springes over.
- *   - FAKTURERET / AFSLUTTET → opret/opdater cf_invoice (betalt=0).
+ *   - FAKTURERET / AFSLUTTET → opret/opdater cf_invoice (betalt=0 ved oprettelse).
  *   - BETALT                 → opret/opdater (betalt=1, betalt_dato=delivery_date).
+ *   - En cf_invoice der allerede står betalt (bank-match / e-conomic-synk) rulles
+ *     ALDRIG tilbage af en bon-opdatering. Bon-status kan kun flytte betalt OP.
+ *     Før nulstillede enhver PATCH af en FAKTURERET bon (fx delivery_price) et
+ *     bank-bekræftet betalt-flag — og fakturaen dukkede op som udestående igen.
+ *   - Har fakturaen et e-conomic-nummer, er beløbet e-conomics (reconcile retter
+ *     det til fakturaens bruttobeløb) og overskrives ikke fra bonens total.
  *   - AFLYST                 → slet cf_invoice (kun hvis ikke betalt).
  *   - Tilbagerul fra FAKTURERET (status < FAKTURERET) → slet cf_invoice
  *     (kun hvis ikke betalt).
@@ -288,11 +294,18 @@ function syncCashflowInvoice(db, bonId) {
             if (renamed) invoiceId = targetId;
         }
 
+        // Betalt kan kun gå OP herfra. Et betalt-flag sat af bank-match eller
+        // e-conomic-synk overlever, at bonen bliver rettet bagefter.
+        const keepPaid = existing.betalt === 1;
+        const nextPaid = keepPaid ? 1 : isPaid;
+        const nextPaidDate = keepPaid ? (existing.betalt_dato ?? paidDate) : paidDate;
+        // Bogført i e-conomic ⇒ beløbet er fakturaens, ikke bonens.
+        const nextAmount = existing.economic_number ? existing.beloeb : amount;
         db.prepare(`
             UPDATE cf_invoices
             SET kunde = ?, beloeb = ?, forfald = ?, betalt = ?, betalt_dato = ?
             WHERE id = ?
-        `).run(bon.kunde_navn, amount, dueDate, isPaid, paidDate, invoiceId);
+        `).run(bon.kunde_navn, nextAmount, dueDate, nextPaid, nextPaidDate, invoiceId);
 
         return {
             action: invoiceId !== existing.id ? 'renamed' : 'updated',

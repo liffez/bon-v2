@@ -154,8 +154,13 @@ function runMatchLogic(db) {
     `).all();
 
     const invoices = db.prepare(`
-        SELECT id, beloeb, forfald FROM cf_invoices WHERE betalt = 0
+        SELECT id, beloeb, forfald, economic_number FROM cf_invoices WHERE betalt = 0
     `).all();
+    // Numre en banktekst kan bære for fakturaen: bon-nummerets cifre ("B4145" → 4145)
+    // og e-conomics fakturanr. Før sammenlignedes rå cifre med "B4145" — aldrig ens.
+    for (const inv of invoices) {
+        inv._nums = new Set([String(inv.id).replace(/\D/g, ''), String(inv.economic_number || '').replace(/\D/g, '')].filter(Boolean));
+    }
 
     const { relativePct, extraMax } = getMatchTolerance(db);
     const relativeRatio = relativePct / 100;
@@ -187,8 +192,8 @@ function runMatchLogic(db) {
             if (!withinRelative && !withinExtraAbove) continue;
 
             // Check for invoice number in text
-            const nums = tx.tekst.match(/\d{4,}/g) || [];
-            const hasInvNr = nums.some(n => n === inv.id);
+            const nums = tx.tekst.match(/\d{3,6}/g) || [];
+            const hasInvNr = nums.some(n => inv._nums.has(n));
 
             // Days between tx and due date
             const txDate = new Date(tx.dato);
@@ -297,14 +302,19 @@ router.post('/upload', (req, res) => {
             }
         }
 
-        // Run match logic
-        const matched = runMatchLogic(db);
+        // Nummeret i bankteksten FØRST (verificeret link, markerer betalt), så
+        // beløbs-gættet på resten. Omvendt rækkefølge lod et beløbs-gæt tage en
+        // "FAKTURA 4131"-postering før nummer-matchet så den (drift, sep 2026).
+        const byNumber = matchByEconomicNumber(db, { dryRun: false });
+        const matched = runMatchLogic(db) + byNumber.linked;
 
         res.json({
             total_rows: rows.length,
             inserted,
             duplicates: rows.length - inserted,
-            matched
+            matched,
+            matched_by_number: byNumber.linked,
+            marked_paid_by_number: byNumber.paid
         });
     });
 
@@ -736,6 +746,34 @@ router.delete('/invoices/:id', handle(async (req, res) => {
 
 // ─── GET /stats — Aggregerede nøgletal ──────────────────────
 
+/**
+ * Udestående / sandsynligt betalt / forventet ind — ét sted, så KPI-kortene og
+ * testen regner på samme SQL. Udestående og forventet udelader de aldrig sendte
+ * (NOT_INVOICED); sandsynligt-betalt spejler fanen af samme navn.
+ */
+function outstandingFigures(db, today, in30) {
+    const outstanding = db.prepare(`
+        SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
+        FROM cf_invoices i WHERE i.betalt = 0 AND NOT ${NOT_INVOICED}
+    `).get();
+    // Samme mængde som fanen "Sandsynlig betalt" (og dens badge) — kortets linje
+    // linker derhen, så de to tal SKAL være ens. Derfor udelades de aldrig sendte
+    // IKKE her: en "aldrig sendt" faktura med en bankpostering der ligner en
+    // betaling er netop værd at bekræfte — så forlader den begge lister.
+    const likelyPaid = db.prepare(`
+        SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
+        FROM cf_invoices i
+        WHERE i.betalt = 0
+          AND i.id IN (SELECT matched_invoice_id FROM cf_transactions
+                       WHERE matched_invoice_id IS NOT NULL AND match_confidence > 0)
+    `).get();
+    const expected30 = db.prepare(`
+        SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
+        FROM cf_invoices i WHERE i.betalt = 0 AND i.forfald <= ? AND NOT ${NOT_INVOICED}
+    `).get(in30);
+    return { outstanding, likelyPaid, expected30 };
+}
+
 router.get('/stats', handle(async (req, res) => {
     const db = getDb();
     const today = todayISO();
@@ -755,11 +793,10 @@ router.get('/stats', handle(async (req, res) => {
         bankBalance = latestTx?.saldo ?? null;
     }
 
-    // Outstanding invoices
-    const outstanding = db.prepare(`
-        SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
-        FROM cf_invoices WHERE betalt = 0
-    `).get();
+    // Udestående = regninger kunden HAR fået og ikke betalt. De aldrig sendte
+    // (#319) er arbejde, ikke tilgodehavende — de holdes ude her som i "Forfaldne",
+    // og har deres egen tæller nedenfor. Før talte de med og pustede tallet op.
+    const { outstanding, likelyPaid, expected30 } = outstandingFigures(db, today, in30);
 
     // Overdue — KUN fakturaer der faktisk er sendt (#319 forslag 2).
     // Før blandede tallet to ting: kunder der ikke har betalt, og kunder der
@@ -785,12 +822,6 @@ router.get('/stats', handle(async (req, res) => {
         SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
         FROM cf_invoices i WHERE ${NOT_INVOICED}
     `).get();
-
-    // Expected in 30 days
-    const expected30 = db.prepare(`
-        SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
-        FROM cf_invoices WHERE betalt = 0 AND forfald <= ?
-    `).get(in30);
 
     // Last upload
     const lastUpload = db.prepare(`SELECT value FROM cf_meta WHERE key = 'last_upload_at'`).get();
@@ -823,6 +854,11 @@ router.get('/stats', handle(async (req, res) => {
         outstanding_total_excl_moms: r2(inclToExcl(outstanding.total)),
         outstanding_vat_liability:   r2(momsOfIncl(outstanding.total)),
         outstanding_count: outstanding.count,
+        // Heraf: har et bank-match der ikke er bekræftet (beløbs-gæt, conf < 95).
+        // Det er bankens virkelighed set gennem en usikker kobling — kontoret
+        // bekræfter under "Sandsynlig betalt", og så forlader de tallet.
+        outstanding_likely_paid_count: likelyPaid.count,
+        outstanding_likely_paid_total: likelyPaid.total,
         overdue_total: overdue.total,
         overdue_total_incl_moms: overdue.total,
         overdue_total_excl_moms: r2(inclToExcl(overdue.total)),
@@ -2086,6 +2122,8 @@ router.post('/reconcile', handle(async (req, res) => {
         // fakturanummeret i bankteksten (verificeret link, ikke dato-fold).
         const m = matchByEconomicNumber(db, { dryRun });
         result.linked = m.linked;
+        result.linkedPaid = m.paid;
+        result.linkedMoved = m.moved;
         // Betalingsposteringer i samme greb — én knap, alt ajour. Kræver
         // Bookkeeping-rollen; mangler den, melder synken bare `available: false`
         // og resten af afstemningen er upåvirket.
@@ -2118,6 +2156,84 @@ router.post('/reconcile', handle(async (req, res) => {
     res.json(result);
 }));
 
+/**
+ * Åbne fakturaer hos e-conomic uden kobling i Bon — ud fra spejlet, uden netværk.
+ * "Uden kobling" = ingen cf_invoice bærer nummeret. De fleste har intet bon-nr i
+ * overskriften ("Madbilletter til Derby") og kan derfor kun kobles af et menneske.
+ */
+function economicUnlinked(db) {
+    const linked = new Set(
+        db.prepare(`SELECT economic_number FROM cf_invoices WHERE economic_number IS NOT NULL AND economic_number != ''`)
+          .all().map(r => String(r.economic_number).replace(/\D/g, ''))
+    );
+    return db.prepare(`SELECT booked_no, date, gross_amount, remainder, heading
+                       FROM cf_economic_invoices WHERE remainder > 0 ORDER BY date DESC, booked_no DESC`)
+        .all().filter(m => !linked.has(String(m.booked_no).replace(/\D/g, '')));
+}
+
+/**
+ * Kobl en e-conomic-faktura til en bon i hånden. Én bon kan have flere fakturaer
+ * (Derby: 4202 + 4204 til B4255), men cf_invoices har ét nummer-felt pr. række:
+ *   - bonens cf_invoice har intet nummer  → sæt det dér (beløbet bliver e-conomics)
+ *   - den har allerede ét                 → ekstra række uden bon_id, så sync'en ikke
+ *                                           rører den; afstemningen ejer den via nummeret
+ * Betalt-status følger e-conomic i samme greb: åben dér (remainder > 0) og ingen
+ * bankpostering bag → ubetalt. Et menneske har netop sagt hvilken faktura det er, så
+ * her må vi gerne rulle et tidligere beløbs-gæt tilbage — det kunne synken ikke selv.
+ */
+function linkEconomicInvoice(db, { booked_no, bon_number }) {
+    const no = String(booked_no || '').replace(/\D/g, '');
+    const mirror = no && db.prepare(`SELECT * FROM cf_economic_invoices WHERE booked_no = ?`).get(no);
+    if (!mirror) return { error: `Faktura ${booked_no} kendes ikke fra e-conomic-synken`, status: 404 };
+    const key = String(bon_number || '').trim();
+    if (!key) return { error: 'Mangler bon-nummer', status: 400 };
+    let cf = db.prepare(`SELECT * FROM cf_invoices WHERE id = ?`).get(key)
+          || db.prepare(`SELECT i.* FROM cf_invoices i JOIN bons b ON b.id = i.bon_id WHERE b.bon_number = ?`).get(key);
+    if (!cf) return { error: `Bon ${key} har ingen faktura i pengestrømmen — er den sat til FAKTURERET?`, status: 404 };
+    const taken = db.prepare(`SELECT id FROM cf_invoices WHERE economic_number = ? AND id != ?`).get(no, cf.id);
+    if (taken) return { error: `Faktura ${no} er allerede koblet til ${taken.id}`, status: 409 };
+
+    const open = mirror.remainder > 0;
+    const paidAt = mirror.date || todayISO();
+    const noteLine = `e-conomic ${no} koblet manuelt`;
+    let result;
+    if (!cf.economic_number) {
+        const hasTx = db.prepare(`SELECT 1 FROM cf_transactions WHERE matched_invoice_id = ? LIMIT 1`).get(cf.id);
+        const betalt = open ? (hasTx ? cf.betalt : 0) : 1;
+        db.prepare(`UPDATE cf_invoices SET economic_number = ?, beloeb = ?, betalt = ?,
+                        betalt_dato = CASE WHEN ? = 1 THEN COALESCE(betalt_dato, ?) ELSE NULL END,
+                        noter = CASE WHEN noter IS NULL OR noter = '' THEN ? ELSE noter || ' · ' || ? END
+                    WHERE id = ?`)
+          .run(no, mirror.gross_amount ?? cf.beloeb, betalt, betalt, paidAt, noteLine, noteLine, cf.id);
+        result = { ok: true, invoice_id: cf.id, created: false, betalt, unpaid_again: cf.betalt === 1 && betalt === 0 };
+    } else {
+        let id = no;
+        if (db.prepare(`SELECT 1 FROM cf_invoices WHERE id = ?`).get(id)) id = `${cf.id}/${no}`;
+        const terms = parseInt(db.prepare(`SELECT value FROM settings WHERE key = 'cf_default_invoice_terms_days'`).get()?.value, 10);
+        const forfald = require('../services/cashflowSync').computeDueDate(mirror.date || todayISO(), Number.isFinite(terms) && terms > 0 ? terms : 14);
+        db.prepare(`INSERT INTO cf_invoices (id, bon_id, kunde, beloeb, forfald, betalt, betalt_dato, betalingstype, noter, economic_number)
+                    VALUES (?, NULL, ?, ?, ?, ?, ?, 'bank', ?, ?)`)
+          .run(id, cf.kunde, mirror.gross_amount ?? mirror.remainder, forfald, open ? 0 : 1, open ? null : paidAt,
+               `Ekstra faktura til bon ${cf.id} — ${noteLine}`, no);
+        result = { ok: true, invoice_id: id, created: true, betalt: open ? 0 : 1, unpaid_again: false };
+    }
+    // Nummeret er på plads → en bankpostering med det i teksten kan kobles nu.
+    const m = matchByEconomicNumber(db, { dryRun: false });
+    result.bank_linked = m.linked;
+    result.bank_paid = m.paid;
+    return result;
+}
+
+router.get('/economic/unlinked', handle((req, res) => {
+    res.json({ rows: economicUnlinked(getDb()) });
+}));
+
+router.post('/economic/link', handle((req, res) => {
+    const r = linkEconomicInvoice(getDb(), req.body || {});
+    if (r.error) return res.status(r.status).json({ error: r.error });
+    res.json(r);
+}));
+
 // GET /api/cashflow/reconcile/status — sidste synk + åbne fakturaer hos e-conomic
 // Vandmærket dækker KUN nummer-koblingen (delta). Betalt-status er fuld tilstand,
 // så den har ingen "ajour til"-dato — kun et tidspunkt for sidste opslag.
@@ -2138,3 +2254,7 @@ router.get('/reconcile/status', handle((req, res) => {
 // Eksportér kategoriserings-helperen til test (regressionssikring af triage-reglerne)
 router.cfCategorize = cfCategorize;
 module.exports = router;
+module.exports.outstandingFigures = outstandingFigures;
+module.exports.runMatchLogic = runMatchLogic;
+module.exports.economicUnlinked = economicUnlinked;
+module.exports.linkEconomicInvoice = linkEconomicInvoice;
