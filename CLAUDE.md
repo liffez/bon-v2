@@ -5847,6 +5847,46 @@ e2e 12, standing_discount, web_order_flag, forhandler 22, kampagner 124.
 UDEN firma får ikke automatisk det matchede/oprettede firma sat på sin kunde-række;
 det er uændret fra før.
 
+### CRM → Firmaer: "+ Nyt firma" (#612, 15. september 2026)
+
+Et firma kunne kun opstå som biprodukt — via "+ Ny kunde" (som kræver en person der
+måske ikke findes) eller via en bon med et ukendt firmanavn. Oprydningen i kartoteket
+(#606, #599, #502, #504) kræver at man kan lave den *rigtige* række i hånden.
+
+- **Knappen** ligger i Firmaer-fanens toolbar ([office/views/crm-firmaer.js](office/views/crm-firmaer.js)),
+  formularen i `openModal`: ét CVR-felt der slår op på **både** nummer (8 cifre →
+  `/api/cvr/:cvr`) og navn (`/api/cvr/search` → Virk ES som fallback, samme to kilder
+  som `KundeSoeg.cvrSearchByName`), EAN, telefon, e-mail, DAWA-adresse og noter.
+  Et CVR-hit udfylder navn/CVR/telefon/e-mail og lægger CVR-adressen i adressefeltet;
+  et DAWA-valg vinder over den. Efter oprettelse åbnes Firma 360°.
+- **"Findes allerede?" før oprettelse.** Nyt `GET /api/companies/match` kører
+  `matchCompany` (CVR → EAN → e-mail → navnelighed, `activeOnly`) og svarer med navn,
+  CVR, by og antal bons. Formularen viser det som en gul boks med **Åbn** / **Opret
+  alligevel** — "opret alligevel" gælder kun for præcis dét match; rettes et felt,
+  spørges der igen.
+- **Serveren spærrer bevidst IKKE** på et CVR-sammenfald: afdelinger under samme
+  juridiske enhed er separate firmaer (KU, kommunerne). Et sammenfald er et signal
+  kontoret skal have set, ikke et forbud. Låst fast af en test.
+- **`POST /api/companies` er hærdet** (gælder også KundeSoeg og Kunde 360°, som kalder
+  det samme): `address_id` accepteres og valideres, CVR normaliseres til 8 cifre og EAN
+  til 13 (ellers 400), e-mail og telefon lægges som **kontaktpunkter** (`manual`,
+  privat, primær) via `ensureContactPoint`, og der skrives en changelog-linje.
+  Kontaktpunkterne er ikke pynt: 053-triggerne fyrer kun ved UPDATE, så uden dem kunne
+  et firma oprettet med e-mail hverken ses i Firma 360° eller matches på e-mail bagefter.
+
+> ⚠️ `display:flex` på en boks overtrumfer `[hidden]`. "Findes allerede"-boksen stod som
+> en tom gul bjælke under Noter indtil `.cf-new-match[hidden] { display: none }` — set i
+> browseren, ikke af testen.
+
+**Tests**: `npm run test:firma-opret` — 12 asserts mod de ægte endpoints over HTTP
+(`:memory:` af de rigtige migrations). **Mutations-testet:** kontaktpunkter (fælder 2,
+heraf e-mail-matchet — det er *derfor* de skal skrives), `activeOnly` (1), adresse-
+validering (1), changelog (1). Regression grøn: forhandler 22, web-order-firma 26,
+crm_companies 8, kunde-flyt 21, kampagne-import 23. Browser-verificeret ende-til-ende
+mod en lokal dev-DB: lignende navn → "Findes allerede" → Åbn lander i Firma 360°;
+CVR-søgning på "Ristet Rug" → hit udfylder felterne; DAWA-adresse valgt; oprettelse →
+Firma 360° med adresse og to primære kontaktpunkter; DB-rækkerne efterprøvet og ryddet.
+
 ### Flyver: "Gå til bon" førte ingen steder hen (1. september 2026)
 
 Knappen i flyver-modalen så død ud. To veje, begge stille:
@@ -7248,8 +7288,9 @@ POST   /api/auth/logout                                  routes/auth.js
 GET    /api/auth/me                                      routes/auth.js
 GET    /api/payment-types                                routes/payment_types.js
 GET    /api/companies?q=                                 routes/companies.js
+GET    /api/companies/match?name=&cvr=&ean=&email=       routes/companies.js ("findes allerede?" — matcheren, kun aktive; #612)
 GET    /api/companies/:id                                routes/companies.js
-POST   /api/companies                                    routes/companies.js
+POST   /api/companies                                    routes/companies.js (+address_id; e-mail/telefon → kontaktpunkter; changelog)
 GET    /api/cvr/:cvr                                     routes/cvr.js
 GET    /api/cvr/search?q=                                routes/cvr.js
 GET    /api/price-categories                             routes/price_categories.js

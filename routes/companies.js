@@ -6,6 +6,8 @@ const { enrich } = require('../services/cvrEnrichment');
 const { buildCompanyDiff, FIELD_MAP } = require('../services/companyDiff');
 const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
 const { extractContacts } = require('../services/contactExtractor');
+const { matchCompany } = require('../services/companyMatcher');
+const { ensureContactPoint } = require('../services/leadCreate');
 
 // GET /api/companies?q=
 router.get('/', handle((req, res) => {
@@ -32,6 +34,30 @@ router.get('/', handle((req, res) => {
     res.json(rows);
 }));
 
+// GET /api/companies/match?name=&cvr=&ean=&email=
+//
+// "Findes firmaet allerede?" — spørges FØR en oprettelse (#612), så kontoret
+// ser "findes allerede: X" i stedet for at lave en dublet (#607). Samme
+// matcher som web-bestillingen bruger (CVR → EAN → e-mail → navnelighed), kun
+// aktive firmaer. Rent opslag, skriver intet.
+//
+// Serveren BLOKERER bevidst ikke på et match ved POST: afdelinger under samme
+// CVR er separate firmaer (KU, kommunerne), så et CVR-sammenfald er et signal,
+// ikke et forbud. Kontoret afgør — men skal have set det.
+router.get('/match', handle((req, res) => {
+    const db = getDb();
+    const { name, cvr, ean, email } = req.query;
+    if (!name && !cvr && !ean && !email) return res.json({ match: null });
+    const m = matchCompany(db, { name, cvr, ean, email }, { activeOnly: true });
+    if (!m) return res.json({ match: null });
+    const co = db.prepare(`
+        SELECT c.id, c.name, c.cvr, c.ean, a.postal_code, a.city,
+               (SELECT COUNT(*) FROM bons b WHERE b.company_id = c.id) AS bons
+        FROM companies c LEFT JOIN addresses a ON a.id = c.address_id
+        WHERE c.id = ?`).get(m.company_id);
+    res.json({ match: { ...m, ...co } });
+}));
+
 // GET /api/companies/:id
 router.get('/:id', handle((req, res) => {
     const db = getDb();
@@ -46,21 +72,50 @@ router.get('/:id', handle((req, res) => {
 }));
 
 // POST /api/companies — opret ny
+//
+// Kaldes af KundeSoeg (bon-drawer/tilbud), Kunde 360°s "+ Ny kunde" og Firmaer-
+// fanens "+ Nyt firma" (#612). E-mail og telefon lægges også som kontaktpunkter:
+// triggerne fra migration 053 fyrer kun ved UPDATE, så uden det ville firmaets
+// adresse hverken findes i Firma 360° eller kunne matches på e-mail.
 router.post('/', handle((req, res) => {
     const db = getDb();
     const { name, cvr, ean, phone, email, invoice_method,
-            default_payment_type, default_price_category_id, notes } = req.body;
-    if (!name) return res.status(400).json({ error: 'Firmanavn mangler' });
+            default_payment_type, default_price_category_id, notes, address_id } = req.body;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Firmanavn mangler' });
 
-    const result = db.prepare(`
-        INSERT INTO companies (name, cvr, ean, phone, email, invoice_method,
-                               default_payment_type, default_price_category_id, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, cvr || null, ean || null, phone || null, email || null,
-           invoice_method || null, default_payment_type || null,
-           default_price_category_id || null, notes || null);
+    const cleanCvr = cvr ? String(cvr).replace(/\D/g, '') : null;
+    if (cleanCvr && cleanCvr.length !== 8) return res.status(400).json({ error: 'CVR skal være 8 cifre' });
+    const cleanEan = ean ? String(ean).replace(/\s/g, '') : null;
+    if (cleanEan && !/^\d{13}$/.test(cleanEan)) return res.status(400).json({ error: 'EAN skal være 13 cifre' });
+    const addrId = address_id ? parseInt(address_id, 10) : null;
+    if (addrId && !db.prepare('SELECT 1 FROM addresses WHERE id = ?').get(addrId)) {
+        return res.status(400).json({ error: 'Ukendt adresse' });
+    }
 
-    res.json({ id: result.lastInsertRowid });
+    const userId = getUserId(req);
+    let id;
+    transaction(db, () => {
+        const result = db.prepare(`
+            INSERT INTO companies (name, cvr, ean, phone, email, invoice_method,
+                                   default_payment_type, default_price_category_id, notes, address_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(String(name).trim(), cleanCvr || null, cleanEan || null, phone || null, email || null,
+               invoice_method || null, default_payment_type || null,
+               default_price_category_id || null, notes || null, addrId);
+        id = Number(result.lastInsertRowid);
+
+        if (email) ensureContactPoint(db, 'company', id, 'email', email, 'manual');
+        if (phone) ensureContactPoint(db, 'company', id, 'phone', phone, 'manual');
+
+        logChange({
+            entityType: 'company', entityId: id, action: 'create', fieldName: 'name',
+            oldValue: null, newValue: String(name).trim(),
+            userId,
+            notes: 'Oprettet' + (cleanCvr ? ` · CVR ${cleanCvr}` : '') + (cleanEan ? ` · EAN ${cleanEan}` : ''),
+        });
+    });
+
+    res.json({ id });
 }));
 
 // PATCH /api/companies/:id/economic — opdater e-conomic firma-nr
