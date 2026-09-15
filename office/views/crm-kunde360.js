@@ -538,8 +538,8 @@ function _k3BindDawa() {
 
         timer = setTimeout(async () => {
             try {
-                const resp = await fetch('https://api.dataforsyningen.dk/adresser/autocomplete?q=' + encodeURIComponent(q) + '&per_side=5');
-                const data = await resp.json();
+                // København først, laveste postnr først — se dawaAutocomplete i utils.js
+                const data = await dawaAutocomplete(q);
                 if (!data.length) { resultsEl.style.display = 'none'; return; }
                 resultsEl.innerHTML = data.map(item =>
                     '<div class="k3-dawa-item">' + item.tekst + '</div>'

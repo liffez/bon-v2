@@ -929,11 +929,49 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.autocomplete-wrap')) addrSugg.style.display = 'none';
 });
 
+// ── DAWA med København først ──────────────────────────────────────
+// KOPI af dawaAutocomplete i shared/utils.js — siden er single-file uden
+// imports. Ændres reglen dér, ændres den her.
+//
+// DAWA rangerer ikke efter nærhed ("Vesterbrogade 10" giver Viborg og
+// Kolding, og København V er ikke blandt de første 30), så der spørges to
+// gange: afgrænset til hovedstadsområdet + uden filter. Lokale hits først,
+// begge blokke efter postnr. Fælde: fuzzy + filter giver 0 hits hos DAWA,
+// så kun den globale forespørgsel er fuzzy.
+const DAWA_LOCAL_KOMMUNER = ['0101','0147','0151','0153','0155','0157','0159','0161','0163','0165',
+  '0167','0169','0173','0175','0183','0185','0187','0190','0230','0240'];
+function dawaSortByPostnr(items) {
+  return (items || []).map((it, i) => ({ it, i })).sort((a, b) => {
+    let pa = parseInt((a.it.adresse || {}).postnr, 10), pb = parseInt((b.it.adresse || {}).postnr, 10);
+    if (isNaN(pa)) pa = 99999; if (isNaN(pb)) pb = 99999;
+    return (pa - pb) || (a.i - b.i);
+  }).map(x => x.it);
+}
+function dawaMergeSuggestions(local, global, limit) {
+  const seen = {}, out = [];
+  const take = list => dawaSortByPostnr(list).forEach(it => {
+    const key = (it.adresse && it.adresse.id) || it.tekst;
+    if (!key || seen[key]) return;
+    seen[key] = true; out.push(it);
+  });
+  take(local); take(global);
+  return out.slice(0, limit);
+}
+async function dawaSearch(q, limit = 10) {
+  const enc = encodeURIComponent(q);
+  const get = url => fetch(url).then(r => { if (!r.ok) throw new Error('DAWA ' + r.status); return r.json(); })
+                               .then(d => Array.isArray(d) ? d : []);
+  const [local, global] = await Promise.all([
+    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&kommunekode=${DAWA_LOCAL_KOMMUNER.join('|')}`).catch(() => []),
+    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&fuzzy=true`),
+  ]);
+  return dawaMergeSuggestions(local, global, limit);
+}
+
 async function searchAddr(q) {
   if (q.length < 2) { addrSugg.style.display = 'none'; return; }
   try {
-    const r = await fetch(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${encodeURIComponent(q)}&per_side=7&fuzzy=true`);
-    const d = await r.json();
+    const d = await dawaSearch(q);
     if (d.length) {
       addrSugg.innerHTML = d.map(x => `<li data-id="${x.adresse.id}">${x.tekst}</li>`).join('');
       addrSugg.style.display = 'block';

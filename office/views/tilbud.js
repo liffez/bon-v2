@@ -33,6 +33,7 @@ let _tConvertedBons = []; // [{ id, bon_number, delivery_date }] — hvor sagen 
 let _tKS = null;         // KundeSoeg instance
 let _tListFilter = 'all';
 let _tDeliveryAddressId = null;
+let _tDawaHits = [];   // seneste DAWA-forslag — klik slår op via data-i
 let _tLogoB64 = null;    // loaded async from assets/logo-b64.txt
 
 // Form fields (step 1)
@@ -1006,11 +1007,12 @@ function _tSetupStep1() {
             if (q.length < 3) { dawaRes.classList.remove('show'); return; }
             dawaTimer = setTimeout(async () => {
                 try {
-                    const res = await fetch(`https://api.dataforsyningen.dk/autocomplete?q=${encodeURIComponent(q)}&type=adresse&fuzzy=`);
-                    const data = await res.json();
+                    // København først, laveste postnr først — se dawaAutocomplete i utils.js
+                    const data = await dawaAutocomplete(q);
                     if (!data.length) { dawaRes.classList.remove('show'); return; }
-                    dawaRes.innerHTML = data.slice(0, 8).map(d =>
-                        `<div class="tilbud-dawa-item" data-tekst="${_tEsc(d.tekst)}" data-href="${_tEsc(d.adresse?.href || '')}">${_tEsc(d.tekst)}</div>`
+                    _tDawaHits = data;
+                    dawaRes.innerHTML = data.map((d, i) =>
+                        `<div class="tilbud-dawa-item" data-i="${i}" data-tekst="${_tEsc(d.tekst)}">${_tEsc(d.tekst)}</div>`
                     ).join('');
                     dawaRes.classList.add('show');
                 } catch (_) { dawaRes.classList.remove('show'); }
@@ -1024,18 +1026,27 @@ function _tSetupStep1() {
             _tDeliveryAddress = tekst;
             dawaRes.classList.remove('show');
 
-            // Save address via API
+            // Save address via API — felterne kommer fra DAWA's item.adresse
+            // (vejnavn/husnr/postnr/postnrnavn), ikke fra at splitte teksten.
+            // Tekst-splitningen gav "Vesterbrogade 10, 1." → husnr "1." på
+            // etage-adresser. Fald kun tilbage til den hvis hit'et mangler.
             try {
-                const parts = tekst.split(',');
-                const streetParts = (parts[0] || '').trim().split(/\s+/);
-                const nr = streetParts.pop() || '';
-                const street = streetParts.join(' ');
-                const cityParts = (parts[1] || '').trim().split(/\s+/);
-                const postal = cityParts.shift() || '';
-                const city = cityParts.join(' ');
+                const hit = _tDawaHits[Number(item.dataset.i)];
+                const a = (hit && hit.adresse) || {};
+                let street = a.vejnavn || '', nr = a.husnr || '', postal = a.postnr || '', city = a.postnrnavn || '';
+                if (!street) {
+                    const parts = tekst.split(',');
+                    const streetParts = (parts[0] || '').trim().split(/\s+/);
+                    nr = streetParts.pop() || '';
+                    street = streetParts.join(' ');
+                    const cityParts = (parts[parts.length - 1] || '').trim().split(/\s+/);
+                    postal = cityParts.shift() || '';
+                    city = cityParts.join(' ');
+                }
                 const saved = await apiFetch('/addresses', {
                     method: 'POST',
-                    body: JSON.stringify({ street_name: street, street_nr: nr, postal_code: postal, city: city })
+                    body: JSON.stringify({ street_name: street, street_nr: nr, postal_code: postal, city: city,
+                        lat: a.y ?? undefined, lon: a.x ?? undefined })
                 });
                 _tDeliveryAddressId = saved.id;
             } catch (_) {}

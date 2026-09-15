@@ -2996,8 +2996,8 @@ class BonDrawer {
             }
             timer = setTimeout(async () => {
                 try {
-                    const resp = await fetch(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${encodeURIComponent(q)}&per_side=5`);
-                    const data = await resp.json();
+                    // København først, laveste postnr først — se dawaAutocomplete i utils.js
+                    const data = await dawaAutocomplete(q);
                     results.innerHTML = '';
                     if (data.length === 0) {
                         results.style.display = 'none';
