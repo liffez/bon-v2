@@ -6,7 +6,8 @@
 // `bons.end_customer_name` kom til med migration 167 (27. august 2026). Før den
 // skrev kontoret hvem maden var til i fritekst — "Det er til Lundbeckfonden",
 // "Det er til vores kunde: Bigum." — i interne noter eller kundeønsker. 60
-// Able-bons stod uden slutkunde; 26 af dem nævner tydeligt hvem det var til.
+// Able-bons stod uden slutkunde; 26 af dem nævner tydeligt hvem det var til, og 7 mere er
+// udledt af leveringsadressen (godkendt af Leif).
 //
 // Listen nedenfor er LÆST AF ET MENNESKE, ikke udledt af et regex. Fri tekst
 // kan ikke afgøres automatisk ("Att: Hans Donnerborg" er en person, "Levering
@@ -58,6 +59,15 @@ const MAPPING = {
     'cafe-3200': 'Per Aarsleff - Kontor i Lyngby',                      // kitchen: "Skriv Per Aarsleff på denne kasse"
     'cafe-2921': 'Domutech',                                            // notes: "3.sal Domutech."
     'B4184':     'Systematic',                                          // notes: "Leveringen er til kunden Systematic."
+    // Udledt af leveringsadressen — godkendt af Leif 15. sep. 2026. Kilden er en
+    // anden bon på SAMME adresse hvor navnet står i teksten:
+    'cafe-2401': 'Lundbeckfonden',                                      // Scherfigsvej 7 — cafe-2434 dér: "Lundbeckfonden"
+    'cafe-3109': 'Per Aarsleff - Kontor i Lyngby',                      // Nordvej 250A, DTU — cafe-3062/3200 dér: Per Aarsleff
+    'cafe-3153': 'Per Aarsleff - Kontor i Lyngby',                      // Nordvej 250A, DTU — do.
+    'cafe-3130': 'Scalepoint Technologies Denmark A/S',                 // Aldersrogade 8 — cafe-2899 dér: Scalepoint
+    'cafe-2965': 'Dignity',                                             // Bryggervangen 55, "3 sal i receptionen" — cafe-2985: Dignity
+    'cafe-3110': 'Dignity',                                             // Bryggervangen 55, "3 sal i receptionen" — do.
+    'cafe-2754': 'Dignity',                                             // Bryggervangen 55 — do.
 };
 
 const APPLY   = process.argv.includes('--apply');
