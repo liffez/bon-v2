@@ -5891,6 +5891,16 @@ netop dem der laver dubletter, og det er det tal kunden faktisk skriver på ordr
   afdeling ligger sjældent dér. Adressen vælges med DAWA.
 - Er cvrapi nede, kommer enheden og CVR stadig; `legal` er null. En ukendt EAN giver 404.
 - Firmaer-listens søgefelt matcher nu også på EAN.
+- **EAN og CVR skrevet direkte i deres egne felter slår også op** (ved `change`, kun når
+  navnet er tomt), og ét entydigt hit udfyldes uden klik. Fundet i første drifttest: kontoret
+  kommer med tallet fra ordren og skriver det i EAN-feltet, ikke i opslagsfeltet.
+- **Matcheren spørger nu EAN FØR CVR** (`services/companyMatcher.js`). Drifttesten gav
+  *"Findes allerede? Department of Immunology and Microbiology (samme CVR)"* for KU Science'
+  EAN: CVR er den juridiske paraply, og med KU's snesevis af afdelinger under ét CVR rammer
+  `.get` en tilfældig af dem. EAN identificerer fakturamodtageren. Gælder også
+  web-bestillingens resolver — samme rettelse dér. `/match` leverer `cvr_shared`, og
+  formularen skriver *"N firmaer deler dette CVR — afdelinger er separate firmaer"*, så
+  "samme CVR" ikke læses som "samme firma".
 - `npm run test:ean-opslag` — 7 asserts; NemHandel og cvrapi stubbes med svar i registrenes
   egen form (HTML-fragmentet er klippet fra et live-svar 15/9), routen/parseren/søgningen rammes
   ægte. Mutations-testet (EAN ude af søgningen, cvrapi-fejl vælter routen, parseren mister CVR).

@@ -80,6 +80,24 @@ test('match: CVR vinder over navnet og svarer med det der skal vises', async () 
     assert.equal(r.body.match.bons, 1, 'antal bons vises — så man kan se om det er en levende række');
 });
 
+test('match: EAN vinder over CVR — KU-afdelingen med det EAN, ikke en tilfældig række med samme CVR', async () => {
+    _testDb.prepare("INSERT INTO companies (id, name, cvr, ean) VALUES (3, 'Department of Immunology and Microbiology, ku', '29979812', NULL)").run();
+    _testDb.prepare("INSERT INTO companies (id, name, cvr, ean) VALUES (4, 'KU Science', '29979812', '5790000301959')").run();
+    const r = await get('/api/companies/match?cvr=29979812&ean=5790000301959');
+    assert.equal(r.body.match.match_type, 'ean_exact');
+    assert.equal(r.body.match.company_id, 4);
+});
+
+test('match: et CVR-match siger hvor mange der deler CVR\'et', async () => {
+    _testDb.prepare("INSERT INTO companies (id, name, cvr) VALUES (3, 'Dept A', '29979812')").run();
+    _testDb.prepare("INSERT INTO companies (id, name, cvr) VALUES (4, 'Dept B', '29979812')").run();
+    const r = await get('/api/companies/match?cvr=29979812');
+    assert.equal(r.body.match.match_type, 'cvr_exact');
+    assert.equal(r.body.match.cvr_shared, 2);
+    const one = await get('/api/companies/match?cvr=25529529');
+    assert.equal(one.body.match.cvr_shared, 1);
+});
+
 test('match: EAN alene finder firmaet', async () => {
     const r = await get('/api/companies/match?ean=5790000000019');
     assert.equal(r.body.match.match_type, 'ean_exact');

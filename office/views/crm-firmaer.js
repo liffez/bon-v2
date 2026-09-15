@@ -150,6 +150,16 @@ function cfOpenNewFirma() {
     ['cfn-name', 'cfn-cvr', 'cfn-ean', 'cfn-email'].forEach(id => {
         $(id).addEventListener('input', () => { _cfNew.confirmedMatchId = null; $('cfn-match').hidden = true; });
     });
+    // Et EAN eller CVR sat direkte i SIT felt skal også slå op — kontoret
+    // kommer med tallet fra ordren og skriver det dér, ikke i opslagsfeltet
+    // (set i drift). Kun når navnet er tomt: er det udfyldt, har man allerede
+    // valgt, og et opslag må ikke overskrive det.
+    const lookupFromField = (id, len) => {
+        const v = $(id).value.replace(/\D/g, '');
+        if (v.length === len && !$('cfn-name').value.trim()) cfCvrSearch(v, { autoApply: true });
+    };
+    $('cfn-ean').addEventListener('change', () => lookupFromField('cfn-ean', 13));
+    $('cfn-cvr').addEventListener('change', () => lookupFromField('cfn-cvr', 8));
     cfBindDawa();
     requestAnimationFrame(() => $('cfn-cvrq').focus());
 }
@@ -160,7 +170,7 @@ function cfOpenNewFirma() {
  * navnesøgning (cvrapi først — præcis på korte navne — Virk ES som fuzzy
  * fallback). Samme to navne-kilder som KundeSoeg.cvrSearchByName.
  */
-async function cfCvrSearch(raw) {
+async function cfCvrSearch(raw, opts = {}) {
     const q = (raw || '').trim();
     const out = document.getElementById('cfn-cvr-results');
     const btn = document.getElementById('cfn-cvr-search');
@@ -193,6 +203,10 @@ async function cfCvrSearch(raw) {
         if (!Array.isArray(hits)) hits = [];
     }
     btn.disabled = false; btn.textContent = 'Søg';
+
+    // Fra EAN-/CVR-feltet: ét entydigt hit udfyldes direkte, så man ikke først
+    // skal klikke på det man lige har tastet. Flere hits (navnesøgning) vises.
+    if (opts.autoApply && hits.length === 1) { cfApplyCvr(hits[0]); out.hidden = true; return; }
 
     const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const rows = hits.map((r, i) => {
@@ -323,10 +337,14 @@ function cfShowMatch(m) {
     const how = { cvr_exact: 'samme CVR', ean_exact: 'samme EAN', email_match: 'samme e-mail', name_fuzzy: 'lignende navn' }[m.match_type] || m.match_type;
     const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const meta = [m.cvr ? 'CVR ' + m.cvr : null, [m.postal_code, m.city].filter(Boolean).join(' '), `${m.bons} bon${m.bons === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+    // "Samme CVR" er ikke "samme firma" når CVR'et deles af mange afdelinger.
+    const shared = m.cvr_shared > 1
+        ? `<div class="cf-new-match-meta">${m.cvr_shared} firmaer deler dette CVR — afdelinger er separate firmaer, så et nyt kan godt være rigtigt</div>`
+        : '';
     box.hidden = false;
     box.innerHTML = `
         <div class="cf-new-match-title">Findes allerede? <strong>${esc(m.name)}</strong> <span class="cf-new-match-how">(${esc(how)})</span></div>
-        <div class="cf-new-match-meta">${esc(meta)}</div>
+        <div class="cf-new-match-meta">${esc(meta)}</div>${shared}
         <div class="cf-new-match-actions">
             <button type="button" class="cf-new-mini" id="cfn-match-open">Åbn ${esc(m.name)}</button>
             <button type="button" class="cf-new-mini cf-new-mini-ghost" id="cfn-match-anyway">Opret alligevel</button>

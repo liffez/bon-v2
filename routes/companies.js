@@ -55,7 +55,12 @@ router.get('/match', handle((req, res) => {
                (SELECT COUNT(*) FROM bons b WHERE b.company_id = c.id) AS bons
         FROM companies c LEFT JOIN addresses a ON a.id = c.address_id
         WHERE c.id = ?`).get(m.company_id);
-    res.json({ match: { ...m, ...co } });
+    // Et CVR-match er svagt når mange deler CVR'et (KU: snesevis af afdelinger).
+    // Tallet vises i formularen, så "samme CVR" ikke læses som "samme firma".
+    const cvrShared = m.match_type === 'cvr_exact'
+        ? db.prepare('SELECT COUNT(*) AS n FROM companies WHERE cvr = ? AND is_active = 1 AND is_internal = 0').get(co.cvr).n
+        : null;
+    res.json({ match: { ...m, ...co, cvr_shared: cvrShared } });
 }));
 
 // GET /api/companies/:id
