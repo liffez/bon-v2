@@ -910,10 +910,12 @@ router.get('/companies', handle((req, res) => {
         // Listen viser firma-id'et med tooltip'en "brug til sammenlægning" —
         // så skal man også kunne søge på det.
         const byId = searchAsId(q);
-        where.push("(co.name LIKE ? OR co.cvr LIKE ? OR COALESCE(co.legal_name,'') LIKE ? OR COALESCE(co.alternate_names,'') LIKE ?"
+        // EAN er med: det er det tal der står på ordren, og det er det man har i
+        // hånden når man skal finde ud af hvilken af tre KU-rækker der er den rigtige.
+        where.push("(co.name LIKE ? OR co.cvr LIKE ? OR COALESCE(co.ean,'') LIKE ? OR COALESCE(co.legal_name,'') LIKE ? OR COALESCE(co.alternate_names,'') LIKE ?"
             + (byId !== null ? ' OR co.id = ?' : '') + ')');
         const s = '%' + q + '%';
-        args.push(s, s, s, s);
+        args.push(s, s, s, s, s);
         if (byId !== null) args.push(byId);
     }
     // order_after/order_before filtrerer på sidste ordre — referer nu det subquery-aliasede felt

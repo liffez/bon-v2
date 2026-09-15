@@ -173,6 +173,19 @@ test('matchCompany: prioritet — CVR slår navn', () => {
     assert.strictEqual(r.company_name, 'Magasin A/S');
 });
 
+test('matchCompany: prioritet — EAN slår CVR (afdelingen frem for paraplyen)', () => {
+    // KU: mange afdelinger under ét CVR. Kun én af dem har det EAN — den er svaret.
+    const db = new DatabaseSync(':memory:');
+    db.exec(`CREATE TABLE companies (id INTEGER PRIMARY KEY, name TEXT, cvr TEXT, ean TEXT, address_id INTEGER, is_internal INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1);
+             CREATE TABLE addresses (id INTEGER PRIMARY KEY, city TEXT);
+             CREATE TABLE contact_points (id INTEGER PRIMARY KEY, entity_type TEXT, entity_id INTEGER, kind TEXT, value TEXT, is_active INTEGER DEFAULT 1);
+             INSERT INTO companies (id, name, cvr, ean) VALUES (1, 'Department of Immunology', '29979812', NULL);
+             INSERT INTO companies (id, name, cvr, ean) VALUES (2, 'KU Science', '29979812', '5790000301959');`);
+    const r = matchCompany(db, { cvr: '29979812', ean: '5790000301959' });
+    assert.strictEqual(r.match_type, 'ean_exact');
+    assert.strictEqual(r.company_id, 2);
+});
+
 test('matchCompany: prioritet — EAN slår email + navn', () => {
     const db = setupDb();
     const r = matchCompany(db, {

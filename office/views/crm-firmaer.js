@@ -37,7 +37,7 @@ function initCrmFirmaer(container, opts = {}) {
                     <button class="cf-chip" data-stage="vip">⭐ VIP</button>
                     <button class="cf-chip" data-stage="dormant">Sovende</button>
                 </div>
-                <input class="cf-search" type="search" placeholder="Søg firma, CVR, juridisk navn eller #id…" />
+                <input class="cf-search" type="search" placeholder="Søg firma, CVR, EAN, juridisk navn eller #id…" />
                 <button type="button" class="cf-new-btn" id="cf-new-btn">+ Nyt firma</button>
             </div>
             <div class="cf-status" id="cf-status"></div>
@@ -87,11 +87,11 @@ function initCrmFirmaer(container, opts = {}) {
    CVR er separate firmaer, så kontoret afgør.
    ══════════════════════════════════════════════════════════════ */
 
-const _cfNew = { cvrAddress: null, dawa: null, confirmedMatchId: null };
+const _cfNew = { cvrAddress: null, dawa: null, confirmedMatchId: null, legalName: null };
 
 function cfOpenNewFirma() {
     if (typeof openModal !== 'function') { alert('Modal-komponenten er ikke indlæst'); return; }
-    _cfNew.cvrAddress = null; _cfNew.dawa = null; _cfNew.confirmedMatchId = null;
+    _cfNew.cvrAddress = null; _cfNew.dawa = null; _cfNew.confirmedMatchId = null; _cfNew.legalName = null;
 
     openModal({
         title: 'Nyt firma',
@@ -100,7 +100,7 @@ function cfOpenNewFirma() {
             <div class="cf-new-field">
                 <label>Slå firma op i CVR</label>
                 <div class="cf-new-inline">
-                    <input type="text" id="cfn-cvrq" placeholder="Firmanavn eller CVR-nummer, fx CAP Partner">
+                    <input type="text" id="cfn-cvrq" placeholder="Firmanavn, CVR-nummer eller EAN, fx CAP Partner">
                     <button type="button" class="cf-new-mini" id="cfn-cvr-search">Søg</button>
                 </div>
                 <div class="cf-new-cvr-results" id="cfn-cvr-results" hidden></div>
@@ -150,16 +150,27 @@ function cfOpenNewFirma() {
     ['cfn-name', 'cfn-cvr', 'cfn-ean', 'cfn-email'].forEach(id => {
         $(id).addEventListener('input', () => { _cfNew.confirmedMatchId = null; $('cfn-match').hidden = true; });
     });
+    // Et EAN eller CVR sat direkte i SIT felt skal også slå op — kontoret
+    // kommer med tallet fra ordren og skriver det dér, ikke i opslagsfeltet
+    // (set i drift). Kun når navnet er tomt: er det udfyldt, har man allerede
+    // valgt, og et opslag må ikke overskrive det.
+    const lookupFromField = (id, len) => {
+        const v = $(id).value.replace(/\D/g, '');
+        if (v.length === len && !$('cfn-name').value.trim()) cfCvrSearch(v, { autoApply: true });
+    };
+    $('cfn-ean').addEventListener('change', () => lookupFromField('cfn-ean', 13));
+    $('cfn-cvr').addEventListener('change', () => lookupFromField('cfn-cvr', 8));
     cfBindDawa();
     requestAnimationFrame(() => $('cfn-cvrq').focus());
 }
 
 /**
- * Ét felt til begge CVR-opslag: 8 cifre → direkte opslag på nummeret; ellers
+ * Ét felt til alle tre opslag: 8 cifre → CVR-nummer; 13 cifre → EAN via
+ * NemHandelsregistret (den registrerede enhed + CVR + juridisk enhed); ellers
  * navnesøgning (cvrapi først — præcis på korte navne — Virk ES som fuzzy
- * fallback). Samme to kilder som KundeSoeg.cvrSearchByName.
+ * fallback). Samme to navne-kilder som KundeSoeg.cvrSearchByName.
  */
-async function cfCvrSearch(raw) {
+async function cfCvrSearch(raw, opts = {}) {
     const q = (raw || '').trim();
     const out = document.getElementById('cfn-cvr-results');
     const btn = document.getElementById('cfn-cvr-search');
@@ -172,7 +183,17 @@ async function cfCvrSearch(raw) {
         try { const r = await fetch(url); if (!r.ok) return null; const d = await r.json(); return d; } catch (_) { return null; }
     };
     let hits = [];
-    if (digits.length === 8 && digits === q.replace(/\s/g, '')) {
+    if (digits.length === 13 && digits === q.replace(/\s/g, '')) {
+        const d = await tryUrl('/api/cvr/ean/' + digits);
+        // Enheden fra NemHandel er navnet (afdelingen er firma-rækkens niveau);
+        // den juridiske enhed bag CVR'et vises som meta og gemmes som legal_name.
+        if (d && (d.unit_name || d.cvr)) hits = [{
+            name: d.unit_name || (d.legal && d.legal.name) || '',
+            cvr: d.cvr, ean: d.ean,
+            legal_name: d.legal ? d.legal.name : null,
+            status: d.legal ? 'juridisk enhed: ' + d.legal.name : 'EAN ' + d.ean,
+        }];
+    } else if (digits.length === 8 && digits === q.replace(/\s/g, '')) {
         const d = await tryUrl('/api/cvr/' + digits);
         if (d && (d.name || d.cvr)) hits = [d];
     } else {
@@ -183,6 +204,10 @@ async function cfCvrSearch(raw) {
     }
     btn.disabled = false; btn.textContent = 'Søg';
 
+    // Fra EAN-/CVR-feltet: ét entydigt hit udfyldes direkte, så man ikke først
+    // skal klikke på det man lige har tastet. Flere hits (navnesøgning) vises.
+    if (opts.autoApply && hits.length === 1) { cfApplyCvr(hits[0]); out.hidden = true; return; }
+
     const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const rows = hits.map((r, i) => {
         const meta = [r.cvr ? 'CVR ' + r.cvr : null, [r.zipcode, r.city].filter(Boolean).join(' '), r.status].filter(Boolean).join('  ·  ');
@@ -190,7 +215,16 @@ async function cfCvrSearch(raw) {
     }).join('');
     // Registret er ikke altid til at søge i (et datterselskab kan hedde noget
     // andet end det kunden skriver under) — udvejen til Virk skal stå der.
-    const virk = `<a class="cf-new-cvr-virk" href="https://datacvr.virk.dk/soegeresultater?fritekst=${encodeURIComponent(q)}" target="_blank" rel="noopener">Søg videre på datacvr.virk.dk ↗</a>`;
+    // Ved et EAN-opslag kan Virk ikke søge på tallet (set i drift: "0 resultater"),
+    // så linket bruger det fundne CVR, og NemHandelsregistret får sit eget link.
+    const isEan = digits.length === 13 && digits === q.replace(/\s/g, '');
+    const virkQ = isEan ? (hits[0] && hits[0].cvr) : q;
+    const virk = (virkQ
+        ? `<a class="cf-new-cvr-virk" href="https://datacvr.virk.dk/soegeresultater?fritekst=${encodeURIComponent(virkQ)}" target="_blank" rel="noopener">Søg videre på datacvr.virk.dk${isEan ? ' (CVR ' + esc(virkQ) + ')' : ''} ↗</a>`
+        : '')
+      + (isEan
+        ? `<a class="cf-new-cvr-virk" href="https://registration.nemhandel.dk/NemHandelRegisterWeb/public/participant/info?keytype=GLN&key=${encodeURIComponent(digits)}&lang=da" target="_blank" rel="noopener">Se EAN i NemHandelsregistret ↗</a>`
+        : '');
     out.innerHTML = (rows || '<div class="cf-new-cvr-empty">Ingen match i CVR.</div>') + virk;
     out.querySelectorAll('.cf-new-cvr-hit').forEach(el => el.addEventListener('click', () => cfApplyCvr(hits[+el.dataset.i])));
 }
@@ -199,6 +233,8 @@ function cfApplyCvr(r) {
     const $ = (id) => document.getElementById(id);
     if (r.name) $('cfn-name').value = r.name;
     if (r.cvr) $('cfn-cvr').value = r.cvr;
+    if (r.ean) $('cfn-ean').value = r.ean;
+    _cfNew.legalName = r.legal_name || null;
     if (r.phone && !$('cfn-phone').value) $('cfn-phone').value = r.phone;
     if (r.email && !$('cfn-email').value) $('cfn-email').value = r.email;
     // Adressen fra CVR gemmes som fallback — DAWA-valget vinder hvis der vælges ét.
@@ -295,7 +331,7 @@ async function cfSubmitNewFirma() {
         }
         // 2. Adresse (valgfri), så firma.
         const address_id = await cfResolveAddressId();
-        const res = await createCompany({ name, cvr: cvr || null, ean: ean || null, phone: phone || null, email: email || null, notes: notes || null, address_id });
+        const res = await createCompany({ name, cvr: cvr || null, ean: ean || null, phone: phone || null, email: email || null, notes: notes || null, address_id, legal_name: _cfNew.legalName });
         closeModal();
         if (typeof window.openFirma360 === 'function') window.openFirma360(res.id);
         else cfLoad();
@@ -310,10 +346,14 @@ function cfShowMatch(m) {
     const how = { cvr_exact: 'samme CVR', ean_exact: 'samme EAN', email_match: 'samme e-mail', name_fuzzy: 'lignende navn' }[m.match_type] || m.match_type;
     const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const meta = [m.cvr ? 'CVR ' + m.cvr : null, [m.postal_code, m.city].filter(Boolean).join(' '), `${m.bons} bon${m.bons === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+    // "Samme CVR" er ikke "samme firma" når CVR'et deles af mange afdelinger.
+    const shared = m.cvr_shared > 1
+        ? `<div class="cf-new-match-meta">${m.cvr_shared} firmaer deler dette CVR — afdelinger er separate firmaer, så et nyt kan godt være rigtigt</div>`
+        : '';
     box.hidden = false;
     box.innerHTML = `
         <div class="cf-new-match-title">Findes allerede? <strong>${esc(m.name)}</strong> <span class="cf-new-match-how">(${esc(how)})</span></div>
-        <div class="cf-new-match-meta">${esc(meta)}</div>
+        <div class="cf-new-match-meta">${esc(meta)}</div>${shared}
         <div class="cf-new-match-actions">
             <button type="button" class="cf-new-mini" id="cfn-match-open">Åbn ${esc(m.name)}</button>
             <button type="button" class="cf-new-mini cf-new-mini-ghost" id="cfn-match-anyway">Opret alligevel</button>

@@ -74,8 +74,14 @@ function similarity(a, b) {
  *   { match_type, company_id, confidence, company_name } eller null hvis intet match.
  *
  * Prioritet:
- *   1. CVR exact   → confidence 1.0, match_type 'cvr_exact'
- *   2. EAN exact   → confidence 1.0, match_type 'ean_exact'
+ *   1. EAN exact   → confidence 1.0, match_type 'ean_exact'
+ *   2. CVR exact   → confidence 1.0, match_type 'cvr_exact'
+ *
+ *   EAN FØR CVR (byttet 15. sep. 2026): EAN identificerer fakturamodtageren —
+ *   afdelingen — mens CVR er den juridiske paraply. KU har snesevis af
+ *   afdelinger under ét CVR, så et CVR-opslag rammer en tilfældig af dem
+ *   (`.get` = laveste id). Set i drift: KU Science' EAN + KU's CVR gav
+ *   "Department of Immunology and Microbiology". EAN først giver den rigtige.
  *   3. Email mod contact_points → confidence 0.95, match_type 'email_match'
  *   4. Navn fuzzy (similarity ≥ 0.85) → confidence = similarity, match_type 'name_fuzzy'
  *   5. Ingen → null
@@ -90,18 +96,18 @@ function similarity(a, b) {
  */
 function matchCompany(db, { name, cvr, ean, email, city } = {}, { activeOnly = false } = {}) {
     const active = activeOnly ? ' AND co.is_active = 1' : '';
-    if (cvr) {
-        const cleanCvr = String(cvr).replace(/\D/g, '');
-        if (cleanCvr.length === 8) {
-            const r = db.prepare(`SELECT co.id, co.name FROM companies co WHERE co.cvr = ? AND co.is_internal = 0${active}`).get(cleanCvr);
-            if (r) return { match_type: 'cvr_exact', company_id: r.id, confidence: 1.0, company_name: r.name };
-        }
-    }
     if (ean) {
         const cleanEan = String(ean).replace(/\s/g, '');
         if (cleanEan.length === 13) {
             const r = db.prepare(`SELECT co.id, co.name FROM companies co WHERE co.ean = ? AND co.is_internal = 0${active}`).get(cleanEan);
             if (r) return { match_type: 'ean_exact', company_id: r.id, confidence: 1.0, company_name: r.name };
+        }
+    }
+    if (cvr) {
+        const cleanCvr = String(cvr).replace(/\D/g, '');
+        if (cleanCvr.length === 8) {
+            const r = db.prepare(`SELECT co.id, co.name FROM companies co WHERE co.cvr = ? AND co.is_internal = 0${active}`).get(cleanCvr);
+            if (r) return { match_type: 'cvr_exact', company_id: r.id, confidence: 1.0, company_name: r.name };
         }
     }
     if (email && email.includes('@')) {
