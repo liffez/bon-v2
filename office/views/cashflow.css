@@ -765,6 +765,9 @@
 /* Forfalden på papiret, men inden for kundens egen rytme — dæmpet, ikke alarm */
 .cf-pill-rytme      { background: #f0ece4; color: #7a6a4a; font-weight: 600; }
 .cf-rhythm-sub      { margin-top: 2px; color: #7a6a4a; }
+.cf-likely-paid-sub { margin-top: 4px; color: #6b5a2e; cursor: pointer; text-decoration: underline dotted; }
+.cf-likely-paid-sub:hover, .cf-likely-paid-sub:focus-visible { color: #8e631f; }
+.cf-likely-paid-sub strong { color: #8e631f; }
 .cf-rhythm-sub strong { color: #bc3a3a; }
 .cf-pill-sandsynlig { background: #e8f0f6; color: #3a6a9a; }
 /* Ikke faktureret (#319): egen kulør, tydeligt adskilt fra den røde "forfalden".

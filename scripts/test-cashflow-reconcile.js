@@ -179,6 +179,31 @@ UNPAID = [];
 r = await reconcile(db, { dryRun: true });
 assert(r.openInEconomic === 0, 'ægte tom liste (alt betalt) er derimod en gyldig tilstand');
 
+/* ══ 9. Fakturabeløbet er e-conomics, ikke bonens ════════════════════════ */
+console.log('\n— Beløb: 1:1-koblet faktura får e-conomics bruttobeløb —');
+// B7700 blev oprettet fra bonens total (3000) — e-conomic fakturerede 3300 (med levering).
+// B7777 + B7778 deler ét nummer (samlefaktura) og må IKKE rettes: beløbet kan ikke fordeles.
+makeInvoice('B7700', { ecoNo: '4500', beloeb: 3000 });
+makeInvoice('B7777', { ecoNo: '4400', beloeb: 600 });
+makeInvoice('B7778', { ecoNo: '4400', beloeb: 400 });
+db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading)
+            VALUES ('4500', '2026-08-05', 3300, 3300, '#B7700')`).run();
+db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading)
+            VALUES ('4400', '2026-08-05', 1100, 1100, '#B7777 #B7778')`).run();
+UNPAID = [inv('4500', { heading: '#B7700', remainder: 3300, gross: 3300 }),
+          inv('4400', { heading: '#B7777 #B7778', remainder: 1100, gross: 1100 })];
+BOOKED = [];
+const bel = (id) => db.prepare(`SELECT beloeb FROM cf_invoices WHERE id = ?`).get(id).beloeb;
+r = await reconcile(db, { dryRun: true });
+assert(r.amountsCorrected === 1 && r.amountChanges[0].cf_id === 'B7700', `dry-run melder 1 rettelse på B7700 (fik ${r.amountsCorrected})`);
+assert(bel('B7700') === 3000, 'dry-run skriver ikke');
+r = await reconcile(db, { dryRun: false });
+assert(bel('B7700') === 3300, `B7700 beløb rettet 3000 → 3300 (fik ${bel('B7700')})`);
+assert(bel('B7777') === 600 && bel('B7778') === 400, 'samlefaktura: beløb urørt (kan ikke fordeles)');
+assert(betalt('B7700').betalt === 0, 'stadig åben hos e-conomic → stadig ubetalt');
+r = await reconcile(db, { dryRun: false });
+assert(r.amountsCorrected === 0, `anden kørsel retter intet (fik ${r.amountsCorrected})`);
+
 console.log(`\n${pass} PASS · ${fail} FAIL\n`);
 
 }

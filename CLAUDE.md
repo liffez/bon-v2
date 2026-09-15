@@ -6718,6 +6718,65 @@ adresserne lander i `addresses` med rigtige felter og koordinater.
 
 **Ikke rørt:** `tools/bestilling_v2.html` (den gamle formbuilder-formular, ude af drift).
 
+### Pengestrøm: "Udestående" var for højt — nummer-match, aldrig sendte og et sync-hul (15. september 2026)
+
+Kortet sagde 189.331 kr / 47 fakturaer. Kontoret vidste at mange af dem var betalt —
+bare ikke bogført hos e-conomic endnu, og det er netop mellem de opdateringer
+pengestrømmen skal hjælpe. Målt mod en kopi af driftsdata gik tallet til
+**132.910 kr / 36** uden at røre én e-conomic-bekræftet betaling. Fire ting lå bag:
+
+1. **De aldrig sendte talte med.** `outstanding` var `SUM(beloeb) WHERE betalt = 0` —
+   inkl. de 7 "aldrig sendt"-fakturaer (#319, 45.366 kr) som "Forfaldne" allerede
+   holdt ude. `outstandingFigures()` i `routes/cashflow.js` er nu ét sted for
+   udestående / sandsynligt betalt / forventet ind, og de to første udelader
+   `NOT_INVOICED` som Forfaldne gør.
+2. **Bank-matchet så aldrig e-conomics fakturanummer.** `runMatchLogic` sammenlignede
+   bankens cifre med `inv.id` — der er `"B4145"`, aldrig ens med `4131`. Så
+   "FAKTURA 4131" (2808,75) blev et beløbs-gæt på B4228, mens B4145 — som ER 4131 —
+   stod udestående. "FAKTURA 4174" havde med conf ≥ 70 markeret den **forkerte**
+   faktura betalt. `matchByEconomicNumber` kører nu FØRST ved CSV-upload og:
+   vinder over beløbs-gæt (conf < 95; manuelle 100 røres aldrig), **markerer betalt**
+   (bankens virkelighed før e-conomic er ajour), måler beløbet mod e-conomics eget
+   bruttobeløb fra spejlet, og kobler også via spejlets overskrift (`#B4130`) når
+   ingen cf_invoice bærer nummeret.
+   > ⚠️ **Tilbagerulning kræver at e-conomic selv siger "åben".** Første udgave rullede
+   > en faktura tilbage når den kun var betalt af den flyttede tx (samme dato, ingen
+   > anden postering). Mod driftsdata ramte det 25 fakturaer e-conomic HAVDE bekræftet —
+   > afstemningen daterer nemlig en bekræftet betaling med bankposteringens dato, så
+   > datoen kan ikke skelne "gættet" fra "bekræftet". Nu kun når spejlets `remainder > 0`.
+   > Og betalt markeres i et **andet pas**, efter alle flytninger — ellers kan en faktura
+   > der først rulles tilbage og så får sin rigtige postering ende som ubetalt.
+3. **Fakturabeløbet var bonens, ikke fakturaens.** Ældre `cf_invoices.beloeb` mangler
+   leveringen (total_price uden delivery_price), så nummer-matchet faldt på
+   beløbstolerancen og kortet summerede forkerte tal. `reconcile` retter beløbet til
+   e-conomics `gross_amount` for 1:1-koblede numre (aldrig samlefakturaer — kan ikke
+   fordeles). `amountsCorrected` i svaret.
+4. **Sync-hul: enhver bon-opdatering nulstillede "betalt".** `syncCashflowInvoice`s
+   UPDATE skrev `betalt = <fra bon-status>` — så en bank-bekræftet betaling forsvandt
+   igen når nogen rettede `delivery_price` på en FAKTURERET bon. Betalt kan nu kun
+   gå OP herfra, og et beløb med e-conomic-nummer overskrives ikke fra bonen.
+
+**Synligt for kontoret:** kortets undertekst siger "36 fakturaer sendt, ikke betalt ·
+7 aldrig sendt holdt ude" og — som klikbar linje — "N ser betalt ud i banken (X kr) —
+bekræft →", som åbner fanen *Sandsynlig betalt* (tallet er fanens eget). Det er den
+manuelle vej: beløbs-gæt bekræftes af et menneske; nummer-verificerede står der aldrig,
+de er allerede betalt. Afstemningens kvittering nævner nu "markeret betalt ud fra
+banken", "flyttet fra en faktura de var gættet på" og "fakturabeløb rettet".
+Uenigheds-linjen hedder "betalt i banken, men står stadig åbne hos e-conomic" — det er
+den forventede tilstand, ikke en fejl.
+
+**Deploy:** ingen migration. Tryk **⟳ Synk e-conomic** én gang efter deploy — den kører
+nummer-matchet på de eksisterende bankposteringer (driftskopien: 106 koblinger, heraf
+4 nye betalte og 74 historiske omkoblinger uden ændret betalt-status) og retter beløbene.
+
+**Tests:** `npm run test:cashflow` — sync 83 PASS (de 4 FAIL er de kendte
+90-dages-fixtures), reconcile 41/0, rytme 18/0, ledger 25/0 + 23/0. Mutations-testet:
+ni tilbagerulninger (kun-ukoblede, ingen betalt-markering, beløb mod bonens tal, ingen
+tilbagerulning, tilbagerulning uden e-conomic-krav, ét pas, sync-nulstilling,
+sync-overskrivning, aldrig-sendte med igen, ingen beløbsrettelse) fælder hver 3–12
+navngivne asserts. Browser-verificeret mod en kopi af driftsdata; kopien og `.env.test`
+slettet efter brug.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

@@ -211,7 +211,22 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
             <div class="cf-metric warning">
                 <div class="cf-metric-label">Udestående fakturaer (incl moms)</div>
                 <div class="cf-metric-value">${_cfFmt(stats.outstanding_total)}</div>
-                <div class="cf-metric-sub">${stats.outstanding_count} fakturaer · heraf moms-forpligtelse: ${_cfFmt(stats.outstanding_vat_liability || 0)}</div>
+                <div class="cf-metric-sub">${stats.outstanding_count} fakturaer sendt, ikke betalt · heraf moms: ${_cfFmt(stats.outstanding_vat_liability || 0)}${
+                    stats.not_invoiced_count > 0
+                        ? ` · ${stats.not_invoiced_count} aldrig sendt holdt ude`
+                        : ''
+                }</div>${
+                    // Bankens virkelighed før e-conomic er ajour: posteringer der LIGNER en
+                    // betaling af fakturaen, men ikke er bekræftet. Klik → bekræft dem, og
+                    // de forlader tallet. Nummer-verificerede matches står her aldrig — de
+                    // er allerede markeret betalt.
+                    stats.outstanding_likely_paid_count > 0
+                        ? `<div class="cf-metric-sub cf-likely-paid-sub" id="cfLikelyPaidSub" role="button" tabindex="0"
+                                title="Åbn fanen 'Sandsynlig betalt' og bekræft">
+                             <strong>${stats.outstanding_likely_paid_count}</strong> ser betalt ud i banken (${_cfFmt(stats.outstanding_likely_paid_total)}) — bekræft →
+                           </div>`
+                        : ''
+                }
             </div>
             <div class="cf-metric alert">
                 <div class="cf-metric-label">Forfaldne (incl moms, ikke betalt)</div>
@@ -418,12 +433,16 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                 `${r.openInEconomic} fakturaer er ubetalte hos e-conomic (${kr(r.openInEconomicTotal)})`,
                 `${r.flipped} rettet fra forfalden til betalt`,
                 `${r.scanned} ${r.scanned === 1 ? 'ny faktura' : 'nye fakturaer'} scannet · ${r.numbered ?? 0} fakturanr gemt`,
-                `${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`,
+                `${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`
+                    + (r.linkedPaid ? ` · ${r.linkedPaid} markeret betalt ud fra banken` : '')
+                    + (r.linkedMoved ? ` · ${r.linkedMoved} flyttet fra en faktura de var gættet på` : ''),
             ];
+            // e-conomics fakturabeløb slår bonens total (ældre rækker manglede leveringen).
+            if (r.amountsCorrected) linjer.push(`${r.amountsCorrected} fakturabeløb rettet til e-conomics tal`);
             // Uenighed = vi siger betalt, e-conomic siger stadig åben. Vi flipper
             // ikke tilbage af os selv (det ville genoplive fakturaer kontoret har
             // afskrevet med vilje) — men det skal siges højt.
-            if (r.conflicts) linjer.push(`\n⚠ ${r.conflicts} står som betalt hos os, men er stadig åbne hos e-conomic:\n   ` +
+            if (r.conflicts) linjer.push(`\nℹ ${r.conflicts} er betalt i banken, men står stadig åbne hos e-conomic (betalingen er ikke bogført endnu):\n   ` +
                 r.conflictRows.slice(0, 8).map(c => `${c.cf_id} (faktura ${c.booked_no})`).join(', '));
             if (r.unknownNumbers) linjer.push(`${r.unknownNumbers} fakturanr kendes ikke hos e-conomic — urørt`);
             // Betalingsposteringerne er det der giver rytmen ægte datoer at lære af.
@@ -458,6 +477,15 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
     }
 
     // "Aldrig faktureret"-båndet → åbn fanen med listen (#319)
+    const likelySub = el.querySelector('#cfLikelyPaidSub');
+    if (likelySub) {
+        const open = () => _cfSwitchInvTab('sandsynlig', true);
+        likelySub.onclick = open;
+        likelySub.onkeydown = (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
+        };
+    }
+
     const notInvBanner = el.querySelector('#cfNotInvBanner');
     if (notInvBanner) {
         const open = () => _cfSwitchInvTab('ikke_faktureret', true);
