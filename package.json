@@ -129,6 +129,7 @@
     "test:rfm-stale": "node --experimental-sqlite scripts/test-rfm-stale.js",
     "fix:bon-dato": "node --experimental-sqlite scripts/fix-bon-delivery-date.js",
     "backfill:sidst-tjekket": "node --env-file=.env scripts/backfill-last-checked.js",
+    "test:attribution": "node --experimental-sqlite --test tests/bon_attribution.test.js tests/changelog_render.test.js",
     "test:web-order-flag": "node --experimental-sqlite --test tests/web_order_flag.test.js"
   },
   "dependencies": {
