@@ -160,6 +160,7 @@ bon-v2/
 │   ├── route_planner.js      ← Rute-orchestrator: computeRoute/applyRouteProposal (Spor 2)
 │   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
 │   ├── companyMatcher.js     ← matchCompany (CVR → EAN → e-mail → navnelighed), similarity, normalizeName
+│   ├── crmActivity.js        ← logActivity/validateActivity — ÉN kilde til at skrive en crm_activities-række
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
 │   └── quConvert.js          ← Grocy quantity unit conversions
@@ -198,6 +199,8 @@ bon-v2/
 │   ├── supplier_inbox.js                      ← Leverandørpost (office sidebar-view + kitchen Post-tab)
 │   ├── manual_booking_modal.js + manual_booking_modal.css ← Bestil bud-modal (Spor 1: clipboard + URL)
 │   ├── flag_strip.js                          ← Påmindelses-strip i bon-drawer (CLAUDE_KUNDE_FLAGS.md)
+│   ├── mail_compose.js                        ← Delt mail-formular (skabelon · booking-link · vedhæftning) — Kunde 360°, service-kald, ringeliste, kampagne
+│   ├── crm_followup.js                        ← "Følg op"-vælger i CRM's log-formularer (planlagt række ved siden af opkaldet)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
@@ -6990,6 +6993,85 @@ changelog-linje pr. berørt bon, idempotent (anden kørsel: 0 linjer).
 Målt mod driftskopien 15/9: 54 linjer på 50 bons — **ingen af dem på åbne bons**, så
 i dag blokerer intet. Værdien er at det ikke kan ske igen når en gammel bon åbnes.
 
+### CRM: opfølgning på et opkald, og mail som en rigtig handling (16. september 2026)
+
+Service-kaldet kunne registrere hvad kunden svarede, men ikke at man ville vende
+tilbage — og mail-knappen var et `mailto:`-link. Kampagne-tavlen kunne slet ingenting
+ud over at trække kort mellem kolonner.
+
+**`mailto:` kan pr. konstruktion ikke bære et booking-link.** Tokenet genereres
+server-side og bindes til (kunde, sælger, flow, mødetype), så "gratis frokost til 2"
+kunne kun sendes fra Kunde 360°, hvor formularen lå indmuret i viewet. Den er trukket
+ud som **`shared/mail_compose.js`** (`MailCompose.create/open`) og mounteres nu tre nye
+steder; Kunde 360° bruger den samme — ellers var det blevet en fjerde kopi, præcis som
+`_buildMailVars` blev til tre uenige udgaver.
+
+- **Opfølgningen er en SELVSTÆNDIG planlagt række**, ikke et felt på opkaldet: opkaldet
+  er udført (`done_at`), opfølgningen er planlagt (`due_at`), og de to tilstande kan ikke
+  bo i samme række (`CLAUDE_CRM_PLANLAGT.md` §3). Kaldsstederne logger derfor to
+  aktiviteter. **`shared/crm_followup.js`** er vælgeren (Ingen · 3 dage · 1 uge · 2 uger ·
+  1 måned · Dato), delt af service-kald, ringeliste og kampagne-kort. Den regner via den
+  DELTE `plannedComputeWhen`, så "om 1 uge" ikke kan betyde to ting. `'2w'`/`'1m'` er nye
+  dér — horisonten på en ringeliste er uger, ikke dage.
+  `result='callback'` findes stadig ved siden af; den mangler bare en dato.
+- **`services/crmActivity.js`** (`logActivity`) er én kilde til at skrive en aktivitet.
+  Reglerne om `done_at`, `last_contact_at`, kampagne-medlemmets `last_activity_at` og SSE
+  lå kun inde i `POST /api/crm/activity`; mail-afsendelsen skulle skrive samme slags
+  række. Routen delegerer nu dertil.
+
+**`email_out` blev aldrig skrevet af nogen.** Typen har eksisteret i `crm_activities`
+siden migration 019, og kun frontendens etiket-tabeller nævnte den. En sendt mail lå i
+sin tråd, men talte hverken i tidslinjen eller i de køer der dedupe'r på aktivitet:
+sendte man booking-linket til 40 kunder, stod alle 40 på ringelisten dagen efter.
+`POST /api/customers/:id/mail` logger den nu **altid**, og tager valgfri kontekst —
+`bon_id` (service-kaldet), `purpose_key` (ringelisten), `campaign_id`.
+Aktiviteten skrives **efter** afsendelsen og vælter den aldrig; fejler sporet, siger
+svaret `activity_logged: false` og UI'et beder om en manuel note — samme princip som
+#362's `send_error`.
+
+**To dedupe-huller lukket i samme ombæring:**
+- `GET /service-calls` så kun efter `type='service_call'`. Mailer man kunden fra rækken,
+  ER kaldet håndteret, så `email_out` tæller nu med — men kun med `bon_id` på, så en
+  ordrebekræftelse via `/api/bons/:id/mail` (som ikke logger aktiviteter) ikke kan skjule
+  et service-kald.
+- **`GET /rytme` havde INGEN aktivitets-dedupe.** Man kunne ringe en kunde op, logge
+  samtalen, se kortet tone ud — og have den tilbage ved næste genindlæsning. Nu dedupe pr.
+  **formål** (`fast_rytme`, 30 dage) som cold_offer, ikke "enhver aktivitet" som season:
+  et service-kald om sidste uges ordre er ikke rytme-samtalen.
+
+**Kampagne-kortet kunne ikke klikkes.** `/pipeline` hentede telefon, mail og samtykke i
+forespørgslen og lagde dem aldrig på kortet. Nu åbner et klik en detalje med Ring · Log ·
+Mail · Profil, og aktiviteter derfra bærer `campaign_id`. Et medlem der er et FIRMA uden
+kontaktperson har ingen kunde at hænge en aktivitet på (`crm_activities` kræver
+`customer_id` eller `bon_id`) og ingen at sende til — det siges, frem for at vise knapper
+der fejler. Do-not-contact og manglende B2C-samtykke vises samme sted.
+
+> ⚠️ **Et `<button>` uden `type` er `submit` inde i en `<form>`** — og en boks der
+> `overflow`'er klipper en absolut-positioneret popover. Booking-popoveren folder derfor
+> **op** (`bottom: calc(100% + 8px)`); nedad blev den halveret af modalens `overflow-y`.
+> Set i browseren, ikke af testen.
+
+**Tests:** `npm run test:crm-opfoelgning` — 39 asserts mod de ÆGTE endpoints over HTTP
+(spawnet server, isoleret temp-DB) + 26 i den eksisterende ringeliste-suite.
+Mail-delen kører **in-process mod den ægte `routes/customers.js` med SMTP stubbet** i
+require-cachen; uden stub ville `email_out`-logningen aldrig blive kørt af en test.
+**Mutations-testet:** elleve kerneregler rulles hver især tilbage og fælder hver sin
+navngivne assert.
+
+> To ting blev fundet af testen, ikke af koden: `tests/campaigns_pipeline.test.js`
+> byggede `companies` i hånden **uden `email`/`phone`**, så den nye forespørgsel gav 500 —
+> en håndskrevet skema-kopi der var drevet fra migrationerne. Og
+> `scripts/test-crm-ringeliste.js` **spejler** produktionens queries: spejlet er opdateret
+> og har fået en kontrolprøve (`T_CRM_RYTME_08`) der viser at reglen er formåls-scoped,
+> men dedupe-reglerne er nu ALLE dækket mod de ægte endpoints, netop fordi et spejl kan
+> drive uden at én eneste assert fejler.
+
+Browser-verificeret ende-til-ende mod en syntetisk dev-DB (20 kontroller, ingen
+konsolfejl): service-kald logget med opfølgning → én planlagt række med den skrevne note
+→ kaldet forsvinder fra listen; mail-formularen fra rytme-listen med forudfyldt modtager,
+booking-popover, mødetype og `{{booking_link}}` i teksten; kampagne-detaljen i begge
+varianter; Kunde 360°'s Mail-fane på den delte formular. Testdata slettet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -7464,6 +7546,7 @@ GET    /api/companies/:id/enrich-preview                 routes/companies.js (CV
 POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
 POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)
 PATCH  /api/customers/:id       { first_name?, last_name?, company_id? }  routes/customers.js
+POST   /api/customers/:id/mail  { to, subject, text, bon_id?, purpose_key?, campaign_id?, booking_flow? }  routes/customers.js (logger email_out-aktivitet)
 PATCH  /api/customers/:id/economic                       routes/customers.js
 GET    /api/contact-points?entity_type=&entity_id=       routes/contact-points.js
 POST   /api/contact-points                               routes/contact-points.js

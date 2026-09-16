@@ -9,7 +9,10 @@
  * queries'ne fra routes/crm.js (/season + /rytme) direkte. Rører ALDRIG den
  * rigtige data/bon.db (præcedens: scripts/test-crm-review.js).
  *
- * Queries'ne spejler routes/crm.js — hold de to i sync ved ændringer.
+ * ⚠️ Queries'ne SPEJLER routes/crm.js — de er kopier, og en kopi kan drive fra
+ * originalen uden at en eneste assert fejler. Dedupe-reglerne er derfor ALLE
+ * dækket mod de ægte endpoints i scripts/test-crm-opfoelgning-mail.js; denne
+ * fil holder de mange fixture-permutationer, som er billigere uden server.
  *
  * Dækker T_CRM_SEASON_* + T_CRM_RYTME_* (docs/CLAUDE_CRM_TRIKS.md §2.3 + §3.3)
  * + snooze-filteret (type 'season' / 'rytme').
@@ -81,6 +84,13 @@ const RYTME_SQL = `
         AND ostats.avg_interval_days > 0
         AND ostats.days_since > ostats.avg_interval_days * 1.3
         AND ostats.days_since < ostats.avg_interval_days * 3
+        AND NOT EXISTS (
+            SELECT 1 FROM crm_activities a
+            JOIN activity_purposes ap ON ap.id = a.purpose_id
+            WHERE a.customer_id = c.id
+                AND ap.key = 'fast_rytme'
+                AND a.created_at > date('now', '-30 days')
+        )
         AND NOT EXISTS (
             SELECT 1 FROM crm_suggestion_snoozes sz
             WHERE sz.customer_id = c.id AND sz.type = 'rytme' AND sz.snoozed_until > datetime('now')
@@ -208,6 +218,24 @@ try {
     [400, 340, 280, 220, 160].forEach(d => mkBon(r06, coNormal, d));
     snooze(r06, 'rytme');
 
+    // R07 — samme mønster som R01, men der ER ringet (purpose 'fast_rytme') → ekskluderet.
+    // Listen havde INGEN aktivitets-dedupe: kortet tonede ud ved "Gem" og kom
+    // tilbage ved næste genindlæsning.
+    const rytmePurposeId = db.prepare(`SELECT id FROM activity_purposes WHERE key='fast_rytme'`).get()?.id;
+    const r07 = mkCustomer('R07', coNormal, 'active');
+    [400, 340, 280, 220, 160].forEach(d => mkBon(r07, coNormal, d));
+    db.prepare(`INSERT INTO crm_activities (customer_id, type, text, purpose_id, created_at)
+                VALUES (?, 'call', 'Talt om fast levering', ?, date('now','-3 days'))`)
+      .run(r07, rytmePurposeId);
+    // R08 — kontrolprøve: et opkald med et ANDET formål (fx service) må ikke skjule emnet.
+    const otherPurposeId = db.prepare(
+        `SELECT id FROM activity_purposes WHERE key != 'fast_rytme' ORDER BY id LIMIT 1`).get()?.id;
+    const r08 = mkCustomer('R08', coNormal, 'active');
+    [400, 340, 280, 220, 160].forEach(d => mkBon(r08, coNormal, d));
+    db.prepare(`INSERT INTO crm_activities (customer_id, type, text, purpose_id, created_at)
+                VALUES (?, 'call', 'Andet ærinde', ?, date('now','-3 days'))`)
+      .run(r08, otherPurposeId);
+
     const rytmeIds = new Set(db.prepare(RYTME_SQL).all().map(r => r.customer_id));
     console.log('\n=== T_CRM_RYTME ===');
     assert(rytmeIds.has(r01),  'T_CRM_RYTME_01 — ≥5 ordrer, forsinket i (1.3×,3×) → med');
@@ -216,6 +244,8 @@ try {
     assert(!rytmeIds.has(r04), 'T_CRM_RYTME_04 — på tid (< 1.3× snit) → ekskluderet');
     assert(!rytmeIds.has(r05), 'T_CRM_RYTME_05 — stage \'lead\' → ekskluderet');
     assert(!rytmeIds.has(r06), 'T_CRM_RYTME_06 — snoozet (rytme) → ekskluderet');
+    assert(!rytmeIds.has(r07), 'T_CRM_RYTME_07 — nyligt rytme-opkald (purpose fast_rytme) → ekskluderet');
+    assert(rytmeIds.has(r08),  'T_CRM_RYTME_08 — aktivitet med ANDET formål skjuler ikke rytme-emnet');
 
     // ─── snooze-uafhængighed pr. type ─────────────────────────
     // En 'season'-snooze må IKKE skjule kunden i rytme-listen og omvendt.
