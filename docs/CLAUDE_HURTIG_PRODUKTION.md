@@ -201,7 +201,11 @@ og da har auto-batchen (§4.2) allerede lavet det.
 > 14 opskrifter producerer en vare, og **nul** af dem er nestet. Den er der for at §5's
 > udrulning ikke kan tabe på rækkefølgen — hvor produktet findes, før menuerne er
 > rewired (`--kun-rewire`). Den aktuelle tilstand måles på serveren med
-> `npm run audit:produktionspolitik` (read-only).
+> `npm run audit:produktionspolitik` (read-only). Rapportens fjerde liste,
+> **"nestet uden vare"**, er §5.1's resterende arbejde: de blandinger der stadig nestes
+> ind i en menu uden at producere en vare, grupperet efter Grocy-gruppen og med antal
+> menuer. Uden den ville rapporten kun kunne tale om de varer der allerede findes —
+> Senneps Mayo og de øvrige ukonverterede er usynlige for de tre første lister.
 
 **Uden erklæret udbytte** (`recipeunit`/`recipeunitnumber` mangler) kan behovet ikke
 udtrykkes i varens enhed. Vi opfinder ikke et tal — og vi trækker heller ikke nul i

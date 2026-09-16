@@ -7204,6 +7204,21 @@ sådan #349 og #353 opstod.
 > blive rørt**. Den aktuelle tilstand måles på serveren med
 > `npm run audit:produktionspolitik` (read-only).
 
+**Rapporten viser også det den IKKE kan se.** Første kørsel i drift gav 13 `to_stock` +
+3 `on_demand` — og driften spurgte hvor dressingerne var. Svaret: Senneps Mayo (6 menuer),
+Frisk Grønt (26), Løvstikke Mayo (8), Skære Slider Brød (12), Trøffel Mayo, Yoghurt
+dressing, Balsamico + løg og Æggesalat har **ingen `Produces product`** i Grocy, så
+`productionTypeOf` giver `null` og de er usynlige for de tre første lister pr.
+konstruktion. Rapporten har derfor en fjerde: **"nestet uden vare"**, grupperet efter
+Grocy-gruppen og med antal menuer, tungeste først. Uden den kan man ikke skelne *"alt er
+konverteret"* fra *"jeg kigger kun på de konverterede"* — og det er netop dét der gør
+resten troværdigt.
+
+> Vi filtrerer bevidst **ikke** på gruppen, men viser den: en slider-boks der nester sin
+> ret er en anden ting end en dressing, og hvilke der bør blive en vare (§5.1) er en
+> beslutning om stamdata, ikke noget en rapport skal træffe. Gruppe-nøglen normaliseres
+> med den delte `recipeGroupOf`, så to stavemåder ikke bliver to blokke.
+
 > ⚠️ **Enhederne hentes kun når vagten kan fyre.** Første udgave lagde
 > `grocy.getQuantityUnits()` i `resolveConsumeItems`' ubetingede `Promise.all`, og
 > `test-recipe-factor.js` styrtede med *"Lokation Test mangler grocy_api_key"* — testen
