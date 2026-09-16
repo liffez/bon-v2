@@ -7308,7 +7308,7 @@ funktioner browseren bruger) + en fjerde case i `T_BESTILLING_CUTOFF_UI` der læ
 **Mutations-testet: 8 mutationer, alle fanget** — og browser-testen fælder også
 wiring-mutationen, hvor ét af de tre links rulles tilbage til en bar mailto.
 Regression grøn: cutoff 22, attribution 23, dawa 12, wish-lines 64.
-### Bon læser Grocys to produkt-flag (#616, 16. september 2026)
+### Bon læser Grocys to produkt-flag (#645, 16. september 2026)
 
 Kål er en **forælder**: beholdningen ligger på børnene (Spidskål, Hvidkål), og
 forælderens egen lagerrække står per konstruktion på **0**. Driften havde sat de to
