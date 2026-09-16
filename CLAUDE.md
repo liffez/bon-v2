@@ -7166,6 +7166,149 @@ menu-order-sorteringen.
 > forsøgte at ringe til Grocy. Fejlen var høj og tydelig (4 FAIL med en konfig-besked),
 > men husk det når adapterens overflade vokser.
 
+### Cut-off håndhæves på serveren — og historikken siger hvor bonen kom fra (16. september 2026)
+
+En bon til levering dagen efter blev oprettet kl. 20.54, længe efter deadline kl. 12.
+Jagten tog tre runder, fordi **historikken ikke kunne svare på hvor bonen kom fra**.
+Den viste "Bon oprettet" og intet navn. Svaret lå i `changelog.new_value` hele tiden
+(`Oprettet via web-bestilling (…)`), men [shared/modal.js:296](shared/modal.js#L296)
+kastede det væk til fordel for en fast streng. Bonen viste sig at være tastet i
+huset — ingen kunde slap forbi — men undervejs blev tre huller synlige.
+
+**1. Cut-off blev kun håndhævet i browseren.** `checkCutoff` er bundet til ÉT event,
+`change` på datofeltet, og aflæser klokken dér. Vælger kunden datoen kl. 11.30 —
+fuldt lovligt — og trykker send kl. 20.54, tjekkes der aldrig igen; knappens
+`disabled`-attribut var hele værnet, sat på et forældet tidspunkt. Hverken
+submit-handleren, `validateForm()` eller serveren kiggede efter. Et direkte POST
+spurgte ingen om noget.
+
+- **`services/orderCutoff.js`** ejer nu reglen: settings-parsing, standardværdier og
+  beregningen. Bruges af `/embed/config` (fortæller browseren reglen) og af **begge**
+  bestillings-webhooks (håndhæver den). Standardværdierne stod før skrevet af tre
+  steder; nu står de ét.
+- **Modulet fejler ÅBENT.** Kan deadline ikke beregnes troværdigt — ulæselig
+  indstilling, tom liste over tælle-dage, uforståelig dato — accepteres bestillingen,
+  og årsagen logges. En for sen ordre kan office nå at ringe om; en tabt opdager ingen.
+- **Dansk tid forankres ét sted.** `now` og deadline sammenlignes som
+  `YYYY-MM-DD HH:MM`-strenge dannet med `Europe/Copenhagen`. Vi bygger **aldrig** en
+  `Date` i serverens egen tidszone: står maskinen i UTC, ville alle ordrer mellem
+  kl. 12 og 14 dansk slippe forbi.
+- **Hastebestilling** (`bestilling.cutoff_override_date`) respekteres uændret.
+
+> ⚠️ **`parseInt(...) != null` er sandt for NaN.** Det var browserens fælde:
+> et ikke-numerisk `cutoff_time` blev skrevet ind som `NaN`, `while (NaN > 0)` kørte
+> aldrig, deadline blev selve leveringsdagen — altså cut-off slået **helt fra**, uden
+> at nogen kunne se det. Serveren validerer nu og sender en brugbar værdi videre, og
+> formularen bruger `Number.isFinite` som ekstra værn.
+
+> ⚠️ **Tom liste over tælle-dage = uendelig løkke.** Ingen ugedag at tælle ned på, og
+> `while (remaining > 0)` kommer aldrig ud. `readCutoffConfig` kan ikke producere den
+> tilstand (tom → standard), men `cutoffMomentFor` er eksporteret og har sit eget
+> loft — en hængende bestillings-webhook er værre end en manglende deadline.
+
+**2. En afvist bestilling lignede en modtaget.** `/webhook/bestilling` svarede **altid
+200**, også når den afviste. Kunden så "tak for din bestilling" mens intet blev
+oprettet — den værste udgang for en bestilling. Det gjaldt allerede ferielukket-guarden.
+Ægte afvisninger (deadline, ferielukket) giver nu **409** med en besked formularen
+viser sammen med mailto-udvejen. Honeypot svarer stadig 200 (sig ikke til en bot at
+den er fanget), og manglende felter er urørt — formularen har `required`, så et kald
+uden dem kan ikke komme fra en kunde.
+
+**3. Klienten bestemte selv hvem historikken sagde det var.** `routes/bons.js` læste
+brugeren fra **request-body** ved oprettelse (`created_by_user_id`), på varelinjer,
+køkkeninfo, menu-grupper og pakkeliste — de tre sidste lod body vinde over sessionen.
+To følger: ingen klient sendte felterne, så oprettelse og varelinjer stod **uden
+bruger** (det var derfor historikken lignede to mennesker og var ét), og en afsender
+kunne skrive en anden ind. Samme hul som Patch D lukkede for status-skift (D-3); de
+øvrige endpoints blev ikke rørt dengang. Alle bruger nu `req.session.userId`.
+Sletning af en varelinje loggede slet ingen bruger — den gør nu.
+
+**Oprettelses-entryet bærer kilden.** `POST /api/bons` skrev bon-NUMMERET i `new_value`
+(det står i `entity_id` i forvejen) og satte intet `field_name`; den skriver nu
+`Oprettet manuelt`. Modalen viser `new_value` når `field_name` er sat, ellers den
+neutrale tekst — vi skelner på `field_name` frem for at gætte ud fra hvordan strengen
+ser ud, for et bon-nummer er fri tekst og kan ligne hvad som helst. Historiske rækker
+viser derfor "Bon oprettet" som før.
+
+> ⚠️ **Faste leveringsdatoer i test-fixtures rådner nu.** `reseller_end_customer` brugte
+> `2026-09-03` og fejlede med det samme; `web_order_company_match` brugte `2026-10-01`.
+> Begge er lagt om til `offsetISO(30)`, så guarden forbliver **aktiv** i dem — den ville
+> fange en regression hvor den afviser med urette — i stedet for at blive slået fra med
+> en hastebestilling i fixturen.
+
+**Tests:** `npm run test:cutoff` (22 — reglen, tidszonen i både dato og klokkeslæt,
+hastebestilling, fejl-åbent, hængeværnet, og begge webhooks over HTTP mod de ægte
+routes) · `npm run test:attribution` (23 — session vinder over body på alle fem
+endpoints, kilden i historikken, escaping) · `npx playwright test T_BESTILLING_CUTOFF_UI`
+(3 — stale-page-scenariet i en rigtig browser: datofeltet sættes UDEN `change`, præcis
+den tilstand en side har stået i siden formiddagen. Logik-tests kan ikke se det;
+hullet ER at et event ikke fyrer).
+
+**Mutations-testet: 20 mutationer, alle fanget.** To huller blev fundet undervejs og
+lukket: dato-formateringens tidszone var utestet (kun klokkeslættet var dækket — det
+kræver et scenarie omkring midnat at skille dem ad), og min egen første udgave af den
+test regnede deadline til den forkerte dag.
+
+**Regression grøn:** web-order-firma 73, forhandler 22, firma-opret 14, web-order-flag 4,
+modal 30, menu-order 84, quote_convert + migrate + moms + bon_lines + dato 43.
+Verificeret ende-til-ende mod en kørende testserver: for sen ordre → 409 uden bon og
+uden `web_orders`-række, rettidig → 200 med kilden i changeloggen. Testdata og `.env.test`
+slettet efter brug.
+
+**Ikke gjort — bevidst:**
+- **En uventet serverfejl svarer stadig 200.** Går `createBon` galt, er ordren tabt
+  mens kunden ser "tak". Samme fejlklasse som ovenfor, men det er en anden beslutning
+  (skal kunder se tekniske fejl?) og hører til sin egen opgave.
+- **`delivery_days` håndhæves ikke på serveren.** Formularen spærrer lukkede ugedage;
+  et direkte POST kan stadig ramme en søndag. Hver ekstra afvisningsregel er en ny
+  måde at tabe en rigtig ordre på, så den bør besluttes for sig.
+- **`PUT /:id/lines/:lid` logger intet i changeloggen.** En ændret mængde på en
+  varelinje er usynlig i historikken. Det er en manglende log, ikke en forkert
+  attribuering, og at tilføje den ændrer hvad køkkenet ser.
+
+### "Skriv til os direkte" bærer det kunden allerede har udfyldt (16. september 2026)
+
+Opfølgning på ovenstående. Alle tre spærre-notitser — ferielukket, lukket ugedag,
+deadline passeret — endte i en mailto med **kun et emne**. Men kunden har på det
+tidspunkt tastet hele bestillingen: navn, mail, telefon, firma, dato, tid, antal
+gæster, adresse og ønsker. Linket smed det væk og bad hende skrive det hele igen,
+og mailen landede i bon@ uden at kontoret kunne se hvad hun ville bestille.
+
+**Hvorfor mailto og ikke kontaktformularen.** Mailen kommer fra kundens **egen**
+adresse, og det er dét der lader indbakken koble den til kunden (#478/#482):
+`processInboundMail` matcher afsenderen, ellers lander den i den ufordelte indbakke
+hvor panelet siger *"👤 Afsenderen er kunde: …"*. `/book/kontakt` ville i stedet
+oprette en **CRM-opgave på Ring-tilbage-listen** med en kontaktårsag — uden dato,
+antal og varelinjer, og et andet sted end bon-mailen. Den kobling findes ikke for
+en formular-opgave.
+
+- **`buildEnquiryMailto(subject, intro)`** samler felterne til en læsbar mail med en
+  underskrift. Felterne læses defensivt (`fieldValue`): findes et element ikke —
+  cachet browser mod ny side — springes linjen over frem for at kaste, for et link
+  der ikke virker er værre end en manglende linje. Tomme felter udelades, så der
+  ikke står `Firma:` uden firma.
+- **Kun ønskerne afkortes** (`MAILTO_WISHES_MAX`). Det er det eneste ubegrænsede
+  felt; resten er korte inputs. Afkortes hele brødteksten i stedet, ryger
+  underskriften og kontaktoplysningerne — låst fast af en test.
+- **Datoen står både læsbart og som ISO** (`17. september (2026-09-17)`) — kontoret
+  slår op på ISO-formen.
+- `encodeURIComponent` gør `"` til `%22`, så URL'en ikke kan bryde ud af `href="…"`
+  når den sættes via `innerHTML`. Samme mønster som fejl-mailto'en længere nede i
+  filen allerede brugte.
+
+> ⚠️ **En mailto virker kun hvis kunden har en mailklient sat op.** På mobil næsten
+> altid; på en arbejds-pc med webmail kan den åbne ingenting. Det er en svaghed alle
+> fire mailto-links i filen har i forvejen — og prisen for at fjerne den ville være
+> at kunden skal taste alt igen.
+
+**Tests:** `npm run test:enquiry-mailto` (9 — funktionerne skæres ud af
+`bestilling.html` og køres i en vm-sandkasse mod en attrap-DOM; det er de samme
+funktioner browseren bruger) + en fjerde case i `T_BESTILLING_CUTOFF_UI` der læser
+`href` med `getAttribute` efter HTML-parseren, altså præcis hvad mailklienten får.
+**Mutations-testet: 8 mutationer, alle fanget** — og browser-testen fælder også
+wiring-mutationen, hvor ét af de tre links rulles tilbage til en bar mailto.
+Regression grøn: cutoff 22, attribution 23, dawa 12, wish-lines 64.
+
 ---
 
 ## Næste opgave

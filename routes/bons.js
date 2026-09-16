@@ -638,10 +638,22 @@ router.post('/', handle((req, res) => {
         b.kitchen_info ?? null, b.customer_wishes ?? null,
         b.internal_notes ?? null, b.invoice_info ?? null,
         0, 0,
-        b.created_by_user_id ?? null, b.is_internal ? 1 : 0
+        // Samme regel som changeloggen nedenfor: hvem der oprettede bonnen er
+        // ikke afsenderens at bestemme. Ingen klient sender feltet i dag, så
+        // kolonnen går fra altid-tom til at pege på et menneske.
+        req.session?.userId ?? null, b.is_internal ? 1 : 0
     );
 
-    logChange({ entityType: 'bon', entityId: result.lastInsertRowid, action: 'create', newValue: bonNumber, userId: b.created_by_user_id });
+    // Identitet kommer fra sessionen, ALDRIG fra body: changelog er det eneste
+    // spor der peger på et menneske, så afsenderen må ikke kunne skrive en anden
+    // ind i det. Ingen klient har nogensinde sendt created_by_user_id, så det her
+    // udfylder tomme rækker frem for at ændre eksisterende adfærd.
+    //
+    // new_value bar før bon-nummeret (som står i entity_id i forvejen). Nu bærer
+    // den kilden, så historikken kan skelne en bon tastet i huset fra en der kom
+    // ind ad sig selv — samme konvention som createBons changelog_message.
+    logChange({ entityType: 'bon', entityId: result.lastInsertRowid, action: 'create',
+        fieldName: 'manual', newValue: 'Oprettet manuelt', userId: req.session?.userId ?? null });
     // Server-autoritativ recalc (linjer kan være indsat i samme request via /lines, men typisk ingen endnu)
     // POS-undtagelse: se kommentar over recalcBonTotal-definitionen
     // total_units er ALTID afledt af linjerne (boks-aware) — aldrig payload-værdien,
@@ -1161,7 +1173,7 @@ router.patch('/:id/kitchen-info', handle((req, res) => {
     const old  = db.prepare(`SELECT kitchen_info FROM bons WHERE id = ?`).get(id);
     if (!old) return res.status(404).json({ error: 'Bon ikke fundet' });
     db.prepare(`UPDATE bons SET kitchen_info = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(text, id);
-    logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'kitchen_info', oldValue: old.kitchen_info, newValue: text, userId: req.body.user_id ?? null });
+    logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'kitchen_info', oldValue: old.kitchen_info, newValue: text, userId: req.session?.userId ?? null });
     res.json({ id, kitchen_info: text });
 }));
 
@@ -1271,7 +1283,7 @@ router.post('/:id/lines', handle((req, res) => {
     // Server-autoritativ recalc af total_price (incl. moms)
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: l.user_id ?? null });
 
-    logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', newValue: logValue, userId: l.user_id ?? null });
+    logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', newValue: logValue, userId: req.session?.userId ?? null });
     broadcast('bon_updated', { id: bonId });
     res.status(201).json(db.prepare(`SELECT * FROM bon_lines WHERE id = ?`).get(lineId));
 }));
@@ -1320,7 +1332,7 @@ router.delete('/:id/lines/:lid', handle((req, res) => {
     recalcBonTotalUnits(db, bonId);
     // Server-autoritativ recalc af bons.total_price
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: req.session?.userId ?? null });
-    logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', oldValue: `${line.quantity}x ${line.product_name}`, notes: 'linje slettet' });
+    logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', oldValue: `${line.quantity}x ${line.product_name}`, notes: 'linje slettet', userId: req.session?.userId ?? null });
     // Patch F (F58): tilføj manglende broadcast på DELETE lines
     broadcast('bon_updated', { id: bonId });
     res.json({ deleted: lineId });
@@ -1358,7 +1370,7 @@ router.put('/:id/menu-groups', handle((req, res) => {
 
     const savedGroups = getBonMenuGroups(bonId);
     logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'menu_groups',
-        newValue: `${savedGroups.length} gruppe(r)`, userId: req.body.user_id ?? req.session?.userId ?? null });
+        newValue: `${savedGroups.length} gruppe(r)`, userId: req.session?.userId ?? null });
     broadcast('bon_updated', { id: bonId });
 
     res.json({ menu_groups: savedGroups, lines: getBonLines(bonId) });
@@ -1490,7 +1502,7 @@ router.put('/:id/packing', handle((req, res) => {
             }
         }
     });
-    logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'packing', userId: req.body?.user_id ?? req.session?.userId });
+    logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'packing', userId: req.session?.userId ?? null });
     broadcast('bon_updated', { id });
     const overrides = db.prepare(`
         SELECT product_id, product_name, packed_amount, unit

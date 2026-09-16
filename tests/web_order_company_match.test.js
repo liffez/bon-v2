@@ -42,6 +42,10 @@ mailService.sendFromTemplate = async (args) => { _mails.push(args); return { ok:
 
 const { decodeEntities, extractCvr, extractEan, appendWishesLine } = require('../services/orderCompanyResolver');
 
+// Leveringsdatoen regnes ud fra i dag. En fast dato ville begynde at fejle
+// den dag den passerer, nu hvor serveren haandhaever deadline (cut-off).
+const { offsetISO } = require('../db/helpers');
+
 const MIGRATIONS = path.join(__dirname, '..', 'db', 'migrations');
 
 // Fixture — navne og CVR fra #607's drifts-tabel
@@ -111,14 +115,14 @@ async function post(url, body) {
 function order(extra = {}) {
     return {
         first_name: 'Anne', last_name: 'Test', email: 'anne@ku.dk', phone: '39209700',
-        delivery_date: '2026-10-01', delivery_time: '10:00', ordertype: 'catering', pax: '11',
+        delivery_date: offsetISO(30), delivery_time: '10:00', ordertype: 'catering', pax: '11',
         wishes: '3× Kyllingen', _form_meta: { menu_id: 'standard', menu_version: 1 },
         ...extra,
     };
 }
 /** Den gamle formular (f-felter) — samme regel skal gælde. */
 function legacy(extra = {}) {
-    return { f2: 'Anne Test', f3: 'anne@ku.dk', f7_date: '2026-10-01', f7_time: '10:00', f9: 'noget', ...extra };
+    return { f2: 'Anne Test', f3: 'anne@ku.dk', f7_date: offsetISO(30), f7_time: '10:00', f9: 'noget', ...extra };
 }
 
 const lastBon = () => _testDb.prepare('SELECT * FROM bons ORDER BY id DESC LIMIT 1').get();
