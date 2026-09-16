@@ -110,6 +110,62 @@ test('notes duplikeres ikke når den er identisk med new_value', () => {
     assert.strictEqual(html.match(/Husk allergi/g).length, 1);
 });
 
+// ─────────────────────────────────────────────────────────────
+// Oprettelses-entryet bærer KILDEN
+//
+// Teksten lå i new_value hele tiden ("Oprettet via web-bestilling (…)"), men
+// blev kastet væk til fordel for en fast streng. Man kunne derfor ikke se på en
+// bon om den kom fra bestillingsformularen eller var tastet ind i huset — og
+// det var præcis det spørgsmål der skulle besvares, da en bon dukkede op efter
+// deadline i september 2026.
+// ─────────────────────────────────────────────────────────────
+
+test('web-bestilling: kilden vises i stedet for en fast tekst', () => {
+    const html = _buildChangelogEntry({
+        action: 'create', field_name: 'web_order',
+        new_value: 'Oprettet via web-bestilling (cel@hirschsprung.dk)',
+        created_at: '2026-09-16 18:54:35',
+    });
+    assert.match(html, /Oprettet via web-bestilling \(cel@hirschsprung\.dk\)/);
+    assert.doesNotMatch(html, /Bon oprettet/);
+});
+
+test('tilbudskonvertering og manuel oprettelse vises også', () => {
+    const fraTilbud = _buildChangelogEntry({
+        action: 'create', field_name: 'create', new_value: 'Oprettet fra tilbud T-22',
+        created_at: '2026-09-16 18:54:35',
+    });
+    assert.match(fraTilbud, /Oprettet fra tilbud T-22/);
+
+    const manuel = _buildChangelogEntry({
+        action: 'create', field_name: 'manual', new_value: 'Oprettet manuelt',
+        created_at: '2026-09-16 18:54:35',
+    });
+    assert.match(manuel, /Oprettet manuelt/);
+});
+
+test('historiske rækker bar bon-NUMMERET i new_value — det må ikke vises som kilde', () => {
+    // POST /api/bons skrev før bon-nummeret dér og satte intet field_name.
+    // Vi skelner på field_name frem for at gætte ud fra hvordan strengen ser
+    // ud: et bon-nummer er fri tekst og kan ligne hvad som helst.
+    const html = _buildChangelogEntry({
+        action: 'create', field_name: null, new_value: 'B4294',
+        created_at: '2026-09-16 18:54:35',
+    });
+    assert.match(html, /Bon oprettet/);
+    assert.doesNotMatch(html, /B4294/);
+});
+
+test('kilden escapes — den kan indeholde et kundeskrevet firmanavn', () => {
+    const html = _buildChangelogEntry({
+        action: 'create', field_name: 'web_order',
+        new_value: 'Oprettet via web-bestilling (<script>alert(1)</script>)',
+        created_at: '2026-09-16 18:54:35',
+    });
+    assert.doesNotMatch(html, /<script>/);
+    assert.match(html, /&lt;script&gt;/);
+});
+
 test('almindelige entries er uændrede', () => {
     const created = _buildChangelogEntry({ action: 'create', created_at: '2026-08-10 08:00:00' });
     assert.match(created, /Oprettet/);
