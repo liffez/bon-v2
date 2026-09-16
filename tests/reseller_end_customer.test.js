@@ -41,6 +41,10 @@ const mailService = require('../services/mailService');
 const _mails = [];
 mailService.sendFromTemplate = async (args) => { _mails.push(args); return { ok: true }; };
 
+// Leveringsdatoen regnes ud fra i dag. En fast dato ville begynde at fejle den
+// dag den passerer, nu hvor serveren håndhæver deadline (services/orderCutoff).
+const { offsetISO } = require('../db/helpers');
+
 const MIGRATIONS = path.join(__dirname, '..', 'db', 'migrations');
 
 const ABLE = 'Able';
@@ -96,7 +100,7 @@ function order(extra = {}) {
     return {
         first_name: 'Caroline', last_name: 'Holme',
         email: ABLE_EMAIL, phone: '39209700',
-        delivery_date: '2026-09-03', delivery_time: '10:00',
+        delivery_date: offsetISO(30), delivery_time: '10:00',
         ordertype: 'catering', pax: '11',
         ...extra,
     };

@@ -14,6 +14,7 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 const { todayISO } = require('../db/helpers');
 const grocyAdapter = require('../services/grocyAdapter');
+const { readCutoffConfig } = require('../services/orderCutoff');
 
 const ALLOWED_MENUS = ['standard']; // udvides når flere menuer kommer
 
@@ -115,15 +116,25 @@ router.get('/config', (req, res) => {
     SELECT key, value FROM settings WHERE key LIKE 'bestilling.%'
   `).all();
 
+  // Cut-off-værdierne kommer VALIDERET fra services/orderCutoff — samme parsing
+  // som serveren selv håndhæver med. Før havde denne fil sit eget sæt defaults
+  // og sin egen parsing, så browseren kunne få en værdi serveren ikke ville have
+  // accepteret. Værst: et ikke-numerisk `cutoff_time` blev sendt videre som NaN,
+  // og en NaN-deadline slår cut-off fuldstændig fra i formularen.
+  const cut = readCutoffConfig(db, todayISO());
+  // En indstilling der stille erstattes af en standardværdi er præcis den slags
+  // der først opdages når nogen undrer sig over en bestilling der slap igennem.
+  if (cut.problems.length) console.warn('[embed/config] Ubrugelige cut-off-indstillinger:', cut.problems.join(' · '));
+
   const config = {
     base: { lat: null, lon: null },
-    cutoff: { time: 12, leadDays: 1, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] },
+    cutoff: { time: cut.time, leadDays: cut.leadDays, days: [...cut.cutoffDays] },
     delivery: null,
-    deliveryDays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+    deliveryDays: [...cut.deliveryDays],
     // Hastebestilling: åbnes manuelt i Settings og gælder KUN den dato den blev sat.
     // Gemmes som ISO-dato (bestilling.cutoff_override_date); når den ikke længere
     // matcher dagens danske dato falder alt automatisk tilbage til normal cut-off.
-    cutoffOverride: false,
+    cutoffOverride: cut.overrideActive,
     // Ferielukket/lukkedage: array af {from,to,label}. Formularen spærrer
     // leveringsdatoer i disse intervaller og viser labelen.
     closedDates: [],
@@ -137,24 +148,8 @@ router.get('/config', (req, res) => {
       case 'bestilling.base_lon':
         config.base.lon = parseFloat(r.value);
         break;
-      case 'bestilling.cutoff_time':
-        config.cutoff.time = parseInt(r.value, 10);
-        break;
-      case 'bestilling.cutoff_lead_days':
-        config.cutoff.leadDays = parseInt(r.value, 10);
-        break;
-      case 'bestilling.cutoff_days':
-        config.cutoff.days = r.value.split(',').map(s => s.trim()).filter(Boolean);
-        break;
-      case 'bestilling.delivery_days':
-        config.deliveryDays = r.value.split(',').map(s => s.trim()).filter(Boolean);
-        break;
       case 'bestilling.delivery_config':
         try { config.delivery = JSON.parse(r.value); } catch (e) { config.delivery = null; }
-        break;
-      case 'bestilling.cutoff_override_date':
-        // Aktiv kun hvis den gemte dato er dagens danske dato. Selv-nulstillende.
-        config.cutoffOverride = (r.value || '').trim() === todayISO();
         break;
       case 'bestilling.closed_dates':
         // Normalisér til {from,to,label}[] — tåler tom/ugyldig JSON gracefully.

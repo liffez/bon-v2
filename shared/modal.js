@@ -293,7 +293,18 @@ function _buildChangelogEntry(entry) {
         // Maskin-payload — må aldrig dumpes rå (se _buildConsumeDetail).
         detailHtml = _buildConsumeDetail(entry);
     } else if (entry.action === 'create') {
-        detailHtml = '<span class="changelog-detail">Bon oprettet</span>';
+        // `new_value` bærer KILDEN — "Oprettet via web-bestilling (mail@kunde.dk)",
+        // "Oprettet fra tilbud T-22", "Oprettet manuelt". Den tekst blev tidligere
+        // kastet væk til fordel for en fast streng, så man ikke kunne se på en bon
+        // om den kom fra formularen eller var tastet ind i huset. Det kostede en
+        // fejlsøgning i september 2026 der kunne have været et blik på skærmen.
+        //
+        // Historiske rækker fra POST /api/bons skrev bon-NUMMERET i new_value og
+        // satte intet field_name. Dem viser vi den neutrale tekst for. Vi skelner
+        // på field_name frem for at gætte ud fra hvordan strengen ser ud — et
+        // bon-nummer er fri tekst og kan ligne hvad som helst.
+        const source = entry.field_name ? String(entry.new_value || '').trim() : '';
+        detailHtml = '<span class="changelog-detail">' + esc(source || 'Bon oprettet') + '</span>';
     } else if (entry.action === 'status_change') {
         const oldLabel = _statusLabel(entry.old_value);
         const newLabel = _statusLabel(entry.new_value);
