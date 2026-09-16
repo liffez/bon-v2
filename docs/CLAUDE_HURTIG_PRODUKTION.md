@@ -207,6 +207,16 @@ og da har auto-batchen (§4.2) allerede lavet det.
 > menuer. Uden den ville rapporten kun kunne tale om de varer der allerede findes —
 > Senneps Mayo og de øvrige ukonverterede er usynlige for de tre første lister.
 
+⚠️ **`Balsamico + løg` og `Æggesalat` er dem der vækker vagten.** Målt i drift
+16.09.2026 ligger de i **`RR Produktion`**, ikke i Hurtig — altså `to_stock` — og de er
+nestet i 2 menuer hver uden at producere en vare. I det øjeblik de får et
+`Produces product`, er de `to_stock` **og stadig nestet**, og vagten går fra inert til
+aktiv: menuen trækker da varen i stedet for råvarerne. Er varen nyoprettet med 0 på
+lager, går den i shortfall — korrekt efter §7.2, men det vil ligne at blandingen
+pludselig mangler på hver bon mens råvarerne står på hylden. **Konvertér og rewire dem i
+samme ombæring** (`--kun-rewire`). De seks blandinger i `RR produktion Hurtig` har ikke
+problemet: `on_demand` er undtaget og trækker råvarerne uændret indtil menuen er rewired.
+
 **Uden erklæret udbytte** (`recipeunit`/`recipeunitnumber` mangler) kan behovet ikke
 udtrykkes i varens enhed. Vi opfinder ikke et tal — og vi trækker heller ikke nul i
 stilhed, for så ville råvarelageret blive for højt uden at nogen kunne se hvorfor.
