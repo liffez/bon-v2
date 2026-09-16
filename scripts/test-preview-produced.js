@@ -16,7 +16,7 @@
 // ============================================================
 'use strict';
 const { classifyProducedShortfall } = require('../services/grocyAdapter');
-const { groupOf, HURTIG_GROUP } = require('../services/autoBatch');
+const { productionTypeOf, HURTIG_GROUP } = require('../services/ingredientResolver');
 
 let pass = 0, fail = 0;
 const ok    = m => { console.log('  \x1b[32m✓\x1b[0m', m); pass++; };
@@ -24,11 +24,13 @@ const bad   = m => { console.log('  \x1b[31m✗\x1b[0m', m); fail++; };
 const check = (c, m) => (c ? ok : bad)(m);
 const head  = t => console.log(`\n\x1b[1m${t}\x1b[0m`);
 
-// Prædikatet kommer fra autoBatch — grænsen mellem de to kategorier defineres
-// ÉT sted. Testes her, så en omdøbning af gruppen ikke tavst deler dem i to.
-const erHurtig = (r) => groupOf(r) === HURTIG_GROUP;
-const HURTIG = { id: 10, name: 'Remoulade',  userfields: { grupper: 'RR produktion Hurtig' } };
-const RR     = { id: 20, name: 'Stegt Gris', userfields: { grupper: 'RR Produktion' } };
+// Prædikatet kommer fra ingredientResolver — grænsen mellem de to kategorier
+// defineres ÉT sted (#329), og både auto-batchen, forhåndsvisningen og selve
+// lagertrækket spørger dér. Testes her, så en omdøbning af gruppen ikke tavst
+// deler dem i to.
+const erHurtig = (r) => productionTypeOf(r) === 'on_demand';
+const HURTIG = { id: 10, name: 'Remoulade',  product_id: 225, userfields: { grupper: 'RR produktion Hurtig' } };
+const RR     = { id: 20, name: 'Stegt Gris', product_id: 125, userfields: { grupper: 'RR Produktion' } };
 
 head('Hvem laver varen?');
 {
@@ -75,11 +77,13 @@ head('Rækker råvarerne?');
 
 head('Grænsen mellem de to kategorier er ÉN definition');
 {
-    check(HURTIG_GROUP === 'rr produktion hurtig', 'autoBatch ejer gruppenavnet');
-    check(erHurtig({ userfields: { grupper: '  RR Produktion Hurtig  ' } }),
+    check(HURTIG_GROUP === 'rr produktion hurtig', 'ingredientResolver ejer gruppenavnet');
+    check(erHurtig({ product_id: 1, userfields: { grupper: '  RR Produktion Hurtig  ' } }),
         'og normaliseringen tåler mellemrum og store bogstaver');
-    check(!erHurtig({ userfields: { grupper: 'RR Produktion' } }),
+    check(!erHurtig({ product_id: 1, userfields: { grupper: 'RR Produktion' } }),
         'uden at komme til at fange RR Produktion med');
+    check(productionTypeOf({ userfields: { grupper: 'RR produktion Hurtig' } }) === null,
+        'en opskrift UDEN produkt har ingen produktionstype — der er intet at trække');
 }
 
 head('Vurderingen: skal der råbes op?');

@@ -390,6 +390,52 @@ function buildProducerIndex(rawRecipeMap) {
     return idx;
 }
 
+// ── Produktionstype: hvem laver varen, og hvad må trækket gøre (#329) ────────
+//
+// Grocy-gruppen ER grænsen mellem de to roller, og den skal kun aflæses ÉT
+// sted. `services/autoBatch.js` havde sin egen kopi af navnet og sin egen
+// `groupOf`; to steder der skal blive enige om det samme er præcis sådan #349
+// og #353 opstod. Auto-batchen importerer derfor herfra.
+const HURTIG_GROUP = 'rr produktion hurtig';
+
+/** Grocy-gruppen på en opskrift, normaliseret til sammenligning. */
+function recipeGroupOf(recipeRaw) {
+    return String(recipeRaw?.userfields?.grupper || '').trim().toLowerCase();
+}
+
+/**
+ * Produktionstypen for EN opskrift.
+ *
+ *   'on_demand' — `RR produktion Hurtig`: mayo, dressing. Bon laver den ved
+ *                 LEVERET af råvarer der står på lager (#267).
+ *   'to_stock'  — alt andet der producerer en vare: langtidsstegt gris,
+ *                 syltede løg. Personalet laver den efter plan, i forvejen.
+ *   null        — opskriften producerer ingen vare.
+ */
+function productionTypeOf(recipeRaw) {
+    if (!recipeRaw || !Number(recipeRaw.product_id)) return null;
+    return recipeGroupOf(recipeRaw) === HURTIG_GROUP ? 'on_demand' : 'to_stock';
+}
+
+/**
+ * product_id → produktionstype, for hver vare der LAVES af en opskrift.
+ *
+ * Et produkt kan have flere producenter (Falaffel har tre). Er bare ÉN af dem
+ * Hurtig, er varen `on_demand` — så er den noget Bon kan lave ved levering,
+ * og det er dén mulighed der afgør hvad trækket må gøre. Samme valg som
+ * `planAutoBatches` træffer når den filtrerer producenterne på gruppen.
+ */
+function buildProductionPolicy(rawRecipeMap) {
+    const out = new Map();
+    for (const producers of buildProducerIndex(rawRecipeMap).values()) {
+        const types = producers.map(productionTypeOf).filter(Boolean);
+        if (!types.length) continue;
+        const pid = Number(producers[0].product_id);
+        out.set(pid, types.includes('on_demand') ? 'on_demand' : 'to_stock');
+    }
+    return out;
+}
+
 // Rækkefølgen bruges to steder: til at vælge den bedste af flere producenter,
 // og til at rulle den værste status op på en underopskrift.
 // `ukendt` = varen KAN produceres, men opskriftens udbytte er ikke oplyst i
@@ -1074,6 +1120,7 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
 
     const recipeMap = new Map(recipes.map(r => [r.id, r]));
     const productMap = new Map(products.map(p => [p.id, p]));
+    const policy = buildProductionPolicy(rawRecipeMap);
 
     // Gruppér per recipe_id
     const posByRecipe = {};
@@ -1089,6 +1136,21 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
         if (!nestingsByRecipe[rid]) nestingsByRecipe[rid] = [];
         nestingsByRecipe[rid].push(n);
     });
+
+    // Enhederne bruges KUN af to_stock-vagten nedenfor, til at slå udbyttet op.
+    // Findes der ingen nesting der peger på en planlagt vare, kan vagten ikke
+    // fyre — og så hentes de ikke. Det holder den hotteste sti fri for en
+    // afhængighed den ikke bruger: målt mod grocy-hq 24.08.2026 er NUL af de
+    // 14 producerende opskrifter nestet, så i dag er kaldet aldrig nødvendigt.
+    let unitMap = new Map();
+    const vagtenKanFyre = nestings.some(n => {
+        const sub = rawRecipeMap.get(n.includes_recipe_id);
+        const pid = Number(sub?.product_id) || null;
+        return pid && policy.get(pid) === 'to_stock';
+    });
+    if (vagtenKanFyre) {
+        unitMap = new Map((await grocy.getQuantityUnits() || []).map(u => [Number(u.id), u]));
+    }
 
     // Aggregér: product_id → total amount i stock-units
     const aggregated = new Map();
@@ -1146,6 +1208,49 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
             const subFactor = recipeFactors && recipeFactors.get(subRecipeId);
             if (subFactor && subFactor > 0) subMultiplier *= subFactor;
 
+            // ── to_stock-vagten (#329) ──────────────────────────────────────
+            //
+            // Laver underopskriften en vare personalet producerer EFTER PLAN
+            // (langtidsstegt gris, syltede rødløg), så træk VAREN — aldrig
+            // dens råvarer.
+            //
+            // Råvarerne blev nemlig trukket dengang varen blev produceret.
+            // Trak menuen dem igen, ville de være væk to gange i Grocy og kun
+            // én gang i virkeligheden, og varen ville aldrig blive trukket —
+            // altså både en dobbelt-tælling og en skjult mangel. Er varen tom,
+            // skal det KUNNE ses (§7.2: den må gå i shortfall); et fald-igennem
+            // til råvarerne ville dække over præcis dét signal.
+            //
+            // Hurtig (`on_demand`) er bevidst undtaget: er opskriften stadig
+            // nestet, trækkes dens råvarer som hidtil. Først når menuen er
+            // rewired til en produktlinje, trækkes produktet — og så har
+            // auto-batchen (#267) allerede lavet det. Uændret adfærd i drift.
+            //
+            // Målt mod grocy-hq-snapshot 24.08.2026: 14 opskrifter producerer
+            // en vare, og NUL af dem er nestet. Vagten er altså inert i dag —
+            // den er der for at #270's udrulning ikke kan tabe på rækkefølgen,
+            // hvor et produkt findes før menuerne er rewired (jf. `--kun-rewire`).
+            const subProductId = Number(subRaw.product_id) || null;
+            if (subProductId && policy.get(subProductId) === 'to_stock') {
+                const subProduct = productMap.get(subProductId);
+                const perBatch = subProduct
+                    ? yieldPerBatchStockOf(subRaw, subProduct, unitMap, quConversions)
+                    : null;
+                if (perBatch != null && perBatch > 0) {
+                    addAmount(subProductId, perBatch * subMultiplier);
+                    continue;                       // ALDRIG ned i råvarerne
+                }
+                // Uden et erklæret udbytte kan behovet ikke udtrykkes i varens
+                // enhed. Vi opfinder ikke et tal — og vi trækker heller ikke
+                // NUL i stilhed, for så ville råvarelageret blive for højt uden
+                // at nogen kunne se hvorfor. Falder tilbage til råvarerne som
+                // hidtil, og siger det højt. Hullet er et manglende felt i
+                // Grocy (#372), ikke en beslutning koden skal træffe.
+                console.warn(`[consume] ${subRaw.name || `opskrift #${subRecipeId}`} laver et `
+                           + 'planlagt mellemprodukt, men udbyttet er ikke oplyst i Grocy — '
+                           + 'trækker råvarerne i stedet. Udfyld recipeunit/recipeunitnumber.');
+            }
+
             const subIngs = posByRecipe[subRecipeId] || [];
             for (const ing of subIngs) {
                 const baseAmount = parseFloat(ing.amount) || 0;
@@ -1190,4 +1295,6 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
 module.exports = {
     resolveIngredients, resolveConsumeItems, expandProducedToRaw,
     buildProducerIndex, yieldPerBatchStockOf, collectRecipeNeedsFlat,
+    // Produktionspolitik (#329) — ÉN kilde, delt med services/autoBatch.js.
+    HURTIG_GROUP, recipeGroupOf, productionTypeOf, buildProductionPolicy,
 };

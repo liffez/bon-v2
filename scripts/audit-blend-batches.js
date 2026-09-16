@@ -34,7 +34,7 @@
 
 const { yieldPerBatchStockOf, collectRecipeNeedsFlat } = require('../services/ingredientResolver');
 
-const HURTIG_GROUP = 'rr produktion hurtig';
+const { HURTIG_GROUP, recipeGroupOf } = require('../services/ingredientResolver');
 
 const argOf = (f) => { const i = process.argv.indexOf(f); return i >= 0 ? process.argv[i + 1] : null; };
 const INSTANCE = (argOf('--instance') || 'hq').toUpperCase();
@@ -102,7 +102,7 @@ function num(n) {
     const unitName = (quId) => (unitMap.get(Number(quId)) || {}).name || `enhed ${quId}`;
 
     const blends = recipes
-        .filter(r => String(r.userfields?.grupper || '').trim().toLowerCase() === HURTIG_GROUP)
+        .filter(r => recipeGroupOf(r) === HURTIG_GROUP)
         .map(r => ({ ...r, id: Number(r.id) }))
         .sort((a, b) => a.name.localeCompare(b.name, 'da'));
 

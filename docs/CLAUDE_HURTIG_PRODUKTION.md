@@ -173,6 +173,44 @@ køkken-notifikation + synlig i bonens Råvarer-visning. Leveringen blokeres ald
 `produceBatch` tager kostpris ex moms fra råvarerne (som `routes/production.js`), så
 Grocy-fulfillment og margin-analyse (Opskrifter & priser) er upåvirket.
 
+### 4.6 Produktionstypen bor i koden — og styrer hvad trækket må gøre (#329)
+
+Grocy-gruppen ER grænsen mellem de to roller i §2, og siden 16.09.2026 aflæses den
+**ét sted**: `productionTypeOf(recipeRaw)` i `services/ingredientResolver.js` giver
+`'on_demand'` (`RR produktion Hurtig`) eller `'to_stock'` (alt andet der producerer en
+vare). `buildProductionPolicy(rawRecipeMap)` slår det op pr. `product_id`; har en vare
+flere producenter, og bare én af dem er Hurtig, er varen `on_demand` — det er dén
+mulighed der afgør hvad trækket må gøre, og samme valg `planAutoBatches` allerede traf.
+`services/autoBatch.js`, `grocyAdapter.planConsume`, `scripts/tjek-dagen.js` og
+`scripts/audit-blend-batches.js` importerer nu politikken i stedet for at gentage
+gruppenavnet. To kopier der skal blive enige om det samme er præcis sådan #349 og #353
+opstod.
+
+**Vagten:** er en underopskrift i `resolveConsumeItems` `to_stock`, trækkes **varen** —
+aldrig dens råvarer. Råvarerne blev trukket dengang varen blev produceret; trak menuen
+dem igen, ville de være væk to gange i Grocy og kun én gang i virkeligheden, og varen
+ville aldrig blive trukket. Altså både en dobbelt-tælling og en skjult mangel. Er varen
+tom, SKAL det kunne ses (§7.2 — den må gå i shortfall); et fald-igennem til råvarerne
+ville dække over præcis dét signal.
+
+**Hurtig er bevidst undtaget.** Er en `on_demand`-opskrift stadig nestet, trækkes dens
+råvarer som hidtil; først når menuen er rewired til en produktlinje, trækkes produktet —
+og da har auto-batchen (§4.2) allerede lavet det.
+
+> **Vagten er inert i drift i dag.** Målt på grocy-hq-snapshottet i `data/gate-baseline/`:
+> 14 opskrifter producerer en vare, og **nul** af dem er nestet. Den er der for at §5's
+> udrulning ikke kan tabe på rækkefølgen — hvor produktet findes, før menuerne er
+> rewired (`--kun-rewire`). Den aktuelle tilstand måles på serveren med
+> `npm run audit:produktionspolitik` (read-only).
+
+**Uden erklæret udbytte** (`recipeunit`/`recipeunitnumber` mangler) kan behovet ikke
+udtrykkes i varens enhed. Vi opfinder ikke et tal — og vi trækker heller ikke nul i
+stilhed, for så ville råvarelageret blive for højt uden at nogen kunne se hvorfor.
+Der falder vi tilbage til råvarerne og siger det højt i driftsloggen. Hullet er et
+manglende felt i Grocy (#372), ikke en beslutning koden skal træffe.
+
+Dækket af `scripts/test-consume-policy.js` (16 asserts, 6 mutationer — alle fanget).
+
 ---
 
 ## 5. Grocy master-data — Lag 2 (konvertér de 9 Hurtig-blandinger)

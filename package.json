@@ -88,7 +88,7 @@
     "test:run-dashboard": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DASHBOARD.js",
     "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
     "test:run-optaelling": "node tests/scripts/run_T_OPTAELLING.js",
-    "test:consume-hardening": "node --experimental-sqlite scripts/test-consume-hardening.js && node scripts/test-varemodtagelse-client-units.js && node --experimental-sqlite scripts/test-consume-race.js",
+    "test:consume-hardening": "node --experimental-sqlite scripts/test-consume-hardening.js && node scripts/test-varemodtagelse-client-units.js && node --experimental-sqlite scripts/test-consume-race.js && node --experimental-sqlite scripts/test-consume-policy.js",
     "test:consume-race": "node --experimental-sqlite scripts/test-consume-race.js",
     "test:pos-bon": "node --experimental-sqlite scripts/test-pos-bon-no-stock.js",
     "test:deduct-watchdog": "node --experimental-sqlite scripts/test-deduct-watchdog.js",
@@ -131,7 +131,9 @@
     "test:rfm-stale": "node --experimental-sqlite scripts/test-rfm-stale.js",
     "fix:bon-dato": "node --experimental-sqlite scripts/fix-bon-delivery-date.js",
     "backfill:sidst-tjekket": "node --env-file=.env scripts/backfill-last-checked.js",
-    "test:web-order-flag": "node --experimental-sqlite --test tests/web_order_flag.test.js"
+    "test:web-order-flag": "node --experimental-sqlite --test tests/web_order_flag.test.js",
+    "test:consume-policy": "node --experimental-sqlite scripts/test-consume-policy.js",
+    "audit:produktionspolitik": "node --env-file=.env scripts/audit-production-policy.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
