@@ -5,6 +5,7 @@ const { handle, getUserId, logChange, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { deactivateCompanies } = require('../services/companyCleanup');
+const { logActivity, purposeIdByKey } = require('../services/crmActivity');
 
 // GET /api/customers?q=&company_id=
 router.get('/', handle((req, res) => {
@@ -247,9 +248,23 @@ router.get('/:id/mail', handle(async (req, res) => {
 // Body kan indeholde {{booking_link}} — substitueres server-side via
 // renderTemplate så token genereres bundet til (customer, user, flow, intent).
 // Signatur appendes IKKE — fritekst-mailen er fuldt brugerstyret.
+//
+// En sendt mail bliver ALTID til en `email_out`-aktivitet. Typen har eksisteret i
+// crm_activities siden migration 019, men blev aldrig skrevet af nogen — mailen lå
+// kun i sin tråd og talte derfor hverken som kontakt i tidslinjen eller i de køer
+// der dedupe'r på aktivitet. Sendte man booking-linket til 40 kunder, stod alle 40
+// på ringelisten dagen efter.
+//
+// Valgfri kontekst styrer hvor mailen tæller med:
+//   bon_id       → mailen hænger på bonen (service-kald dedupe'r på den)
+//   purpose_key  → formål (fx 'saesonoutreach') så sæson-/rytme-køen dedupe'r
+//   campaign_id  → tilskriv kampagnen
 router.post('/:id/mail', handle(async (req, res) => {
     const customerId = parseInt(req.params.id);
-    const { to, subject, text, booking_flow, booking_intent_meeting_type, attachments } = req.body;
+    const {
+        to, subject, text, booking_flow, booking_intent_meeting_type, attachments,
+        bon_id, purpose_key, campaign_id,
+    } = req.body;
     if (!to || !text) return res.status(400).json({ error: 'to og text er påkrævet' });
 
     const { sendMail, renderTemplate, validateAttachments } = require('../services/mailService');
@@ -281,7 +296,35 @@ router.post('/:id/mail', handle(async (req, res) => {
         customerId, context, smtpPrefix: 'smtp_kontakt', userId,
         attachments: att.list
     });
-    res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });
+
+    // Aktiviteten skrives EFTER afsendelsen og må aldrig vælte den: mailen er den
+    // uigenkaldelige del, aktiviteten er sporet. Fejler sporet, siges det højt i
+    // svaret (activity_logged: false) frem for at svaret ser rent ud — samme
+    // princip som #362's send_error.
+    const db = getDb();
+    let activityId = null;
+    let activityError = null;
+    try {
+        activityId = logActivity(db, {
+            customer_id: customerId,
+            bon_id: bon_id ? parseInt(bon_id, 10) : null,
+            type: 'email_out',
+            text: 'Mail sendt: ' + (String(subject || '').trim() || '(uden emne)'),
+            owner_user_id: userId,
+            purpose_id: purposeIdByKey(db, purpose_key),
+            campaign_id: campaign_id ? parseInt(campaign_id, 10) : null,
+        });
+    } catch (err) {
+        activityError = err.message;
+        console.error('[customers] Kunne ikke logge email_out-aktivitet:', err);
+    }
+
+    res.json({
+        ok: true, messageId: result.messageId, threadId: result.threadId,
+        activity_id: activityId,
+        activity_logged: activityId !== null,
+        activity_error: activityError,
+    });
 }));
 
 module.exports = router;
