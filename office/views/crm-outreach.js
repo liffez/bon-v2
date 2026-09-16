@@ -23,6 +23,7 @@ let _coActiveCampaign = null; // null = global, eller campaign_id
 let _coDragMember = null;
 let _coShowLost = false;
 let _coLoading = false;
+let _coMemberById = {};   // member_id → medlem, så kort-klik kan slå op uden at bære alt i markup
 
 async function initCrmOutreach(container) {
     _coContainer = container;
@@ -264,6 +265,42 @@ function _coRenderShell() {
             .co-btn-cancel { background: transparent; color: var(--color-text-dim); }
             .co-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; }
             .co-btn-primary:hover { filter: brightness(1.08); }
+            .co-btn-ghost { background: var(--color-background, #f0ece6); color: #333; }
+            .co-btn-ghost:hover { filter: brightness(0.97); }
+            .co-btn-call { background: #3d7a0a; color: #fff; text-decoration: none;
+                           display: inline-flex; align-items: center; }
+            .co-btn-call:hover { background: #2d5a07; }
+
+            /* Medlems-detalje */
+            .co-md .co-modal-header { display: flex; align-items: center; gap: 10px; }
+            .co-md-status { font-family: var(--font-body, inherit); font-size: 11px; font-weight: 700;
+                            text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px;
+                            border-radius: 10px; background: var(--color-background, #f5f4f2);
+                            color: var(--color-text-dim, #888); }
+            .co-md-x { margin-left: auto; background: none; border: none; font-size: 20px; line-height: 1;
+                       cursor: pointer; color: var(--color-text-dim, #888); }
+            .co-md-sub { font-size: 13px; color: var(--color-text-dim, #888); margin-bottom: 10px; }
+            .co-md-warn { margin-bottom: 10px; padding: 8px 11px; border-radius: 6px; font-size: 12.5px;
+                          line-height: 1.5; background: var(--color-sentiment-neu-bg, #FBF3E2);
+                          border-left: 3px solid #d9a441; color: #6b5320; }
+            .co-md-facts { display: grid; gap: 4px; font-size: 13px; }
+            .co-md-facts b { display: inline-block; min-width: 110px; font-weight: 600;
+                             color: var(--color-text-dim, #888); font-size: 11px; text-transform: uppercase;
+                             letter-spacing: .04em; }
+            .co-md-notes { margin-top: 10px; padding: 9px 11px; border-radius: 6px; font-size: 13px;
+                           background: var(--color-background, #f9f7f4); font-style: italic; color: #555; }
+            .co-md-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+            .co-md-log { display: none; margin-top: 12px; padding: 12px; border-radius: 8px;
+                         background: var(--color-background, #faf8f5); }
+            .co-md-log.open { display: block; }
+            .co-md-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+                           color: var(--color-text-dim, #888); margin-bottom: 4px; }
+            .co-md-select { padding: 5px 8px; margin-right: 8px; font-size: 13px; font-family: inherit;
+                            border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; }
+            .co-md-note { width: 100%; box-sizing: border-box; min-height: 64px; margin-top: 8px; padding: 7px;
+                          font-size: 13px; font-family: inherit; resize: vertical;
+                          border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; }
+            .co-md-log-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
         </style>
         <div class="co-wrap">
             <div class="co-toolbar">
@@ -343,6 +380,11 @@ function _coRenderBoard() {
     if (!board || !_coData) return;
     const cols = _coData.columns;
 
+    _coMemberById = {};
+    for (const col of Object.values(cols)) {
+        for (const m of col.members) _coMemberById[m.member_id] = m;
+    }
+
     const openCols = ['lead', 'contacted', 'negotiating', 'won'];
     board.innerHTML = openCols.map(key => {
         const col = cols[key];
@@ -414,7 +456,10 @@ function _coRenderCard(m) {
         ? '<span class="co-assigned">' + _coEsc(m.assigned_name) + '</span>'
         : '';
 
-    return '<div class="co-card" draggable="true" data-member-id="' + m.member_id +
+    // Kortet var indtil nu KUN trækbart — der var ingen vej til telefonnummeret,
+    // mailen eller en log. Nu åbner et klik medlems-detaljen. Et gennemført
+    // HTML5-træk udløser ikke click, så de to kan leve sammen.
+    return '<div class="co-card" draggable="true" title="Åbn — ring, log, mail" data-member-id="' + m.member_id +
         '" data-customer-id="' + (m.customer_id || '') +
         '" data-campaign-id="' + m.campaign_id +
         '" data-type="' + m.card_type + '">' +
@@ -476,6 +521,14 @@ function _coWireDragDrop() {
         });
     });
 
+    // Klik (uden træk) åbner medlems-detaljen.
+    document.querySelectorAll('.co-card[data-member-id]').forEach(card => {
+        card.addEventListener('click', () => {
+            const id = parseInt(card.dataset.memberId, 10);
+            if (id) _coOpenMember(id);
+        });
+    });
+
     const dropTargets = [
         ...document.querySelectorAll('.co-col'),
         ...document.querySelectorAll('.co-lost-dropzone'),
@@ -515,6 +568,184 @@ async function _coHandleDrop(drag, targetStatus) {
         console.error('outreach drop:', err);
         alert('Kunne ikke flytte: ' + (err.message || 'ukendt fejl'));
     }
+}
+
+
+/* ── Medlems-detalje ─────────────────────────────────────────
+   Tavlen kunne kun flytte kort. Alt det man rent faktisk skal gøre ved et
+   kampagne-medlem — ringe, logge udfaldet, sende en mail, aftale en opfølgning
+   — lå i Kunde 360°, som kortet ikke engang linkede til.
+
+   Aktiviteter herfra bærer campaign_id, så kampagnens indsats kan måles
+   (kolonnen har eksisteret siden migration 084; POST /activity tog allerede imod den).
+
+   Et medlem kan være et FIRMA uden kontaktperson. Så er der ingen kunde at
+   hænge en aktivitet på (crm_activities kræver customer_id eller bon_id), og
+   ingen at sende til. Det siges — frem for at vise knapper der fejler. */
+
+function _coOpenMember(memberId) {
+    const m = _coMemberById[memberId];
+    if (!m) return;
+
+    const name = m.contact_person || m.company_name || 'Ukendt';
+    const sub = m.contact_person && m.company_name && m.contact_person !== m.company_name
+        ? m.company_name : (m.card_type === 'b2c' ? 'Privatkunde' : (m.company_city || ''));
+    const phone = m.customer_phone || m.company_phone || '';
+    const email = m.customer_email || m.company_email || '';
+    const phoneClean = phone.replace(/\s/g, '');
+    const STATUS = { lead: 'Lead', contacted: 'Kontaktet', negotiating: 'Dialog', won: 'Vundet', lost: 'Tabt' };
+
+    // Juraen bor i POST /api/campaigns/:id/members (B2C uden samtykke afvises der).
+    // Her vises den, så man ikke ringer til nogen der har frabedt sig det.
+    const warn = m.do_not_contact
+        ? '<div class="co-md-warn">⛔ Kunden har frabedt sig kontakt (do-not-contact).</div>'
+        : (m.card_type === 'b2c' && !m.marketing_consent
+            ? '<div class="co-md-warn">⚠ Privatkunde uden markedsførings-samtykke — kun servicerelateret kontakt.</div>'
+            : '');
+
+    const noContact = !m.customer_id
+        ? '<div class="co-md-warn">Medlemmet er et firma uden kontaktperson. Log og mail kræver en kunde — ' +
+          'tilføj en kontakt på firmaet først.</div>'
+        : '';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'co-modal-overlay';
+    overlay.innerHTML = `
+        <div class="co-modal co-md" role="dialog" aria-modal="true">
+            <div class="co-modal-header">
+                ${_coEsc(name)}
+                <span class="co-md-status">${_coEsc(STATUS[m.member_status] || m.member_status)}</span>
+                <button type="button" class="co-md-x" aria-label="Luk">✕</button>
+            </div>
+            <div class="co-modal-body">
+                ${sub ? '<div class="co-md-sub">' + _coEsc(sub) + '</div>' : ''}
+                ${warn}${noContact}
+                <div class="co-md-facts">
+                    ${phone ? '<div><b>Telefon</b> <a href="tel:' + _coEsc(phoneClean) + '">' + _coEsc(phone) + '</a></div>' : ''}
+                    ${email ? '<div><b>Mail</b> ' + _coEsc(email) + '</div>' : ''}
+                    <div><b>Kampagne</b> ${_coEsc(m.campaign_name)}</div>
+                    ${m.assigned_name ? '<div><b>Ansvarlig</b> ' + _coEsc(m.assigned_name) + '</div>' : ''}
+                    ${m.last_activity_at ? '<div><b>Sidste aktivitet</b> ' + _coEsc(String(m.last_activity_at).slice(0, 16).replace('T', ' ')) + '</div>' : ''}
+                    ${m.lost_reason ? '<div><b>Tabt fordi</b> ' + _coEsc(m.lost_reason) + '</div>' : ''}
+                </div>
+                ${m.notes ? '<div class="co-md-notes">' + _coEsc(m.notes) + '</div>' : ''}
+
+                <div class="co-md-actions">
+                    ${phone ? '<a class="co-btn co-btn-call" href="tel:' + _coEsc(phoneClean) + '">📞 Ring</a>' : ''}
+                    ${m.customer_id ? '<button type="button" class="co-btn co-btn-ghost" data-co-act="log">📝 Log</button>' : ''}
+                    ${m.customer_id && email ? '<button type="button" class="co-btn co-btn-ghost" data-co-act="mail">' + _coMailIcon() + ' Mail</button>' : ''}
+                    ${m.customer_id ? '<button type="button" class="co-btn co-btn-ghost" data-co-act="profile">Profil →</button>' : ''}
+                </div>
+
+                <div class="co-md-log" id="coMdLog">
+                    <label class="co-md-label">Resultat</label>
+                    <select id="coMdResult" class="co-md-select">
+                        <option value="reached">Nået</option>
+                        <option value="no_answer">Ingen svar</option>
+                        <option value="voicemail">Voicemail</option>
+                        <option value="callback">Ring tilbage</option>
+                        <option value="email_instead">Sendte mail i stedet</option>
+                    </select>
+                    <select id="coMdSentiment" class="co-md-select">
+                        <option value="">Stemning…</option>
+                        <option value="positive">😊 Positiv</option>
+                        <option value="neutral">😐 Neutral</option>
+                        <option value="negative">😟 Negativ</option>
+                    </select>
+                    <textarea id="coMdNote" class="co-md-note" placeholder="Hvad skete der?"></textarea>
+                    <div id="coMdFollowup"></div>
+                    <div class="co-md-log-actions">
+                        <button type="button" class="co-btn co-btn-cancel" data-co-act="logcancel">Annuller</button>
+                        <button type="button" class="co-btn co-btn-primary" data-co-act="logsave">Gem</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const panel = overlay.querySelector('.co-modal');
+    const logEl = overlay.querySelector('#coMdLog');
+    const fuHost = overlay.querySelector('#coMdFollowup');
+    if (typeof CrmFollowup !== 'undefined') {
+        fuHost.innerHTML = CrmFollowup.html('comd');
+        CrmFollowup.wire(fuHost);
+    }
+
+    function close() {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+    overlay.querySelector('.co-md-x').addEventListener('click', close);
+    // Et klik der kun rydder en tekstmarkering må ikke også lukke panelet.
+    if (typeof closeOnOutsideClick === 'function') closeOnOutsideClick(overlay, close, panel);
+
+    overlay.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-co-act]');
+        if (!btn) return;
+        const act = btn.dataset.coAct;
+        if (act === 'log') { logEl.classList.toggle('open'); return; }
+        if (act === 'logcancel') { logEl.classList.remove('open'); return; }
+        if (act === 'profile') {
+            close();
+            if (typeof window.openKunde360 === 'function') window.openKunde360(m.customer_id);
+            return;
+        }
+        if (act === 'mail') {
+            if (typeof MailCompose === 'undefined') { alert('Mail-komponenten er ikke indlæst'); return; }
+            MailCompose.open({
+                customerId: m.customer_id,
+                campaignId: m.campaign_id,
+                customer: {
+                    first_name: (m.contact_person || '').split(' ')[0] || '',
+                    last_name: (m.contact_person || '').split(' ').slice(1).join(' '),
+                    company_name: m.company_name, phone, email,
+                },
+                to: email,
+                title: 'Mail til ' + name,
+                subtitle: m.campaign_name,
+                onSent: () => { close(); _coLoadPipeline(); },
+            });
+            return;
+        }
+        if (act === 'logsave') {
+            const fu = (typeof CrmFollowup !== 'undefined')
+                ? CrmFollowup.read(fuHost, 'Følg op — ' + m.campaign_name) : null;
+            if (fu && fu.error) { alert(fu.error); return; }
+            const note = overlay.querySelector('#coMdNote').value.trim();
+            if (!note) { alert('Skriv en note'); return; }
+            btn.disabled = true; btn.textContent = 'Gemmer…';
+            try {
+                await postCrmActivity({
+                    customer_id: m.customer_id,
+                    type: 'call',
+                    result: overlay.querySelector('#coMdResult').value,
+                    sentiment: overlay.querySelector('#coMdSentiment').value || null,
+                    text: note,
+                    campaign_id: m.campaign_id,
+                });
+                if (fu) {
+                    try {
+                        await postCrmActivity({
+                            customer_id: m.customer_id,
+                            type: 'followup',
+                            text: fu.text,
+                            due_at: fu.due_at,
+                            campaign_id: m.campaign_id,
+                        });
+                    } catch (err) {
+                        alert('Opkaldet er logget, men opfølgningen blev ikke gemt: ' + (err.message || 'ukendt fejl'));
+                    }
+                }
+                close();
+                _coLoadPipeline();
+            } catch (err) {
+                alert('Kunne ikke gemme: ' + (err.message || 'ukendt fejl'));
+                btn.disabled = false; btn.textContent = 'Gem';
+            }
+        }
+    });
 }
 
 // Opret-ny-kampagne modal — åbnes fra toolbar-knappen
@@ -673,6 +904,12 @@ function _coOpenLostReasonModal(drag) {
         if (e.key === 'Enter') overlay.querySelector('[data-action="ok"]').click();
         if (e.key === 'Escape') close();
     });
+}
+
+// ✉ (U+2709) er en tynd omrids-glyf der næsten forsvinder på en knap;
+// shared/utils.js' mailIcon() er SVG og arver currentColor.
+function _coMailIcon() {
+    return (typeof mailIcon === 'function') ? mailIcon(13) : '✉';
 }
 
 function _coEsc(s) {

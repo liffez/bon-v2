@@ -652,6 +652,15 @@ function getReactivationCandidates(db) {
                 ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_phone,
                (SELECT id FROM customers WHERE company_id = c.id AND is_active = 1
                 ORDER BY is_primary_contact DESC LIMIT 1) AS primary_customer_id,
+               -- Mail-knappen på Sovende-fanen: adressen at sende til, og for-/efternavn
+               -- adskilt så skabelonernes {{fornavn}} ikke skal gætte sig frem af et
+               -- sammensat navn.
+               (SELECT email FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_email,
+               (SELECT first_name FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_first,
+               (SELECT last_name FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_last,
                CAST(s.f_score * 0.55 + s.m_score * 0.45 AS INTEGER) AS potential_score
         FROM rfm_scores s
         JOIN companies c ON c.id = s.company_id

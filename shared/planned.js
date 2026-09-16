@@ -11,15 +11,19 @@ function plannedLocalDateISO(d) {
 
 /**
  * Beregn tilstand + due_at/done_at ud fra et Hvornår-valg.
- * whenVal: 'now' | 'tomorrow' | '3d' | '1w' | 'custom'
+ * whenVal: 'now' | 'tomorrow' | '3d' | '1w' | '2w' | '1m' | 'custom'
  * dateVal: 'YYYY-MM-DD' (kun ved 'custom'), timeVal: 'HH:MM' (valgfri)
  * → { mode: 'now'|'plan'|'backdate', due_at?, done_at?, incomplete? }
+ *
+ * '2w'/'1m' kom til med opfølgning på service-kald og ringelister, hvor
+ * horisonten er uger og måneder ("ring efter sommerferien"), ikke dage.
  */
+const PLANNED_OFFSET_DAYS = { tomorrow: 1, '3d': 3, '1w': 7, '2w': 14, '1m': 30 };
+
 function plannedComputeWhen(whenVal, dateVal, timeVal) {
     if (whenVal === 'now') return { mode: 'now' };
-    if (whenVal === 'tomorrow' || whenVal === '3d' || whenVal === '1w') {
-        const n = whenVal === 'tomorrow' ? 1 : (whenVal === '3d' ? 3 : 7);
-        const d = new Date(); d.setDate(d.getDate() + n);
+    if (Object.prototype.hasOwnProperty.call(PLANNED_OFFSET_DAYS, whenVal)) {
+        const d = new Date(); d.setDate(d.getDate() + PLANNED_OFFSET_DAYS[whenVal]);
         return { mode: 'plan', due_at: plannedLocalDateISO(d) + (timeVal ? ' ' + timeVal : '') };
     }
     // custom
@@ -77,6 +81,7 @@ function plannedFmtAge(ageDays, createdAt) {
 if (typeof window !== 'undefined') {
     window.plannedLocalDateISO = plannedLocalDateISO;
     window.plannedComputeWhen = plannedComputeWhen;
+    window.PLANNED_OFFSET_DAYS = PLANNED_OFFSET_DAYS;
     window.plannedFmtDue = plannedFmtDue;
     window.plannedFmtAge = plannedFmtAge;
     window.PLANNED_TYPE_LABELS = PLANNED_TYPE_LABELS;
