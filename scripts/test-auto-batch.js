@@ -34,6 +34,8 @@ const PRODUCTS = [
     { id: 41, name: 'Relish', qu_id_stock: 4 },
     { id: 90, name: 'Svinekam', qu_id_stock: 4 },
     { id: 99, name: 'Serviet', qu_id_stock: 8 },
+    { id: 72, name: 'Løvstikke mayo', qu_id_stock: 4 },
+    { id: 46, name: 'Løvstikke', qu_id_stock: 4 },
 ];
 const productMap = new Map(PRODUCTS.map(p => [p.id, p]));
 const unitMap = new Map(UNITS.map(u => [u.id, u]));
@@ -45,6 +47,12 @@ const RECIPES = [
       userfields: { grupper: 'RR Produktion', recipeunit: 'kg', recipeunitnumber: '1' } },
     { id: 30, name: 'Tahin dressing', product_id: 71, base_servings: 1,
       userfields: { grupper: 'RR produktion Hurtig', recipeunit: 'kg' } },   // intet yield-tal
+    // 0,7 kg pr. batch mod 0,11 kg på hylden er valgt med vilje: i flydende tal
+    // er 0,7 × (0,11 / 0,7) præcis 1,4e-17 STØRRE end 0,11. Uden en klamp ville
+    // planen bede Grocy om mere end der står — og få 400 for en brøkdel af en
+    // milliardtedel.
+    { id: 40, name: 'Løvstikke mayo', product_id: 72, base_servings: 1,
+      userfields: { grupper: 'RR produktion Hurtig', recipeunit: 'kg', recipeunitnumber: '1' } },
 ];
 const rawRecipeMap = new Map(RECIPES.map(r => [r.id, r]));
 const posByRecipe = {
@@ -53,6 +61,7 @@ const posByRecipe = {
          { recipe_id: 10, product_id: 99, amount: 1, ingredient_group: 'Emballage' }],
     20: [{ recipe_id: 20, product_id: 90, amount: 1.2 }],
     30: [{ recipe_id: 30, product_id: 47, amount: 0.3 }],
+    40: [{ recipe_id: 40, product_id: 46, amount: 0.7 }],
 };
 const nestingsByRecipe = {};
 
@@ -93,6 +102,9 @@ console.log('\nB · Hele batches, aldrig en delmængde\n');
 }
 
 // ─── R · når råvarerne ikke rækker ─────────────────────────────
+//
+// Hele batches er en STØRRELSE, ikke et veto (#560, spec §1b). Reglen afgør
+// hvor meget der laves når det kan lade sig gøre — ikke om der blev lavet noget.
 console.log('\nR · Råvarerne rækker ikke\n');
 {
     // Nok mayo til 2 batches, men kun relish til 1.
@@ -103,13 +115,64 @@ console.log('\nR · Råvarerne rækker ikke\n');
     ok(b.missing.length === 1 && b.missing[0]?.product_id === 41, 'relish rapporteres som manglende');
     ok(near(b.missing[0]?.shortfall ?? -1, 0.5), 'og med den mængde der mangler til BEGGE batches');
 
-    const intet = plan([{ product_id: 70, amount_stock: 1 }], { 70: 0, 47: 0, 41: 0 });
-    ok(intet.batches[0]?.batches_made === 0, 'ingen råvarer → 0 batches, ikke et halvt');
-    ok(intet.batches[0]?.missing.length === 2, 'begge råvarer rapporteres');
-    ok(intet.batches[0]?.consume.every(c => c.amount === 0), 'og der trækkes intet');
+    // ── Drifts-tilfældet: 1,2 gram hvidløg må ikke spærre for en dressing ──
+    // Her målt på remouladen: relish står på 0,44 af de 0,5 et batch kræver.
+    // Den GAMLE regel gav 0 batches og trak ingenting. Bonen var leveret,
+    // remouladen var lavet, relishen var brugt — og Grocy havde den stående.
+    const delvis = plan([{ product_id: 70, amount_stock: 1 }], { 70: 0, 47: 10, 41: 0.44 });
+    const d = delvis.batches[0];
+    ok(d?.batches_made > 0,
+       'råvarer til 88 % af et batch → der produceres, i stedet for at blokere');
+    ok(near(d?.batches_made ?? -1, 0.88), 'og præcis den andel råvarerne rækker til: 0,44 / 0,5');
+    ok(near(d?.produce_amount ?? -1, 0.88),
+       'udbyttet følger andelen — 0,88 kg, ikke et helt kilo af råvarer der ikke findes');
+    const dRelish = d?.consume.find(c => c.productId === 41);
+    const dMayo   = d?.consume.find(c => c.productId === 47);
+    ok(near(dRelish?.amount ?? -1, 0.44),
+       'den bindende råvare tømmes: alt relishen trækkes, for den ER brugt');
+    ok(near(dMayo?.amount ?? -1, 0.44), 'og mayoen trækkes proportionalt med — ikke et helt batch');
+    ok(d?.missing.length === 1 && d.missing[0]?.product_id === 41,
+       'manglen rapporteres stadig, så relishen kommer på indkøbslisten');
+
+    // Invarianten der skiller andelen fra "lav et helt batch af det der er":
+    // udbyttet må aldrig overstige det råvarerne dækker. Det er netop dét
+    // Grocys eget /recipes/{id}/consume gør forkert (2 kg remoulade uden relish).
+    for (const c of d?.consume || []) {
+        ok(near(c.amount, c.perBatch * d.batches_made),
+           `input og output følges ad for produkt ${c.productId} — intet lager ud af ingenting`);
+    }
+
+    // En råvare der slet ikke er der er et andet svar end "vi manglede lidt":
+    // uden relish blev der ikke lavet remoulade, og så er der ingen mayo at
+    // trække for den heller.
+    const intet = plan([{ product_id: 70, amount_stock: 1 }], { 70: 0, 47: 10, 41: 0 });
+    ok(intet.batches[0]?.batches_made === 0, 'en råvare på NUL → 0 batches, ikke en uendelig lille andel');
+    ok(intet.batches[0]?.consume.every(c => c.amount === 0), 'og der trækkes intet — heller ikke af mayoen der ER der');
+    ok(intet.batches[0]?.missing.length === 1, 'men manglen rapporteres, så den kan købes');
+
+    // Støv på hylden er ikke en delvis produktion. Uden et eksplicit nul-værn
+    // giver 1e-12 kg en "andel" på 3e-12 af et batch — afrundingsstøj forklædt
+    // som en beslutning, og et produktions-spor på noget ingen har lavet.
+    const stoev = plan([{ product_id: 70, amount_stock: 1 }], { 70: 0, 47: 10, 41: 1e-12 });
+    ok(stoev.batches[0]?.batches_made === 0,
+       'en skygge af en råvare (1e-12 kg) er nul batches, ikke 2e-12 af et');
+
+    // Andelen rammer pr. definition den bindende råvares eget lagertal — og
+    // flydende tal kan lande en brøkdel over. Planen må aldrig bede om mere
+    // end der står; genforsøget er værn mod at lageret skrider, ikke mod
+    // vores egen afrunding.
+    const skaev = plan([{ product_id: 72, amount_stock: 1 }], { 72: 0, 46: 0.11 });
+    const loevstikke = skaev.batches[0]?.consume.find(c => c.productId === 46);
+    ok(loevstikke != null && loevstikke.amount <= 0.11,
+       'der planlægges aldrig et træk større end hylden — heller ikke med en brøkdel');
+    ok(near(loevstikke?.amount ?? -1, 0.11), 'og hele hylden trækkes: 0,11 kg');
 
     ok(affordableBatches(new Map([[47, 0.5]]), lager({ 47: 1.4 })) === 2, '1,4 kg / 0,5 = 2 hele batches');
-    ok(affordableBatches(new Map([[47, 0.5]]), lager({ 47: 0.4 })) === 0, '0,4 kg rækker ikke til ét');
+    ok(near(affordableBatches(new Map([[47, 0.5]]), lager({ 47: 0.4 })), 0.8),
+       '0,4 kg rækker ikke til ét — så laves 0,8 af et, ikke ingenting');
+    ok(affordableBatches(new Map([[47, 0.5]]), lager({ 47: 0 })) === 0, 'og intet på hylden er stadig nul');
+    ok(affordableBatches(new Map([[47, 0.5]]), lager({ 47: 0.5 })) === 1,
+       'præcis ét batchs råvarer er ét helt batch, ikke 0,9999999 af et');
 }
 
 // ─── E · emballage ─────────────────────────────────────────────
