@@ -6990,6 +6990,106 @@ changelog-linje pr. berørt bon, idempotent (anden kørsel: 0 linjer).
 Målt mod driftskopien 15/9: 54 linjer på 50 bons — **ingen af dem på åbne bons**, så
 i dag blokerer intet. Værdien er at det ikke kan ske igen når en gammel bon åbnes.
 
+### Cut-off håndhæves på serveren — og historikken siger hvor bonen kom fra (16. september 2026)
+
+En bon til levering dagen efter blev oprettet kl. 20.54, længe efter deadline kl. 12.
+Jagten tog tre runder, fordi **historikken ikke kunne svare på hvor bonen kom fra**.
+Den viste "Bon oprettet" og intet navn. Svaret lå i `changelog.new_value` hele tiden
+(`Oprettet via web-bestilling (…)`), men [shared/modal.js:296](shared/modal.js#L296)
+kastede det væk til fordel for en fast streng. Bonen viste sig at være tastet i
+huset — ingen kunde slap forbi — men undervejs blev tre huller synlige.
+
+**1. Cut-off blev kun håndhævet i browseren.** `checkCutoff` er bundet til ÉT event,
+`change` på datofeltet, og aflæser klokken dér. Vælger kunden datoen kl. 11.30 —
+fuldt lovligt — og trykker send kl. 20.54, tjekkes der aldrig igen; knappens
+`disabled`-attribut var hele værnet, sat på et forældet tidspunkt. Hverken
+submit-handleren, `validateForm()` eller serveren kiggede efter. Et direkte POST
+spurgte ingen om noget.
+
+- **`services/orderCutoff.js`** ejer nu reglen: settings-parsing, standardværdier og
+  beregningen. Bruges af `/embed/config` (fortæller browseren reglen) og af **begge**
+  bestillings-webhooks (håndhæver den). Standardværdierne stod før skrevet af tre
+  steder; nu står de ét.
+- **Modulet fejler ÅBENT.** Kan deadline ikke beregnes troværdigt — ulæselig
+  indstilling, tom liste over tælle-dage, uforståelig dato — accepteres bestillingen,
+  og årsagen logges. En for sen ordre kan office nå at ringe om; en tabt opdager ingen.
+- **Dansk tid forankres ét sted.** `now` og deadline sammenlignes som
+  `YYYY-MM-DD HH:MM`-strenge dannet med `Europe/Copenhagen`. Vi bygger **aldrig** en
+  `Date` i serverens egen tidszone: står maskinen i UTC, ville alle ordrer mellem
+  kl. 12 og 14 dansk slippe forbi.
+- **Hastebestilling** (`bestilling.cutoff_override_date`) respekteres uændret.
+
+> ⚠️ **`parseInt(...) != null` er sandt for NaN.** Det var browserens fælde:
+> et ikke-numerisk `cutoff_time` blev skrevet ind som `NaN`, `while (NaN > 0)` kørte
+> aldrig, deadline blev selve leveringsdagen — altså cut-off slået **helt fra**, uden
+> at nogen kunne se det. Serveren validerer nu og sender en brugbar værdi videre, og
+> formularen bruger `Number.isFinite` som ekstra værn.
+
+> ⚠️ **Tom liste over tælle-dage = uendelig løkke.** Ingen ugedag at tælle ned på, og
+> `while (remaining > 0)` kommer aldrig ud. `readCutoffConfig` kan ikke producere den
+> tilstand (tom → standard), men `cutoffMomentFor` er eksporteret og har sit eget
+> loft — en hængende bestillings-webhook er værre end en manglende deadline.
+
+**2. En afvist bestilling lignede en modtaget.** `/webhook/bestilling` svarede **altid
+200**, også når den afviste. Kunden så "tak for din bestilling" mens intet blev
+oprettet — den værste udgang for en bestilling. Det gjaldt allerede ferielukket-guarden.
+Ægte afvisninger (deadline, ferielukket) giver nu **409** med en besked formularen
+viser sammen med mailto-udvejen. Honeypot svarer stadig 200 (sig ikke til en bot at
+den er fanget), og manglende felter er urørt — formularen har `required`, så et kald
+uden dem kan ikke komme fra en kunde.
+
+**3. Klienten bestemte selv hvem historikken sagde det var.** `routes/bons.js` læste
+brugeren fra **request-body** ved oprettelse (`created_by_user_id`), på varelinjer,
+køkkeninfo, menu-grupper og pakkeliste — de tre sidste lod body vinde over sessionen.
+To følger: ingen klient sendte felterne, så oprettelse og varelinjer stod **uden
+bruger** (det var derfor historikken lignede to mennesker og var ét), og en afsender
+kunne skrive en anden ind. Samme hul som Patch D lukkede for status-skift (D-3); de
+øvrige endpoints blev ikke rørt dengang. Alle bruger nu `req.session.userId`.
+Sletning af en varelinje loggede slet ingen bruger — den gør nu.
+
+**Oprettelses-entryet bærer kilden.** `POST /api/bons` skrev bon-NUMMERET i `new_value`
+(det står i `entity_id` i forvejen) og satte intet `field_name`; den skriver nu
+`Oprettet manuelt`. Modalen viser `new_value` når `field_name` er sat, ellers den
+neutrale tekst — vi skelner på `field_name` frem for at gætte ud fra hvordan strengen
+ser ud, for et bon-nummer er fri tekst og kan ligne hvad som helst. Historiske rækker
+viser derfor "Bon oprettet" som før.
+
+> ⚠️ **Faste leveringsdatoer i test-fixtures rådner nu.** `reseller_end_customer` brugte
+> `2026-09-03` og fejlede med det samme; `web_order_company_match` brugte `2026-10-01`.
+> Begge er lagt om til `offsetISO(30)`, så guarden forbliver **aktiv** i dem — den ville
+> fange en regression hvor den afviser med urette — i stedet for at blive slået fra med
+> en hastebestilling i fixturen.
+
+**Tests:** `npm run test:cutoff` (22 — reglen, tidszonen i både dato og klokkeslæt,
+hastebestilling, fejl-åbent, hængeværnet, og begge webhooks over HTTP mod de ægte
+routes) · `npm run test:attribution` (23 — session vinder over body på alle fem
+endpoints, kilden i historikken, escaping) · `npx playwright test T_BESTILLING_CUTOFF_UI`
+(3 — stale-page-scenariet i en rigtig browser: datofeltet sættes UDEN `change`, præcis
+den tilstand en side har stået i siden formiddagen. Logik-tests kan ikke se det;
+hullet ER at et event ikke fyrer).
+
+**Mutations-testet: 20 mutationer, alle fanget.** To huller blev fundet undervejs og
+lukket: dato-formateringens tidszone var utestet (kun klokkeslættet var dækket — det
+kræver et scenarie omkring midnat at skille dem ad), og min egen første udgave af den
+test regnede deadline til den forkerte dag.
+
+**Regression grøn:** web-order-firma 73, forhandler 22, firma-opret 14, web-order-flag 4,
+modal 30, menu-order 84, quote_convert + migrate + moms + bon_lines + dato 43.
+Verificeret ende-til-ende mod en kørende testserver: for sen ordre → 409 uden bon og
+uden `web_orders`-række, rettidig → 200 med kilden i changeloggen. Testdata og `.env.test`
+slettet efter brug.
+
+**Ikke gjort — bevidst:**
+- **En uventet serverfejl svarer stadig 200.** Går `createBon` galt, er ordren tabt
+  mens kunden ser "tak". Samme fejlklasse som ovenfor, men det er en anden beslutning
+  (skal kunder se tekniske fejl?) og hører til sin egen opgave.
+- **`delivery_days` håndhæves ikke på serveren.** Formularen spærrer lukkede ugedage;
+  et direkte POST kan stadig ramme en søndag. Hver ekstra afvisningsregel er en ny
+  måde at tabe en rigtig ordre på, så den bør besluttes for sig.
+- **`PUT /:id/lines/:lid` logger intet i changeloggen.** En ændret mængde på en
+  varelinje er usynlig i historikken. Det er en manglende log, ikke en forkert
+  attribuering, og at tilføje den ændrer hvad køkkenet ser.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

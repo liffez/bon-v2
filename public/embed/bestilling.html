@@ -730,8 +730,11 @@ async function loadConfig() {
     const cfg = await r.json();
     if (cfg.base?.lat) CFG.base.lat = cfg.base.lat;
     if (cfg.base?.lon) CFG.base.lon = cfg.base.lon;
-    if (cfg.cutoff?.time != null) CFG.cutoff.time = cfg.cutoff.time;
-    if (cfg.cutoff?.leadDays != null) CFG.cutoff.leadDays = cfg.cutoff.leadDays;
+    // Number.isFinite, ikke != null: `NaN != null` er SANDT, så en ubrugelig
+    // vaerdi blev skrevet ind som NaN — og med en NaN-deadline er `now > cutoff`
+    // altid falsk, altsaa cut-off slaaet helt fra uden at nogen kunne se det.
+    if (Number.isFinite(cfg.cutoff?.time)) CFG.cutoff.time = cfg.cutoff.time;
+    if (Number.isFinite(cfg.cutoff?.leadDays)) CFG.cutoff.leadDays = cfg.cutoff.leadDays;
     if (Array.isArray(cfg.cutoff?.days)) CFG.cutoff.days = cfg.cutoff.days;
     if (Array.isArray(cfg.deliveryDays)) CFG.deliveryDays = cfg.deliveryDays;
     if (cfg.delivery) CFG.delivery = cfg.delivery;
@@ -1518,6 +1521,16 @@ function validateForm() {
     if (!firstError) firstError = document.getElementById('address-input');
     valid = false;
   }
+  // Deadline tjekkes HER igen, ikke kun naar datoen vaelges. checkCutoff
+  // aflaeser klokken i det oejeblik der vaelges dato, saa en side der har staaet
+  // aaben siden formiddagen havde en knap der stadig var aktiv om aftenen.
+  checkCutoff();
+  const cutoffBtn = document.getElementById('submit-btn');
+  if (cutoffBtn?.disabled) {
+    if (!firstError) firstError = document.getElementById('date-input');
+    valid = false;
+  }
+
   ['cb-privacy','cb-terms'].forEach(id => {
     const cb = document.getElementById(id);
     if (cb && !cb.checked) {
@@ -1581,15 +1594,29 @@ document.getElementById('order-form').addEventListener('submit', async e => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
-    if (!res.ok) throw new Error('Server svarede ' + res.status);
+    if (!res.ok) {
+      // 409 = serveren afviste bevidst (deadline passeret, ferielukket) og
+      // sender en besked der kan vises som den er. Alt andet er en teknisk fejl.
+      let besked = null;
+      try { besked = (await res.json())?.message || null; } catch (e) { /* ikke JSON */ }
+      const fejl = new Error('Server svarede ' + res.status);
+      fejl.userMessage = besked;
+      throw fejl;
+    }
   } catch (err) {
     btn.classList.remove('loading'); btn.disabled = false;
     const subject = encodeURIComponent('Bestilling ' + (data.delivery_date || '') + ' – ' + (data.first_name || '') + ' ' + (data.last_name || ''));
     const body = encodeURIComponent(JSON.stringify(data, null, 2));
     const errorDiv = document.getElementById('webhook-error');
     if (errorDiv) {
-      errorDiv.innerHTML = `<strong>⚠️ Der opstod en fejl ved afsendelse</strong><br>
-        Din bestilling blev ikke sendt. Prøv igen, eller
+      const overskrift = err.userMessage
+        ? '⚠️ Bestillingen kunne ikke modtages'
+        : '⚠️ Der opstod en fejl ved afsendelse';
+      const forklaring = err.userMessage
+        ? escapeHtml(err.userMessage)
+        : 'Din bestilling blev ikke sendt. Prøv igen, eller';
+      errorDiv.innerHTML = `<strong>${overskrift}</strong><br>
+        ${forklaring}
         <a href="mailto:${FALLBACK_EMAIL}?subject=${subject}&body=${body}" style="color:inherit;font-weight:700;">send os en email direkte →</a>`;
       errorDiv.style.display = 'block';
     }
