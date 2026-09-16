@@ -533,6 +533,31 @@ function getStock() {
 }
 
 /**
+ * Samme data som `getStock()`, men hentet NU — cachen omgås og primes med svaret.
+ *
+ * Findes fordi et **cachet read ikke må drive en write-beslutning** (#589).
+ * `getStock()` har 10 minutters TTL, hvilket er fint til visning: et lagertal
+ * der er et par minutter gammelt gør ingen skade på en skærm. Men afgør man
+ * HVOR MEGET der skal forbruges ud fra det, regner man på noget man ikke
+ * længere ved er sandt — og Grocy svarer 400 "Amount to be consumed cannot be
+ * > current stock amount". Målt i drift 03.09: tre bons trak inden for tre
+ * sekunder, og de to sidste fejlede på varer der lå tæt på nul.
+ *
+ * Svaret lægges i cachen bagefter (ikke bare uden om den), så de læsere der
+ * kommer lige efter — pakkeliste, råvarer-visning — ser det nye tal i stedet
+ * for det gamle der ellers ville blive ved med at ligge til TTL'en løb ud.
+ *
+ * Lukker IKKE kapløbet i sig selv; den snævrer vinduet fra ti minutter til
+ * millisekunder. Det er genforsøget i `consumeRecipes`/`produceBatch` der
+ * håndterer resten.
+ */
+async function getStockFresh() {
+    const data = await grocyFetch('/stock');
+    setCached('stock', data);
+    return data;
+}
+
+/**
  * Detaljer for ét produkt: last_price/avg_price (bevaret i Grocys prishistorik
  * UANSET lager) + stock_amount. Bulk-/stock indeholder KUN varer på lager, så
  * priser på udsolgte varer (fx Æbler) mangler der — derfor slås de op her ved
@@ -1004,6 +1029,91 @@ function makeEffectiveStock(stock, products) {
 }
 
 /**
+ * Hvor mange gange et afvist consume prøves igen med et friskt lagertal.
+ *
+ * Ikke nul: at hente lageret friskt lige inden trækket snævrer kapløbet, men
+ * lukker det ikke — to leveringer kan stadig ramme millisekunderne mellem vores
+ * læsning og vores skrivning. Ikke uendeligt: hver runde er et rundtur til
+ * Grocy, og en fejl der ikke handler om lageret skal frem, ikke skjules bag
+ * genforsøg. To er valgt fordi drift 03.09 havde TRE bons inden for tre
+ * sekunder (#589) — med ét genforsøg kan den sidste i køen tabe igen.
+ */
+const CONSUME_RETRY_ATTEMPTS = 2;
+
+/**
+ * Forbrug `amount` af et produkt. Afvises det, læs lageret FRISKT og træk det
+ * der faktisk er.
+ *
+ * Kernen i #589. Afvisningen genkendes IKKE på Grocys fejltekst — den er
+ * engelsk, tredjeparts og kan ændre sig. I stedet spørger vi lageret igen:
+ * siger det mindre end vi bad om, VAR vores tal forældet, og det friske tal er
+ * svaret. Siger det ikke mindre, handlede fejlen om noget andet (nede, 500,
+ * ukendt produkt) og skal stå som en fejl.
+ *
+ * Et træk der klampes ned til nul er ikke en fejl: det er den sande tilstand
+ * "der er ikke noget", og kalderen skal håndtere den som en mangel — altså med
+ * en linje på indkøbslisten — ikke som et mislykket kald.
+ *
+ * @returns {{ consumed: number, error: string|null, clamped: boolean, response: any }}
+ *   `consumed` hvad der FAKTISK blev trukket (kalderen skal regne manglen ud
+ *   fra dette tal, ikke fra det den bad om — ellers bliver indkøbslinjen for lille).
+ *   `response` Grocys svar på det kald der lykkedes — `produceBatch` henter
+ *   transaction-id'et ud af det til revisionssporet.
+ */
+async function consumeWithFreshRetry(productId, amount, opts = {}) {
+    const {
+        allowSubstitution = false,
+        attempts           = CONSUME_RETRY_ATTEMPTS,
+    } = opts;
+    // Eksplicit frem for destructuring-standarder: en kalder der sender
+    // `post: undefined` videre (fordi DENS deps var tomme) skal have den
+    // rigtige — ikke undefined.
+    const post         = opts.post         || grocyPost;
+    const readStock    = opts.readStock    || getStockFresh;
+    const readProducts = opts.readProducts || getProducts;
+
+    let want = Number(amount) || 0;
+    let clamped = false;
+    let lastError = null;
+
+    for (let tries = 0; ; tries++) {
+        if (!(want > SHORTFALL_TOL)) return { consumed: 0, error: null, clamped, response: null };
+
+        try {
+            const response = await post(`/stock/products/${productId}/consume`, {
+                amount:           want,
+                transaction_type: 'consume',
+                spoiled:          false,
+                // Parent-produkter (fx "Kål") har stock=0 men kan substitueres af
+                // børn med stock (Spidskål, Hvidkål). Uden dette flag fejler consume
+                // med 400 "No transaction was found by the given transaction id".
+                ...(allowSubstitution ? { allow_subproduct_substitution: true } : {}),
+            });
+            return { consumed: want, error: null, clamped, response };
+        } catch (err) {
+            lastError = err.message;
+            if (tries >= attempts) return { consumed: 0, error: lastError, clamped, response: null };
+
+            let available = null;
+            try {
+                const [stock, products] = await Promise.all([readStock(), readProducts()]);
+                available = makeEffectiveStock(stock, products)(productId);
+            } catch (readErr) {
+                // Kan vi ikke læse lageret, kan vi ikke vide bedre end sidste gang.
+                return { consumed: 0, error: lastError, clamped, response: null };
+            }
+
+            // Ikke lavere end det vi bad om ⇒ fejlen handlede om noget andet.
+            if (!(available < want - SHORTFALL_TOL)) {
+                return { consumed: 0, error: lastError, clamped, response: null };
+            }
+            want = Math.max(0, available);
+            clamped = true;
+        }
+    }
+}
+
+/**
  * Forbruger ingredienser fra Grocy-lager for en liste bon-linjer.
  *
  * Ny tilgang (erstatter gammel recipe-level consume):
@@ -1013,9 +1123,17 @@ function makeEffectiveStock(stock, products) {
  * 4. Returnerer per-produkt results (partial success ved fejl)
  *
  * @param {Array<{grocy_recipe_id: number, quantity: number}>} lines  Bon-linjer
+ * @param {Object} [deps]  Test-søm (samme mønster som `produceBatch`/`runAutoBatches`):
+ *   `readStock`, `readProducts`, `post`, `addToShoppingList`. I drift er alle
+ *   fire de rigtige. Sømmet findes fordi kapløbet mellem to samtidige træk ikke
+ *   kan fremprovokeres mod en rigtig Grocy — og det var netop fordi den tilstand
+ *   aldrig blev testet at #589 overlevede.
  * @returns {Array<{product_id: number, product_name: string, amount: number, success: boolean, error?: string}>}
  */
-async function consumeRecipes(lines, overrides = null, extras = null, recipeFactors = null) {
+async function consumeRecipes(lines, overrides = null, extras = null, recipeFactors = null, deps = {}) {
+    const readStock    = deps.readStock    || getStockFresh;
+    const readProducts = deps.readProducts || getProducts;
+    const addToList    = deps.addToShoppingList || addShoppingListProduct;
     const validLines = lines.filter(l => l.grocy_recipe_id);
     if (!validLines.length) return [];
 
@@ -1033,10 +1151,16 @@ async function consumeRecipes(lines, overrides = null, extras = null, recipeFact
     if (!items.length) return [];
 
     // ── Stock + produkter (til partial-consume, parent-substitution, extra-metadata) ──
+    //
+    // FRISKT lager, ikke det cachede (#589): herunder afgøres HVOR MEGET der
+    // skal trækkes, og den beslutning må ikke bygge på et tal der kan være ti
+    // minutter gammelt. `getProducts()` er stadig cachet — stamdata ændrer sig
+    // ikke mellem to leveringer, og en forældet produktliste kan ikke få Grocy
+    // til at afvise et træk.
     let stock = [];
     let products = [];
     try {
-        [stock, products] = await Promise.all([getStock(), getProducts()]);
+        [stock, products] = await Promise.all([readStock(), readProducts()]);
     } catch (err) {
         console.warn('[consume] Kunne ikke hente stock/products til partial-check:', err.message);
         // Fortsæt uden partial-logik — fallback til simple consume
@@ -1071,79 +1195,86 @@ async function consumeRecipes(lines, overrides = null, extras = null, recipeFact
     // på Grocy's shopping_list så indkøb sker næste gang. Uden dette ender bonnen
     // som "trukket" (inventory_deducted=1) selvom intet faktisk blev konsumeret.
     const results = [];
-    for (const item of items) {
-        const needed   = item.amount_stock;
-        const available = effectiveStock(item.product_id);
-        const toConsume = Math.min(needed, available);
-        const shortfallStock = Math.max(0, needed - available);
+    try {
+        for (const item of items) {
+            const needed   = item.amount_stock;
+            const available = effectiveStock(item.product_id);
+            const planned = Math.min(needed, available);
 
-        // Trin 1: consume det vi kan (kan være 0 hvis lager er tomt)
-        if (toConsume > SHORTFALL_TOL) {
-            try {
-                await grocyPost(`/stock/products/${item.product_id}/consume`, {
-                    amount:           toConsume,
-                    transaction_type: 'consume',
-                    spoiled:          false,
-                    // Parent-produkter (fx "Kål") har stock=0 men kan substitueres af
-                    // børn med stock (Spidskål, Hvidkål). Uden dette flag fejler consume
-                    // med 400 "No transaction was found by the given transaction id".
-                    allow_subproduct_substitution: true,
+            // Trin 1: consume det vi kan (kan være 0 hvis lager er tomt).
+            // Afvises trækket, læser helperen lageret på ny og trækker det der ER —
+            // så en bon ikke ender som `partial` alene fordi to leveringer nåede at
+            // læse samme snapshot (#589).
+            let consumed = 0;
+            if (planned > SHORTFALL_TOL) {
+                const res = await consumeWithFreshRetry(item.product_id, planned, {
+                    allowSubstitution: true,
+                    post: deps.post, readStock, readProducts,
                 });
-            } catch (err) {
-                // Stock-snapshot var måske stale — registrér som fejl men fortsæt
-                results.push({
-                    product_id:   item.product_id,
-                    product_name: item.product_name,
-                    amount:       toConsume,
-                    success:      false,
-                    error:        err.message,
-                });
-                continue;
+                if (res.error) {
+                    results.push({
+                        product_id:   item.product_id,
+                        product_name: item.product_name,
+                        amount:       planned,
+                        success:      false,
+                        error:        res.error,
+                    });
+                    continue;
+                }
+                consumed = res.consumed;
             }
-        }
 
-        // Trin 2: hvis der mangler, læg purchase-enhed(er) på shopping list.
-        // Bruger Grocys smart endpoint der DEDUPPER — samme product_id øger qty
-        // på eksisterende entry i stedet for at oprette duplikat.
-        //
-        // Men KUN hvis varen overhovedet kan købes: se planShortfall.
-        let shortfallPurchase = 0;
-        let notPurchasable = false;
-        const plan = planShortfall(item, shortfallStock, producedProductIds);
-        if (plan && plan.action === 'buy') {
-            shortfallPurchase = plan.amountPurchase;
-            const noteText = `Auto-tilføjet ved LEVERET (manglede ${shortfallStock.toFixed(3)} fra consume)`;
-            try {
-                await addShoppingListProduct(item.product_id, shortfallPurchase, 1, noteText);
-            } catch (err) {
-                console.warn(`[consume] Kunne ikke tilføje pid=${item.product_id} til shopping list:`, err.message);
-                // Ikke en hård fejl — consume lykkedes (delvist), shopping-list-add er ekstra
+            // Manglen regnes ud fra hvad der FAKTISK blev trukket — ikke fra det vi
+            // bad om. Klampede genforsøget mængden ned, er der så meget desto mere
+            // at købe, og en mangel regnet på det oprindelige tal ville give en
+            // indkøbslinje der er for lille.
+            const shortfallStock = Math.max(0, needed - consumed);
+
+            // Trin 2: hvis der mangler, læg purchase-enhed(er) på shopping list.
+            // Bruger Grocys smart endpoint der DEDUPPER — samme product_id øger qty
+            // på eksisterende entry i stedet for at oprette duplikat.
+            //
+            // Men KUN hvis varen overhovedet kan købes: se planShortfall.
+            let shortfallPurchase = 0;
+            let notPurchasable = false;
+            const plan = planShortfall(item, shortfallStock, producedProductIds);
+            if (plan && plan.action === 'buy') {
+                shortfallPurchase = plan.amountPurchase;
+                const noteText = `Auto-tilføjet ved LEVERET (manglede ${shortfallStock.toFixed(3)} fra consume)`;
+                try {
+                    await addToList(item.product_id, shortfallPurchase, 1, noteText);
+                } catch (err) {
+                    console.warn(`[consume] Kunne ikke tilføje pid=${item.product_id} til shopping list:`, err.message);
+                    // Ikke en hård fejl — consume lykkedes (delvist), shopping-list-add er ekstra
+                }
+            } else if (plan && plan.action === 'produce') {
+                notPurchasable = true;
+                console.warn(`[consume] ${item.product_name} mangler ${shortfallStock.toFixed(3)} — `
+                           + 'mellemprodukt, så det kommer IKKE på indkøbslisten. '
+                           + 'Auto-batchen laver det, eller råvarerne mangler.');
             }
-        } else if (plan && plan.action === 'produce') {
-            notPurchasable = true;
-            console.warn(`[consume] ${item.product_name} mangler ${shortfallStock.toFixed(3)} — `
-                       + 'mellemprodukt, så det kommer IKKE på indkøbslisten. '
-                       + 'Auto-batchen laver det, eller råvarerne mangler.');
-        }
 
-        results.push({
-            product_id:         item.product_id,
-            product_name:       item.product_name,
-            amount:             toConsume,
-            shortfall_stock:    shortfallStock,
-            shortfall_purchase: shortfallPurchase,
-            // Manglen findes, men kan ikke købes. Siges højt frem for at
-            // forsvinde — ellers er "ingen indkøbslinje" ikke til at skelne
-            // fra "ingen mangel".
-            shortfall_not_purchasable: notPurchasable,
-            partial:            shortfallStock > SHORTFALL_TOL && toConsume > SHORTFALL_TOL,
-            success:            true,
-        });
+            results.push({
+                product_id:         item.product_id,
+                product_name:       item.product_name,
+                amount:             consumed,
+                shortfall_stock:    shortfallStock,
+                shortfall_purchase: shortfallPurchase,
+                // Manglen findes, men kan ikke købes. Siges højt frem for at
+                // forsvinde — ellers er "ingen indkøbslinje" ikke til at skelne
+                // fra "ingen mangel".
+                shortfall_not_purchasable: notPurchasable,
+                partial:            shortfallStock > SHORTFALL_TOL && consumed > SHORTFALL_TOL,
+                success:            true,
+            });
+        }
+    } finally {
+        // Ryd stock-cache efter forbrug — også hvis løkken afbrydes undervejs.
+        // Har vi trukket ÉN vare, er det cachede tal forkert for den vare, og
+        // den næste læser må ikke få det serveret som sandhed.
+        _cache.delete('stock');
+        _cache.delete('shopping_list');
     }
-
-    // Ryd stock-cache efter forbrug
-    _cache.delete('stock');
-    _cache.delete('shopping_list');
     return results;
 }
 
@@ -1168,7 +1299,11 @@ async function planConsume(lines, overrides = null, extras = null, recipeFactors
     let products = [];
     let units = [];
     try {
-        [stock, products, units] = await Promise.all([getStock(), getProducts(), getQuantityUnits()]);
+        // Samme FRISKE læsning som det rigtige træk (#589). Forhåndsvisningens
+        // hele formål er at vise hvad LEVERET ville gøre — læste den et andet
+        // (ældre) lagertal end trækket, ville de to kunne vise hver sit, og så
+        // er den ikke længere en forhåndsvisning af noget.
+        [stock, products, units] = await Promise.all([getStockFresh(), getProducts(), getQuantityUnits()]);
     } catch (err) {
         console.warn('[planConsume] Kunne ikke hente stock/products:', err.message);
     }
@@ -1319,16 +1454,28 @@ async function produceBatch({ consume = [], produce }, deps = {}) {
     for (const line of consume) {
         const amount = Number(line.amount) || 0;
         if (amount <= 0) continue;  // udeladt — intet kald (det LETTE tilfælde)
-        try {
-            const resp = await post(`/stock/products/${line.productId}/consume`, {
-                amount,
-                transaction_type: 'consume',
-                spoiled: false,
-            });
-            consumeTx.push({ productId: line.productId, transactionId: _extractTransactionId(resp) });
-        } catch (err) {
+        // Samme klamp + genforsøg som `consumeRecipes` (#589). Her var der før
+        // slet INGEN klamp: mængden gik direkte fra planen til Grocy. Det holdt
+        // kun fordi `affordableBatches` vetoede alt lageret ikke dækkede fuldt
+        // ud — og netop det veto er væk med #560, så auto-batchen nu trækker
+        // dét der ligger tæt på nul. Uden klampen ville den ramme samme 400.
+        //
+        // Bemærk at helperen returnerer `consumed`: trækkes der mindre end
+        // planlagt, er det DEN mængde der er sand, og `produceBatch` skal ikke
+        // lade som om resten også blev trukket.
+        const res = await consumeWithFreshRetry(line.productId, amount, {
+            post, readStock: deps.readStock, readProducts: deps.readProducts,
+        });
+        if (res.error) {
             // MVP: marker linjen, fortsæt de øvrige (ingen rollback — fejl er synlig pr. linje)
-            failedLines.push({ productId: line.productId, amount, error: err.message });
+            failedLines.push({ productId: line.productId, amount, error: res.error });
+        } else {
+            consumeTx.push({
+                productId:     line.productId,
+                transactionId: _extractTransactionId(res.response),
+                amount:        res.consumed,
+                clamped:       res.clamped,
+            });
         }
     }
 
@@ -1457,6 +1604,7 @@ module.exports = {
     getRecipeNestings,
     getProducts,
     getStock,
+    getStockFresh,
     getProductDetails,
     getStockVolatile,
     getLocations,
@@ -1478,6 +1626,7 @@ module.exports = {
     deleteRecipeNesting,
     // Write — stock + shopping
     consumeRecipes,
+    consumeWithFreshRetry,
     planConsume,
     makeEffectiveStock,
     // Delt af det rigtige træk, previewet OG auto-batchen — de tre skal regne

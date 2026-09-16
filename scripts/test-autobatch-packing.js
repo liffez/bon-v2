@@ -84,6 +84,12 @@ require.cache[grocyPath].exports = {
     getQuantityUnitConversions: async () => [],
     getStock:         async () => Object.entries(stub.stock)
                           .map(([pid, amount]) => ({ product_id: Number(pid), amount })),
+    // Auto-batchen læser FRISKT lager siden #589 — beslutningen om hvor meget
+    // der trækkes må ikke bygge på et cachet tal. Stubben har intet cache-lag,
+    // så de to er samme svar her; den skal bare findes, ellers falder kaldet
+    // igennem til den rigtige adapter og prøver at ringe til Grocy.
+    getStockFresh:    async () => Object.entries(stub.stock)
+                          .map(([pid, amount]) => ({ product_id: Number(pid), amount })),
     produceBatch:     async (p) => { stub.produce.push(p); return { state: 'produced' }; },
     addToShoppingList: async (items) => { stub.shopping.push(...items); return []; },
     // Selve trækket er ikke det der testes her — auto-batchen er.
