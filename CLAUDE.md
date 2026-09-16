@@ -7090,6 +7090,49 @@ slettet efter brug.
   varelinje er usynlig i historikken. Det er en manglende log, ikke en forkert
   attribuering, og at tilføje den ændrer hvad køkkenet ser.
 
+### "Skriv til os direkte" bærer det kunden allerede har udfyldt (16. september 2026)
+
+Opfølgning på ovenstående. Alle tre spærre-notitser — ferielukket, lukket ugedag,
+deadline passeret — endte i en mailto med **kun et emne**. Men kunden har på det
+tidspunkt tastet hele bestillingen: navn, mail, telefon, firma, dato, tid, antal
+gæster, adresse og ønsker. Linket smed det væk og bad hende skrive det hele igen,
+og mailen landede i bon@ uden at kontoret kunne se hvad hun ville bestille.
+
+**Hvorfor mailto og ikke kontaktformularen.** Mailen kommer fra kundens **egen**
+adresse, og det er dét der lader indbakken koble den til kunden (#478/#482):
+`processInboundMail` matcher afsenderen, ellers lander den i den ufordelte indbakke
+hvor panelet siger *"👤 Afsenderen er kunde: …"*. `/book/kontakt` ville i stedet
+oprette en **CRM-opgave på Ring-tilbage-listen** med en kontaktårsag — uden dato,
+antal og varelinjer, og et andet sted end bon-mailen. Den kobling findes ikke for
+en formular-opgave.
+
+- **`buildEnquiryMailto(subject, intro)`** samler felterne til en læsbar mail med en
+  underskrift. Felterne læses defensivt (`fieldValue`): findes et element ikke —
+  cachet browser mod ny side — springes linjen over frem for at kaste, for et link
+  der ikke virker er værre end en manglende linje. Tomme felter udelades, så der
+  ikke står `Firma:` uden firma.
+- **Kun ønskerne afkortes** (`MAILTO_WISHES_MAX`). Det er det eneste ubegrænsede
+  felt; resten er korte inputs. Afkortes hele brødteksten i stedet, ryger
+  underskriften og kontaktoplysningerne — låst fast af en test.
+- **Datoen står både læsbart og som ISO** (`17. september (2026-09-17)`) — kontoret
+  slår op på ISO-formen.
+- `encodeURIComponent` gør `"` til `%22`, så URL'en ikke kan bryde ud af `href="…"`
+  når den sættes via `innerHTML`. Samme mønster som fejl-mailto'en længere nede i
+  filen allerede brugte.
+
+> ⚠️ **En mailto virker kun hvis kunden har en mailklient sat op.** På mobil næsten
+> altid; på en arbejds-pc med webmail kan den åbne ingenting. Det er en svaghed alle
+> fire mailto-links i filen har i forvejen — og prisen for at fjerne den ville være
+> at kunden skal taste alt igen.
+
+**Tests:** `npm run test:enquiry-mailto` (9 — funktionerne skæres ud af
+`bestilling.html` og køres i en vm-sandkasse mod en attrap-DOM; det er de samme
+funktioner browseren bruger) + en fjerde case i `T_BESTILLING_CUTOFF_UI` der læser
+`href` med `getAttribute` efter HTML-parseren, altså præcis hvad mailklienten får.
+**Mutations-testet: 8 mutationer, alle fanget** — og browser-testen fælder også
+wiring-mutationen, hvor ét af de tre links rulles tilbage til en bar mailto.
+Regression grøn: cutoff 22, attribution 23, dawa 12, wish-lines 64.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

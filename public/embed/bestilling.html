@@ -859,6 +859,52 @@ function getCutoffDate(delivDate) {
   return c;
 }
 
+// Kunden har udfyldt hele formularen når en af de tre spærre-notitser rammer.
+// En mailto uden body smider det væk og beder hende taste alt om igen, så vi
+// lægger det hun allerede har skrevet ind i mailen. Mailen kommer fra hendes
+// EGEN adresse, hvilket er det der lader indbakken koble den til kunden —
+// derfor mailto og ikke kontaktformularen, som ville oprette en CRM-opgave
+// uden dato, antal og varelinjer. Felter læses defensivt: en manglende linje
+// er bedre end et link der ikke virker.
+const MAILTO_WISHES_MAX = 700;  // kun ønsker er ubegrænset; resten er korte felter
+
+function fieldValue(id) {
+  const el = document.getElementById(id);
+  return el && typeof el.value === 'string' ? el.value.trim() : '';
+}
+
+function buildEnquiryMailto(subject, intro) {
+  const navn = [fieldValue('first_name'), fieldValue('last_name')].filter(Boolean).join(' ');
+  const dato = fieldValue('date-input');
+  const linjer = [intro, ''];
+
+  const felter = [
+    ['Navn',           navn],
+    ['E-mail',         fieldValue('email')],
+    ['Telefon',        fieldValue('phone')],
+    ['Firma',          fieldValue('company')],
+    ['Leveringsdato',  dato ? `${fmtDaDate(dato)} (${dato})` : ''],
+    ['Tidspunkt',      fieldValue('time-input')],
+    ['Antal gæster',   fieldValue('pax')],
+    ['Adresse',        fieldValue('address-input')],
+    ['Leveringsinfo',  fieldValue('delivery_extra')],
+  ];
+  for (const [label, vaerdi] of felter) {
+    if (vaerdi) linjer.push(`${label}: ${vaerdi}`);
+  }
+
+  const oensker = fieldValue('wishes');
+  if (oensker) {
+    linjer.push('', 'Ønsker:', oensker.length > MAILTO_WISHES_MAX
+      ? oensker.slice(0, MAILTO_WISHES_MAX) + '\n[…afkortet]'
+      : oensker);
+  }
+  if (navn) linjer.push('', 'Venlig hilsen', navn);
+
+  return `mailto:${FALLBACK_EMAIL}?subject=${encodeURIComponent(subject)}` +
+         `&body=${encodeURIComponent(linjer.join('\n'))}`;
+}
+
 function checkCutoff() {
   const el = document.getElementById('cutoff-notice');
   const di = document.getElementById('date-input');
@@ -877,7 +923,7 @@ function checkCutoff() {
       : `${fmtDaDate(closed.from)}–${fmtDaDate(closed.to)}`;
     const navn = closed.label ? `${closed.label} (${periode})` : periode;
     el.innerHTML = `<div class="date-notice err"><strong>🏖️ Vi holder lukket ${navn}</strong><br>
-      <span style="font-size:.82em">Vælg venligst en dato uden for perioden. Akut behov? <a href="mailto:${FALLBACK_EMAIL}?subject=Levering ${di.value}" style="color:inherit;font-weight:700;">Kontakt os direkte →</a></span></div>`;
+      <span style="font-size:.82em">Vælg venligst en dato uden for perioden. Akut behov? <a href="${buildEnquiryMailto(`Levering ${di.value}`, `Jeg vil gerne bestille levering ${fmtDaDate(di.value)}, men formularen siger at I holder lukket den dag.`)}" style="color:inherit;font-weight:700;">Kontakt os direkte →</a></span></div>`;
     if (submitBtn) submitBtn.disabled = true;
     postHeight();
     return;
@@ -885,7 +931,7 @@ function checkCutoff() {
 
   if (!isOpenForDelivery(day)) {
     el.innerHTML = `<div class="date-notice err"><strong>📅 Vi leverer ikke om ${DAY_NAMES_DA[dow]}en</strong><br>
-      <span style="font-size:.82em">Brug for levering på en lukket dag? <a href="mailto:${FALLBACK_EMAIL}?subject=Levering ${di.value}" style="color:inherit;font-weight:700;">Kontakt os direkte →</a></span></div>`;
+      <span style="font-size:.82em">Brug for levering på en lukket dag? <a href="${buildEnquiryMailto(`Levering ${di.value}`, `Jeg vil gerne bestille levering ${fmtDaDate(di.value)}, men formularen siger at I ikke leverer om ${DAY_NAMES_DA[dow]}en.`)}" style="color:inherit;font-weight:700;">Kontakt os direkte →</a></span></div>`;
     if (submitBtn) submitBtn.disabled = true;
     postHeight();
     return;
@@ -895,7 +941,7 @@ function checkCutoff() {
   if (now > cutoff && !CFG.cutoffOverride) {
     el.innerHTML = `<div class="date-notice err"><strong>⚠️ Deadline passeret for denne dato</strong><br>
       <span style="font-size:.82em">Deadline var ${DAY_NAMES_DA[cutoff.getDay()]} kl. ${CFG.cutoff.time}:00.<br>
-      Hastebestilling? <a href="mailto:${FALLBACK_EMAIL}?subject=Hastebestilling ${di.value}" style="color:inherit;font-weight:700;">Skriv til os direkte →</a></span></div>`;
+      Hastebestilling? <a href="${buildEnquiryMailto(`Hastebestilling ${di.value}`, `Jeg vil gerne bestille til levering ${fmtDaDate(di.value)}, men formularen siger at deadline er passeret.`)}" style="color:inherit;font-weight:700;">Skriv til os direkte →</a></span></div>`;
     if (submitBtn) submitBtn.disabled = true;
   } else {
     el.innerHTML = '';
