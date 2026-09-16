@@ -87,6 +87,7 @@ router.get('/pipeline', handle((req, res) => {
             addr.city AS company_city,
             cu.first_name, cu.last_name,
             cu.email AS customer_email, cu.phone AS customer_phone,
+            co.email AS company_email, co.phone AS company_phone,
             meta.marketing_consent, meta.do_not_contact,
             u.name AS assigned_name,
             CASE
@@ -145,6 +146,17 @@ router.get('/pipeline', handle((req, res) => {
             last_activity_at: r.last_activity_at,
             card_type: cardType,
             in_n_open_campaigns: r.in_n_open_campaigns,
+            // Kontaktdata blev hentet i forespørgslen, men aldrig lagt på kortet —
+            // derfor kunne tavlen kun trække kort rundt, ikke ringe eller maile.
+            // Firma-kolonnerne er cachen fra contact_points (is_primary), så
+            // et firma uden kontaktperson stadig har noget at ringe til.
+            notes: r.notes,
+            customer_email: r.customer_email || null,
+            customer_phone: r.customer_phone || null,
+            company_email: r.company_email || null,
+            company_phone: r.company_phone || null,
+            marketing_consent: r.marketing_consent,
+            do_not_contact: r.do_not_contact,
         };
         const col = columns[r.member_status];
         if (col) col.members.push(item);

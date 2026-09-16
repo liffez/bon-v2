@@ -127,6 +127,11 @@
     function attr(s) {
         return esc(s).replace(/"/g, '&quot;');
     }
+    // ✉ (U+2709) renderer som en tynd, næsten usynlig omrids-glyf på en knap.
+    // shared/utils.js' mailIcon() er SVG og arver currentColor.
+    function _mailIcon() {
+        return (typeof mailIcon === 'function') ? mailIcon(13) : '✉';
+    }
 
     function create(config) {
         if (!config || !config.key || typeof config.fetchRows !== 'function') {
@@ -145,6 +150,13 @@
             getBonId: () => null,   // bon-centrerede lister (fx cold_offer) → dedupe pr. tilbud
             getName: (r) => r.name || r.customer_name || '',
             getPhone: (r) => r.phone || null,
+            getEmail: (r) => r.email || null,
+            // Skabelon-variablerne ({{fornavn}}, {{firmanavn}}) skal bruge felterne hver
+            // for sig — et sammensat navn kan ikke splittes sikkert.
+            getCustomer: (r) => ({
+                first_name: r.first_name, last_name: r.last_name,
+                company_name: r.company_name, phone: r.phone, email: r.email,
+            }),
             buildMeta: (r) => r.company_name || '',
             buildOpener: () => null,
             buildExtra: () => '',        // valgfri ekstra HTML i kortet (fx RFM-scorer)
@@ -273,6 +285,7 @@
                 const cid = cfg.getCustomerId(r) || 0;
                 const compId = cfg.getCompanyId(r) || 0;
                 const phone = cfg.getPhone(r);
+                const email = cfg.getEmail(r);
                 const meta = cfg.buildMeta(r);
                 const opener = cfg.buildOpener(r);
                 const nameTitle = cid ? ' title="Åbn kundeprofil"' : '';
@@ -292,6 +305,7 @@
                     <div class="wl-actions">
                         ${phone ? '<a href="tel:' + attr(phoneClean) + '" class="wl-btn wl-btn-call" onclick="event.stopPropagation()">📞 Ring</a>' : ''}
                         <button class="wl-btn wl-btn-call" data-act="log">📝 Log</button>
+                        ${email ? '<button class="wl-btn wl-btn-ghost" data-act="mail" title="Send mail — kan bære et booking-link">' + _mailIcon() + ' Mail</button>' : ''}
                         <button class="wl-btn wl-btn-ghost" data-act="profile">Profil →</button>
                         <button class="wl-btn wl-btn-snooze" data-act="snooze" title="Skjul dette emne i 14 dage">🙈 Skjul</button>
                     </div>
@@ -309,6 +323,7 @@
                             <option value="negative">😟 Negativ</option>
                         </select>
                         <textarea id="${uid}-note-${i}" placeholder="Note…"></textarea>
+                        ${typeof CrmFollowup !== 'undefined' ? CrmFollowup.html(uid + '-' + i) : ''}
                         <div style="margin-top:8px">
                             <button class="wl-btn wl-btn-call" data-act="save">Gem</button>
                             <button class="wl-btn wl-btn-ghost" data-act="cancel">Annuller</button>
@@ -318,6 +333,9 @@
             }).join('');
 
             _bindListClicks();
+            if (typeof CrmFollowup !== 'undefined') {
+                list.querySelectorAll('.wl-log').forEach(f => CrmFollowup.wire(f));
+            }
             if (window.ListCampaignSelect) window.ListCampaignSelect.refresh();
         }
 
@@ -336,6 +354,7 @@
                     if (act === 'log') _showLog(idx);
                     else if (act === 'cancel') _hideLog(idx);
                     else if (act === 'save') _submitLog(idx);
+                    else if (act === 'mail') _openMail(idx);
                     else if (act === 'snooze') _snooze(idx);
                     else if (act === 'profile') _openProfile(cfg.getCustomerId(state.rows[idx]) || 0);
                     return;
@@ -367,6 +386,14 @@
             const note = document.getElementById(uid + '-note-' + idx)?.value?.trim();
             if (!note) { alert('Skriv en note'); return; }
 
+            // Læs opfølgningen FØR vi sender — en ugyldig dato skal stoppe her, ikke
+            // efter at opkaldet allerede er skrevet.
+            const logEl = document.getElementById(uid + '-log-' + idx);
+            const fu = (typeof CrmFollowup !== 'undefined')
+                ? CrmFollowup.read(logEl, 'Følg op — ' + cfg.title)
+                : null;
+            if (fu && fu.error) { alert(fu.error); return; }
+
             const purpose = (_purposesCache || []).find(p => p.key === cfg.purposeKey);
             const bonId = cfg.getBonId ? cfg.getBonId(r) : null;
             try {
@@ -379,6 +406,21 @@
                     text: note,
                     purpose_id: purpose?.id || null,
                 });
+                // Opfølgningen er en SELVSTÆNDIG planlagt række — ikke et felt på
+                // opkaldet. Fejler den, er opkaldet stadig logget, og det siges højt.
+                if (fu) {
+                    try {
+                        await postCrmActivity({
+                            customer_id: cfg.getCustomerId(r),
+                            bon_id: bonId || null,
+                            type: 'followup',
+                            text: fu.text,
+                            due_at: fu.due_at,
+                        });
+                    } catch (e) {
+                        alert('Opkaldet er logget, men opfølgningen blev ikke gemt: ' + (e.message || 'ukendt fejl'));
+                    }
+                }
                 _hideLog(idx);
                 const card = document.getElementById(uid + '-card-' + idx);
                 if (card) card.style.opacity = '0.3';
@@ -400,6 +442,31 @@
             } catch (err) {
                 alert('Kunne ikke skjule: ' + err.message);
             }
+        }
+
+        // Mail til én kunde på listen. purposeKey følger med, så mailen dedupe'r
+        // rækken væk på præcis samme måde som et logget opkald — ellers ville 40
+        // sendte mails efterlade 40 kunder på listen dagen efter.
+        function _openMail(idx) {
+            const r = state.rows && state.rows[idx];
+            if (!r) return;
+            if (typeof MailCompose === 'undefined') { alert('Mail-komponenten er ikke indlæst'); return; }
+            const cid = cfg.getCustomerId(r);
+            if (!cid) { alert('Der er ingen kontaktperson at sende til.'); return; }
+            MailCompose.open({
+                customerId: cid,
+                bonId: (cfg.getBonId ? cfg.getBonId(r) : null) || null,
+                purposeKey: cfg.purposeKey || null,
+                customer: cfg.getCustomer(r),
+                to: cfg.getEmail(r) || '',
+                title: 'Mail til ' + cfg.getName(r),
+                subtitle: cfg.title,
+                onSent: () => {
+                    const card = document.getElementById(uid + '-card-' + idx);
+                    if (card) card.style.opacity = '0.3';
+                    setTimeout(loadData, 800);
+                },
+            });
         }
 
         function _openProfile(customerId) {

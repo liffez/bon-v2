@@ -730,7 +730,12 @@ function _crmRenderSuggestions(suggestions) {
     }).join('');
 }
 
+// Rækkerne gemmes så knapperne kan slå deres kunde op på indeks i stedet for at
+// bære alle felter med gennem markup'en (mail-knappen skal bruge navn + adresse).
+let _crmServiceCalls = [];
+
 function _crmRenderServiceCalls(calls) {
+    _crmServiceCalls = Array.isArray(calls) ? calls : [];
     const el = document.getElementById('crmServiceCallsList');
     if (!el) return;
 
@@ -748,7 +753,6 @@ function _crmRenderServiceCalls(calls) {
 
     el.innerHTML = calls.map((c, i) => {
         const phone = (c.customer_phone || '').replace(/\s/g, '');
-        const email = c.customer_email || '';
         const d = c.days_since_delivery || 0;
         const dClass = d <= 3 ? 'd-ok' : d <= 7 ? 'd-warn' : 'd-late';
         const dLabel = d === 0 ? 'I dag' : d === 1 ? '1 dag' : d + ' dage';
@@ -782,7 +786,11 @@ function _crmRenderServiceCalls(calls) {
                         '<a href="tel:' + phone + '" class="crm-svc-action-btn primary" onclick="_crmRingOgLog(event,' + i + ',' + c.customer_id + ',' + (c.bon_id || 'null') + ')">📞 Ring</a>' :
                         '<button class="crm-svc-action-btn primary" onclick="_crmOpenLogForm(' + i + ',' + c.customer_id + ',' + (c.bon_id || 'null') + ')" title="Intet telefonnummer">📞 Log</button>') +
                     '<button class="crm-svc-action-btn success" onclick="_crmMarkHandled(' + c.customer_id + ',' + (c.bon_id || 'null') + ')" title="Markér håndteret">✓</button>' +
-                    (email ? '<a href="mailto:' + email + '" class="crm-svc-action-btn" title="Send mail">📧</a>' : '') +
+                    // Tidligere et mailto:-link. Det sendte uden om systemet — ingen tråd,
+                    // ingen historik, og {{booking_link}} kunne ikke bruges, fordi tokenet
+                    // laves på serveren. Nu den delte compose, med bon_id på, så en mail
+                    // tæller som håndtering af netop dette service-kald.
+                    '<button class="crm-svc-action-btn" onclick="_crmSvcMail(' + i + ')" title="Send mail (med booking-link)">' + mailIcon(13) + '</button>' +
                 '</span>' +
                 '<span class="crm-svc-expand" onclick="_crmToggleOrders(' + c.customer_id + ',' + i + ')">' +
                     '▼ ordrer' +
@@ -880,11 +888,35 @@ function _crmOpenLogForm(idx, customerId, bonId) {
             '</div>' +
             '<label style="margin-top:6px;display:block;">Note</label>' +
             '<textarea id="crmSvcNote' + idx + '" placeholder="Valgfrit..."></textarea>' +
+            // Opfølgningen er en SELVSTÆNDIG række (planlagt), ikke et felt på
+            // opkaldet (udført) — de to tilstande kan ikke bo i samme række.
+            (typeof CrmFollowup !== 'undefined' ? CrmFollowup.html('svc' + idx) : '') +
             '<div class="crm-svc-logform-actions">' +
                 '<button class="crm-svc-action-btn" onclick="document.getElementById(\'crmSvcLogForm' + idx + '\').style.display=\'none\'">Annuller</button>' +
                 '<button class="crm-svc-action-btn primary" id="crmSvcSaveBtn' + idx + '" disabled onclick="_crmSaveLog(' + idx + ',' + customerId + ',' + bonId + ')">Gem</button>' +
             '</div>' +
         '</div>';
+    if (typeof CrmFollowup !== 'undefined') CrmFollowup.wire(el);
+}
+
+// Send mail til kunden bag et service-kald. bon_id følger med, så mailen tæller
+// som håndtering af dette kald (jf. dedupe i GET /api/crm/service-calls).
+function _crmSvcMail(idx) {
+    const c = (_crmServiceCalls || [])[idx];
+    if (!c) return;
+    if (typeof MailCompose === 'undefined') { alert('Mail-komponenten er ikke indlæst'); return; }
+    MailCompose.open({
+        customerId: c.customer_id,
+        bonId: c.bon_id || null,
+        customer: {
+            first_name: c.first_name, last_name: c.last_name,
+            company_name: c.company_name, phone: c.customer_phone, email: c.customer_email,
+        },
+        to: c.customer_email || '',
+        title: 'Mail til ' + (c.customer_name || 'kunden'),
+        subtitle: '#' + c.bon_number,
+        onSent: () => { _crmReloadServiceCalls(); },
+    });
 }
 
 function _crmSelResult(btn) {
@@ -914,6 +946,13 @@ async function _crmSaveLog(idx, customerId, bonId) {
     const sentiment = sentimentBtn ? sentimentBtn.dataset.s : null;
     const note = (document.getElementById('crmSvcNote' + idx) || {}).value || '';
 
+    // Læs opfølgningen FØR vi sender noget — en ugyldig dato skal stoppe her,
+    // ikke efter at opkaldet allerede er skrevet.
+    const fu = (typeof CrmFollowup !== 'undefined')
+        ? CrmFollowup.read(container, 'Følg op efter service-kald')
+        : null;
+    if (fu && fu.error) { alert(fu.error); return; }
+
     const saveBtn = document.getElementById('crmSvcSaveBtn' + idx);
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Gemmer...'; }
 
@@ -927,7 +966,23 @@ async function _crmSaveLog(idx, customerId, bonId) {
         if (bonId) data.bon_id = bonId;
         if (sentiment) data.sentiment = sentiment;
         await postCrmActivity(data);
-        // Reload service calls
+
+        // Opfølgningen er en anden række: planlagt (due_at sat, done_at NULL).
+        // Den skrives EFTER opkaldet — fejler den, er opkaldet stadig logget, og
+        // det skal siges frem for at lade kvitteringen se hel ud.
+        if (fu) {
+            try {
+                await postCrmActivity({
+                    customer_id: customerId,
+                    bon_id: bonId || undefined,
+                    type: 'followup',
+                    text: fu.text,
+                    due_at: fu.due_at,
+                });
+            } catch (e) {
+                alert('Opkaldet er logget, men opfølgningen blev ikke gemt: ' + (e.message || 'ukendt fejl'));
+            }
+        }
         _crmReloadServiceCalls();
     } catch (err) {
         console.error('[crm] Save log error:', err);

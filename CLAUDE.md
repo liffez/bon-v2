@@ -160,6 +160,7 @@ bon-v2/
 │   ├── route_planner.js      ← Rute-orchestrator: computeRoute/applyRouteProposal (Spor 2)
 │   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
 │   ├── companyMatcher.js     ← matchCompany (CVR → EAN → e-mail → navnelighed), similarity, normalizeName
+│   ├── crmActivity.js        ← logActivity/validateActivity — ÉN kilde til at skrive en crm_activities-række
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
 │   └── quConvert.js          ← Grocy quantity unit conversions
@@ -198,6 +199,8 @@ bon-v2/
 │   ├── supplier_inbox.js                      ← Leverandørpost (office sidebar-view + kitchen Post-tab)
 │   ├── manual_booking_modal.js + manual_booking_modal.css ← Bestil bud-modal (Spor 1: clipboard + URL)
 │   ├── flag_strip.js                          ← Påmindelses-strip i bon-drawer (CLAUDE_KUNDE_FLAGS.md)
+│   ├── mail_compose.js                        ← Delt mail-formular (skabelon · booking-link · vedhæftning) — Kunde 360°, service-kald, ringeliste, kampagne
+│   ├── crm_followup.js                        ← "Følg op"-vælger i CRM's log-formularer (planlagt række ved siden af opkaldet)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
@@ -6990,6 +6993,179 @@ changelog-linje pr. berørt bon, idempotent (anden kørsel: 0 linjer).
 Målt mod driftskopien 15/9: 54 linjer på 50 bons — **ingen af dem på åbne bons**, så
 i dag blokerer intet. Værdien er at det ikke kan ske igen når en gammel bon åbnes.
 
+### CRM: opfølgning på et opkald, og mail som en rigtig handling (16. september 2026)
+
+Service-kaldet kunne registrere hvad kunden svarede, men ikke at man ville vende
+tilbage — og mail-knappen var et `mailto:`-link. Kampagne-tavlen kunne slet ingenting
+ud over at trække kort mellem kolonner.
+
+**`mailto:` kan pr. konstruktion ikke bære et booking-link.** Tokenet genereres
+server-side og bindes til (kunde, sælger, flow, mødetype), så "gratis frokost til 2"
+kunne kun sendes fra Kunde 360°, hvor formularen lå indmuret i viewet. Den er trukket
+ud som **`shared/mail_compose.js`** (`MailCompose.create/open`) og mounteres nu tre nye
+steder; Kunde 360° bruger den samme — ellers var det blevet en fjerde kopi, præcis som
+`_buildMailVars` blev til tre uenige udgaver.
+
+- **Opfølgningen er en SELVSTÆNDIG planlagt række**, ikke et felt på opkaldet: opkaldet
+  er udført (`done_at`), opfølgningen er planlagt (`due_at`), og de to tilstande kan ikke
+  bo i samme række (`CLAUDE_CRM_PLANLAGT.md` §3). Kaldsstederne logger derfor to
+  aktiviteter. **`shared/crm_followup.js`** er vælgeren (Ingen · 3 dage · 1 uge · 2 uger ·
+  1 måned · Dato), delt af service-kald, ringeliste og kampagne-kort. Den regner via den
+  DELTE `plannedComputeWhen`, så "om 1 uge" ikke kan betyde to ting. `'2w'`/`'1m'` er nye
+  dér — horisonten på en ringeliste er uger, ikke dage.
+  `result='callback'` findes stadig ved siden af; den mangler bare en dato.
+- **`services/crmActivity.js`** (`logActivity`) er én kilde til at skrive en aktivitet.
+  Reglerne om `done_at`, `last_contact_at`, kampagne-medlemmets `last_activity_at` og SSE
+  lå kun inde i `POST /api/crm/activity`; mail-afsendelsen skulle skrive samme slags
+  række. Routen delegerer nu dertil.
+
+**`email_out` blev aldrig skrevet af nogen.** Typen har eksisteret i `crm_activities`
+siden migration 019, og kun frontendens etiket-tabeller nævnte den. En sendt mail lå i
+sin tråd, men talte hverken i tidslinjen eller i de køer der dedupe'r på aktivitet:
+sendte man booking-linket til 40 kunder, stod alle 40 på ringelisten dagen efter.
+`POST /api/customers/:id/mail` logger den nu **altid**, og tager valgfri kontekst —
+`bon_id` (service-kaldet), `purpose_key` (ringelisten), `campaign_id`.
+Aktiviteten skrives **efter** afsendelsen og vælter den aldrig; fejler sporet, siger
+svaret `activity_logged: false` og UI'et beder om en manuel note — samme princip som
+#362's `send_error`.
+
+**To dedupe-huller lukket i samme ombæring:**
+- `GET /service-calls` så kun efter `type='service_call'`. Mailer man kunden fra rækken,
+  ER kaldet håndteret, så `email_out` tæller nu med — men kun med `bon_id` på, så en
+  ordrebekræftelse via `/api/bons/:id/mail` (som ikke logger aktiviteter) ikke kan skjule
+  et service-kald.
+- **`GET /rytme` havde INGEN aktivitets-dedupe.** Man kunne ringe en kunde op, logge
+  samtalen, se kortet tone ud — og have den tilbage ved næste genindlæsning. Nu dedupe pr.
+  **formål** (`fast_rytme`, 30 dage) som cold_offer, ikke "enhver aktivitet" som season:
+  et service-kald om sidste uges ordre er ikke rytme-samtalen.
+
+**Kampagne-kortet kunne ikke klikkes.** `/pipeline` hentede telefon, mail og samtykke i
+forespørgslen og lagde dem aldrig på kortet. Nu åbner et klik en detalje med Ring · Log ·
+Mail · Profil, og aktiviteter derfra bærer `campaign_id`. Et medlem der er et FIRMA uden
+kontaktperson har ingen kunde at hænge en aktivitet på (`crm_activities` kræver
+`customer_id` eller `bon_id`) og ingen at sende til — det siges, frem for at vise knapper
+der fejler. Do-not-contact og manglende B2C-samtykke vises samme sted.
+
+> ⚠️ **Et `<button>` uden `type` er `submit` inde i en `<form>`** — og en boks der
+> `overflow`'er klipper en absolut-positioneret popover. Booking-popoveren folder derfor
+> **op** (`bottom: calc(100% + 8px)`); nedad blev den halveret af modalens `overflow-y`.
+> Set i browseren, ikke af testen.
+
+**Tests:** `npm run test:crm-opfoelgning` — 39 asserts mod de ÆGTE endpoints over HTTP
+(spawnet server, isoleret temp-DB) + 26 i den eksisterende ringeliste-suite.
+Mail-delen kører **in-process mod den ægte `routes/customers.js` med SMTP stubbet** i
+require-cachen; uden stub ville `email_out`-logningen aldrig blive kørt af en test.
+**Mutations-testet:** elleve kerneregler rulles hver især tilbage og fælder hver sin
+navngivne assert.
+
+> To ting blev fundet af testen, ikke af koden: `tests/campaigns_pipeline.test.js`
+> byggede `companies` i hånden **uden `email`/`phone`**, så den nye forespørgsel gav 500 —
+> en håndskrevet skema-kopi der var drevet fra migrationerne. Og
+> `scripts/test-crm-ringeliste.js` **spejler** produktionens queries: spejlet er opdateret
+> og har fået en kontrolprøve (`T_CRM_RYTME_08`) der viser at reglen er formåls-scoped,
+> men dedupe-reglerne er nu ALLE dækket mod de ægte endpoints, netop fordi et spejl kan
+> drive uden at én eneste assert fejler.
+
+Browser-verificeret ende-til-ende mod en syntetisk dev-DB (20 kontroller, ingen
+konsolfejl): service-kald logget med opfølgning → én planlagt række med den skrevne note
+→ kaldet forsvinder fra listen; mail-formularen fra rytme-listen med forudfyldt modtager,
+booking-popover, mødetype og `{{booking_link}}` i teksten; kampagne-detaljen i begge
+varianter; Kunde 360°'s Mail-fane på den delte formular. Testdata slettet.
+
+### Lagertrækket læser friskt, og auto-batchen blokerer aldrig (#589 + #560, 16. september 2026)
+
+To issues, samme kodesti — og de er ikke uafhængige: **#560 alene ville have gjort
+#589 værre.**
+
+**#589 — et cachet read drev en write-beslutning.** `consumeRecipes` afgjorde hvor
+meget der skulle trækkes ud fra `getStock()`, som har **10 minutters** TTL, og ryddede
+først cachen til sidst. Var lageret ændret siden — en anden bon leveret, auto-batchens
+eget træk, et menneske i Grocy — bad vi om mere end der var, og Grocy svarede 400
+*"Amount to be consumed cannot be > current stock amount"*. Bonen endte som `partial`:
+noget trukket, resten ikke, lageret for højt for de fejlede varer, og trækket kan ikke
+gentages fordi flaget er sat.
+
+Målt i drift 3. september: **B4238 og B4240 i samme sekund, B4253 tre sekunder efter** —
+5, 8 og 9 fejlede produkter. Alle tre læste samme snapshot. Det ramte præcis de varer
+der ligger tæt på nul (Purløg 0,024 · Salt-Flager 0,012 · Løvstikke 0,0081); varer med
+rigeligt på lager overlevede.
+
+- **`getStockFresh()`** omgår cachen og **primer den med svaret**, så de læsere der
+  kommer lige efter ikke får serveret det gamle tal. Brugt i `consumeRecipes`,
+  `planConsume` (forhåndsvisningen skal vise dét trækket gør) **og**
+  `autoBatchForBon` — den tredje læsning, som ikke stod i issuet.
+- **`consumeWithFreshRetry()`** klamper og prøver igen. **Afvisningen genkendes på
+  lageret, ikke på Grocys fejltekst** — den er engelsk, tredjeparts og kan ændre sig.
+  Vi spørger lageret igen: siger det mindre end vi bad om, VAR vores tal forældet.
+  Siger det ikke mindre, handlede fejlen om noget andet og skal stå som en fejl.
+- **To genforsøg, ikke ét.** Tre bons kolliderede inden for tre sekunder; med ét
+  genforsøg kan den sidste i køen tabe igen.
+- **Manglen regnes på det der FAKTISK blev trukket**, ikke på det vi bad om. Det er
+  ikke kosmetik: med et forældet snapshot der sagde *3,0* mens hylden havde *1,0*, var
+  manglen `behov − snapshot` = 0 → **slet ingen indkøbslinje**, og varen manglede igen
+  dagen efter uden at nogen havde bedt om den.
+- Et træk klampet til **nul** er ikke en fejl — det er den sande tilstand "der er ikke
+  noget", og skal håndteres som en mangel med en indkøbslinje.
+
+**#560 — hele batches var et veto.** `affordableBatches` brugte `Math.floor(...)` som
+spærring, så **1,2 gram hvidløg blokerede en hel Tahin-dressing** — mens falaflen blev
+leveret, dressingen blev lavet og hvidløget blev brugt. §1b: motoren skal flytte tallene
+mod virkeligheden, ikke vente på at virkeligheden er pæn.
+
+Reglen er nu en **størrelse, ikke et veto**: er der råd til mindst ét helt batch, laves
+hele batches som hidtil; ellers laves **den andel** den bindende råvare rækker til.
+
+> **Hvorfor en andel og ikke et helt batch trukket på det der er.** Et helt batch ville
+> lægge udbytte på lageret som råvarerne ikke dækker — nøjagtig dét `autoBatch.js`' eget
+> hoved afviser Grocys `/recipes/{id}/consume` for (*"2 kg remoulade, selvom relish stod
+> på 0 … lager ud af ingenting"*). Med en andel er output altid dækket af input, og i
+> det tilfælde issuet handler om er de to i praksis ens: hvidløget på hylden ER 88 % af
+> et batch, så alle 0,0088 kg trækkes.
+>
+> Står en råvare på **nul**, er svaret 0 — ikke et veto der er sneget sig ind igen, men
+> det sande svar: uden relish blev der ikke lavet remoulade, og så er der heller ingen
+> mayonnaise at trække for den. Prisen er bevidst: netop dét tilfælde trækker vi ikke,
+> fordi vi ikke ved hvad køkkenet så lavede i stedet.
+
+**Sammenhængen mellem de to.** `produceBatch` trak **helt uden klamp** — mængden gik
+direkte fra planen til Grocy, ingen `Math.min`. Det holdt kun fordi vetoet afviste alt
+lageret ikke dækkede fuldt ud. Fjernes vetoet, begynder auto-batchen at trække netop
+dét der ligger tæt på nul — og ville have ramt samme 400, bare et nyt sted, uden
+partial-fallback. Derfor gælder klampen + genforsøget nu også `produceBatch`, og planen
+klamper desuden hver mængde til det der står på hylden: ved en andel rammer den bindende
+råvare pr. definition sit eget lagertal, og flydende tal kan lande 1,4e-17 over.
+
+`production_batches.portions` er `REAL` (migration 089/090), så en andel gemmes uden
+skemaændring. **Ingen migration.**
+
+> **Et andet 400 fra samme sti — og det er ikke dette her.** Drift 14.–16.09 viser 13
+> bons som `partial`, alle på det SAMME produkt: forælderen «kål», med Grocys anden
+> 400, *"Product does not exist or is inactive"*. Den handler ikke om mængden, så
+> hverken et friskt læs eller et genforsøg kan hjælpe — varen er sat **inaktiv** i
+> Grocy (navnet står i sporet, så rækken findes; `/objects/products` leverer også
+> inaktive). Fælden er at en forælder ALTID har 0 på sin egen lagerrække — børnene
+> (Spidskål, Hvidkål) bærer beholdningen — så i en optælling ligner den en tom vare,
+> og ⋯-menuens *"Varen findes ikke mere"* sætter den inaktiv. Rettelsen er data:
+> aktivér «kål» igen (lageroversigtens `↺ Aktivér`, #615). Koden gør her det rigtige
+> af sig selv: det friske læs siger at der ER noget (børnene tæller med), altså
+> handlede fejlen om noget andet, og fejlen får lov at stå efter ét eneste POST.
+> Låst fast i race-testens §2.
+
+**Tests:** `npm run test:consume-race` (38 asserts — ny) + `test:produktion` (164) +
+`test:consume-hardening` (104). Race-testen kører en **rigtig lille Grocy på localhost**
+og tæller HTTP-kaldene: at trækket ikke læser gennem cachen kan ikke bevises ved at
+injicere en lager-læser, for så beviser man kun at den injicerede blev brugt.
+**Mutations-testet: 12 mutationer, alle fanget.** To slap igennem første runde og blev
+lukket — fixturen `{mayo: 0, relish: 0}` kan ikke skelne reglerne (*"træk alt hvad der
+er"* af nul **er** nul), og `0,3 × (0,1/0,3)` er tilfældigvis præcis 0,1, så klampen
+skulle have tal der faktisk løber over (0,7 mod 0,11). Samme fælde som i #441 og
+menu-order-sorteringen.
+
+> ⚠️ **En stub af `getStock` dækker ikke `getStockFresh`.** `test-autobatch-packing.js`
+> stubber adapteren i require-cachen; den nye funktion faldt igennem til den rigtige og
+> forsøgte at ringe til Grocy. Fejlen var høj og tydelig (4 FAIL med en konfig-besked),
+> men husk det når adapterens overflade vokser.
+
 ### Cut-off håndhæves på serveren — og historikken siger hvor bonen kom fra (16. september 2026)
 
 En bon til levering dagen efter blev oprettet kl. 20.54, længe efter deadline kl. 12.
@@ -7132,6 +7308,8 @@ funktioner browseren bruger) + en fjerde case i `T_BESTILLING_CUTOFF_UI` der læ
 **Mutations-testet: 8 mutationer, alle fanget** — og browser-testen fælder også
 wiring-mutationen, hvor ét af de tre links rulles tilbage til en bar mailto.
 Regression grøn: cutoff 22, attribution 23, dawa 12, wish-lines 64.
+
+---
 
 ## Næste opgave
 
@@ -7607,6 +7785,7 @@ GET    /api/companies/:id/enrich-preview                 routes/companies.js (CV
 POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
 POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)
 PATCH  /api/customers/:id       { first_name?, last_name?, company_id? }  routes/customers.js
+POST   /api/customers/:id/mail  { to, subject, text, bon_id?, purpose_key?, campaign_id?, booking_flow? }  routes/customers.js (logger email_out-aktivitet)
 PATCH  /api/customers/:id/economic                       routes/customers.js
 GET    /api/contact-points?entity_type=&entity_id=       routes/contact-points.js
 POST   /api/contact-points                               routes/contact-points.js

@@ -87,8 +87,20 @@ Og den ene fælles rettelse der stopper lager-drillet:
 > på 0. Gælder begge kategorier. Så holder Råvarer-/planlægnings-visningen op med at råbe
 > ulven, når et sylt/gris-produkt lige er tomt.
 
-**Batch-reglen (bekræftet):** Hurtig laver hele batches, ikke præcis mængde — I gemmer
-ikke en halv pose ublandet mayo. Restbehov rundes op til hele batches; overskud står.
+**Batch-reglen (bekræftet, præciseret 16.09.2026 — #560):** Hurtig laver hele batches,
+ikke præcis mængde — I gemmer ikke en halv pose ublandet mayo. Restbehov rundes op til
+hele batches; overskud står.
+
+> **Reglen er en størrelse, ikke et veto.** Den afgør *hvor meget* der laves når det kan
+> lade sig gøre — ikke *om* der blev lavet noget. Rækker råvarerne ikke til ét helt batch,
+> laves den **andel** de rækker til, råvarerne trækkes, og manglen ryger på indkøbslisten.
+> 1,2 gram hvidløg må ikke spærre for en dressing der beviseligt blev lavet og leveret.
+>
+> Hvorfor en andel og ikke et helt batch trukket på det der er: et helt batch ville lægge
+> udbytte på lageret som råvarerne ikke dækker — nøjagtig dét Grocys eget
+> `/recipes/{id}/consume` gør, og grunden til at vi ikke bruger den (§4.2). Står en råvare
+> på **nul**, bliver svaret 0: uden relish blev der ikke lavet remoulade, og så er der
+> heller ingen mayonnaise at trække for den.
 
 **Udenfor scope (bevidst parkeret):** prep-tider, kapacitet, holdplanlægning, metode-valg
 (hurtig/langsom løvstikke), sekvens (kog→køl→skær). Køkkenet: *"resten har vi styr på."*
@@ -138,7 +150,7 @@ I `autoConsumeBonInventory` (timing uændret): for hvert **Hurtig-produkt** hvor
 ```
 shortfall = behov − lager
 batches   = ceil(shortfall / batch_udbytte)      ← hele batches
-raw_ok    = min(batches, max hele batches råvarerne rækker til)
+raw_ok    = min(batches, hvad råvarerne rækker til)   ← helt tal ved ≥ 1, ellers en andel
 if raw_ok > 0: produceBatch(consume råvarer × raw_ok  →  add produkt raw_ok × udbytte)
 ```
 Derefter trækkes menu-produktet som i dag. Genbruger `produceBatch` fra
@@ -151,8 +163,9 @@ RR-produkt fra kommende bons, samme beregning som planlægning) → en liste "la
 en simpel prep-ahead-liste). Ingen `produceBatch`.
 
 ### 4.4 Når produktion ikke kan fuldføres (Hurtig, råvarer utilstrækkelige)
-Lav de hele batches råvarerne rækker til (kan være 0), træk hvad der er, læg de manglende
-**RÅVARER** (mayo/relish) på indkøbslisten — **ikke** det uindkøbelige mellemprodukt.
+Lav de hele batches råvarerne rækker til — og rækker de ikke til ét, lav **den andel de
+rækker til** (#560). Træk hvad der er, læg de manglende **RÅVARER** (mayo/relish) på
+indkøbslisten — **ikke** det uindkøbelige mellemprodukt.
 **Advarsel** (hændelse på den bon der leveres, ikke et flag på fremtiden): changelog +
 køkken-notifikation + synlig i bonens Råvarer-visning. Leveringen blokeres aldrig.
 

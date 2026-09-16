@@ -17,6 +17,7 @@ const {
     ensureContactPoint:  _liEnsureContactPoint,
     setLeadStageIfNew:   _liSetLeadStageIfNew,
 } = require('../services/leadCreate');
+const { logActivity, validateActivity, OUTCOMES: ACTIVITY_OUTCOMES } = require('../services/crmActivity');
 
 router.use(requireAuth());
 
@@ -648,6 +649,7 @@ router.get('/season', handle((req, res) => {
         SELECT
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.first_name, c.last_name, c.email,
             c.phone,
             co.id AS company_id,
             co.name AS company_name,
@@ -683,6 +685,7 @@ router.get('/season', handle((req, res) => {
 // Samme detektion som GET /suggestions §1 (≥5 ordrer, forsinket >mult× eget snit),
 // UDEN LIMIT + øvre grænse ×3 så reelt sovende falder til dormant-flowet i stedet.
 // ?multiplier= (default 1.3) justerer følsomheden. Snooze-filter type 'rytme'.
+const RYTME_DEDUPE_DAYS = 30;   // efter en rytme-kontakt: lad kunden være en måned
 router.get('/rytme', handle((req, res) => {
     const db = getDb();
     const mult = parseFloat(req.query.multiplier) || 1.3;
@@ -690,6 +693,7 @@ router.get('/rytme', handle((req, res) => {
         SELECT
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.first_name, c.last_name, c.email,
             c.phone,
             co.id AS company_id,
             co.name AS company_name,
@@ -721,11 +725,23 @@ router.get('/rytme', handle((req, res) => {
             AND ostats.days_since > ostats.avg_interval_days * ?
             AND ostats.days_since < ostats.avg_interval_days * 3
             AND NOT EXISTS (
+                -- Rytme-listen havde INGEN aktivitets-dedupe: man kunne ringe en kunde
+                -- op, logge samtalen, se kortet tone ud — og have den tilbage ved næste
+                -- genindlæsning. Dedupe pr. FORMÅL (som cold_offer), ikke "enhver
+                -- aktivitet" (som season): et service-kald om sidste uges ordre er ikke
+                -- rytme-samtalen og skal ikke skjule den.
+                SELECT 1 FROM crm_activities a
+                JOIN activity_purposes ap ON ap.id = a.purpose_id
+                WHERE a.customer_id = c.id
+                    AND ap.key = 'fast_rytme'
+                    AND a.created_at > date('now', ?)
+            )
+            AND NOT EXISTS (
                 SELECT 1 FROM crm_suggestion_snoozes sz
                 WHERE sz.customer_id = c.id AND sz.type = 'rytme' AND sz.snoozed_until > datetime('now')
             )
         ORDER BY (ostats.days_since - ostats.avg_interval_days) DESC
-    `).all(mult);
+    `).all(mult, '-' + RYTME_DEDUPE_DAYS + ' days');
     res.json(rows);
 }));
 
@@ -747,6 +763,7 @@ router.get('/cold-offers', handle((req, res) => {
             b.offer_valid_until,
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.first_name, c.last_name, c.email,
             c.phone,
             co.id AS company_id,
             co.name AS company_name
@@ -784,6 +801,7 @@ router.get('/service-calls', handle((req, res) => {
             b.pax, b.total_units, b.total_price,
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
+            c.first_name, c.last_name,
             c.phone AS customer_phone,
             c.email AS customer_email,
             co.name AS company_name,
@@ -808,8 +826,13 @@ router.get('/service-calls', handle((req, res) => {
             AND b.is_internal = 0
             AND julianday('now') - julianday(b.delivery_date) BETWEEN 0 AND ?
             AND NOT EXISTS (
+                -- 'email_out' tæller med: mailer man kunden fra service-kald-rækken
+                -- (fx et booking-link) ER opkaldet håndteret. Uden det ville rækken
+                -- blive stående som om ingen havde rørt den. Kun mail SENDT MED
+                -- bon_id rammer her, så en ordrebekræftelse via /api/bons/:id/mail
+                -- (som ikke logger aktiviteter) kan ikke skjule et service-kald.
                 SELECT 1 FROM crm_activities a
-                WHERE a.bon_id = b.id AND a.type = 'service_call'
+                WHERE a.bon_id = b.id AND a.type IN ('service_call', 'email_out')
             )
         ORDER BY b.delivery_date DESC
     `).all(days);
@@ -1345,6 +1368,9 @@ router.get('/customer-orders/:id', handle((req, res) => {
 }));
 
 // ─── POST /activity ─────────────────────────────────────────
+// Selve skrivningen (done_at-regler, last_contact_at, kampagne-medlemmets
+// last_activity_at, SSE) ligger i services/crmActivity.js, fordi mail-afsendelsen
+// skriver den samme slags række og skal følge nøjagtig samme regler.
 router.post('/activity', handle((req, res) => {
     const db = getDb();
     const { customer_id, bon_id, type, result, sentiment, text, due_at, done_at, purpose_id, campaign_id, outcome } = req.body;
@@ -1352,71 +1378,14 @@ router.post('/activity', handle((req, res) => {
     // var altid undefined → owner_user_id blev altid null (F1).
     const userId = req.session?.userId || null;
 
-    if (!customer_id || !type || !text) {
-        return res.status(400).json({ error: 'Mangler customer_id, type eller text' });
-    }
-    // outcome valideres i serveren (ingen CHECK på kolonnen, jf. migration 110)
-    const OUTCOMES = ['success', 'partial', 'declined', 'no_response', 'pending'];
-    if (outcome && !OUTCOMES.includes(outcome)) {
-        return res.status(400).json({ error: 'ugyldig outcome' });
-    }
-    // Planlagt aktivitet (Fase 1): due_at = planlæg frem, done_at = bagudrettet log.
-    // De to udelukker hinanden — en aktivitet er enten planlagt ELLER logget, aldrig begge.
-    if (due_at && done_at) {
-        return res.status(400).json({ error: 'due_at og done_at kan ikke begge være sat' });
-    }
+    const invalid = validateActivity({ customer_id, type, text, due_at, done_at, outcome });
+    if (invalid) return res.status(400).json({ error: invalid });
 
-    const ins = db.prepare(`
-        INSERT INTO crm_activities
-            (customer_id, bon_id, type, result, sentiment, text, due_at, owner_user_id, purpose_id, campaign_id, outcome)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-        customer_id, bon_id || null, type, result || null, sentiment || null,
-        text, due_at || null, userId, purpose_id || null, campaign_id || null, outcome || null,
-    );
+    const activityId = logActivity(db, {
+        customer_id, bon_id, type, result, sentiment, text,
+        due_at, done_at, owner_user_id: userId, purpose_id, campaign_id, outcome,
+    });
 
-    const activityId = ins.lastInsertRowid;
-
-    // Opdater last_contact_at
-    db.prepare(`
-        UPDATE crm_customer_meta SET last_contact_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE customer_id = ?
-    `).run(customer_id);
-
-    // Outreach (spec sektion 1.2.5): opdater campaign_members.last_activity_at.
-    // - campaign_id sat: kun det ene medlemskab i den kampagne
-    // - ellers: alle medlemskaber for kunden (samme adfærd som den fjernede trigger,
-    //   men nu eksplicit og forudsigelig). UPDATE påvirker 0 rows hvis kunden ikke
-    //   er medlem af nogen kampagne — harmløst.
-    if (campaign_id) {
-        db.prepare(`
-            UPDATE campaign_members
-            SET last_activity_at = CURRENT_TIMESTAMP
-            WHERE campaign_id = ? AND customer_id = ?
-        `).run(campaign_id, customer_id);
-    } else {
-        db.prepare(`
-            UPDATE campaign_members
-            SET last_activity_at = CURRENT_TIMESTAMP
-            WHERE customer_id = ?
-        `).run(customer_id);
-    }
-
-    // done_at-tilstand (Fase 1 — lukker datahullet hvor loggede aktiviteter blev NULL):
-    //   due_at sat        → planlagt: done_at forbliver NULL (ingen auto-done)
-    //   done_at i body     → bagudrettet log: done_at = valgt fortidig dato (created_at = nu, revisionsspor)
-    //   ellers             → log nu: done_at = CURRENT_TIMESTAMP
-    // Service-callbacks (result='callback') friholdes — de har eget flow og skal
-    // forblive åbne (done_at NULL) på callback-listen.
-    if (!due_at && result !== 'callback') {
-        if (done_at) {
-            db.prepare("UPDATE crm_activities SET done_at = ? WHERE id = ?").run(done_at, activityId);
-        } else {
-            db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(activityId);
-        }
-    }
-
-    broadcast('crm_activity_created', { id: activityId, customer_id, bon_id, type, campaign_id: campaign_id || null });
     res.json({ id: activityId, ok: true });
 }));
 
@@ -1434,8 +1403,7 @@ router.patch('/activity/:id/done', handle((req, res) => {
     if (!a) return res.status(404).json({ error: 'Aktivitet ikke fundet' });
 
     // outcome valideres mod samme enum som POST (ingen CHECK på kolonnen)
-    const OUTCOMES = ['success', 'partial', 'declined', 'no_response', 'pending'];
-    if (outcome && !OUTCOMES.includes(outcome)) {
+    if (outcome && !ACTIVITY_OUTCOMES.includes(outcome)) {
         return res.status(400).json({ error: 'ugyldig outcome' });
     }
 
