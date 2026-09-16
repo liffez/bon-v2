@@ -56,6 +56,9 @@ const sandbox = {
 };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
+// utils.js FØRST: stock_overview bruger dens Grocy-flag-helpers (#616).
+// Den rigtige fil, ikke en stub — ellers kan testen ikke se om de to driver fra hinanden.
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'utils.js'), 'utf8'), sandbox, { filename: 'utils.js' });
 vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'stock_overview.js'), 'utf8'), sandbox, { filename: 'stock_overview.js' });
 sandbox._soShowToast = (msg, type) => toasts.push([type, msg]);
 sandbox._soCloseExpand = () => {};
@@ -196,7 +199,10 @@ sandbox.fetchGrocyQuantityUnitConversions = async () => [];
 sandbox._soContainer = el('root');
 await sandbox._soLoadData();
 const loaded = sandbox._soStockData.find(x => x.product_id === 1);
-ok(loaded && loaded.last_checked instanceof Date, 'last_checked er sat fra /objects/products');
+// `instanceof Date` er falsk på tværs af realms: utils.js kører i vm-konteksten
+// og laver dens Date, ikke Nodes. Kryds-realm-sikker form.
+ok(loaded && Object.prototype.toString.call(loaded.last_checked) === '[object Date]',
+   'last_checked er sat fra /objects/products');
 eq(loaded && loaded.last_checked_unit, 'frost-1', 'enheden læses samme sted');
 eq(loaded && loaded.check_interval, 7, 'HverDag læses samme sted');
 eq(loaded && loaded.check.status, 'ok', 'og status er ok (3 af 7 dage)');

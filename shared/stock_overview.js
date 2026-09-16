@@ -21,6 +21,7 @@
 
 var _soStockData      = [];   // processed stock items (aktive varer)
 var _soInactiveItems  = [];   // inaktive varer (#615) — vises kun bag pillen "inaktive"
+var _soHiddenCount    = 0;    // varer Grocy siger aldrig skal vises her (#616)
 var _soAllProducts    = [];   // all active products (for add-product)
 var _soProductsMap    = {};   // product_id -> product
 var _soQUnitsMap      = {};   // qu_id -> unit name
@@ -100,7 +101,14 @@ async function _soLoadData() {
         // (#615). _soAllProducts (til "Tilføj vare") er fortsat kun de aktive.
         _soProductsMap = {};
         rawProducts.forEach(function(p) { _soProductsMap[p.id] = p; });
-        _soAllProducts = rawProducts.filter(_soIsActiveProduct);
+
+        // Grocys "Vis aldrig på lageroversigten" respekteres nu (#616). Kortet
+        // rummer dem stadig, så ✎-modalen kan åbne en skjult vare hvis nogen
+        // deep-linker; de er bare ude af listerne. Tælles i _soHiddenCount, så
+        // "intet at se" kan skelnes fra "vi skjuler noget".
+        _soHiddenCount = rawProducts.filter(grocyHiddenOnStockOverview).length;
+        var visible = rawProducts.filter(function(p) { return !grocyHiddenOnStockOverview(p); });
+        _soAllProducts = visible.filter(_soIsActiveProduct);
 
         // Process stock
         var now = new Date();
@@ -108,6 +116,7 @@ async function _soLoadData() {
         // stadig har en lagerpost — de samles i _soInactiveItems nedenfor.
         _soStockData = rawStock.filter(function(item) {
             var fp = _soProductsMap[item.product_id];
+            if (grocyHiddenOnStockOverview(fp)) return false;
             return !fp || _soIsActiveProduct(fp);
         }).map(function(item) {
             var status = 'ok';
@@ -169,7 +178,7 @@ async function _soLoadData() {
         // Inaktive varer (#615): egen liste, beholdning fra /stock hvis der er en.
         var stockByPid = {};
         rawStock.forEach(function(item) { stockByPid[item.product_id] = item; });
-        _soInactiveItems = rawProducts.filter(function(p) { return !_soIsActiveProduct(p); })
+        _soInactiveItems = visible.filter(function(p) { return !_soIsActiveProduct(p); })
             .map(function(p) { return _soItemFromProduct(p, stockByPid[p.id] || null, true); });
         _soInactiveItems.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
 
@@ -564,6 +573,14 @@ function _soUpdateStatusBar(activeMatches, inactiveCount) {
             (_soActiveStatusFilter === 'inactive' ? ' active' : '') +
             '" data-filter="inactive" title="Varer der er sat inaktive (fx \'Varen findes ikke mere\' i optællingen). Kan genaktiveres herfra.">' +
             inactiveCount + ' inaktive</span>';
+    }
+
+    // Skjulte varer nævnes, men er ikke en pille man kan klikke: de er skjult
+    // efter et bevidst valg i Grocy, og en liste her ville modsige det. Uden
+    // tallet kan man ikke se forskel på "der er ikke mere" og "vi viser ikke alt".
+    if (_soHiddenCount > 0) {
+        html += '<span class="so-status-note" title="Sat til &quot;Vis aldrig p&aring; lageroversigten&quot; i Grocy — typisk en forælder hvis beholdning ligger på dens undervarer. Ændres i Grocy.">'
+             +  _soHiddenCount + ' skjult</span>';
     }
 
     bar.innerHTML = html;

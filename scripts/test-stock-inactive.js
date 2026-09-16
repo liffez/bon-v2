@@ -52,6 +52,9 @@ const sandbox = {
 };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
+// utils.js FØRST: stock_overview bruger dens Grocy-flag-helpers (#616).
+// Den rigtige fil, ikke en stub — ellers kan testen ikke se om de to driver fra hinanden.
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'utils.js'), 'utf8'), sandbox, { filename: 'utils.js' });
 vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'stock_overview.js'), 'utf8'), sandbox, { filename: 'stock_overview.js' });
 sandbox._soShowToast = (m, t) => toasts.push([t, m]);
 sandbox._soContainer = el('root');

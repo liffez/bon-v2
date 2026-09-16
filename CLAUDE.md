@@ -7308,6 +7308,62 @@ funktioner browseren bruger) + en fjerde case i `T_BESTILLING_CUTOFF_UI` der læ
 **Mutations-testet: 8 mutationer, alle fanget** — og browser-testen fælder også
 wiring-mutationen, hvor ét af de tre links rulles tilbage til en bar mailto.
 Regression grøn: cutoff 22, attribution 23, dawa 12, wish-lines 64.
+### Bon læser Grocys to produkt-flag (#616, 16. september 2026)
+
+Kål er en **forælder**: beholdningen ligger på børnene (Spidskål, Hvidkål), og
+forælderens egen lagerrække står per konstruktion på **0**. Driften havde sat de to
+flag i Grocy — *"Vis aldrig på lageroversigten"* og *"Deaktiver egen lagerbeholdning"* —
+og Bon læste ingen af dem.
+
+**Det er ikke kosmetik.** I tællelisten ligner en forælder en tom vare, og det var
+netop dét der fik nogen til at trykke ⋯ → *"Varen findes ikke mere"* på kål
+([inventory_check.js](shared/inventory_check.js) kører `putGrocyProduct(pid, {active: 0})`).
+Varen blev inaktiv i Grocy, og **13 bons fik `partial`** 14.–16. september med Grocys
+*"Product does not exist or is inactive"*. Lageroversigten var symptomet; tællelisten
+var vejen ind.
+
+- **Feltnavnene er bekræftet mod et rigtigt `/objects/products`-svar**, ikke gættet:
+  `hide_on_stock_overview` og `no_own_stock`, begge som **tal** (0/1) — mens userfields
+  kommer som strenge. `grocyFlagOn` i [shared/utils.js](shared/utils.js) tåler begge,
+  magen til den eksisterende `active`-sammenligning.
+
+| Flag | Lageroversigt | Optælling |
+|---|---|---|
+| `hide_on_stock_overview` | rækken vises ikke (heller ikke bag *inaktive*, heller ikke i "Tilføj vare") | varen kan ikke tælles |
+| `no_own_stock` | **uændret** — Grocys to flag betyder hver sit | varen kan ikke tælles |
+
+- **`no_own_stock` er den vigtige i optællingen.** Man tæller børnene; forælderen har
+  ikke noget at tælle. Reglen rammer også "tilføj uventet vare", som er den anden vej
+  ind i listen.
+- **Consume er upåvirket** — det er efterprøvet, ikke antaget: `makeEffectiveStock`
+  summerer forælder + børn, og trækket sender `allow_subproduct_substitution: true`.
+  Et træk på kål henter fortsat fra Spidskål og Hvidkål.
+- **Skjult er ikke tavst.** Status-baren siger `N skjult` (en note, ikke en pille — der
+  er intet at klikke på, flaget sættes i Grocy). Uden tallet kan man ikke se forskel på
+  *"der er ikke mere"* og *"vi viser ikke alt"* — samme princip som vagthundens
+  "intet at trække"-linje.
+- **Et produkt der mangler felterne skjules aldrig.** `/stock`'s indlejrede `product`
+  har dem ikke (samme fælde som #613), så et manglende felt skal betyde "almindelig
+  vare" — ellers kunne en hel liste forsvinde ved et hik.
+
+**Tests:** `npm run test:grocy-hidden` — 34 asserts. De rigtige filer køres i en
+vm-sandkasse, og **`utils.js` loades først** så helper-definitionen er den ægte.
+Optællings-delen kalder den ÆGTE `_icStartCheck` og læser `_ic.allProducts`; et spejl
+af filtret ville kunne drive fra koden uden at én eneste assert faldt — første udgave
+gjorde netop det, og mutationen fældede kun kilde-tjekket (1 assert mod 5 nu).
+**Mutations-testet: 9 mutationer, alle fanget** — heriblandt at bruge kun det ene af de
+to flag i optællingen (2 asserts hver vej).
+
+> ⚠️ **`instanceof Date` er falsk på tværs af vm-realms.** `test-last-checked.js`
+> stubbede `parseServerDate` i Nodes realm; da den rigtige `utils.js` kom ind i
+> sandkassen, laver den vm-kontekstens `Date`, og asserten faldt mod en KORREKT værdi.
+> Kryds-realm-sikker form: `Object.prototype.toString.call(x) === '[object Date]'`.
+
+**Drift:** flagene er allerede sat på kål, så ændringen slår igennem ved deploy — ingen
+migration, kun kode. «kål» skal fortsat være **aktiv** i Grocy (lageroversigtens
+`↺ Aktivér`, #615); det er dét der fik de 13 `partial`-bons, og det retter denne
+ændring ikke bagud. Den forhindrer at det sker igen.
+
 
 ---
 
