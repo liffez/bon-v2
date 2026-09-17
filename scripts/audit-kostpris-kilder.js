@@ -50,6 +50,7 @@ if (fs.existsSync(envPath)) {
 process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 
 const grocy = require('../services/grocyAdapter');
+const { todayISO } = require('../db/helpers');
 const {
     computeAll, yieldInStockUnits,
     WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT, PRICE_WINDOW_DAYS,
@@ -211,19 +212,55 @@ async function main() {
     // Er vinduet tomt fordi der ikke er købt ind — eller fordi leverancerne
     // ikke bærer en pris? De to ligner hinanden i tallene ovenfor og kræver
     // hver sin handling. Varemodtagelsen sender i dag ingen pris (#657).
-    let udenPris = 0, varerUdenPris = 0;
-    for (const d of detaljer.values()) {
+    const udenPrisListe = [];
+    for (const [pid, d] of detaljer) {
         const n = d.purchases_in_window_unpriced || 0;
-        if (n > 0) { udenPris += n; varerUdenPris++; }
+        if (n > 0) udenPrisListe.push({ navn: produktById.get(pid)?.name || `#${pid}`, n, kilde: d.source });
     }
+    const udenPris = udenPrisListe.reduce((a, x) => a + x.n, 0);
     if (udenPris) {
+        // Varer der ALLEREDE får snittet er ikke blokeret — de har også
+        // prissatte køb. Det er dem uden der venter på #657.
+        const blokeret = udenPrisListe.filter(x => x.kilde !== 'avg_window');
         console.log(`\n   ${C.yel}${udenPris} købsposteringer i vinduet bærer ingen pris`
-                  + ` (${varerUdenPris} varer)${C.off}`);
+                  + ` (${udenPrisListe.length} varer)${C.off}`);
         console.log(`   ${C.dim}De kan ikke vægte noget, så vinduet står tomt selv om der ER`
                   + ` købt ind.${C.off}`);
         console.log(`   ${C.dim}Det er #657: varemodtagelsen sender ingen pris til Grocy.${C.off}`);
+        console.log(`   ${C.b}${blokeret.length} varer ville få snittet hvis leverancerne bar en pris:${C.off}`);
+        blokeret.sort((a, b) => b.n - a.n);
+        for (const x of (ALLE ? blokeret : blokeret.slice(0, 12))) {
+            console.log(`     ${padL(x.n, 5)} køb   ${x.navn}`);
+        }
+        if (!ALLE && blokeret.length > 12) console.log(`     ${C.dim}… og ${blokeret.length - 12} mere (--alle)${C.off}`);
     } else {
         console.log(`\n   ${C.dim}Alle køb i vinduet bærer en pris.${C.off}`);
+    }
+
+    // Ville et LÆNGERE vindue hjælpe? For de varer der falder tilbage på
+    // seneste køb, er svaret hvor gammelt dét køb er. De giftige posteringer
+    // er fra 2024 — over 600 dage siden — så vinduet kan forlænges et godt
+    // stykke uden at samle dem op igen.
+    const spand = { '≤ 180 dage': 0, '≤ 365 dage': 0, 'ældre': 0, 'ukendt': 0 };
+    const iDag = new Date(todayISO() + 'T00:00:00Z').getTime();
+    let faldback = 0;
+    for (const d of detaljer.values()) {
+        if (d.source !== 'last_purchase') continue;
+        faldback++;
+        const dato = d.last_purchase_date;
+        if (!dato) { spand['ukendt']++; continue; }
+        const dage = Math.round((iDag - new Date(dato + 'T00:00:00Z').getTime()) / 86400000);
+        if (dage <= 180) spand['≤ 180 dage']++;
+        else if (dage <= 365) spand['≤ 365 dage']++;
+        else spand['ældre']++;
+    }
+    if (faldback) {
+        console.log(`\n   ${C.dim}De ${faldback} varer der falder tilbage — hvor gammelt er seneste køb?${C.off}`);
+        for (const [k, n] of Object.entries(spand)) {
+            if (n) console.log(`     ${padL(n, 5)}  ${k}`);
+        }
+        console.log(`   ${C.dim}De giftige posteringer er fra 2024 (600+ dage), så vinduet kan`
+                  + ` forlænges uden at samle dem op.${C.off}`);
     }
     console.log('');
 
