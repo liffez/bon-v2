@@ -1133,6 +1133,14 @@ function _rdRenderIngredients() {
                     var share = costDenom > 0 ? (perP / costDenom * 100) : 0;
                     costLine = '<div class="rd-ing-cost">' + _rdKr(perP) + ' kr &middot; ' + _rdRound(share, 0) + ' %' +
                         '<div class="rd-ing-share-bar"><i style="width:' + Math.min(100, share) + '%"></i></div></div>';
+                } else if (typeof setEstimatePrice === 'function') {
+                    // Uden pris kan opskriften ikke koste noget. Et overslag er
+                    // dit eget bud — nok til at regne en salgspris på, indtil
+                    // varen får et varenummer (#657).
+                    var suNm = _rdQuantityUnits[(product.qu_id_stock || '')] || '';
+                    costLine = '<div class="rd-ing-cost rd-ing-nocost">ingen pris ' +
+                        '<button class="rd-ing-est" data-pid="' + ing.product_id +
+                        '" data-unit="' + esc(suNm) + '">+ overslag</button></div>';
                 }
             }
 
@@ -1176,6 +1184,11 @@ function _rdRenderIngredients() {
             _rdRemoveIng(parseInt(removeBtn.getAttribute('data-idx')));
             return;
         }
+        var estBtn = e.target.closest('.rd-ing-est');
+        if (estBtn) {
+            _rdOpenEstimate(estBtn);
+            return;
+        }
         var cartBtn = e.target.closest('.rd-ing-cart');
         if (cartBtn) {
             var pid = parseInt(cartBtn.getAttribute('data-pid'));
@@ -1195,6 +1208,44 @@ function _rdRenderIngredients() {
             );
         }
     };
+}
+
+/** Inline-felt til et manuelt overslag på en råvare uden pris (#657). */
+function _rdOpenEstimate(btn) {
+    var box  = btn.parentNode;
+    var pid  = parseInt(btn.getAttribute('data-pid'));
+    var unit = btn.getAttribute('data-unit') || '';
+    var before = box.innerHTML;
+    box.innerHTML = '<input type="text" inputmode="decimal" class="rd-ing-est-input" placeholder="0,00"> ' +
+        '<span class="rd-ing-est-unit">kr/' + esc(unit) + '</span> ' +
+        '<button class="rd-ing-est-save">Gem</button> ' +
+        '<button class="rd-ing-est-cancel">Fortryd</button>';
+    var input = box.querySelector('.rd-ing-est-input');
+    input.focus();
+
+    box.querySelector('.rd-ing-est-cancel').onclick = function(ev) {
+        ev.stopPropagation(); box.innerHTML = before;
+    };
+    var save = async function(ev) {
+        ev.stopPropagation();
+        var n = parseFloat(String(input.value).trim().replace(/\./g, '').replace(',', '.'));
+        if (!isFinite(n) || n <= 0) { _rdShowAlert('Skriv et overslag større end 0', 'error'); return; }
+        var btn = box.querySelector('.rd-ing-est-save');
+        if (btn) { btn.disabled = true; btn.textContent = 'Regner…'; }
+        try {
+            var out = await setEstimatePrice(pid, n, true);
+            _rdShowAlert(out && out.refresh_error
+                ? 'Overslag gemt, men kostpriserne kunne ikke genberegnes'
+                : 'Overslag gemt', out && out.refresh_error ? 'error' : 'success');
+            // Kostprisen er nu en anden — hent breakdownet forfra.
+            if (_rdDs.originalRecipeId) _rdLoadComposition(_rdDs.originalRecipeId);
+        } catch (err) {
+            _rdShowAlert('Fejl: ' + err.message, 'error');
+            box.innerHTML = before;
+        }
+    };
+    box.querySelector('.rd-ing-est-save').onclick = save;
+    input.onkeydown = function(ev) { if (ev.key === 'Enter') save(ev); };
 }
 
 function _rdStepIng(idx, dir) {

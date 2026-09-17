@@ -534,7 +534,24 @@ function clearShoppingList(listId) {
 }
 function fetchProductGroups() { return apiFetch('/grocy/product-groups'); }
 function fetchShoppingLocations() { return apiFetch('/grocy/shopping-locations'); }
-function fetchProductBarcodes() { return apiFetch('/grocy/product-barcodes'); }
+/**
+ * Produkternes varenumre — UDEN de interne overslags-varenumre (#657).
+ *
+ * Et overslag er et varenummer i Grocy, men ikke et LEVERANDØR-varenummer: det
+ * har ingen leverandør, ingen kurv og ingen pris at bestille til. Alle kaldere
+ * her er indkøbs- og koblings-flader, så det filtreres ét sted frem for i hver
+ * af dem. Priserne hentes via /purchasing/prices/*, som ser dem.
+ */
+function fetchProductBarcodes() {
+    return apiFetch('/grocy/product-barcodes').then(function(list) {
+        return (list || []).filter(function(b) { return !isEstimateBarcode(b.barcode); });
+    });
+}
+
+/** Er dette et internt overslags-varenummer? Spejler services/supplierPrices.js. */
+function isEstimateBarcode(code) {
+    return String(code == null ? '' : code).toUpperCase().indexOf('OVERSLAG-') === 0;
+}
 function createProductBarcode(data) {
     return apiFetch('/grocy/product-barcodes', { method: 'POST', body: JSON.stringify(data) });
 }
@@ -1401,6 +1418,46 @@ function fetchHokaSnapshots(ids, date) {
     var qs = 'ids=' + ids.join(',');
     if (date) qs += '&date=' + date;
     return apiFetch('/horkram/snapshots?' + qs);
+}
+
+/* ── Leverandørpriser (#657) — bor i Grocy, læses og skrives via serveren ── */
+
+/** Hent friske Hørkram-priser til stregkoderne i Grocy. barcodes = kun disse (valgfri). */
+function refreshHorkramPrices(barcodes) {
+    return apiFetch('/purchasing/prices/refresh-horkram', {
+        method: 'POST', body: JSON.stringify(barcodes ? { barcodes: barcodes } : {}),
+    });
+}
+
+/** Pris-status pr. aktivt produkt: { [pid]: { price, reason, reason_text, stock_unit, barcodes } } */
+function fetchSupplierPriceOverview() { return apiFetch('/purchasing/prices/overview'); }
+
+/** Én vares varenumre og hvilken pris der gælder. */
+function fetchSupplierPrice(productId) { return apiFetch('/purchasing/prices/product/' + productId); }
+
+/** Ret et varenummers pris — tastes pr. lager-enhed, ex moms. */
+function setBarcodeStockPrice(barcodeId, stockPrice) {
+    return apiFetch('/purchasing/prices/barcode/' + barcodeId, {
+        method: 'PUT', body: JSON.stringify({ stock_price: stockPrice }),
+    });
+}
+
+/**
+ * Sæt (eller ryd) varens manuelle overslag — kr pr. lager-enhed, ex moms.
+ * `recompute` genberegner kostpriserne bagefter (tager et par sekunder) —
+ * bruges dér hvor man sætter overslaget FOR at få en kostpris.
+ */
+function setEstimatePrice(productId, stockPrice, recompute) {
+    return apiFetch('/purchasing/prices/product/' + productId + '/estimate', {
+        method: 'PUT', body: JSON.stringify({ stock_price: stockPrice, recompute: !!recompute }),
+    });
+}
+
+/** Markér ét varenummer som foretrukket (barcodeId = null rydder). */
+function setPreferredBarcode(productId, barcodeId) {
+    return apiFetch('/purchasing/prices/product/' + productId + '/preferred', {
+        method: 'PUT', body: JSON.stringify({ barcode_id: barcodeId }),
+    });
 }
 
 /** Favorit-lister — returnerer { lists: [{id, name, type}] } */

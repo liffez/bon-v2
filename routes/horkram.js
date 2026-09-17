@@ -302,6 +302,48 @@ router.get('/search', async (req, res) => {
 
 // Batch snapshots — til live beriging i indkøbs-UI (shared/indkob.js)
 // GET /api/horkram/snapshots?ids=1234,5678,...
+/**
+ * Hent snapshots for en liste varenumre, 20 ad gangen.
+ * Returnerer også `failedIds` — varenumre hvis OPSLAG fejlede (netværk/HTTP).
+ * De må ikke forveksles med varenumre Hørkram ikke kender (udgåede): de sidste
+ * mangler blot i `products`.
+ */
+async function fetchSnapshotSummaries(ids) {
+    const dd       = deliveryDate();
+    const products = [];
+    const errors   = [];
+    const failedIds = [];
+
+    for (let i = 0; i < ids.length; i += 20) {
+        const chunk = ids.slice(i, i + 20);
+        const url = `${HOKA_BASE}/api/catalog/products/snapshots?${chunk.map(id => `id=${id}`).join('&')}&expectedDeliveryDate=${encodeURIComponent(dd)}`;
+        try {
+            const snapRes = await fetchWithAuth(url);
+            if (!snapRes.ok) {
+                errors.push({ chunk: chunk.join(','), error: `HTTP ${snapRes.status}` });
+                failedIds.push(...chunk);
+                continue;
+            }
+            const snapshots = await snapRes.json();
+            const snapArr = Array.isArray(snapshots) ? snapshots
+                : Array.isArray(snapshots?.Model) ? snapshots.Model : [];
+            for (const snap of snapArr) {
+                try {
+                    const summary = parser.parseSnapshotToSummary(snap);
+                    if (summary) products.push(summary);
+                } catch (e) {
+                    errors.push({ id: snap?.Id, error: e.message });
+                    if (snap?.Id != null) failedIds.push(String(snap.Id));
+                }
+            }
+        } catch (e) {
+            errors.push({ chunk: chunk.join(','), error: e.message });
+            failedIds.push(...chunk);
+        }
+    }
+    return { products, errors, failedIds };
+}
+
 router.get('/snapshots', async (req, res) => {
     try {
         const idsParam = req.query.ids || '';
@@ -310,29 +352,7 @@ router.get('/snapshots', async (req, res) => {
         if (ids.length > 60) return res.status(400).json({ error: `Max 60 IDs pr. kald (modtog ${ids.length})` });
 
         console.log(`[Hørkram] → SNAPSHOTS ${ids.length} produkter`);
-
-        const dd       = deliveryDate();
-        const products = [];
-        const errors   = [];
-
-        for (let i = 0; i < ids.length; i += 20) {
-            const chunk = ids.slice(i, i + 20);
-            const url = `${HOKA_BASE}/api/catalog/products/snapshots?${chunk.map(id => `id=${id}`).join('&')}&expectedDeliveryDate=${encodeURIComponent(dd)}`;
-            try {
-                const snapRes = await fetchWithAuth(url);
-                if (!snapRes.ok) { errors.push({ chunk: chunk.join(','), error: `HTTP ${snapRes.status}` }); continue; }
-                const snapshots = await snapRes.json();
-                const snapArr = Array.isArray(snapshots) ? snapshots
-                    : Array.isArray(snapshots?.Model) ? snapshots.Model : [];
-                for (const snap of snapArr) {
-                    try {
-                        const summary = parser.parseSnapshotToSummary(snap);
-                        if (summary) products.push(summary);
-                    } catch (e) { errors.push({ id: snap?.Id, error: e.message }); }
-                }
-            } catch (e) { errors.push({ chunk: chunk.join(','), error: e.message }); }
-        }
-
+        const { products, errors } = await fetchSnapshotSummaries(ids);
         console.log(`[Hørkram] ← ${products.length}/${ids.length} snapshots OK${errors.length ? `, ${errors.length} fejl` : ''}`);
         res.json({ products, requested: ids.length, returned: products.length, ...(errors.length ? { errors } : {}) });
     } catch (err) {
@@ -915,3 +935,4 @@ function resolveSalesUnits(products, snapMap, failedIds) {
 
 module.exports = router;
 module.exports.resolveSalesUnits = resolveSalesUnits;
+module.exports.fetchSnapshotSummaries = fetchSnapshotSummaries;

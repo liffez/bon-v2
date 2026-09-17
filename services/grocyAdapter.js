@@ -501,6 +501,29 @@ async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
         }
     }
 
+    // Sidste udvej: et manuelt OVERSLAG (#657). Det er ikke en målt pris, men et
+    // tal nogen bevidst har skrevet — typisk på en ny vare der endnu ikke har et
+    // varenummer. Derfor står det efter ALT der er målt, og det bærer sin egen
+    // kilde, så en kostpris bygget på et gæt aldrig kan forveksles med en målt.
+    const udenPris = maal.filter(p => !detaljer.has(String(p.id)));
+    if (udenPris.length) {
+        let overslag = new Map();
+        try {
+            overslag = await require('./supplierPrices').estimatePrices(module.exports);
+        } catch (e) {
+            overslag = new Map();   // varenumrene kunne ikke læses — ingen overslag i denne runde
+        }
+        for (const p of udenPris) {
+            const pris = overslag.get(String(p.id));
+            if (!(pris > 0)) continue;
+            detaljer.set(String(p.id), {
+                cost: pris, source: 'estimate',
+                last_price: null, avg_price: null, deviation_pct: null, warn: false,
+                purchases_in_window: 0, window_days: windowDays,
+            });
+        }
+    }
+
     if (!subset) setCached(cacheKey, detaljer);
     return detaljer;
 }
@@ -1503,7 +1526,12 @@ async function addToStockFull(productId, body) {
         transaction_type: 'purchase',
         ...body,
     };
-    if (!payload.best_before_date) payload.best_before_date = '2999-12-31';
+    // `best_before_date: null` betyder "lad Grocy bruge produktets default_due_days"
+    // (varemodtagelsen). Kun et UDELADT felt får den gamle "udløber aldrig"-dato —
+    // ellers ville hver modtaget vare stå som holdbar for evigt (samme fejl som #331).
+    if (payload.best_before_date === null) delete payload.best_before_date;
+    else if (!payload.best_before_date) payload.best_before_date = '2999-12-31';
+    if (payload.price === null || payload.price === undefined) delete payload.price;
     const resp = await grocyPost(`/stock/products/${productId}/add`, payload);
     _cache.delete('stock');
     return _extractTransactionId(resp);
@@ -1626,11 +1654,14 @@ function getUserfields() {
  * @param {number} amount          Ny mængde i stock-units
  * @param {string} [bestBeforeDate] Udløbsdato (YYYY-MM-DD), valgfri
  */
-async function setInventory(productId, amount, bestBeforeDate) {
+async function setInventory(productId, amount, bestBeforeDate, opts = {}) {
     const body = {
         new_amount: amount,
     };
     if (bestBeforeDate) body.best_before_date = bestBeforeDate;
+    // Pris pr. lager-enhed (ex moms) på det TILFØJEDE (#657). Grocy ignorerer den
+    // ved et fald. Udelades den, fører Grocy produktets seneste pris videre.
+    if (Number.isFinite(opts.price) && opts.price > 0) body.price = opts.price;
     try {
         await grocyPost(`/stock/products/${productId}/inventory`, body);
     } catch (err) {

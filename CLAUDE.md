@@ -163,6 +163,7 @@ bon-v2/
 │   ├── crmActivity.js        ← logActivity/validateActivity — ÉN kilde til at skrive en crm_activities-række
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
+│   ├── supplierPrices.js     ← Leverandørpriser pr. varenummer — læst/skrevet i Grocy (stregkodens last_price), pris pr. lager-enhed + manuelt overslag som internt varenummer (#657)
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js      ← getDb() singleton (lazy init + migrations)
@@ -537,7 +538,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 | `pack_size_stock_unit` | text_single_line | Indkøb (beregning, fallback) | Pakke-størrelse i stock-enhed (kg). Fallback når live snapshot ikke er tilgængeligt. |
 | `supplier_unit_code` | text_single_line | Indkøb → Hoka kurv | Hokas salesUnit code (fx `'ks'`, `'st'`). Bruges ved PUT /api/horkram/basket/add. Sættes ved barcode-kobling. |
 | `supplier_unit_qty` | text_single_line | Indkøb → Hoka kurv | Antal base-enheder pr. salesUnit. Bruges sammen med supplier_unit_code. |
-| `is_preferred` | text_single_line | Indkøb (chip-sortering) | `'1'` = foretrukken leverandør for dette produkt. Vises med lilla "Foretrukket" badge. Sorteres allerførst — før aftale og pris. |
+| `is_preferred` | text_single_line | Indkøb (chip-sortering), priser (#657) | `'1'` = foretrukken leverandør for dette produkt. Vises med lilla "Foretrukket" badge. Sorteres allerførst — før aftale og pris. Bestemmer også hvilket varenummers pris der sendes med til Grocy, når varen har flere. Kun ét pr. vare (sættes via `PUT /api/purchasing/prices/product/:id/preferred`). |
 | `hk_scraped_at` | text_single_line | Hørkram scraper | ISO timestamp for seneste scraping af denne barcode. |
 | `hk_brand` | text_single_line | Hørkram scraper | Brand fra Hørkram-katalog. |
 | `hk_country` | text_single_line | Hørkram scraper | Oprindelsesland fra Hørkram. |
@@ -7951,6 +7952,146 @@ resolver-graph, subrecipe-status, packing-units, prep-packing, recipe-factor.
 > **Kan ikke ses i den lokale dev-DB** — den peger på grocytest, hvor de producerede
 > goder og deres priser ikke findes. Verificér mod grocy-hq.
 
+### Varemodtagelse og lageroversigt sender en pris med til Grocy (#657, 17. september 2026)
+
+Hver lagerpost i Grocy bar den forrige pris videre, fordi hverken varemodtagelsen
+eller lageroversigten sendte en pris med. Kostprisen (#557) regnede derfor i praksis
+på det sidste tal nogen tastede i Grocys UI. Og "Opdater priser nu" skrev en frisk
+Hørkram-pris på **produktet** — en vare med flere varenumre (pose og spand) fik den
+pris der tilfældigvis blev behandlet sidst. Målt i grocy-hq: 28 produkter havde
+flere varenumre, Mozzarella tre priser mellem 55 og 99 kr/kg.
+
+**Driftsfakta der styrede designet:** køkkenet bruger ikke indkøbsmodulet (der var
+uorden i varer og priser, og der er friktion) og kun sjældent varemodtagelsen (5
+registreringer maj–aug). Varer kommer på lager ved at rette tallet i
+lageroversigten. En pris der kun fanges ved bestilling, ville aldrig fyre.
+Opfølgning: #658 (varemodtagelse uden bestilling).
+
+**Grocy er eneste sandhed — Bon gemmer ingen priser.** Felterne er Grocys egne:
+
+| Felt (på `product_barcodes`) | Betydning |
+|---|---|
+| `last_price` | pris pr. **1 af stregkodens enhed** (`qu_id`) — Grocys egen betydning, og det den gamle scraper skrev |
+| `amount` + `qu_id` | hvad ét stk. af varenummeret indeholder |
+| userfield `is_preferred` | hvilket varenummer der gælder (fandtes allerede) |
+| userfield `is_agreement_item`, `hk_price_per_unit`, `hk_scraped_at` | aftale, leverandørens stykpris, hvornår den er hentet |
+
+Bon gemmer kun hvad varemodtagelsen **sendte** (`goods_receipt_items.received_price`
++ `received_price_source`, migration 177) — en kvittering, ikke en sandhed.
+
+- **`services/supplierPrices.js`** har tre lag: omregning (rene funktioner),
+  valg af varenummer (ren) og læsning/skrivning i Grocy.
+  - Hørkram-pris → stregkode: `stykpris ÷ amount`. Hørkrams `salesPrice` står pr.
+    **basisenhed** (flasken, ikke kassen) for alle salgsenheder. Uden indhold bruges
+    Hørkrams kilopris — kun på en kilo-stregkode.
+  - Stregkode → lager-enhed: `last_price ÷ (1 stregkode-enhed i lager-enhed)` via
+    **samme** `resolveToStockAmount()` som mængderne (#358), så pris og mængde på
+    samme lagerpost aldrig bygger på hver sin enhed.
+  - `last_price` gemmes med **8 decimaler** — en pris pr. gram med 4 decimaler
+    flytter kiloprisen (0,0679 kr/g = 67,90, ikke 67,88).
+- **Hvilken pris gælder** (`resolveProductPrice`): det **leverede** varenummer →
+  det foretrukne → det eneste med pris → den eneste aftalevare. Ellers **ingen**.
+  Mangler det leverede eller foretrukne varenummer en pris, lånes en anden ikke:
+  posen og spanden koster ikke det samme. Pose og spand i samme leverance → ingen pris.
+- **Ingen pris = intet felt i kaldet.** Grocy fører så den forrige videre som før.
+  Et fejlet prisopslag vælter aldrig en modtagelse eller en lagerrettelse.
+- **Varemodtagelsen** bruger `addToStockFull` med pris. `best_before_date: null`
+  betyder nu "Grocys standard" — kun et **udeladt** felt giver den gamle
+  "udløber aldrig"-dato (samme fælde som #331). Klienten sender de bestilte
+  varenumre med (`ordered_varenrs`).
+- **Lageroversigten** er stadig et lagerværktøj. `POST /stock/:id/inventory`
+  sender prisen med i baggrunden (Grocy bruger den kun på det tilføjede). Toasten
+  nævner prisen stille, pillen **"N uden pris"** viser hvad der mangler, og ✎ har
+  en prissektion: der tastes **kun** når prisen mangler, eller efter "Ret". Rettes
+  en pris, tastes den pr. lager-enhed og gemmes på stregkoden.
+  **En op-rettelse tæller ikke som et indkøb** i kostprisens snit (#557) —
+  leverancer registreres i varemodtagelsen.
+- **"Opdater priser nu"** kører nu på serveren (`POST /prices/refresh-horkram`) og
+  skriver én pris pr. varenummer. Uændret pris → `last_price` røres ikke, men
+  datoen fornyes. Et fejlet opslag markeres ikke som udgået. "Alle koblinger" og
+  Produkter-fanen viser prisen pr. lager-enhed. `supplier_price_per_kg` på produktet
+  skrives ikke længere (det var en kopi — en anden sandhed).
+- **Fundet i grocy-hq:** kun 31 af 146 stregkoder havde `hk_price_per_unit` (fra
+  marts), og 2 havde `pack_size_stock_unit` — en regel bygget på de to felter
+  ville have været inert. Indholdet står i Grocys egne `amount`/`qu_id` (33 udfyldt).
+
+> ⚠️ **"Bør tjekkes"-advarslen** fyrer når indholds-prisen afviger > 30 % fra
+> Hørkrams egen kilopris. Cornichons er eksemplet: 21,34 kr for et 330 g-glas giver
+> 64,67 kr/kg, mens Hørkram regner på drænet vægt (112,32). Hvilken der er rigtig
+> afhænger af hvad køkkenet tæller som et kilo — det er stamdata.
+
+#### Overslaget er også bare et varenummer
+
+At sende **ingen** pris er heller ikke gratis: Grocy fører den forrige videre, og så
+bygger kostprisen på et tal ingen kan gøre rede for. En ny opskrift kan desuden
+rumme varer der endnu ikke HAR et varenummer — man har kigget hos Hørkram uden at
+have fundet den rigtige vare, men har et bud. Uden en pris kan retten slet ikke
+prissættes.
+
+Et **manuelt overslag** er derfor et internt varenummer, `OVERSLAG-<produkt-id>`,
+uden leverandør. Så bor det samme sted som alt andet, og der er stadig kun én
+sandhed. `amount: 1` i varens EGEN lager-enhed betyder at `last_price` ER prisen
+pr. lager-enhed, og at overslaget læses tilbage gennem nøjagtig samme omregning
+(#358) som ethvert andet varenummer — ingen særvej, intet andet sted at holde styr på.
+
+- **Det taber altid til en leverandørpris.** Overslaget deltager ikke i valget
+  mellem varenumre; det står udenfor og fanger kun det der ellers ville blive til
+  "ingen pris" — også `ambiguous` (to lige gode varenumre) og `ordered_unpriced`.
+  `fell_back_from` i svaret siger hvad det trådte i stedet for.
+- Det kan **ikke** markeres som foretrukken leverandør, og "Opdater priser nu"
+  rører det ikke (den filtrerer på rent numeriske varenumre).
+- **Indkøb og koblinger ser det ikke.** Filteret bor ét sted — `fetchProductBarcodes()`
+  i `shared/api.js` — frem for i hver af de otte flader der henter listen. Priserne
+  hentes via `/purchasing/prices/*`, som ser det.
+- **Kostprisen bruger det sidst**, efter alt der er målt: også efter en forældres
+  arvede gennemsnit (som jo stammer fra børnenes rigtige køb). Kostprisen er
+  **komplet** — et overslag er ikke en manglende pris — men den bærer sin egen
+  advarsel (`estimated_price`), så et gæt aldrig kan forveksles med noget vi har
+  betalt. I drill-down-panelet står mærket **foran** beløbet (`overslag 1,68 kr`):
+  det fortæller hvad slags tal der kommer, og beløbene bliver stående i en ret
+  kolonne ude til højre.
+- **Varemodtagelsen sender det med**, og linjen husker det:
+  `received_price_source = 'OVERSLAG-14'`.
+
+**Tastes tre steder, alle hvor man opdager at prisen mangler:** ✎ i lageroversigten
+(feltet vises kun når der ikke er en leverandørpris, eller når der allerede står et
+overslag der kan rettes og fjernes) · **Opskrifter & priser**s drill-down, hvor en
+råvare uden pris får et `+ overslag` ved siden af sit `—` · **opskrift-editoren**,
+hvor kostpris-kortet siger `ingen pris + overslag`.
+
+> De to opskrift-flader beder endpointet om at **genberegne kostpriserne** i samme
+> kald (`recompute`, samme kode som "Opdater priser"). Uden det ville rækken vise
+> det nye tal mens totalen under den stod på det gamle. Lageroversigten beder ikke
+> om det: dér er et overslag en lagerhandling, og et kald der tager ti sekunder
+> hører ikke hjemme på en touchskærm.
+
+**Tests:** `npm run test:leverandorpriser` — **101 asserts** (omregning, valg,
+opfriskning, ret pris, varemodtagelses-routen, inventory-routen, klient-helpers, den
+**ægte** adapter mod en falsk `fetch`, og overslaget hele vejen igennem) +
+`npm run test:kostpris` — **12 nye** i `test-kostpris-overslag.js` (rækkefølgen,
+komplet-men-advaret, og at et fejlet varenummer-opslag ikke vælter kostprisen).
+**32 mutationer, alle fanget** — heriblandt at fjerne divisionen med pakkestørrelsen
+(14 falder), at lade overslaget deltage i valget mellem leverandører (3), at gemme
+det i købs-enheden (6) og at bruge det FØR det målte (4).
+
+T_VAREMODTAGELSE_FULL mod grocytest: **82 PASS** (op fra 79) — UNIT_04 modtager 1
+kasse med en midlertidig stregkode (123,45 kr/kasse) og måler at Grocys lagerpost
+bærer 15,87 kr/kg (÷ 7,78); samme mutation mod ægte Grocy giver 123,45 og fælder
+UNIT_04+05. UNIT_06: vare uden kobling lander uden pris og uden fejl.
+Browser-verificeret mod grocytest hele vejen: valg af varenummer, "Ret",
+op-rettelse med pris i lagerposten, "Opdater priser nu" (78 tjekket, 74 ændret, 4
+udgåede), og overslaget sat, rettet og fjernet fra alle tre flader — med kostprisen
+regnet om og indkøbs-fladerne blinde for det. Alt gendannet bagefter.
+
+> ⚠️ **Fælde i testkørsel:** `npm run test:consume-hardening` forventer at Grocy
+> IKKE er nåelig. Ligger der en `.env` i worktreen, når kaldene ud og får 401, og
+> 8 asserts falder uden at der er noget galt med koden.
+
+**Deploy:** migration 177 kører ved genstart. Tryk derefter **"Opdater priser nu"**
+én gang (Indkøb → ⚙ → Hørkram), så stregkoderne får friske priser. Varer med flere
+varenumre skal have et foretrukket valgt i ✎ eller under "Alle koblinger" —
+ellers sendes der ingen pris for dem.
+
 ---
 
 ## Næste opgave
@@ -8362,6 +8503,7 @@ GET    /api/grocy/userfields                             routes/grocy.js (alle e
 POST   /api/grocy/products                                routes/grocy.js (opret produkt)
 POST   /api/grocy/quantity-unit-conversions               routes/grocy.js (opret QU-konvertering)
 POST   /api/grocy/stock/:id/add                           routes/grocy.js (initial lagerbeholdning + pris)
+POST   /api/grocy/stock/:id/inventory                     routes/grocy.js (sæt lagertal — sender leverandørprisen med; svar: price_sent/price_reason)
 POST   /api/grocy/recipes                                routes/grocy.js (opret opskrift)
 PUT    /api/grocy/recipes/:id                            routes/grocy.js (opdater opskrift)
 PUT    /api/grocy/recipes/:id/userfields                 routes/grocy.js (opdater userfields)
@@ -8457,6 +8599,12 @@ POST   /api/attachments/upload                             routes/attachments.js
 GET    /api/attachments/:id/download                       routes/attachments.js
 GET    /api/attachments/mail/:id/download                  routes/attachments.js
 GET    /api/purchasing/suppliers?location_id=               routes/purchasing.js
+POST   /api/purchasing/prices/refresh-horkram  { barcodes? }  routes/purchasing.js (#657 — friske Hørkram-priser på stregkoderne i Grocy)
+GET    /api/purchasing/prices/overview                      routes/purchasing.js (pris pr. lager-enhed pr. aktiv vare)
+GET    /api/purchasing/prices/product/:id                   routes/purchasing.js (varenumre + hvilken pris der gælder)
+PUT    /api/purchasing/prices/product/:id/preferred         routes/purchasing.js ({ barcode_id|null } — ét foretrukket varenummer)
+PUT    /api/purchasing/prices/product/:id/estimate          routes/purchasing.js ({ stock_price|null, recompute? } — manuelt overslag som internt varenummer)
+PUT    /api/purchasing/prices/barcode/:id                   routes/purchasing.js ({ stock_price } — ret en pris, tastet pr. lager-enhed)
 GET    /api/purchasing/suppliers/mail-overview?unread_only=  routes/purchasing.js
 GET    /api/purchasing/suppliers/:id/mail                    routes/purchasing.js
 POST   /api/purchasing/suppliers/:id/mail                    routes/purchasing.js (send fri kommunikation)

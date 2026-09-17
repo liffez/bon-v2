@@ -388,7 +388,15 @@ function compute(recipeId, ctx, memo, stack) {
         if (unitCost == null && stockPrice != null) {
             unitCost = stockPrice;
             const d = ctx.priceDetails.get(pid);
-            if (d && d.warn) {
+            // Et manuelt overslag er ikke en målt pris (#657). Kostprisen er
+            // komplet, men den hviler på et gæt — og det skal kunne ses, ellers
+            // ligner den et tal vi har betalt.
+            if (d && d.source === 'estimate') {
+                warnings.set(`estimate:${pid}`, {
+                    kind: 'estimated_price',
+                    product_id: pid, product: name, price: stockPrice,
+                });
+            } else if (d && d.warn) {
                 warnings.set(`price:${pid}`, {
                     kind: 'last_vs_avg',
                     product_id: pid, product: name,
@@ -481,6 +489,9 @@ function describeWarning(w) {
         case 'produced_recipe_cost_unavailable':
             return `${w.product}: kostprisen kunne ikke regnes (${w.reason}), `
                  + `så lagerprisen ${kr(w.stock_price)} er brugt.`;
+        case 'estimated_price':
+            return `${w.product}: prisen ${kr(w.price)} er et manuelt overslag, ikke en målt `
+                 + `indkøbspris. Kobl varen til et varenummer når det kendes.`;
         case 'last_vs_avg':
             return `${w.product}: seneste køb ${kr(w.last_price)} ligger ${pct(w.deviation_pct)} `
                  + `fra ${w.window_days || PRICE_WINDOW_DAYS_DEFAULT}-dages gennemsnittet ${kr(w.avg_price)}. `

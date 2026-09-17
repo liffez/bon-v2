@@ -282,6 +282,38 @@
     font-weight: 500;
     cursor: help;
 }
+/* Manuelt overslag (#657) — et ord, ikke et tegn: det er en anden slags tal,
+   ikke en variant af det samme, og det skal kunne læses uden en forklaring. */
+.ops-estimated,
+.ops-est-add {
+    border: none;
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: #efe6f6;
+    color: #6b3f9e;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    text-transform: lowercase;
+    vertical-align: 1px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ops-est-add {
+    background: none;
+    color: #6b3f9e;
+    text-decoration: underline;
+    padding: 0 3px;
+    margin-right: 0;
+    margin-left: 6px;
+}
+.ops-est-edit { display: inline-flex; align-items: center; gap: 5px; }
+.ops-est-input { width: 78px; padding: 3px 5px; font: inherit; font-size: 12px; text-align: right; }
+.ops-est-unit  { font-size: 11px; color: #6a6359; }
+.ops-est-save  { padding: 3px 9px; font-size: 12px; }
+.ops-est-cancel { font-size: 11px; }
 /* Plus-tegnet efter kostprisen: "mindst så meget". */
 .ops-inherited {
     color: #8e631f;

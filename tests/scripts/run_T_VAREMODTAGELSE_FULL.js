@@ -1823,6 +1823,129 @@ async function runUnitConversionCases() {
         `delta=${(afterBad - beforeBad).toFixed(3)} status=${rBad.body?.status} err=${itemBad?.grocy_error ? 'ja' : 'nej'}`);
 }
 
+// ════════════════════════════════════════════════════════════
+// UNIT — prisen følger med til Grocy (#657)
+// ════════════════════════════════════════════════════════════
+//
+// Varemodtagelsen sender kr pr. LAGER-enhed med, udledt af det bestilte
+// varenummers pris i Grocy (stregkodens last_price, pr. 1 af stregkodens enhed).
+// Her lægges en midlertidig stregkode i KØBS-enheden (kassen) på REAL_PID_A.
+// Prisen pr. kasse skal deles med faktoren kasse→kilo; sendes den råt, er det
+// #358 igen — bare på prisen i stedet for mængden.
+const PRICE_BARCODE = `T657-${Date.now()}`;
+const PRICE_PER_PURCHASE_UNIT = 123.45;
+let priceBarcodeId = null;
+
+// Grocy direkte, kun til at LÆSE lagerposterne (serveren har ingen route til dem).
+function grocyDirect() {
+    const loc = db.prepare(`
+        SELECT l.grocy_api_url AS url, l.grocy_api_key AS key, l.code
+        FROM locations l
+        WHERE l.id = COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'default_grocy_location_id'), l.id)
+        ORDER BY l.id LIMIT 1`).get();
+    const key = loc?.key || process.env[`GROCY_${String(loc?.code || '').toUpperCase()}_KEY`] || process.env.GROCY_HQ_KEY;
+    return { url: String(loc?.url || '').replace(/\/+$/, ''), key };
+}
+async function newestStockEntry(pid) {
+    const g = grocyDirect();
+    const res = await fetch(`${g.url}/stock/products/${pid}/entries`, { headers: { 'GROCY-API-KEY': g.key } });
+    if (!res.ok) throw new Error(`Grocy ${res.status}`);
+    const entries = await res.json();
+    return entries.sort((a, b) => Number(b.id) - Number(a.id))[0] || null;
+}
+
+async function runPriceCases() {
+    console.log('\n── UNIT: pris pr. lager-enhed følger med (#657) ──');
+
+    let purchaseQu, stockQu, factor, plainPid = null;
+    try {
+        const [pRes, cRes, bRes] = await Promise.all([
+            api('GET', '/api/grocy/products'),
+            api('GET', '/api/grocy/quantity-unit-conversions'),
+            api('GET', '/api/grocy/product-barcodes'),
+        ]);
+        const prods = pRes.body || [];
+        const prod = prods.find(p => parseInt(p.id) === REAL_PID_A);
+        purchaseQu = parseInt(prod.qu_id_purchase);
+        stockQu    = parseInt(prod.qu_id_stock);
+        const conv = (cRes.body || []).find(c =>
+            parseInt(c.product_id) === REAL_PID_A &&
+            parseInt(c.from_qu_id) === purchaseQu && parseInt(c.to_qu_id) === stockQu);
+        factor = parseFloat(conv.factor);
+        if (!(purchaseQu !== stockQu && factor > 0 && factor !== 1)) throw new Error('utilstrækkelig fixture');
+
+        // En aktiv vare helt uden stregkoder og med samme købs- og lager-enhed.
+        const withBarcode = new Set((bRes.body || []).map(b => parseInt(b.product_id)));
+        const plain = prods.find(p => Number(p.active) === 1 && !withBarcode.has(parseInt(p.id))
+            && parseInt(p.qu_id_purchase) === parseInt(p.qu_id_stock) && !Number(p.no_own_stock));
+        plainPid = plain ? parseInt(plain.id) : null;
+
+        const created = await api('POST', '/api/grocy/product-barcodes', {
+            product_id: REAL_PID_A, barcode: PRICE_BARCODE,
+            qu_id: purchaseQu, amount: 1, last_price: PRICE_PER_PURCHASE_UNIT,
+        });
+        priceBarcodeId = created.body?.created_object_id ? parseInt(created.body.created_object_id) : null;
+        if (!priceBarcodeId) throw new Error(`kunne ikke oprette test-stregkode (${created.status})`);
+    } catch (err) {
+        for (const id of ['T_VAREMOD_F_UNIT_04', 'T_VAREMOD_F_UNIT_05', 'T_VAREMOD_F_UNIT_06']) {
+            record(id, 'UNIT', 'SKIP', `Kunne ikke sætte pris-fixture op: ${err.message}`);
+        }
+        return;
+    }
+
+    // UNIT_04 + 05: modtag 1 kasse af det bestilte varenummer.
+    const expectedPrice = PRICE_PER_PURCHASE_UNIT / factor;
+    const r = await createReceipt(basePayload({
+        items: [{ grocy_product_id: REAL_PID_A, qu_id: purchaseQu, ordered_varenrs: [PRICE_BARCODE],
+                  product_name: 'PRIS varenummer', received_quantity: FAIL_QTY, status: 'ok' }],
+    }));
+    if (r.status === 200) {
+        createdReceiptIds.push(r.body.id);
+        grocyMutations.push({ pid: REAL_PID_A, amount: FAIL_QTY * factor });
+    }
+    let entry = null;
+    try { entry = await newestStockEntry(REAL_PID_A); } catch (e) { /* vises i detaljen */ }
+    const entryPrice = entry ? parseFloat(entry.price) : NaN;
+    record('T_VAREMOD_F_UNIT_04', 'UNIT',
+        r.status === 200 && Math.abs(entryPrice - expectedPrice) < 0.01 ? 'PASS' : 'FAIL',
+        `lagerpostens pris=${entryPrice} forventet=${expectedPrice.toFixed(4)} ` +
+        `(${PRICE_PER_PURCHASE_UNIT} pr. kasse ÷ ${factor}; rå pris ville give ${PRICE_PER_PURCHASE_UNIT})`);
+
+    const row = r.status === 200 ? db.prepare(
+        `SELECT received_price, received_price_source FROM goods_receipt_items WHERE receipt_id = ?`).get(r.body.id) : null;
+    record('T_VAREMOD_F_UNIT_05', 'UNIT',
+        row && Math.abs(row.received_price - expectedPrice) < 0.01 && row.received_price_source === PRICE_BARCODE
+            ? 'PASS' : 'FAIL',
+        `gemt: pris=${row?.received_price} varenr=${row?.received_price_source}`);
+
+    // UNIT_06: vare uden kobling lander uden pris og uden fejl.
+    if (!plainPid) {
+        record('T_VAREMOD_F_UNIT_06', 'UNIT', 'SKIP', 'ingen vare uden stregkoder på grocytest');
+        return;
+    }
+    const r2 = await createReceipt(basePayload({
+        items: [{ grocy_product_id: plainPid, product_name: 'PRIS uden kobling',
+                  received_quantity: FAIL_QTY, status: 'ok' }],
+    }));
+    if (r2.status === 200) {
+        createdReceiptIds.push(r2.body.id);
+        grocyMutations.push({ pid: plainPid, amount: FAIL_QTY });
+    }
+    const row2 = r2.status === 200 ? db.prepare(
+        `SELECT received_price, grocy_added, grocy_error FROM goods_receipt_items WHERE receipt_id = ?`).get(r2.body.id) : null;
+    record('T_VAREMOD_F_UNIT_06', 'UNIT',
+        r2.body?.status === 'approved' && row2 && row2.received_price === null
+            && row2.grocy_added === 1 && !row2.grocy_error ? 'PASS' : 'FAIL',
+        `pid=${plainPid} status=${r2.body?.status} pris=${row2?.received_price} added=${row2?.grocy_added} err=${row2?.grocy_error || '—'}`);
+}
+
+async function cleanupPrice() {
+    if (priceBarcodeId) {
+        try { await api('DELETE', `/api/grocy/product-barcodes/${priceBarcodeId}`); }
+        catch (e) { console.log(`  ! test-stregkode ${PRICE_BARCODE} (id ${priceBarcodeId}) ikke slettet: ${e.message}`); }
+    }
+}
+
 async function runObservedCases() {
     console.log('\n── OBS: modtagelse stempler som observeret (#336) ──');
 
@@ -2128,12 +2251,14 @@ async function main() {
         await runAdhocBackdateCases();
         await runObservedCases();
         await runUnitConversionCases();
+        await runPriceCases();
     } catch (err) {
         console.error('[run_T_VAREMODTAGELSE_FULL] FEJL under test:', err.message);
         if (err.stack) console.error(err.stack);
     }
 
     await cleanupObserved();
+    await cleanupPrice();
     await cleanup();
 
     db.close();

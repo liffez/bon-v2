@@ -32,6 +32,7 @@ var _isUnlinked     = [];
 var _isAllBarcodes  = [];
 var _isDeadBarcodes = {};  // varenr → true (udgåede hos Hoka)
 var _isDeadChecked  = false;
+var _isPriceOverview = null; // #657: { [pid]: { price, stock_unit, barcodes:[{id,stock_price,note}] } } fra Grocy
 var _isAddPackProductId = null;  // product_id with open pack-size search panel
 
 // Tab 4 data (duplikat-kandidater)
@@ -46,7 +47,7 @@ var _IS_PROD_COLS = [
     { key: 'min_stock',   label: 'Minimumsgrænse', default: true  },
     { key: 'unit',        label: 'Enhed',          default: true  },
     { key: 'group',       label: 'Produktgruppe',  default: false },
-    { key: 'price_kg',    label: 'Pris/kg',        default: false },
+    { key: 'price_kg',    label: 'Pris ex moms',   default: false },
     { key: 'updated',     label: 'Sidst opdateret',default: false },
 ];
 
@@ -272,6 +273,7 @@ async function _isLoadTabData(idx) {
             var allProds = results[0] || [];
             var shopLocs = results[1] || [];
             _isBarcodes = results[2] || [];
+            _isPriceOverview = await _isLoadPriceOverview();
 
             // Build shopping location map
             var locMap = {};
@@ -302,6 +304,7 @@ async function _isLoadTabData(idx) {
             ]);
             _isAllBarcodes = results2[0] || [];
             _isHokaHealth = results2[1];
+            _isPriceOverview = await _isLoadPriceOverview();
             _isHkFavs = results2[2] || [];
             if (_isHkFavs.lists) _isHkFavs = _isHkFavs.lists;
 
@@ -730,7 +733,7 @@ function _isRenderProducts(body) {
     if (_isColOn('min_stock')) html += '<th>Min. grænse</th>';
     if (_isColOn('unit'))      html += '<th>Enhed</th>';
     if (_isColOn('group'))     html += '<th>Gruppe</th>';
-    if (_isColOn('price_kg'))  html += '<th>Pris/kg</th>';
+    if (_isColOn('price_kg'))  html += '<th>Pris ex moms</th>';
     if (_isColOn('updated'))   html += '<th>Opdateret</th>';
     html += '</tr></thead><tbody>';
 
@@ -774,14 +777,22 @@ function _isRenderProducts(body) {
         if (_isColOn('group') && !true) { /* shown under name already */ }
 
         // Price/kg
+        // #657: prisen der GÆLDER for varen — læst fra stregkoderne i Grocy.
+        var po = _isPriceOverview && _isPriceOverview[p.id];
         if (_isColOn('price_kg')) {
-            var priceKg = (p.userfields && p.userfields.supplier_price_per_kg) || '';
-            html += '<td style="font-size:12px;text-align:right">' + (priceKg ? priceKg + ' kr' : '—') + '</td>';
+            // Et manuelt overslag er også en pris, men ikke en leverandørs — og
+            // her står vi netop og kigger på leverandører. Det mærkes derfor.
+            var priceCell = po && po.price != null
+                ? _isFmtPrice(po.price, po.stock_unit) + (po.is_estimate
+                    ? ' <span title="Manuelt overslag — ikke en leverandørpris" style="color:#6b3f9e;font-size:10px;font-weight:700">overslag</span>'
+                    : '')
+                : '<span title="' + _isEsc((po && po.reason_text) || 'ingen pris') + '" style="color:var(--color-text-dim)">—</span>';
+            html += '<td style="font-size:12px;text-align:right">' + priceCell + '</td>';
         }
 
         // Updated
         if (_isColOn('updated')) {
-            var upd = (p.userfields && p.userfields.price_updated_at) || '';
+            var upd = (po && po.fetched_at) || '';
             html += '<td style="font-size:11px;color:var(--color-text-dim)">' + (upd ? upd.substring(0, 10) : '—') + '</td>';
         }
 
@@ -1138,24 +1149,12 @@ async function _isHkDoLink(varenr, grocyProductId) {
 
 async function _isHkUpdatePrice(varenr) {
     try {
-        var snap = await fetchHokaSnapshots([varenr]);
-        var items = snap.products || snap.items || snap || [];
-        if (!items.length) { _isToast('Ingen snapshot data', true); return; }
-
-        var item = items[0];
-        var priceKg = item.pricePerKg || item.price_per_kg;
-        if (!priceKg) { _isToast('Ingen pris/kg i snapshot', true); return; }
-
-        // Find Grocy product via barcode
-        var bc = _isAllBarcodes.find(function(b) { return b.barcode === String(varenr); });
-        if (!bc) { _isToast('Barcode ikke fundet i Grocy', true); return; }
-
-        await putGrocyProductUserfields(bc.product_id, {
-            supplier_price_per_kg: String(priceKg),
-            price_updated_at: new Date().toISOString(),
-        });
-
-        _isToast('Pris opdateret: ' + priceKg.toFixed(2) + ' kr/kg');
+        var r = await refreshHorkramPrices([String(varenr)]);
+        if (!r.checked) { _isToast('Varenummeret er ikke koblet til en vare i Grocy', true); return; }
+        if (r.dead && r.dead.length) { _isToast('Varenummeret findes ikke længere hos Hørkram', true); return; }
+        if (r.unpriced && r.unpriced.length) { _isToast('Ingen pris: ' + (r.unpriced[0].reason || ''), true); return; }
+        _isToast('Pris opdateret');
+        _isPriceOverview = await _isLoadPriceOverview();
     } catch (err) {
         _isToast('Fejl: ' + (err.message || ''), true);
     }
@@ -1195,38 +1194,14 @@ async function _isHkFavImport(listId) {
         var varenumre = items.map(function(p) { return p.varenummer || p.productNumber || ''; }).filter(Boolean);
         if (!varenumre.length) { _isToast('Ingen varenumre fundet', true); return; }
 
-        // Batch snapshots in chunks of 20
-        var updated = 0;
-        var errors = 0;
-        for (var i = 0; i < varenumre.length; i += 20) {
-            var chunk = varenumre.slice(i, i + 20);
-            try {
-                var snaps = await fetchHokaSnapshots(chunk);
-                var snapItems = snaps.products || snaps.items || snaps || [];
-
-                for (var j = 0; j < snapItems.length; j++) {
-                    var snap = snapItems[j];
-                    var vn = snap.varenummer || snap.productNumber || '';
-                    var priceKg = snap.pricePerKg || snap.price_per_kg;
-                    if (!priceKg || !vn) continue;
-
-                    var bc = _isAllBarcodes.find(function(b) { return b.barcode === String(vn); });
-                    if (!bc) continue;
-
-                    try {
-                        await putGrocyProductUserfields(bc.product_id, {
-                            supplier_price_per_kg: String(priceKg),
-                            price_updated_at: new Date().toISOString(),
-                        });
-                        updated++;
-                    } catch (e) { errors++; }
-                }
-            } catch (e) { errors += chunk.length; }
-
-            _isToast('Opdaterer... ' + Math.min(i + 20, varenumre.length) + '/' + varenumre.length);
-        }
-
-        _isToast('Færdig: ' + updated + ' opdateret' + (errors ? ', ' + errors + ' fejl' : ''));
+        // Kun varenumre der er koblet til en vare — prisen skrives på stregkoden i Grocy.
+        var known = varenumre.filter(function(vn) {
+            return _isAllBarcodes.some(function(b) { return b.barcode === String(vn); });
+        });
+        if (!known.length) { _isToast('Ingen af listens varer er koblet i Grocy', true); return; }
+        var r = await refreshHorkramPrices(known);
+        _isToast(_isPriceResultMsg(r), (r.errors && r.errors.length) > 0);
+        _isPriceOverview = await _isLoadPriceOverview();
     } catch (err) {
         _isToast('Fejl: ' + (err.message || ''), true);
     }
@@ -1430,7 +1405,7 @@ function _isRenderHkAllLinks(el) {
             html += '</div>';
 
             html += '<table class="is-prod-tbl" style="margin-bottom:0"><thead><tr>' +
-                '<th>Varenr.</th><th>Beskrivelse</th><th>Enhed</th><th>Kr/kg ekskl. moms</th><th>Opdateret</th><th>Foretr.</th><th style="width:30px"></th>' +
+                '<th>Varenr.</th><th>Beskrivelse</th><th>Enhed</th><th>Pris ex moms</th><th>Opdateret</th><th>Foretr.</th><th style="width:30px"></th>' +
                 '</tr></thead><tbody>';
 
             g.barcodes.forEach(function(bc) {
@@ -1439,7 +1414,8 @@ function _isRenderHkAllLinks(el) {
                 var isDead = _isDeadBarcodes[bc.barcode];
                 var packNote = bc.note || '';
                 var unitCode = bcUf.supplier_unit_code || '';
-                var priceKg = (g.product && g.product.userfields && g.product.userfields.supplier_price_per_kg) || '';
+                // #657: prisen hører til VARENUMMERET, ikke til produktet.
+                var bcPrice = _isBarcodePrice(bc);
                 var scrapedAt = bcUf.hk_scraped_at || '';
 
                 var rowStyle = isDead ? ' style="background:#fef0f0"' : '';
@@ -1460,8 +1436,9 @@ function _isRenderHkAllLinks(el) {
                 // Enhed
                 html += '<td style="font-size:12px;color:var(--color-text-dim)">' + _isEsc(unitCode || '—') + '</td>';
 
-                // Pris/kg
-                html += '<td style="font-size:12px;text-align:right">' + (priceKg ? priceKg + ' kr' : '—') + '</td>';
+                // Pris pr. lager-enhed
+                html += '<td style="font-size:12px;text-align:right"' + (bcPrice.note ? ' title="' + _isEsc(bcPrice.note) + '"' : '') + '>' +
+                    (bcPrice.price != null ? _isFmtPrice(bcPrice.price, bcPrice.unit) : '<span style="color:var(--color-text-dim)">—</span>') + '</td>';
 
                 // Opdateret (relative dato)
                 html += '<td>' + _isHkFmtAge(scrapedAt) + '</td>';
@@ -1653,10 +1630,14 @@ async function _isHkBcTogglePref(bcId) {
     var newPref = uf.is_preferred === '1' ? '' : '1';
 
     try {
-        await updateProductBarcodeUserfields(bcId, { is_preferred: newPref });
-        // Update local
-        if (!bc.userfields) bc.userfields = {};
-        bc.userfields.is_preferred = newPref;
+        // Kun ét foretrukket varenummer pr. vare — det er dét prisen tages fra (#657).
+        await setPreferredBarcode(bc.product_id, newPref ? bcId : null);
+        _isAllBarcodes.forEach(function(b) {
+            if (b.product_id !== bc.product_id) return;
+            if (!b.userfields) b.userfields = {};
+            b.userfields.is_preferred = (newPref && b.id === bcId) ? '1' : '';
+        });
+        _isPriceOverview = await _isLoadPriceOverview();
         _isToast(newPref ? 'Sat som foretrukket' : 'Foretrukket fjernet');
         _isRenderHkAllLinks(document.getElementById('isHkBody'));
     } catch (err) {
@@ -1712,90 +1693,65 @@ async function _isHkCheckDead() {
 
 /* ── Hørkram: Batch price update ───────────────────────────── */
 async function _isHkBatchPriceUpdate() {
-    var hkBcs = _isAllBarcodes.filter(_isIsHkBarcode);
-    if (!hkBcs.length) { _isToast('Ingen HK-barcodes', true); return; }
-
-    var varenumre = hkBcs.map(function(bc) { return bc.barcode; }).filter(Boolean);
-    var total = varenumre.length;
-    var updated = 0;
-    var errors = 0;
-    var foundSet = {};
-
-    // Show progress
     var body = document.getElementById('isBody');
-    var pricebar = body.querySelector('.is-hk-pricebar');
-    if (pricebar) {
-        pricebar.innerHTML = '<div class="is-progress"><div class="is-progress-bar"><div class="is-progress-fill" id="isHkProg" style="width:0%"></div></div>' +
-            '<div class="is-progress-text" id="isHkProgText">Opdaterer 0/' + total + '...</div></div>';
+    var pricebar = body && body.querySelector('.is-hk-pricebar');
+    var btn = pricebar && pricebar.querySelector('[data-is="hk-batch-update"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Henter priser…'; }
+
+    try {
+        // Priserne hentes og skrives af serveren — én pris pr. VARENUMMER, på
+        // stregkoden i Grocy (#657). Tidligere lå prisen på produktet, så en vare
+        // med flere varenumre fik den pris der tilfældigvis blev behandlet sidst.
+        var r = await refreshHorkramPrices();
+
+        // Side-effekt: udgåede varenumre (Hørkram kender dem ikke længere).
+        _isDeadBarcodes = {};
+        (r.dead || []).forEach(function(d) { _isDeadBarcodes[d.barcode] = true; });
+        _isDeadChecked = true;
+
+        var hasProblem = (r.errors && r.errors.length) || (r.dead && r.dead.length);
+        _isToast(_isPriceResultMsg(r), !!hasProblem, 8000);
+        _isPriceOverview = await _isLoadPriceOverview();
+        _isAllBarcodes = await fetchProductBarcodes();
+    } catch (err) {
+        _isToast('Fejl: ' + (err.message || ''), true);
     }
+    _isRenderTab(2);
+}
 
-    for (var i = 0; i < varenumre.length; i += 20) {
-        var chunk = varenumre.slice(i, i + 20);
-        try {
-            var snaps = await fetchHokaSnapshots(chunk);
-            var snapItems = snaps.products || snaps.items || snaps || [];
+function _isPriceResultMsg(r) {
+    var msg = 'Færdig: ' + (r.checked || 0) + ' varenumre tjekket';
+    if (r.updated) msg += ', ' + r.updated + ' ændret';
+    if (r.unpriced && r.unpriced.length) msg += ', ' + r.unpriced.length + ' uden pris';
+    if (r.warnings && r.warnings.length) msg += ', ' + r.warnings.length + ' bør tjekkes';
+    if (r.dead && r.dead.length) msg += ', ' + r.dead.length + ' udgåede';
+    if (r.errors && r.errors.length) msg += ', ' + r.errors.length + ' fejl';
+    if (r.message) msg = r.message;
+    return msg;
+}
 
-            // Track which varenumre were found
-            snapItems.forEach(function(s) {
-                var vn = s.varenummer || s.productNumber || '';
-                if (vn) foundSet[vn] = true;
-            });
+async function _isLoadPriceOverview() {
+    try { return await fetchSupplierPriceOverview(); }
+    catch (err) { console.warn('[is] prisoversigt:', err.message); return null; }
+}
 
-            for (var j = 0; j < snapItems.length; j++) {
-                var snap = snapItems[j];
-                var vn = snap.varenummer || snap.productNumber || '';
-                var priceKg = snap.pricePerKg || snap.price_per_kg;
-                if (!priceKg || !vn) continue;
+/** Et varenummers pris pr. lager-enhed, fra oversigten. */
+function _isBarcodePrice(bc) {
+    var po = _isPriceOverview && _isPriceOverview[bc.product_id];
+    var hit = po && (po.barcodes || []).find(function(x) { return x.id === bc.id; });
+    return {
+        price: hit ? hit.stock_price : null,
+        note: hit ? hit.note : null,
+        unit: po ? po.stock_unit : null,
+    };
+}
 
-                var bc = hkBcs.find(function(b) { return b.barcode === String(vn); });
-                if (!bc) continue;
-
-                try {
-                    var now = new Date().toISOString();
-                    await putGrocyProductUserfields(bc.product_id, {
-                        supplier_price_per_kg: String(priceKg),
-                        price_updated_at: now,
-                    });
-                    // Update local cache
-                    var localProd = _isAllProducts.find(function(p) { return p.id === bc.product_id; });
-                    if (localProd) {
-                        if (!localProd.userfields) localProd.userfields = {};
-                        localProd.userfields.supplier_price_per_kg = String(priceKg);
-                        localProd.userfields.price_updated_at = now;
-                    }
-                    updated++;
-                } catch (e) { errors++; }
-            }
-        } catch (e) {
-            errors += chunk.length;
-            // On error, don't mark as dead
-            chunk.forEach(function(vn) { foundSet[vn] = true; });
-        }
-
-        var pct = Math.round((i + chunk.length) / total * 100);
-        var progFill = document.getElementById('isHkProg');
-        var progText = document.getElementById('isHkProgText');
-        if (progFill) progFill.style.width = pct + '%';
-        if (progText) progText.textContent = 'Opdaterer ' + Math.min(i + 20, total) + '/' + total + '...';
-    }
-
-    // Side-effect: detect dead barcodes
-    _isDeadBarcodes = {};
-    varenumre.forEach(function(vn) {
-        if (!foundSet[vn]) _isDeadBarcodes[vn] = true;
-    });
-    _isDeadChecked = true;
-    var deadCount = Object.keys(_isDeadBarcodes).length;
-
-    var msg = 'Færdig: ' + updated + ' opdateret';
-    if (errors) msg += ', ' + errors + ' fejl';
-    if (deadCount) msg += ', ' + deadCount + ' udgåede';
-    _isToast(msg, errors > 0 || deadCount > 0);
-
-    // Re-render
-    setTimeout(function() {
-        _isRenderTab(2);
-    }, 1500);
+/** 82.53, 'Kilo' → '82,53 kr/kg' */
+function _isFmtPrice(price, unitName) {
+    var u = String(unitName || '').toLowerCase();
+    var short = { kilo: 'kg', kg: 'kg', liter: 'l', l: 'l', antal: 'stk', stk: 'stk' }[u] || u;
+    return Number(price).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        ' kr' + (short ? '/' + short : '');
 }
 
 /* ══════════════════════════════════════════════════════════════
