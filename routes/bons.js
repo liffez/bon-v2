@@ -212,7 +212,22 @@ router.get('/', handle((req, res) => {
             ) AS flag_count,
             CASE WHEN b.acknowledged_at IS NULL
                    AND EXISTS (SELECT 1 FROM web_orders wo WHERE wo.bon_id = b.id)
-                 THEN 1 ELSE 0 END AS is_unconfirmed_web
+                 THEN 1 ELSE 0 END AS is_unconfirmed_web,
+            -- Kom bonen fra et booket møde (smagsprøve)? Office skal kunne se
+            -- det i listen — ellers ligner den en almindelig ordre, og
+            -- forklaringen står kun i køkkeninfo som listen ikke viser.
+            -- Mødetypens EGET navn, ikke et hårdkodet ord: så er den sand
+            -- uanset hvilke typer der senere kan give en bon.
+            (SELECT mt.label FROM crm_activities ca
+               JOIN meeting_types mt ON mt.id = ca.meeting_type_id
+              WHERE ca.bon_id = b.id AND ca.type = 'meeting'
+              ORDER BY ca.id LIMIT 1
+            ) AS booking_meeting_label,
+            (SELECT mt.emoji FROM crm_activities ca
+               JOIN meeting_types mt ON mt.id = ca.meeting_type_id
+              WHERE ca.bon_id = b.id AND ca.type = 'meeting'
+              ORDER BY ca.id LIMIT 1
+            ) AS booking_meeting_emoji
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id

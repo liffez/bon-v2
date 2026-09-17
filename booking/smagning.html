@@ -1067,7 +1067,13 @@ function buildThankyouVars(data) {
     tid:             data.time,
     moedeTypeLabel:  state.selectedMt?.label || '',
     varighed:        state.selectedMt?.duration_min || '',
-    firmaTelefon:    '',
+    // Stod hardkodet tomt, så takkesiden altid sagde "ring til os på ." og
+    // "Adresse:" uden noget efter. Nummeret kommer fra /meeting-types (samme
+    // kilde som fejlbanneret bruger).
+    firmaTelefon:    state.contact?.phone || '',
+    firmaEmail:      state.contact?.email || '',
+    // Hvor VI leverer hen — ikke vores egen adresse. En smagning køres ud.
+    leveringsAdresse: data.address_text || '',
     firmaAdresse:    ''
   };
 }

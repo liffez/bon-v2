@@ -500,6 +500,24 @@ function _blLoadData() {
    SUMMARY
    ══════════════════════════════════════════════════════════════ */
 
+// Mærket der siger at bonen kom fra et booket møde (smagsprøve).
+//
+// Uden det ligner den en helt almindelig ordre i listen: forklaringen
+// ("standard smagsprøve") står i Køkken info, som listen ikke viser.
+// Mødetypens EGET navn, ikke et hårdkodet ord — så er mærket sandt den dag
+// en anden type også begynder at give en bon.
+//
+// Egen funktion frem for inline i rækkebygningen, så den kan efterprøves:
+// en grep på filen kan ikke se forskel på levende og død kode.
+function _blBookingChip(bon) {
+    if (!bon || !bon.booking_meeting_label) return '';
+    var navn = esc(bon.booking_meeting_label);
+    return '<br><span class="bl-booking-chip" title="Oprettet automatisk fra en booket '
+        + navn.toLowerCase() + ' \u2014 indholdet st\u00E5r i K\u00F8kken info p\u00E5 bonen">'
+        + (bon.booking_meeting_emoji ? esc(bon.booking_meeting_emoji) + ' ' : '')
+        + navn + '</span>';
+}
+
 function _blRenderSummary() {
     var el = document.getElementById('blSummary');
     if (!el) return;
@@ -637,7 +655,8 @@ function _blRenderTable() {
             + (isProduction ? ' <span class="bl-prod-icon">\uD83D\uDD27</span>' : '')
             + (bon.is_unconfirmed_web
                 ? '<br><span class="bl-web-chip" title="Ubekr\u00E6ftet web-bestilling \u2014 \u00E5bn bonnen og tryk \u00ABBekr\u00E6ft modtaget\u00BB">\uD83C\uDF10 ubekr\u00E6ftet</span>'
-                : '');
+                : '')
+            + _blBookingChip(bon);
         tr1.appendChild(tdBon);
 
         // Dato

@@ -4339,6 +4339,8 @@ function _bookingOwnerField() {
 let _smagningRecipesCache = null;
 let _smagningPayTypes = null;      // fra /api/payment-types
 let _smagningPriceCats = null;     // fra /api/price-categories
+let _smagningStatuses = null;      // fra /api/statuses
+let _smagningVehicles = null;      // fra /api/delivery/vehicles
 
 function _smagningBonBlock() {
     const on = String(allSettings.booking_smagning_create_bon || '1') === '1';
@@ -4381,6 +4383,38 @@ function _smagningBonBlock() {
          '<select id="bs-smagning-cat" onchange="bsSaveSetting(\'booking_smagning_price_category\', this.value)" ' +
          'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + catOpts + '</select>' +
          '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Den ægte pris bliver stående på bonen, så I kan se hvad smagsprøverne koster.</div></div>';
+    h += '</div>';
+
+    // Status + vogn. En booket smagning er afklaret (menu, adresse og tid er
+    // givne), så den skal ikke ligge i NY-bunken — og vi kører den selv ud.
+    const stCur  = String(allSettings.booking_smagning_bon_status || 'GODKENDT');
+    const vehCur = String(allSettings.booking_smagning_vehicle_id || '');
+
+    let stOpts = '';
+    (_smagningStatuses || []).forEach(st => {
+        stOpts += '<option value="' + esc(st.code) + '"' + (st.code === stCur ? ' selected' : '') + '>' +
+            esc(st.label || st.code) + '</option>';
+    });
+    if (!stOpts) stOpts = '<option value="' + esc(stCur) + '" selected>' + esc(stCur) + '</option>';
+
+    let vehOpts = '<option value=""' + (vehCur === '' ? ' selected' : '') + '>Book ikke automatisk</option>';
+    (_smagningVehicles || []).forEach(v => {
+        vehOpts += '<option value="' + esc(String(v.id)) + '"' + (String(v.id) === vehCur ? ' selected' : '') + '>' +
+            esc(v.label) + (v.is_internal ? ' \u2014 egen vogn' : '') + '</option>';
+    });
+    if (vehCur && !(_smagningVehicles || []).some(v => String(v.id) === vehCur)) {
+        vehOpts += '<option value="' + esc(vehCur) + '" selected>Vogn #' + esc(vehCur) + '</option>';
+    }
+
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">';
+    h += '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Bonens status</label>' +
+         '<select id="bs-smagning-status" onchange="bsSaveSetting(\'booking_smagning_bon_status\', this.value)" ' +
+         'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + stOpts + '</select>' +
+         '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Alt er afklaret ved bookingen, så den hører ikke til i NY-bunken. Vælg Venter info hvis I vil se dem igennem først.</div></div>';
+    h += '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Levering</label>' +
+         '<select id="bs-smagning-vehicle" onchange="bsSaveSetting(\'booking_smagning_vehicle_id\', this.value)" ' +
+         'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + vehOpts + '</select>' +
+         '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Vognen sættes på bonen med det samme, så den ikke står som \u201dIkke planlagt endnu\u201d i Logistik.</div></div>';
     h += '</div>';
 
     h += '<label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:6px">Indhold</label>';
@@ -4427,6 +4461,22 @@ function bsRenderSmagningMenu() {
     }).join('');
 }
 
+// Vognene vælges på id (det er dét indstillingen gemmer), ikke på code —
+// derfor sin egen fill frem for _bsFillSelect.
+function _bsFillVehicleSelect(cur) {
+    const el = document.getElementById('bs-smagning-vehicle');
+    if (!el || !_smagningVehicles) return;
+    let html = '<option value=""' + (cur === '' ? ' selected' : '') + '>Book ikke automatisk</option>';
+    html += _smagningVehicles.map(v => '<option value="' + esc(String(v.id)) + '"' +
+        (String(v.id) === cur ? ' selected' : '') + '>' + esc(v.label) +
+        (v.is_internal ? ' \u2014 egen vogn' : '') + '</option>').join('');
+    // En gemt vogn der siden er deaktiveret skal stadig kunne SES og skiftes.
+    if (cur && !_smagningVehicles.some(v => String(v.id) === cur)) {
+        html += '<option value="' + esc(cur) + '" selected>Vogn #' + esc(cur) + ' (ikke aktiv)</option>';
+    }
+    el.innerHTML = html;
+}
+
 function _bsFillSelect(id, list, cur, labelOf) {
     const el = document.getElementById(id);
     if (!el || !list) return;
@@ -4439,8 +4489,8 @@ async function bsLoadSmagningLists() {
     // nogen netop oprettet "Smagsprøve" under Betalingstyper, skal den kunne
     // vælges uden en genindlæsning.
     try {
-        [_smagningPayTypes, _smagningPriceCats] = await Promise.all([
-            fetchPaymentTypes(), fetchPriceCategories()
+        [_smagningPayTypes, _smagningPriceCats, _smagningStatuses, _smagningVehicles] = await Promise.all([
+            fetchPaymentTypes(), fetchPriceCategories(), fetchStatuses(), fetchDeliveryVehicles()
         ]);
         _bsFillSelect('bs-smagning-pay', _smagningPayTypes,
             String(allSettings.booking_smagning_payment_type || 'sponsorship'),
@@ -4448,8 +4498,15 @@ async function bsLoadSmagningLists() {
         _bsFillSelect('bs-smagning-cat', _smagningPriceCats,
             String(allSettings.booking_smagning_price_category || 'catering'),
             pc => esc(pc.label || pc.code));
+        // Kun de statusser en bon kan fødes i. En smagning må ikke starte som
+        // faktureret eller aflyst, og TILBUD er ikke en bon-status her.
+        _bsFillSelect('bs-smagning-status',
+            (_smagningStatuses || []).filter(st => st.category === 'normal'),
+            String(allSettings.booking_smagning_bon_status || 'GODKENDT'),
+            st => esc(st.label || st.code));
+        _bsFillVehicleSelect(String(allSettings.booking_smagning_vehicle_id || ''));
     } catch (err) {
-        console.warn('[settings] kunne ikke hente betalingstyper/priskategorier:', err.message);
+        console.warn('[settings] kunne ikke hente betalingstyper/priskategorier/statusser/vogne:', err.message);
     }
     await bsLoadSmagningRecipes();
 }

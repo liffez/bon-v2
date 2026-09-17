@@ -19,6 +19,9 @@
  *   · Bon-oprettelse dør  → kalderen logger og lader bookingen stå. Adressen
  *                           er gemt på aktiviteten (migration 172), så bonen
  *                           kan laves bagefter fra CRM.
+ *   · Vognen kan ikke      → bonen bliver, uden vogn. Den står da som "Ikke
+ *     bookes                 planlagt endnu" i Logistik, og grunden skrives i
+ *                           interne noter.
  *
  * Det der ALDRIG er stille: hver af de tre efterlader et spor på bonen eller i
  * svaret, så ingen kan tro at der ligger en smagsprøve klar som ikke gør.
@@ -76,6 +79,63 @@ async function resolveMenuLines(priceCategory) {
 }
 
 /**
+ * Hvilken status bonen skal fødes med.
+ *
+ * NY betyder "nogen skal tage stilling". En booket smagning er afklaret i det
+ * sekund kunden trykker book — menu, adresse og tidspunkt er alle givne — så
+ * den hører ikke til i NY-bunken sammen med de bestillinger der faktisk
+ * mangler noget. Standard er derfor GODKENDT (migration 175).
+ *
+ * Koden valideres mod status_definitions FØR den bruges: getStatusId()
+ * returnerer undefined for en ukendt kode, og så ville INSERT'en kaste og
+ * koste bonen. En tastefejl i Settings må ikke kunne slå auto-oprettelsen
+ * ihjel for hver eneste booking — så hellere NY og en linje i loggen.
+ */
+function resolveBonStatus() {
+    const wanted = (getSetting('booking_smagning_bon_status') || 'GODKENDT').trim().toUpperCase();
+    const row = getDb().prepare(
+        'SELECT code FROM status_definitions WHERE code = ? AND is_active = 1'
+    ).get(wanted);
+    if (row) return row.code;
+    console.warn(`[smagning] Ukendt bon-status "${wanted}" i Settings \u2014 bruger NY i stedet`);
+    return 'NY';
+}
+
+/**
+ * Sæt vores egen vogn på bonen (Volvo Duett som standard).
+ *
+ * Vi kører selv smagsprøven ud, så vognen er kendt på forhånd. Uden den står
+ * bonen som "Ikke planlagt endnu" i Logistik og på køkkenkortet, og nogen
+ * skal huske at vælge den i hånden hver gang.
+ *
+ * logBookingEvent() ejer hele koblingen — delivery_events, delivery_method,
+ * courier_provider, prisestimat, afhentningstid, changelog og SSE. Den kan
+ * slå et ORS-opslag op undervejs; går dét galt, må det aldrig koste bonen.
+ *
+ * @returns {Promise<string|null>} advarsel hvis vognen ikke kunne sættes
+ */
+async function bookOwnDelivery(bonId, userId) {
+    const raw = getSetting('booking_smagning_vehicle_id');
+    const vehicleId = parseInt(raw, 10);
+    // Tom værdi er et gyldigt valg: "book ikke automatisk".
+    if (!Number.isInteger(vehicleId) || vehicleId <= 0) return null;
+
+    try {
+        const { logBookingEvent } = require('./delivery_log');
+        await logBookingEvent({
+            bonId,
+            vehicleId,
+            status: 'booked',
+            userId,
+            note: 'Sat automatisk fra booket smagning',
+        });
+        return null;
+    } catch (err) {
+        return `Leveringen kunne ikke sættes automatisk (${err.message}). Vælg vogn under BESTIL BUD på bonen.`;
+    }
+}
+
+/**
  * Opret bonen for en booket smagning og kobl den til aktiviteten.
  *
  * @returns {Promise<{created:boolean, reason?:string, bonId?:number, bonNumber?:string, warning?:string}>}
@@ -122,7 +182,7 @@ async function createSmagningBon({ activityId, customerId, companyId, date, time
         price_category_code: priceCategory,
         price_category: priceCategory,
         payment_type: paymentType,
-        status_code: 'NY',
+        status_code: resolveBonStatus(),
         kitchen_info: `${label} — standard smagsprøve`,
         internal_notes: notes,
         user_id: userId,
@@ -142,10 +202,30 @@ async function createSmagningBon({ activityId, customerId, companyId, date, time
         db.prepare('UPDATE crm_activities SET bon_id = ? WHERE id = ?').run(bonId, activityId);
     }
 
-    if (warning) console.warn(`[smagning] bon ${bonNumber}: ${warning}`);
+    // Vognen sættes EFTER bonen findes — den skal have et bon-id at hænge på.
+    // Fejler den, står advarslen på bonen ved siden af menu-advarslen, så den
+    // ene ikke kan skjule den anden.
+    const vehicleWarning = await bookOwnDelivery(bonId, userId);
+    if (vehicleWarning) {
+        db.prepare(`
+            UPDATE bons
+               SET internal_notes = TRIM(COALESCE(internal_notes, '') || char(10) || ?),
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+        `).run(vehicleWarning, bonId);
+    }
+
+    const warnings = [warning, vehicleWarning].filter(Boolean);
+    warnings.forEach(w => console.warn(`[smagning] bon ${bonNumber}: ${w}`));
     console.log(`[smagning] Bon ${bonNumber} oprettet til activity #${activityId} (${lines.length} linjer)`);
 
-    return { created: true, bonId, bonNumber, warning: warning || undefined, lineCount: lines.length };
+    return {
+        created: true,
+        bonId,
+        bonNumber,
+        warning: warnings.length ? warnings.join(' ') : undefined,
+        lineCount: lines.length,
+    };
 }
 
-module.exports = { createSmagningBon, readMenu };
+module.exports = { createSmagningBon, readMenu, resolveBonStatus };
