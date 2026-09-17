@@ -381,9 +381,9 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
     // Alle læsere sorterer i forvejen på COALESCE(sent_at, received_at,
     // created_at), så en NULL her flytter ikke beskeden i tråden.
     const msgIns = db.prepare(
-        `INSERT INTO mail_messages (thread_id, direction, from_email, from_name, to_email, subject, body_text, message_id, in_reply_to, is_read, sent_at, created_by_user_id, created_at)
-         VALUES (?, 'out', ?, ?, ?, ?, ?, NULL, ?, 1, NULL, ?, datetime('now'))`
-    ).run(threadId, from, null, to, finalSubject, text, inReplyTo, userId);
+        `INSERT INTO mail_messages (thread_id, direction, from_email, from_name, to_email, subject, body_text, message_id, in_reply_to, is_read, sent_at, created_by_user_id, is_system, created_at)
+         VALUES (?, 'out', ?, ?, ?, ?, ?, NULL, ?, 1, NULL, ?, ?, datetime('now'))`
+    ).run(threadId, from, null, to, finalSubject, text, inReplyTo, userId, isSystem ? 1 : 0);
     const messageDbId = msgIns.lastInsertRowid;
 
     /** Marker beskeden som mislykket og lad fejlen boble videre til kalderen. */
@@ -464,9 +464,10 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
             `UPDATE mail_threads SET handling_status = ?, last_outbound_at = datetime('now') WHERE id = ?`
         ).run(isSystem ? 'afsluttet' : 'afventer_kunde', threadId);
     }
-    if (isSystem) {
-        db.prepare(`UPDATE mail_messages SET is_system = 1 WHERE id = ?`).run(messageDbId);
-    }
+    // is_system skrives nu allerede ved INSERT (ovenfor). Før blev flaget først
+    // sat efter en vellykket afsendelse, så en FEJLET auto-bekræftelse stod som
+    // en menneske-mail i "Sendt"-oversigten — booking-mails bærer nemlig
+    // sælgerens userId for at binde booking-linket til hende.
 
     // SSE broadcast
     broadcast('mail_sent', { bon_id: bonId, customer_id: customerId, purchase_order_id: purchaseOrderId, supplier_id: supplierId, thread_id: threadId });

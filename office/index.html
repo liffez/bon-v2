@@ -1911,6 +1911,10 @@
           scheduleBadgeReload();
           scheduleAttentionReload();
         },
+        mail_sent: (data) => {
+          // Udgående mail (her eller et andet sted) → Sendt-fanen + dens tæller.
+          if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_sent', data);
+        },
         mail_thread_updated: (data) => {
           // Indbakke-tråd skiftede handling_status/snooze (her eller et andet sted).
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_thread_updated', data);

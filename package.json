@@ -103,6 +103,7 @@
     "test:inbox-link": "node --experimental-sqlite scripts/test-inbox-link-visibility.js",
     "test:inbox-learn": "node --experimental-sqlite scripts/test-inbox-learn-sender.js",
     "test:mail-tid": "node --experimental-sqlite scripts/test-mail-timestamp-format.js",
+    "test:mail-sendt": "node --experimental-sqlite --test tests/mail_sent_overview.test.js",
     "test:menu-order": "node scripts/test-menu-order-groups.js",
     "test:offer-tag": "node --experimental-sqlite scripts/test-offer-mail-tag.js",
     "test:mail-signature": "node --env-file=.env.test --experimental-sqlite tests/mail_signature.test.js",

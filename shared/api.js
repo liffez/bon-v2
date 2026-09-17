@@ -1198,6 +1198,13 @@ function fetchMailThreadCounts() {
     return apiFetch('/mail/threads/counts');
 }
 
+// Sendt-oversigt: udgående kunde-/bon-mails i et dansk datointerval.
+// params: { from, to, mine?: '1', auto?: '1', mailbox?: 'bon'|'kontakt', q? }
+function fetchSentMails(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/mail/sent' + qs);
+}
+
 // Svar på en tråd. data: { body, remind_days? }
 function replyMailThread(id, data) {
     return apiFetch('/mail/threads/' + id + '/reply', {
