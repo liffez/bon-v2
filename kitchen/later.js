@@ -12,8 +12,9 @@
  * ════════════════════════════════════════════════════════════
  */
 
-/* Terminale statusser — bons med disse statusser hører ikke hjemme i viewet */
-const TERMINAL_STATUSES = new Set(['lev', 'faktureret', 'betalt', 'afsluttet', 'aflyst']);
+/* Statusser der ikke hører hjemme i viewet. KLAR er med: når bonen er klar,
+   er der ikke mere køkkenet kan gøre, så den skal ikke fylde på "Senere". */
+const TERMINAL_STATUSES = new Set(['klar', 'lev', 'faktureret', 'betalt', 'afsluttet', 'aflyst']);
 
 /* ══════════════════════════════════════════════════════════════
    PAGE INIT
@@ -151,7 +152,7 @@ function initSSE() {
             if (card) {
                 // Kort eksisterer allerede
                 if (TERMINAL_STATUSES.has(newFe)) {
-                    // Fjern kortet — status er terminal for dette view
+                    // Fjern kortet — statussen hører ikke hjemme på Senere
                     card.remove();
                     removeEmptyDateSections();
                     updateCount();
