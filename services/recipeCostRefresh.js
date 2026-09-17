@@ -19,6 +19,11 @@
 // Kilden gemmes i `cost_source` (migration 153), fordi et tal uden ophav
 // ikke kan efterprøves — og fordi 0 kr og "vi ved det ikke" ser ens ud.
 //
+// ADVARSLER ER ET EGET SPOR (migration 171)
+// `missing_prices_json` siger "vi kender ikke prisen"; `price_warnings_json`
+// siger "vi kender den, men den ser forkert ud". Kun den første gør kostprisen
+// til et minimum — se services/recipeCost.js.
+//
 // Spec: docs/CLAUDE_OPSKRIFTER.md
 // ==========================================
 
@@ -54,11 +59,16 @@ async function refreshRecipeCosts(db, opts = {}) {
         // derfor .catch her og ikke omkring hele Promise.all.
         grocyAdapter.getRecipeFulfillment().catch(() => []),
     ]);
-    const priser = await grocyAdapter.getProductUnitCosts();
+    // Detaljerne bærer ophavet (seneste køb vs. gennemsnit), som #557-advarslen
+    // har brug for. Tallene udledes af dem, så de to ikke kan blive uenige.
+    const prisDetaljer = await grocyAdapter.getProductUnitCostDetails(6, { fresh: true });
+    const priser = new Map();
+    for (const [pid, d] of prisDetaljer) if (d && d.cost > 0) priser.set(pid, d.cost);
     log(`Priser kendt for ${priser.size} af ${products.length} produkter`);
 
     const beregnet = recipeCost.computeAll({
-        recipes: rawRecipes, pos, nestings, products, units, conversions, priceByProduct: priser,
+        recipes: rawRecipes, pos, nestings, products, units, conversions,
+        priceByProduct: priser, priceDetailByProduct: prisDetaljer,
     });
 
     const grocyCost = {};
@@ -66,19 +76,20 @@ async function refreshRecipeCosts(db, opts = {}) {
 
     const upsert = db.prepare(`
         INSERT INTO recipe_cost_cache (grocy_recipe_id, cost_price_excl_moms, ingredients_json, co2e,
-                                       cost_source, missing_prices_json, refreshed_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                       cost_source, missing_prices_json, price_warnings_json, refreshed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(grocy_recipe_id) DO UPDATE SET
             cost_price_excl_moms = excluded.cost_price_excl_moms,
             ingredients_json     = excluded.ingredients_json,
             co2e                 = excluded.co2e,
             cost_source          = excluded.cost_source,
             missing_prices_json  = excluded.missing_prices_json,
+            price_warnings_json  = excluded.price_warnings_json,
             refreshed_at         = CURRENT_TIMESTAMP
     `);
 
     const sources = {};
-    let refreshed = 0, incomplete = 0, unknown = 0;
+    let refreshed = 0, incomplete = 0, unknown = 0, warned = 0;
     const errorDetails = [];
 
     for (const recipe of rawRecipes) {
@@ -101,12 +112,17 @@ async function refreshRecipeCosts(db, opts = {}) {
             }
 
             const mangler = b ? [...b.missing_price] : [];
+            // Advarsler er et EGET spor: de siger "prisen ser forkert ud", ikke
+            // "prisen mangler", og må derfor ikke gøre opskriften ufuldstændig.
+            const advarsler = b ? [...b.warnings.values()] : [];
             if (mangler.length) incomplete++;
+            if (advarsler.length) warned++;
             if (kilde === 'ukendt') unknown++;
             sources[kilde] = (sources[kilde] || 0) + 1;
 
             upsert.run(recipe.id, r2(cost), '[]', co2e, kilde,
-                       mangler.length ? JSON.stringify(mangler) : null);
+                       mangler.length ? JSON.stringify(mangler) : null,
+                       advarsler.length ? JSON.stringify(advarsler) : null);
             refreshed++;
         } catch (err) {
             errorDetails.push({ recipe_id: recipe.id, name: recipe.name, error: err.message });
@@ -115,6 +131,7 @@ async function refreshRecipeCosts(db, opts = {}) {
 
     if (incomplete) log(`${incomplete} opskrifter mangler pris på mindst én råvare`);
     if (unknown) log(`${unknown} opskrifter har INGEN kendt kostpris`);
+    if (warned) log(`${warned} opskrifter har mindst én pris der bør ses efter`);
 
     // Salgspriser: Grocy er master. Redigeringer i viewet skrives allerede
     // tilbage til Grocy, så overskrivning er sikker.
@@ -132,6 +149,7 @@ async function refreshRecipeCosts(db, opts = {}) {
         sources,
         incomplete,
         unknown,
+        warned,
         priceSync,
     };
 }
@@ -144,6 +162,7 @@ async function refreshRecipeCosts(db, opts = {}) {
  *
  *   unknown    intet brugbart tal — der findes ingen margin at vise
  *   isMinimum  tallet er en NEDRE grænse; dækningsbidraget bliver et maksimum
+ *   warnings   tallet er komplet, men mindst én pris ser forkert ud (#557/#558)
  *
  * En vare vi køber og sælger videre uden registreret pris (fx en øl) lander i
  * `unknown`. Uden det ville den vise 100 % dækningsbidrag, og det tal ville se
@@ -152,13 +171,23 @@ async function refreshRecipeCosts(db, opts = {}) {
  * @param row  række fra recipe_cost_cache (eller null/undefined)
  */
 function classifyCachedCost(row) {
-    if (!row) return { cost: null, source: null, unknown: false, isMinimum: false, missing: [] };
+    if (!row) return { cost: null, source: null, unknown: false, isMinimum: false,
+                       missing: [], warnings: [] };
 
     let missing = [];
     if (row.missing_prices_json) {
         try { missing = JSON.parse(row.missing_prices_json) || []; } catch { missing = []; }
     } else if (Array.isArray(row.missing)) {
         missing = row.missing;
+    }
+
+    // Advarsler står for sig. De ændrer HVERKEN `unknown` eller `isMinimum` —
+    // en tvivlsom pris er stadig en pris, og "≤" ville være en løgn om den.
+    let warnings = [];
+    if (row.price_warnings_json) {
+        try { warnings = JSON.parse(row.price_warnings_json) || []; } catch { warnings = []; }
+    } else if (Array.isArray(row.warnings)) {
+        warnings = row.warnings;
     }
 
     const cost = Number(row.cost_price_excl_moms ?? row.cost);
@@ -170,7 +199,7 @@ function classifyCachedCost(row) {
 
     return {
         cost: unknown ? null : (Number.isFinite(cost) ? cost : null),
-        source, unknown, isMinimum, missing,
+        source, unknown, isMinimum, missing, warnings,
     };
 }
 

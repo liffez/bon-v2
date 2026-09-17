@@ -213,7 +213,11 @@ async function main() {
         '  Dato:        {{datoFormatteret}} kl {{tid}}',
     ].join('\n');
     db.prepare(`UPDATE mail_templates SET body_text = ? WHERE key = 'booking_internal_notification'`).run(egenTekst);
-    db.prepare(`DELETE FROM _migrations WHERE filename LIKE '171%'`).run();
+    // Navngiv filen, match ikke på nummeret. Der ER to 171'ere i mappen
+    // (171_recipe_cost_price_warnings.sql landede i samme uge), og migrate.js
+    // tracker på filnavn — så et `LIKE '171%'` kørte også DEN om, og en
+    // ALTER TABLE kan ikke køres to gange: `duplicate column name`.
+    db.prepare(`DELETE FROM _migrations WHERE filename = '171_booking_notif_source.sql'`).run();
     require('../db/migrate').runMigrations(TEST_DB);
     const after = db.prepare(`SELECT body_text FROM mail_templates WHERE key = 'booking_internal_notification'`).get();
     ok(after?.body_text === egenTekst, 'en redigeret skabelon bliver IKKE rørt');

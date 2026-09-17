@@ -1,0 +1,31 @@
+-- 171_recipe_cost_price_warnings.sql
+-- ============================================================
+-- Advarsler på kostprisen — et EGET spor ved siden af `missing_prices_json`.
+--
+-- De to siger ikke det samme:
+--   missing_prices_json  "vi kender ikke prisen"      → kostprisen er et minimum
+--   price_warnings_json  "vi kender den, men er i tvivl" → kostprisen er komplet
+--
+-- Blandes de sammen, bliver en opskrift med en tvivlsom pris markeret som
+-- ufuldstændig, og `classifyCachedCost` ville sætte et "≤" på et tal der ikke
+-- er et minimum. To forskellige beskeder til køkkenet, to kolonner.
+--
+-- To slags advarsler ligger her (se services/recipeCost.js):
+--   produced_stock_price_differs  lagerprisen på et produceret gode afviger
+--                                 fra hvad opskriften koster at lave (#558)
+--   last_vs_avg                   seneste køb ligger langt fra 90-dages
+--                                 snittet, typisk fordi varen har flere
+--                                 varenumre (#557)
+--
+-- NULL = ingen advarsler. Samme mønster som 153 brugte for `cost_source`.
+--
+-- ⚠️ NUMMERET 171 ER OPTAGET AF `171_booking_notif_source.sql`, OG DET SKAL
+-- BLIVE SÅDAN. `db/migrate.js` sporer på FILNAVN, ikke på nummer, så begge
+-- kører — dubletten gør ingen skade. Men denne fil ER allerede anvendt i
+-- drift: `audit:kostpris-kilder` åbner databasen, og at åbne den kører
+-- ventende migrations. Omdøbes filen til 176, ser runneren et ukendt navn og
+-- kører `ALTER TABLE` igen → `duplicate column name` → serveren i crash-loop
+-- ved hver opstart. Præcis det der væltede driften 20. august.
+-- ============================================================
+
+ALTER TABLE recipe_cost_cache ADD COLUMN price_warnings_json TEXT;

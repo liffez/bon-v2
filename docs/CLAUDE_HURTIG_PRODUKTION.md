@@ -57,11 +57,30 @@ En tilbagevendende forvirring, så den står her:
 
 For en **købt** råvare er de to det samme tal. For noget **vi selv laver** findes der
 ingen købspris — og så er lagerprisen et tal Grocy har båret videre fra en optælling,
-mens kostprisen er svaret. `services/recipeCost.js` foretrækker i dag lagerprisen når
-den findes, hvilket gør elleve salgbare retters kostpris 1–11 % for lav. Se #558.
+mens kostprisen er svaret.
+
+**Afgjort (17. september 2026, #558):** for et produceret gode vinder opskriftens
+kostpris **altid**. En lagerpris på sådan en vare er per definition et artefakt —
+`setInventory()` sender ingen pris, så Grocy genbruger den forrige. Afviger de to mere
+end 20 %, rapporteres det som en **advarsel** i Opskrifter & priser; vi vælger opskriften
+og siger at de er uenige, frem for at vælge i stilhed. Købte varer er urørte.
+
+Det lukker samtidig hullet i gaten (#269): før konverteringen arves prisen fra opskriften,
+efter arves den også. Springet kan ikke længere flytte kostprisen — hverken ved
+konverteringen eller næste gang nogen tæller op. Det var dét der lod Tahin slippe grøn
+igennem, fordi produktet ingen pris havde **endnu**.
+
+Samme dag (#557): kostprisen slås op på **gennemsnittet**, ikke på seneste køb. Ét
+nødindkøb af en billig 5 kg-spand mayo flyttede hver mayo-ret 63 % indtil næste pose
+blev købt. Gennemsnittet er **stabilt, ikke rigtigt** — har varen flere varenumre, lander
+det mellem dem. Afviger seneste køb mere end 30 % fra snittet, advares der. Den rigtige
+pris kræver pris pr. stregkode + et udpeget standard-varenummer (fejl 1 og 3 i #557).
+
+`npm run audit:kostpris-kilder` (read-only) viser begge tabeller mod den levende Grocy.
 
 Målt 26.08: Remoulade står til 43,47 kr/kg og koster 70,15 at lave. Chili Mayo 80 mod
-117,76. Kylling-BBQ 91,33 mod 109,75.
+117,76. Kylling-BBQ 91,33 mod 109,75. Efter #558 er det opskriftens tal der
+bruges alle tre steder.
 
 **Retningen er aftalt:** alt skal have en kostpris, og det skal kunne ses hvis noget
 mangler en. På sigt lægges opskriftens produktionstid oven i råvareprisen, så man kan

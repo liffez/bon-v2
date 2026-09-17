@@ -7435,7 +7435,6 @@ subrecipe-status 16, resolver-graph 8, yield-model 14, packing-units 18, gram-ch
 topup 35, preview-produced 21, plus `test:produktion`, `test:consume-hardening` og
 `test:deduct-watchdog` uden en eneste FAIL.
 
-
 ### Indbakke: "↗ Sendt" — hvem har vi skrevet til? (17. september 2026)
 
 Simply gemmer ingen sendt-mappe, og en sendt mail kunne kun findes under den
@@ -7781,6 +7780,176 @@ assert faldt, og så ville "er den skjult?" bestå af den forkerte grund.
 dawa 13, booking-link 36, booking-notif 22, cutoff 22, smagning-bon 90.
 Browser-verificeret i tre tilstande (to valg, `?mt=`, token) samt 380 px
 bredde — ingen vandret scroll, og udvejens pil brækker ikke over to linjer.
+
+### Kostpris: opskriften for producerede goder, 90-dages snit for købte (#558 + #557, 17. september 2026)
+
+Et mellemprodukt vi selv laver — remoulade, syltede rødløg, chili-mayo — har ingen
+købspris. Men flere af dem HAVDE en pris i Grocy, og den var ikke en købspris:
+`setInventory()` sender ingen pris, så Grocy bærer den forrige videre fra optælling til
+optælling. Målt mod grocy-hq: **Rødløg - Sylt 34,99 mod råvarernes 17,81 (+96 %)**,
+Remoulade 43,47 mod 70,15, Chili Mayo 80 mod 118,75. Kostprisen foretrak det tal, så
+fejlen forplantede sig til margin-analysen på hver ret der bruger dem.
+
+- **Opskriften vinder ALTID for et produceret gode** (`ctx.producedBy` findes).
+  **Købte varer er urørte** — for dem ER lagerprisen hvad varen kostede.
+  Afviger de to mere end 20 %, rapporteres det som en **advarsel**, ikke som en
+  manglende pris: vi vælger opskriften og siger at de er uenige, frem for at vælge i
+  stilhed.
+- **Det lukker hullet i gaten (#269).** Før konverteringen henter menuen kostprisen
+  gennem opskriften; efter hentede den den fra produktets lagerpris — *hvis der var en*.
+  Tahin slap grøn igennem netop fordi produktet ingen pris havde **endnu**. Den kom
+  bagefter, og så flyttede kostprisen sig uden at nogen havde rørt noget. Nu arves
+  prisen fra opskriften på begge sider, og springet kan ikke flytte tallet.
+  Låst fast af `G9` i `scripts/test-conversion-gate.js`: med den gamle regel sprang den
+  målte kostpris fra 30,35 til 21,06; nu er de to ens.
+- **Kan opskriften ikke regnes** — intet erklæret udbytte (#372), eller ingen af dens
+  råvarer har en pris — bruges lagerprisen, men **det siges højt** som en advarsel.
+  Et tavst fald tilbage ville ligne en almindelig købt vare.
+
+> ⚠️ **Flere opskrifter kan producere samme vare, og kun én bestemmer prisen.**
+> Falaffel har tre: to i `RR Produktion` og én i `xgamle opskrifter`.
+> `buildProducedByIndex` vælger **laveste opskrift-id** — deterministisk, så to kørsler
+> ikke giver hver sit tal, men laveste id er også den **ældste**. Er en udgået opskrift
+> ikke frigjort fra sit produkt, er det altså DEN der sætter kostprisen på hver eneste
+> menu der bruger varen. Vi gætter bevidst ikke ud fra kategorinavne — hvilken opskrift
+> der gælder er stamdata, og "xgamle opskrifter" er et navn nogen har fundet på. I stedet
+> navngiver `audit:kostpris-kilder` varerne, markerer vinderen, og siger at feltet
+> "Produces product" skal ryddes i Grocy på dem der ikke skal gælde.
+
+**#557 — kostprisen er et mængdevægtet snit af køb de seneste 90 dage.** `unitCostFromRow`
+valgte `last_price` først. Købte køkkenet én billig 5 kg-spand mayo som nødløsning, faldt
+kostprisen på hver mayo-ret 63 % indtil næste pose blev købt — spanden var brugt op
+længe inden. Mayo er i seks af de otte `RR produktion Hurtig`-blandinger.
+
+Snittet regnes af `stock_log`, ikke af Grocy. **Grocys eget `avg_price` duer ikke som
+anker:** det vægter kun det der står på hylden lige nu, så står der kun spanden, ER
+gennemsnittet spandens pris. Det er efterprøvet, ikke antaget — for 8 af de undersøgte
+produkter kunne ingen formel over købshistorikken genskabe Grocys tal (Chilli Pulver:
+Grocy 20.012, vejet over loggen 24.502, simpelt snit 109.903).
+
+> ⚠️ **Vinduet er ikke en finjustering — det er dét der gør reglen brugbar.**
+> En håndfuld varer bærer posteringer fra 2024 med prisen ganget med tusind
+> (Chilli Pulver 329.280 kr hvor medianen er 329,28; Lufttørret Skinke 215.000;
+> Chili Mayo 80.000). Grocy **nægter** at fortryde et køb hvis beholdningen det skabte
+> er brugt op, så historikken kan ikke renses — målt 17. sep: 0 af 19 skæve posteringer
+> kunne fortrydes. Asymmetrien er pointen: `last_price` heler sig selv, for næste rigtige
+> køb erstatter den, mens et snit over al tid kun kan fortyndes — og bærer den dårlige
+> postering også en stor mængde, sker selv dét aldrig. Alle de giftige posteringer er fra
+> 2024, så vinduet ser ingen af dem. Vi renser ikke historikken; vi holder op med at læse
+> så langt tilbage.
+
+**Vinduet er en indstilling, ikke en konstant** (migration 176,
+`settings.recipe_cost_price_window_days`, default 90). #557 er et forsøg: 90 dage er
+valgt fordi giften er fra 2024, men det rigtige tal kendes først når man har set hvor
+mange varer vinduet faktisk fanger — målt 17. sep rammer kun 16 af 156 snittet, mens 56
+af de 127 der falder tilbage ville være fanget af 180 dage.
+
+Feltet ligger i **⚙-popoveren inde i Opskrifter & priser**, ikke i den globale
+settings-liste: en indstilling man ikke kan se virkningen af, bliver glemt, og listen er
+lang nok. Den aktive værdi står skrevet ud i overskriften (*"Kostpriser … · snit over 90
+dage"*), så tallene i tabellen aldrig er regnet på noget man ikke kan se.
+
+To ting gør at skiftet ikke bare bliver gemt:
+- **Cache-nøglen bærer vinduet** (`product_unit_cost_details:<dage>`). Uden det ville et
+  skift servere de gamle tal i op til ti minutter, og indstillingen ligne noget der ikke
+  virkede.
+- **Kostpriserne genberegnes i samme kald** — samme kode som "Opdater priser"-knappen.
+  Fejler Grocy, er indstillingen stadig gemt, og det siges i svaret i stedet for at blive
+  slugt.
+
+`clampWindowDays` (7–1095 dage) bor sammen med reglen, så serveren, helperen og popoveren
+klamper ens. Vrøvl i indstillingen falder tilbage på defaulten frem for at slå kostprisen
+ihjel; et vrøvl-kald til endpointet afvises med 400 i stedet for tavst at blive gemt som
+defaulten. En gemt advarsel bærer `window_days`, så teksten siger det vindue den blev
+regnet under — ellers ville en ændring få gamle advarsler til at lyve.
+
+**Falder tilbage i denne rækkefølge:** snit over vinduet → seneste køb (ingen køb i
+vinduet) → Grocys egne tal: nyeste lagerpost → `last_price` → `avg_price` →
+lagerværdi/mængde → `missing_price`. `source` på hver pris siger hvilket led der blev
+brugt, og `audit:kostpris-kilder` viser fordelingen.
+
+> ⚠️ **Målt i drift 17. sep: kun 16 af 156 varer får snittet. 127 falder tilbage på
+> seneste køb.** Reglen er altså i dag næsten inert — og mayo-tilfældet, som er hele
+> motivationen, er formentlig ikke dækket. Et tomt vindue kan betyde to ting, og de
+> kræver hver sin handling: at der ikke ER købt ind, eller at leverancerne ikke bærer en
+> pris. Derfor tælles prisløse købsposteringer i vinduet for sig
+> (`purchases_in_window_unpriced`) og rapporteres af auditen. **#657** er den ene
+> forklaring: varemodtagelsen sender ingen pris til Grocy, så en leverance skriver en
+> postering der ikke kan vægte noget.
+
+> **Snittet er STABILT, ikke RIGTIGT.** Mayo har to varenumre (1 kg-pose 114,56 kr/kg ·
+> 5 kg-spand 42,01), og snittet lander mellem dem og passer på ingen af dem. Den rigtige
+> pris kræver pris pr. **stregkode** — fejl 1 og 3 i #557, som ligger i **#657**:
+> varemodtagelsen sender i dag slet ingen pris til Grocy, så lagerposterne bærer det
+> sidste nogen tastede i hånden. Indtil den er bygget, vægter snittet de tal vi har.
+
+> ⚠️ **Prisreglen ville have ramt ved siden af.** `getProductUnitCosts()` havde en
+> bulk-genvej: nyeste lagerposts `price` blev brugt for alt der var på lager, og den gik
+> **uden om** prisvalget. Men den pris ER seneste køb — så reglen gjaldt kun de varer der
+> IKKE var på lager, og mayo er på lager. Genvejen er væk. Nu spørges `stock_log` én gang
+> pr. produkt, og `/stock/products/:id` **kun** for de varer der slet ingen køb har.
+> `/objects/stock_log` svarer 500 uden `limit`, og uden `order=…desc` returnerer Grocy de
+> ÆLDSTE rækker først — et `limit` ville så skære netop de nye væk.
+
+> ⚠️ **Drill-down-panelet må ikke udlede prisen selv.** Det læste tidligere Grocys råsvar
+> og valgte i egen rækkefølge. Med den nye regel ville det vise seneste køb mens rækken
+> man klikkede på viste snittet — to tal for samme vare, uden at man kan se hvilket der
+> gælder. Panelet henter nu prisen fra `getProductUnitCostDetails(6, { productIds })`,
+> altså samme kilde som totalen, men kun for opskriftens egne varer (plus deres børn, så
+> `kål` stadig kan arve). Delmængden hverken læser eller skriver cachen.
+
+**To slags tvivl, to spor** (migration 171, `price_warnings_json`):
+`missing_prices_json` siger *"vi kender ikke prisen"* → kostprisen er et **minimum** og
+vises med "≤". `price_warnings_json` siger *"vi kender den, men den ser forkert ud"* →
+kostprisen er **komplet**. Blandes de sammen, sættes et "≤" på et tal der ikke er et
+minimum. Advarsler rører derfor hverken `complete`, `cost_unknown` eller `cost_is_minimum`.
+
+**Synligt for kontoret:** lilla `pris?`-mærke på rækken i Opskrifter & priser med
+forklaringen i tooltip, en KPI-pille *"Pris bør ses efter"* (kun når der er noget), og
+noten i drill-down-panelet — dér man kigger når man vil vide hvorfor kostprisen ser ud
+som den gør. Teksten kommer fra `describeWarning()` på serveren, så tabellen, panelet og
+`audit:kostpris-kilder` siger det samme om det samme tal.
+
+**`npm run audit:kostpris-kilder`** (read-only, kør på serveren — kræver Grocy) genskaber
+begge issuers tabeller mod den levende Grocy og måler hvad reglerne flytter, opdelt på de
+to, plus fordelingen af hvor priserne kommer fra. FØR-tallet er ikke et gæt: mains adfærd
+genskabes ved at ændre **input** — bulk-genvejens lagerpost, ellers seneste køb, og
+`product_id` fjernet fra producerende opskrifter hvis produkt har en lagerpris. Ingen
+kopi af den gamle kode, og ingen omskifter i produktionskoden. Dækket af
+`scripts/test-kostpris-effekt.js`, fordi et forkert FØR-tal giver et forkert måletal.
+
+`scripts/audit-grocy-prices.js` (fra #571) er den anden halvdel: den finder de enkelte
+forkerte posteringer og skriver journal-id'et ud, så rækken kan slås op i Lagerjournalen.
+
+**Tests:** `npm run test:kostpris` — 208 asserts (63 + 11 + 73 + 12 + 49), plus `G9` i
+konverterings-gaten (23/0). Kæden er dækket hele vejen: reglerne som rene funktioner,
+det der havner i `recipe_cost_cache`, `/overview`-svaret (routeren mountes in-process med
+Grocy stubbet på `fetch`), og rækken + drill-down-panelet renderet fra den ægte
+`office/views/opskrifter.js` i en vm-sandkasse. Indstillingen har sin egen suite
+(`test-kostpris-vindue.js`, 49) der måler at vinduet BESTEMMER prisen og ikke bare
+bliver gemt: fixturen har et køb der ligger inde i 180 dage og ude af 90, så de to
+vinduer giver målbart forskellige tal (40 kr mod 25 kr) hele vejen til `recipe_cost_cache`.
+
+**Mutations-testet: 24 mutationer, alle fanget** af hver sin navngivne assert —
+heriblandt at fjerne vinduet (6 falder), at regne et simpelt snit i stedet for et vægtet
+(3), at lade drill-downet udlede prisen selv (1) og at glemme vinduets startdato i
+adapteren (1). For indstillingen: at hardkode vinduet igen (4), at droppe det fra
+cache-nøglen (4), at holde op med at klampe (3), aldrig at rydde helper-cachen (13),
+at springe genberegningen over (2) og at tage imod vrøvl (4). Mutationerne køres mod hvert testscript **for sig**: `test:kostpris` kæder
+dem med `&&`, så en fejl i det første ville skjule om de øvrige overhovedet blev kørt —
+og de første par runder så derfor grønnere ud end de var.
+
+> ⚠️ **To ting, begge fanget undervejs.** Fire asserts **kastede** i stedet for at fejle,
+> så mutationen lignede et brudt testscript frem for en fanget fejl (optional chaining nu).
+> Og "seneste køb er det NYESTE, ikke det sidste i listen" bestod af den forkerte grund:
+> i fixturen VAR det nyeste køb også sidste element, så asserten kunne ikke se forskel.
+> Samme fælde som i #441 og i menu-order-sorteringen.
+Regression grøn: conversion-gate 23, lag1a, produktion, consume-hardening,
+consume-policy, co2, event-retur, event-return-cost, yield-model, gram-chaining,
+resolver-graph, subrecipe-status, packing-units, prep-packing, recipe-factor.
+
+> **Kan ikke ses i den lokale dev-DB** — den peger på grocytest, hvor de producerede
+> goder og deres priser ikke findes. Verificér mod grocy-hq.
 
 ---
 

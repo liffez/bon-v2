@@ -98,10 +98,11 @@ function _opsRender() {
                 <span class="ops-vat-pill">ALLE PRISER EX MOMS</span>
                 <div class="ops-refresh-info">
                     <span>Kostpriser ${_opsStaleLabel(d.cost_refreshed_at, d.cost_stale)}</span>
+                    <span class="ops-window-note" title="Kostprisen er et mængdevægtet snit af indkøbene i vinduet. Ændres under ⚙ Indstillinger.">·&nbsp;snit over ${d.price_window_days || 90} dage</span>
                     <button class="ops-btn-secondary" data-act="refresh">↻ Opdater fra Grocy</button>
                 </div>
                 <div class="ops-right-tools">
-                    <button class="ops-btn-secondary" data-act="targets">⚙ DB-mål pr. kategori</button>
+                    <button class="ops-btn-secondary" data-act="targets">⚙ Indstillinger</button>
                 </div>
                 <div class="ops-target-pop" id="ops-target-pop"></div>
             </div>
@@ -176,6 +177,15 @@ function _opsRender() {
                     <div class="ops-kpi-value">${s.cost_unknown_count ?? 0}</div>
                     <div class="ops-kpi-sub">med salgspris${s.cost_minimum_count ? ' · ' + s.cost_minimum_count + ' delvist kendt' : ''}</div>
                 </div>
+                ${/* Vises også når filteret er tændt — ellers forsvinder pillen
+                      og efterlader en tom tabel uden vej tilbage. */
+                  ((s.price_warning_count ?? 0) || _opsState.activeFilters.has('price-warning')) ? `
+                <div class="ops-kpi clickable ${_opsState.activeFilters.has('price-warning') ? 'active' : ''}" data-filter="price-warning"
+                     title="Kostprisen er komplet, men bygger på mindst én pris der ser forkert ud — en produceret vares lagerpris der afviger fra opskriften, eller et enkeltkøb langt fra gennemsnittet.">
+                    <div class="ops-kpi-label">Pris bør ses efter</div>
+                    <div class="ops-kpi-value">${s.price_warning_count}</div>
+                    <div class="ops-kpi-sub">tallet er der — kilden er i tvivl</div>
+                </div>` : ''}
                 <div class="ops-kpi clickable ${_opsState.activeFilters.has('not-sold') ? 'active' : ''}" data-filter="not-sold">
                     <div class="ops-kpi-label">Ikke solgt i perioden</div>
                     <div class="ops-kpi-value">${s.not_sold_count}</div>
@@ -238,6 +248,7 @@ function _opsFilterAndSort(recipes) {
         if (_opsState.activeFilters.has('loss-making') && !r.loss_making) return false;
         if (_opsState.activeFilters.has('missing-price') && r.sales_price_excl_moms != null) return false;
         if (_opsState.activeFilters.has('cost-unknown') && !r.cost_unknown) return false;
+        if (_opsState.activeFilters.has('price-warning') && !(r.cost_price_warnings || []).length) return false;
         if (_opsState.activeFilters.has('not-sold') && r.sold_units !== 0) return false;
         if (_opsState.activeFilters.has('oko') && !r.is_organic) return false;
         return true;
@@ -338,6 +349,16 @@ function _opsRowHtml(r) {
     if (r.sales_price_excl_moms == null) badges.push('<span class="ops-badge ops-badge-no-price">ingen pris</span>');
     if (r.cost_unknown) badges.push(`<span class="ops-badge ops-badge-no-cost" title="Ingen kendt råvarepris${manglerTxt ? ' — mangler: ' + _opsEsc(manglerTxt) : ''}">ingen kostpris</span>`);
     else if (r.cost_is_minimum) badges.push(`<span class="ops-badge ops-badge-part-cost" title="Kostprisen er et minimum — mangler pris på: ${_opsEsc(manglerTxt)}">delvis kostpris</span>`);
+    // Advarsler er ikke "mangler" — prisen er kendt, men noget ved den ser
+    // forkert ud (#557/#558). Teksten kommer fra serveren, så tabellen,
+    // drill-downet og `audit:kostpris-kilder` siger det samme om det samme tal.
+    const advarsler = r.cost_price_warnings || [];
+    if (advarsler.length) {
+        const txt = advarsler.map(_opsWarnTekst).join('\n');
+        const antal = advarsler.length > 1 ? ` ${advarsler.length}` : '';
+        badges.push(`<span class="ops-badge ops-badge-price-warn" title="${_opsEsc(txt)}">`
+                  + `pris?${antal}</span>`);
+    }
     if (r.loss_making) badges.push('<span class="ops-badge ops-badge-loss">tab</span>');
 
     return `
@@ -523,9 +544,27 @@ function _opsRenderTargetPop(pop) {
         ...td.targets.map(t => t.category),
     ])).sort();
 
+    const vindue = td.price_window_days || 90;
+    const vMin = td.price_window_min || 7;
+    const vMax = td.price_window_max || 1095;
+
     pop.innerHTML = `
+        <h4>Kostpris</h4>
+        <div class="ops-window-row">
+            <label for="ops-window-days">Vægt indkøb de seneste</label>
+            <span>
+                <input type="number" id="ops-window-days" min="${vMin}" max="${vMax}" step="1"
+                       value="${vindue}"> dage
+            </span>
+        </div>
+        <div class="ops-window-hint" title="Kostprisen er et mængdevægtet snit af indkøbene i vinduet. Et kort vindue holder gamle, forkerte priser ude; et langt fanger flere varer. Varer uden indkøb i vinduet bruger seneste køb.">
+            Mængdevægtet snit af indkøbene i vinduet. Uden indkøb: seneste køb.
+        </div>
+        <button class="ops-btn-primary ops-pop-wide" data-act="save-window">Gem og genberegn</button>
+
         <h4>Mål for DB% pr. kategori</h4>
         ${allCats.length === 0 ? '<div style="color:#6a6359;font-size:11px">Ingen kategorier fundet i Grocy</div>' : ''}
+        <div class="ops-pop-scroll">
         ${allCats.map(cat => `
             <div class="ops-target-row">
                 <span>${_opsEsc(cat)}</span>
@@ -537,13 +576,45 @@ function _opsRenderTargetPop(pop) {
                 </span>
             </div>
         `).join('')}
-        <div style="display:flex;gap:6px;margin-top:10px;">
+        </div>
+        <div class="ops-pop-actions">
             <button class="ops-btn-primary" style="flex:1" data-act="save-targets">Gem</button>
             <button class="ops-btn-secondary" data-act="close-targets">Luk</button>
         </div>
     `;
 
     pop.querySelector('[data-act="close-targets"]')?.addEventListener('click', () => pop.classList.remove('open'));
+
+    pop.querySelector('[data-act="save-window"]')?.addEventListener('click', async (ev) => {
+        const input = pop.querySelector('#ops-window-days');
+        const v = parseInt(input?.value, 10);
+        if (!Number.isFinite(v)) { _opsToast('Skriv et antal dage', true); return; }
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        const foer = btn.textContent;
+        // Genberegningen taler med Grocy og tager et par sekunder. Uden den
+        // besked ligner knappen noget der ikke skete.
+        btn.textContent = 'Genberegner…';
+        try {
+            const out = await putRecipePriceWindow(v);
+            if (out.refresh_error) {
+                // Indstillingen ER gemt — kun genberegningen fejlede. Sig
+                // præcis dét, så man ikke tror ændringen gik tabt.
+                _opsToast(`Vinduet gemt (${out.days} dage), men kostpriserne kunne ikke `
+                        + `genberegnes: ${out.refresh_error}`, true);
+            } else {
+                _opsToast(`Kostprisen regnes nu over ${out.days} dage`
+                        + (out.refreshed != null ? ` · ${out.refreshed} opskrifter genberegnet` : ''));
+            }
+            pop.classList.remove('open');
+            _opsLoad();
+        } catch (err) {
+            _opsToast('Fejl: ' + err.message, true);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = foer;
+        }
+    });
     pop.querySelector('[data-act="save-targets"]')?.addEventListener('click', async () => {
         const inputs = pop.querySelectorAll('input[data-cat]');
         const targets = [];
@@ -838,12 +909,20 @@ function _opsCompBodyHtml(data) {
         ? '<div class="ops-comp-note">~ = pris arvet som gennemsnit af en forældre-vares underprodukter.</div>'
         : '';
 
+    // Advarslerne hører til HER og ikke kun på rækken: panelet er stedet man
+    // kigger når man vil vide hvorfor kostprisen ser ud som den gør.
+    const advarsler = data.total_cost_warnings || [];
+    const warnNote = advarsler.length
+        ? `<div class="ops-comp-note ops-comp-warn">${advarsler
+            .map(w => _opsEsc(_opsWarnTekst(w))).join('<br>')}</div>`
+        : '';
+
     const table = rows
         ? `<table class="ops-comp-table">
              <thead><tr><th>Råvare</th><th class="num">Mængde</th><th class="num">Kostpris</th></tr></thead>
              <tbody>${rows}</tbody>
              ${totalRow}
-           </table>${costNote}`
+           </table>${costNote}${warnNote}`
         : '<div class="ops-comp-empty">Ingen råvarer registreret på denne opskrift.</div>';
 
     // Kun køkken-opskrift her — Grocy-linket ligger allerede i metadata-sektionen.
@@ -922,6 +1001,13 @@ function _opsStaleLabel(refreshedAt, level) {
     if (level === 'critical') return `<span class="ops-stale-crit">opdateret for ${days} dage siden</span>`;
     if (level === 'warn')     return `<span class="ops-stale-warn">opdateret for ${days} dage siden</span>`;
     return `opdateret for ${days} dage siden`;
+}
+
+// Serveren formulerer advarslen (`describeWarning`), så tabellen, panelet og
+// `audit:kostpris-kilder` siger det samme. Faldet tilbage er kun for en klient
+// der møder en ældre server — "undefined" i en tooltip er værre end intet.
+function _opsWarnTekst(w) {
+    return w?.text || (w?.product ? `${w.product}: prisen bør ses efter.` : 'Prisen bør ses efter.');
 }
 
 function _opsEsc(s) {

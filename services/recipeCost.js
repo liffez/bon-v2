@@ -19,6 +19,13 @@
  * Køkkenets norm er én portion = 1 kg. Udbyttet er derfor
  * `base_servings × recipeunitnumber` udtrykt i `recipeunit`.
  *
+ * TO SLAGS TVIVL, TO SPOR
+ * `missing_price` = "vi kender ikke prisen" → kostprisen er et MINIMUM.
+ * `warnings`      = "vi kender den, men den ser forkert ud" → kostprisen er
+ * komplet, men bør ses efter. De holdes adskilt, fordi kun det første må gøre
+ * en opskrift ufuldstændig; en advarsel der smittede af på `complete` ville
+ * sætte et "≤" på et tal der ikke er et minimum.
+ *
  * ALT ER EX MOMS. Grocys indkøbspriser er ex moms (CLAUDE.md §6b), og
  * kostpriser er ex moms hele vejen igennem bon-domænet.
  * ════════════════════════════════════════════════════════════
@@ -32,35 +39,248 @@
 // ville først vise sig ved en optælling.
 const { yieldInStockUnits, unitIdByName } = require('../shared/recipe_yield');
 
+// Tærskler for de to advarsler. De VÆLGER ikke noget — de gør en uenighed
+// synlig i Opskrifter & priser, så et tal man ikke kan stole på kan kendes
+// fra et man kan.
+const WARN_LAST_VS_AVG_PCT      = 30;   // #557
+const WARN_STOCK_VS_RECIPE_PCT  = 20;   // #558
+
+// Vinduet kostprisen vægtes over. Ikke en optimering — det er dét der holder
+// en forkert postering fra 2024 ude af tallet. Se `unitCostDetail`.
+//
+// Det er en DEFAULT, ikke en konstant: #557 er et forsøg, og det rigtige tal
+// kendes først når man har set hvor mange varer vinduet faktisk fanger. Den
+// aktive værdi står i `settings.recipe_cost_price_window_days` og redigeres i
+// ⚙-popoveren inde i Opskrifter & priser — dér den bruges, så den hverken
+// forsvinder i den globale settings-liste eller skal huskes udenad.
+const PRICE_WINDOW_DAYS_DEFAULT = 90;   // #557
+const MIN_PRICE_WINDOW_DAYS = 7;        // under en uge er det ikke et snit
+const MAX_PRICE_WINDOW_DAYS = 1095;     // 3 år — derude ligger 2024-posteringerne
+
 /**
- * Enhedskost ex moms pr. LAGER-enhed for ét produkt, ud fra en Grocy-række.
- * Samme rækkefølge som `services/production.js` og `routes/recipes_overview.js`
- * allerede bruger: seneste købspris → gennemsnit → lagerværdi/mængde.
+ * Et gyldigt vindue, eller fallback. Bor her, så serveren, helperen og
+ * popoveren klamper ens — to steder med hver sin grænse ville vise ét tal og
+ * regne med et andet.
+ */
+function clampWindowDays(value, fallback = PRICE_WINDOW_DAYS_DEFAULT) {
+    // `Number(null)` er 0, og 0 er et endeligt tal — uden denne linje ville
+    // "ingen værdi" blive klampet til minimum i stedet for at falde tilbage
+    // på defaulten. De to betyder ikke det samme.
+    if (value == null || String(value).trim() === '') return fallback;
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return fallback;
+    if (n < MIN_PRICE_WINDOW_DAYS) return MIN_PRICE_WINDOW_DAYS;
+    if (n > MAX_PRICE_WINDOW_DAYS) return MAX_PRICE_WINDOW_DAYS;
+    return n;
+}
+
+/** Et positivt tal, eller null. 0 er ikke en pris (kål stod til 0). */
+function _pos(v) {
+    const n = Number(v);
+    return (Number.isFinite(n) && n > 0) ? n : null;
+}
+
+/** Datoen en købspostering hører til. `purchased_date` er forretningsdatoen;
+ *  `row_created_timestamp` er hvornår rækken blev skrevet — som regel samme
+ *  dag, men den første er den rigtige når de afviger. Klippet til YYYY-MM-DD,
+ *  så den kan sammenlignes som tekst mod vinduets startdato. */
+function _purchaseDate(p) {
+    return String(p.purchased_date || p.row_created_timestamp || '').slice(0, 10);
+}
+
+/** Mængdevægtet snit. Uden vægtning ville ét indkøb af 0,1 kg tælle lige så
+ *  meget som ét af 20 kg, og så er snittet ikke en pris — det er et gennemsnit
+ *  af kvitteringer.
+ *
+ *  Rækkerne er filtreret af kalderen (`unitCostDetail`) — ét sted, ikke to.
+ *  En gentagen kontrol her ville være uopnåelig kode, og uopnåelig kode kan
+ *  ikke testes: en fejl i den ville stå upåagtet. */
+function _weighted(rows) {
+    let sumPris = 0, sumMgd = 0;
+    for (const r of rows) {
+        sumPris += Number(r.price) * Number(r.amount);
+        sumMgd  += Number(r.amount);
+    }
+    return sumMgd > 0 ? sumPris / sumMgd : null;
+}
+
+/**
+ * Enhedskost ex moms pr. LAGER-enhed for ét produkt — med ophav.
+ *
+ * VI REGNER SNITTET SELV, OVER DE SENESTE 90 DAGE (#557)
+ * `last_price` er prisen på ÉT bilag. Køber køkkenet en enkelt billig 5 kg-spand
+ * mayo som nødløsning, falder kostprisen på hver eneste mayo-ret 63 % indtil
+ * næste pose bliver købt — spanden er brugt op længe inden. Mayo ligger i seks
+ * af de otte `RR produktion Hurtig`-blandinger, så udsvinget rammer bredt.
+ *
+ * Men Grocys eget `avg_price` duer ikke som anker: det vægter kun det der står
+ * på hylden lige nu, så står der kun spanden, ER gennemsnittet spandens pris.
+ * Målt 17. sep 2026 kunne ingen formel over købshistorikken genskabe Grocys tal
+ * for 8 af de undersøgte produkter — de to størrelser er ikke det samme.
+ *
+ * Og et snit over HELE historikken duer heller ikke, af en grund der ikke er
+ * teoretisk: en håndfuld varer bærer posteringer fra 2024 med prisen ganget med
+ * tusind (Chilli Pulver 329.280 kr hvor medianen er 329,28). Grocy NÆGTER at
+ * fortryde et køb hvis beholdningen det skabte er brugt op, så historikken kan
+ * ikke renses. Asymmetrien er hele pointen: `last_price` heler sig selv — næste
+ * rigtige køb erstatter den — mens et gennemsnit over al tid kun kan fortyndes.
+ * Vinduet løser begge dele: det dæmper udsvinget OG lader de gamle fejl falde
+ * ud af sig selv.
+ *
+ * FALDER TILBAGE I DENNE RÆKKEFØLGE (beslutning 17. sep 2026)
+ *   1. mængdevægtet snit af køb i vinduet
+ *   2. ingen køb i vinduet      → seneste køb
+ *   3. ingen køb overhovedet    → Grocys egne tal: nyeste lagerpost →
+ *                                 last_price → avg_price → lagerværdi/mængde
+ *   4. intet af det             → null, og opskriften bliver et MINIMUM
+ *
+ * ADVARSLEN VÆLGER IKKE. Den siger at seneste køb ligger langt fra snittet, så
+ * en ægte prisstigning kan ses uden at ét nødkøb flytter menuen.
+ *
+ * @param {object|null} grocyRow  `/stock/products/:id` — kun brugt i trin 3
+ * @param {Array|null}  purchases købsposteringer fra `stock_log`
+ *                                (`undone = 0`, pris > 0), nyeste først eller ej
+ * @param {object} [opts]
+ *   since          ISO-dato (YYYY-MM-DD). Køb PÅ eller EFTER den tæller med.
+ *                  Udeladt ⇒ ingen tidsgrænse (bruges af tests og af kaldere
+ *                  der selv har skåret listen til).
+ *   windowDays     vinduets længde i dage. Bæres med ud i resultatet, så en
+ *                  advarsel kan sige hvilket vindue den blev regnet under —
+ *                  ændres indstillingen senere, ville en gemt tekst ellers lyve.
+ *   stockRowPrice  prisen på nyeste lagerpost — trin 3's første led.
+ * @returns {{cost, source, last_price, avg_price, deviation_pct, warn,
+ *            purchases_in_window}|null}
+ */
+function unitCostDetail(grocyRow, purchases = null, opts = {}) {
+    const { since = null, stockRowPrice = null, windowDays = null } = opts;
+    const vindue = Number.isFinite(Number(windowDays)) ? Number(windowDays) : null;
+
+    const alle = Array.isArray(purchases) ? purchases : [];
+    const koeb = alle.filter(p => _pos(p.price) != null && Number(p.amount) > 0);
+
+    // Køb i vinduet UDEN pris tælles for sig. Varemodtagelsen sender i dag
+    // ingen pris til Grocy (#657), så en leverance skriver en købspostering
+    // der ikke kan vægte noget — og så står vinduet tomt selv om der ER købt
+    // ind. Uden tallet ligner det at køkkenet ikke har handlet.
+    const iVindueAlle = since ? alle.filter(p => _purchaseDate(p) >= since) : alle;
+
+    // Seneste køb findes i HELE listen, ikke kun i vinduet. Findes der køb i
+    // vinduet, er det nyeste af dem også det nyeste overhovedet, så de to kan
+    // ikke komme i modstrid — men uden for vinduet er det stadig det tal der
+    // skal bruges i trin 2.
+    const senest = koeb.length
+        ? koeb.reduce((a, b) => (_purchaseDate(b) > _purchaseDate(a) ? b : a))
+        : null;
+
+    // ── 1) Mængdevægtet snit over vinduet ───────────────────────────────
+    const iVindue = since ? koeb.filter(p => _purchaseDate(p) >= since) : koeb;
+    const snit = _weighted(iVindue);
+    if (snit != null) {
+        const last = _pos(senest.price);
+        const dev  = (last - snit) / snit * 100;
+        return {
+            cost: snit, source: 'avg_window',
+            last_price: last, avg_price: snit,
+            deviation_pct: dev,
+            warn: Math.abs(dev) > WARN_LAST_VS_AVG_PCT,
+            purchases_in_window: iVindue.length,
+            purchases_in_window_unpriced: iVindueAlle.length - iVindue.length,
+            window_days: vindue,
+        };
+    }
+
+    // ── 2) Ingen køb i vinduet → seneste køb ────────────────────────────
+    if (senest) {
+        const last = _pos(senest.price);
+        return { cost: last, source: 'last_purchase', last_price: last, avg_price: null,
+                 deviation_pct: null, warn: false, purchases_in_window: 0,
+                 purchases_in_window_unpriced: iVindueAlle.length,
+                 window_days: vindue,
+                 last_purchase_date: _purchaseDate(senest) };
+    }
+
+    // ── 3) Ingen køb overhovedet → Grocys egne tal ──────────────────────
+    const base = { last_price: null, avg_price: null, deviation_pct: null,
+                   warn: false, purchases_in_window: 0,
+                   purchases_in_window_unpriced: iVindueAlle.length,
+                   window_days: vindue };
+
+    const lagerpost = _pos(stockRowPrice);
+    if (lagerpost != null) return { ...base, cost: lagerpost, source: 'stock_row' };
+
+    const gLast = _pos(grocyRow && grocyRow.last_price);
+    if (gLast != null) return { ...base, cost: gLast, source: 'last', last_price: gLast };
+
+    const gAvg = _pos(grocyRow && (grocyRow.avg_price ?? grocyRow.average_price));
+    if (gAvg != null) return { ...base, cost: gAvg, source: 'avg', avg_price: gAvg };
+
+    const value  = Number(grocyRow && grocyRow.value);
+    const amount = Number(grocyRow && grocyRow.amount);
+    if (Number.isFinite(value) && Number.isFinite(amount) && amount > 1e-9) {
+        return { ...base, cost: value / amount, source: 'stock_value' };
+    }
+    return null;
+}
+
+/**
+ * Enhedskost ex moms pr. LAGER-enhed. Tyndt lag over `unitCostDetail`, så de
+ * kaldere der kun skal bruge tallet ikke også skal kende ophavet.
  * Prisen bevares i Grocys historik uanset lager, så udsolgte varer også tæller.
  */
-function unitCostFromRow(row) {
-    if (!row) return null;
-    const last = Number(row.last_price);
-    if (Number.isFinite(last) && last > 0) return last;
-    const avg = Number(row.avg_price ?? row.average_price);
-    if (Number.isFinite(avg) && avg > 0) return avg;
-    const value = Number(row.value), amount = Number(row.amount);
-    if (Number.isFinite(value) && Number.isFinite(amount) && amount > 1e-9) return value / amount;
-    return null;
+function unitCostFromRow(row, purchases = null, opts = {}) {
+    const d = unitCostDetail(row, purchases, opts);
+    return d ? d.cost : null;
 }
 
 
 /**
+ * product_id → den opskrift der producerer varen.
+ *
+ * DETERMINISTISK, IKKE KLOG. Flere opskrifter kan producere samme vare —
+ * Falaffel har tre — og laveste id vinder, så to kørsler ikke giver hver sit
+ * tal. Laveste id er også den ÆLDSTE, så er en udgået opskrift ikke blevet
+ * frigjort fra sit produkt, er det den der bestemmer kostprisen.
+ *
+ * Vi gætter bevidst ikke ud fra kategorinavne: hvilken opskrift der gælder er
+ * stamdata, ikke en heuristik. `audit:kostpris-kilder` navngiver i stedet de
+ * varer der har flere producenter, så feltet kan ryddes i Grocy.
+ *
+ * @returns {{index: Map<string, object>, multiple: Map<string, object[]>}}
+ *   multiple: kun de varer hvor der ER mere end én producent.
+ */
+function buildProducedByIndex(recipes) {
+    const alle = new Map();
+    for (const r of (recipes || [])) {
+        const pid = Number(r.product_id);
+        if (!pid) continue;
+        const key = String(pid);
+        if (!alle.has(key)) alle.set(key, []);
+        alle.get(key).push(r);
+    }
+    const index = new Map(), multiple = new Map();
+    for (const [pid, rs] of alle) {
+        rs.sort((a, b) => Number(a.id) - Number(b.id));
+        index.set(pid, rs[0]);
+        if (rs.length > 1) multiple.set(pid, rs);
+    }
+    return { index, multiple };
+}
+
+/**
  * Beregn kostpris for ALLE opskrifter.
  *
- * @param data { recipes, pos, nestings, products, units, conversions, priceByProduct }
- *   priceByProduct: Map(product_id → kr pr. lager-enhed, ex moms)
+ * @param data { recipes, pos, nestings, products, units, conversions,
+ *               priceByProduct, priceDetailByProduct }
+ *   priceByProduct:       Map(product_id → kr pr. lager-enhed, ex moms)
+ *   priceDetailByProduct: Map(product_id → unitCostDetail()) — valgfri. Uden
+ *                         den regnes alt som før, bare uden #557-advarslerne.
  * @returns Map(recipe_id → {
  *   cost,            // kr for opskriften som indtastet (base_servings portioner)
  *   cost_per_unit,   // kr pr. recipe-enhed (kr/kg for produktion, kr/stk for menu)
  *   yield_amount, yield_unit,
  *   missing_price,   // Set<navn> — varer uden kendt pris
- *   complete,        // true når intet mangler
+ *   warnings,        // Map(nøgle → advarsel) — priser der ser forkerte ud
+ *   complete,        // true når intet MANGLER (advarsler tæller ikke med)
  * })
  */
 function computeAll(data) {
@@ -77,19 +297,12 @@ function computeAll(data) {
     const productById = new Map((data.products || []).map(p => [String(p.id), p]));
     const recipeById  = new Map((data.recipes || []).map(r => [String(r.id), r]));
 
-    // product_id → producerende opskrift. Deterministisk ved flere producenter
-    // (Falaffel har tre), så to kørsler ikke giver hver sit tal.
-    const producedBy = new Map();
-    for (const r of (data.recipes || [])) {
-        const pid = Number(r.product_id);
-        if (!pid) continue;
-        const cur = producedBy.get(String(pid));
-        if (!cur || Number(r.id) < Number(cur.id)) producedBy.set(String(pid), r);
-    }
+    const producedBy = buildProducedByIndex(data.recipes || []).index;
 
     const ctx = { posBy, nestBy, productById, recipeById, producedBy,
                   units: data.units || [], conversions: data.conversions || [],
-                  prices: data.priceByProduct || new Map() };
+                  prices: data.priceByProduct || new Map(),
+                  priceDetails: data.priceDetailByProduct || new Map() };
 
     const memo = new Map();
     const out = new Map();
@@ -99,11 +312,15 @@ function computeAll(data) {
 
 function compute(recipeId, ctx, memo, stack) {
     if (memo.has(recipeId)) return memo.get(recipeId);
-    if (stack.has(recipeId)) return { cost: 0, cost_per_unit: null, missing_price: new Set(), complete: true };
+    if (stack.has(recipeId)) {
+        return { cost: 0, cost_per_unit: null, missing_price: new Set(),
+                 warnings: new Map(), complete: true };
+    }
     stack.add(recipeId);
 
     const recipe = ctx.recipeById.get(String(recipeId)) || {};
     const missing_price = new Set();
+    const warnings = new Map();
     let cost = 0;
 
     for (const p of (ctx.posBy.get(recipeId) || [])) {
@@ -112,25 +329,77 @@ function compute(recipeId, ctx, memo, stack) {
         if (!product) { missing_price.add(`#${p.product_id}`); continue; }
         if (amount <= 0) continue;
 
-        let unitCost = ctx.prices.get(String(product.id));
-        if (!(Number.isFinite(unitCost) && unitCost > 0)) unitCost = null;
+        const pid  = String(product.id);
+        const name = product.name || `#${product.id}`;
+        const stockPrice = _pos(ctx.prices.get(pid));
 
-        // Er varen produceret og uden købspris, arver den kostprisen fra den
-        // opskrift der laver den. En rigtig købspris vinder altid — den er
-        // hvad varen FAKTISK kostede.
-        if (unitCost == null) {
-            const producer = ctx.producedBy.get(String(product.id));
-            if (producer && Number(producer.id) !== Number(recipeId)) {
-                const y = yieldInStockUnits(producer, product, ctx.units, ctx.conversions);
-                if (y && y > 0) {
-                    const sub = compute(producer.id, ctx, memo, stack);
-                    unitCost = sub.cost / y;
-                    sub.missing_price.forEach(x => missing_price.add(x));
+        let unitCost = null;
+
+        // ── Produceret gode: OPSKRIFTEN VINDER ALTID (#558) ───────────────
+        // Et gode vi selv laver har ingen købspris. Står der alligevel en, er
+        // den et artefakt: `setInventory()` sender ingen pris, så Grocy bærer
+        // den forrige videre fra optælling til optælling. Rødløg - Sylt stod
+        // til 34,99 mens råvarerne kostede 17,81 — 96 % ved siden af.
+        //
+        // Det er også dét der lukker hullet i gaten (#269): FØR konverteringen
+        // arves prisen fra opskriften, EFTER arves den også. Springet flytter
+        // ikke kostprisen — hverken ved konverteringen eller næste gang nogen
+        // tæller op. Gaten kan ikke længere være grøn ved springet og forkert
+        // bagefter.
+        const producer = ctx.producedBy.get(pid);
+        if (producer && Number(producer.id) !== Number(recipeId)) {
+            const y   = yieldInStockUnits(producer, product, ctx.units, ctx.conversions);
+            const sub = (y && y > 0) ? compute(producer.id, ctx, memo, stack) : null;
+            const fromRecipe = (sub && sub.cost > 0) ? sub.cost / y : null;
+
+            if (fromRecipe != null) {
+                unitCost = fromRecipe;
+                sub.missing_price.forEach(x => missing_price.add(x));
+                sub.warnings.forEach((w, k) => warnings.set(k, w));
+
+                if (stockPrice != null) {
+                    const dev = (stockPrice - fromRecipe) / fromRecipe * 100;
+                    if (Math.abs(dev) > WARN_STOCK_VS_RECIPE_PCT) {
+                        warnings.set(`produced:${pid}`, {
+                            kind: 'produced_stock_price_differs',
+                            product_id: pid, product: name,
+                            stock_price: stockPrice, recipe_cost: fromRecipe,
+                            deviation_pct: dev,
+                        });
+                    }
                 }
+            } else if (stockPrice != null) {
+                // Opskriften KAN ikke regnes — intet erklæret udbytte (#372),
+                // eller ingen af dens råvarer har en pris. Så er lagerprisen
+                // det eneste tal der findes, og vi bruger det. Men reglen
+                // ovenfor gælder ikke her, og det skal kunne ses frem for at
+                // ligne en almindelig købt vare.
+                warnings.set(`fallback:${pid}`, {
+                    kind: 'produced_recipe_cost_unavailable',
+                    product_id: pid, product: name,
+                    stock_price: stockPrice,
+                    reason: (y && y > 0) ? 'ingen priser på opskriftens råvarer'
+                                         : 'intet erklæret udbytte på opskriften',
+                });
             }
         }
 
-        if (unitCost == null) { missing_price.add(product.name || `#${product.id}`); continue; }
+        // ── Købt vare: uændret. Lagerprisen ER hvad varen kostede. ─────────
+        if (unitCost == null && stockPrice != null) {
+            unitCost = stockPrice;
+            const d = ctx.priceDetails.get(pid);
+            if (d && d.warn) {
+                warnings.set(`price:${pid}`, {
+                    kind: 'last_vs_avg',
+                    product_id: pid, product: name,
+                    last_price: d.last_price, avg_price: d.avg_price,
+                    deviation_pct: d.deviation_pct,
+                    window_days: d.window_days || null,
+                });
+            }
+        }
+
+        if (unitCost == null) { missing_price.add(name); continue; }
         cost += amount * unitCost;
     }
 
@@ -142,6 +411,7 @@ function compute(recipeId, ctx, memo, stack) {
         const scale = (parseFloat(n.servings) || 0) / subBase;
         cost += sub.cost * scale;
         sub.missing_price.forEach(x => missing_price.add(x));
+        sub.warnings.forEach((w, k) => warnings.set(k, w));
     }
 
     stack.delete(recipeId);
@@ -158,6 +428,8 @@ function compute(recipeId, ctx, memo, stack) {
         yield_amount: yieldAmount,
         yield_unit: uf.recipeunit || null,
         missing_price,
+        warnings,
+        // Advarsler gør IKKE en opskrift ufuldstændig — se hovedet.
         complete: missing_price.size === 0,
     };
     memo.set(recipeId, result);
@@ -191,4 +463,36 @@ function parentPriceFromChildren(products, parentId, priceOf) {
     return priser.reduce((a, b) => a + b, 0) / priser.length;
 }
 
-module.exports = { computeAll, unitCostFromRow, yieldInStockUnits, unitIdByName, parentPriceFromChildren };
+
+/**
+ * Advarsel → én linje dansk tekst. Bor her, så serveren, `audit:kostpris-kilder`
+ * og Opskrifter & priser siger det samme om det samme tal.
+ */
+function describeWarning(w) {
+    if (!w) return '';
+    const kr = n => (Number(n) || 0).toLocaleString('da-DK',
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
+    const pct = n => (n > 0 ? '+' : '') + (Number(n) || 0).toFixed(0) + ' %';
+
+    switch (w.kind) {
+        case 'produced_stock_price_differs':
+            return `${w.product}: lagerprisen ${kr(w.stock_price)} afviger ${pct(w.deviation_pct)} `
+                 + `fra hvad opskriften koster at lave (${kr(w.recipe_cost)}). Opskriften er brugt.`;
+        case 'produced_recipe_cost_unavailable':
+            return `${w.product}: kostprisen kunne ikke regnes (${w.reason}), `
+                 + `så lagerprisen ${kr(w.stock_price)} er brugt.`;
+        case 'last_vs_avg':
+            return `${w.product}: seneste køb ${kr(w.last_price)} ligger ${pct(w.deviation_pct)} `
+                 + `fra ${w.window_days || PRICE_WINDOW_DAYS_DEFAULT}-dages gennemsnittet ${kr(w.avg_price)}. `
+                 + `Gennemsnittet er brugt.`;
+        default:
+            return `${w.product || 'ukendt vare'}: prisen bør ses efter.`;
+    }
+}
+
+module.exports = {
+    computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName,
+    parentPriceFromChildren, describeWarning, buildProducedByIndex,
+    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT,
+    PRICE_WINDOW_DAYS_DEFAULT, MIN_PRICE_WINDOW_DAYS, MAX_PRICE_WINDOW_DAYS, clampWindowDays,
+};

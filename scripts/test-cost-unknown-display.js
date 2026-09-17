@@ -168,6 +168,47 @@ console.log('\nR · Hvad står der på skærmen?\n');
         loss_making: false, under_target: false });
     ok(!helHtml.includes('ukendt') && !helHtml.includes('delvis kostpris') && !helHtml.includes('≤'),
        'en komplet række bærer ingen forbehold');
+
+    // ── Advarsler (#557/#558): prisen ER kendt, den ser bare forkert ud ──
+    // Den vigtige assert er den negative: en advaret række må IKKE arve
+    // "delvis kostpris" eller "≤". Så ville et komplet tal blive fremstillet
+    // som et minimum, og det er en anden — og forkert — besked.
+    const advaret = rowHtml({ ...basis, name: 'Fisken', cost_price_excl_moms: 30.35,
+        sales_price_excl_moms: 94, db_kr_excl_moms: 63.65, db_pct: 67.7,
+        cost_unknown: false, cost_is_minimum: false, cost_missing_prices: [],
+        cost_price_warnings: [{ kind: 'produced_stock_price_differs', product: 'Remoulade',
+            text: 'Remoulade: lagerprisen 43,47 kr afviger -38 % fra hvad opskriften koster at lave (70,15 kr). Opskriften er brugt.' }],
+        loss_making: false, under_target: false });
+    ok(advaret.includes('pris?'), 'en advaret række bærer et mærke');
+    ok(advaret.includes('Remoulade'), 'og tooltip navngiver varen');
+    ok(advaret.includes('>30 kr<'), 'kostprisen vises som det komplette tal den er');
+    ok(!advaret.includes('delvis kostpris') && !advaret.includes('≤') && !advaret.includes('ukendt'),
+       'og den arver IKKE forbeholdene fra "mangler pris"');
+
+    const toAdvarsler = rowHtml({ ...basis, name: 'Grisen', cost_price_excl_moms: 12,
+        sales_price_excl_moms: 94, db_kr_excl_moms: 82, db_pct: 87,
+        cost_unknown: false, cost_is_minimum: false, cost_missing_prices: [],
+        cost_price_warnings: [{ product: 'A', text: 'A: …' }, { product: 'B', text: 'B: …' }],
+        loss_making: false, under_target: false });
+    ok(toAdvarsler.includes('pris? 2'), 'flere advarsler tælles på mærket');
+
+    // En klient mod en ældre server får ingen `text`. "undefined" i en tooltip
+    // er værre end en generisk sætning.
+    const udenTekst = rowHtml({ ...basis, name: 'Uden tekst', cost_price_excl_moms: 12,
+        sales_price_excl_moms: 94, db_kr_excl_moms: 82, db_pct: 87,
+        cost_unknown: false, cost_is_minimum: false, cost_missing_prices: [],
+        cost_price_warnings: [{ kind: 'last_vs_avg', product: 'Mayonaise' }],
+        loss_making: false, under_target: false });
+    ok(!udenTekst.includes('undefined'), 'en advarsel uden tekst viser ikke "undefined"');
+    ok(udenTekst.includes('Mayonaise'), 'men navngiver stadig varen');
+
+    const pAdvaret = comp({ ...basisPanel, name: 'Fisken', total_cost: 30.35,
+        total_cost_source: 'bon', total_cost_missing: [],
+        total_cost_warnings: [{ product: 'Remoulade', text: 'Remoulade: lagerprisen afviger.' }],
+        ingredients: [{ product_id: 20, name: 'Remoulade', amount: 350, unit: 'g', cost: 24.5 }] });
+    ok(pAdvaret.includes('Remoulade: lagerprisen afviger.'), 'panelet forklarer advarslen');
+    ok(!pAdvaret.includes('mindst') && !pAdvaret.includes('ukendt'),
+       'og totalen står uden forbehold — den er komplet');
 }
 
 // ─── A · arve-reglen ───────────────────────────────────────────
@@ -212,32 +253,94 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
               userfields: { sellable: '1', recipeunit: 'antal', recipeunitnumber: '1' } },
             { id: 2, name: 'Øl alm', base_servings: 1,
               userfields: { sellable: '1', recipeunit: 'antal', recipeunitnumber: '1' } },
+            // Produceret gode + retten der bruger det (#558).
+            { id: 3, name: 'Remoulade', base_servings: 1, product_id: 30,
+              userfields: { recipeunit: 'kg', recipeunitnumber: '1' } },
+            { id: 4, name: 'Fisken', base_servings: 1,
+              userfields: { sellable: '1', recipeunit: 'antal', recipeunitnumber: '1' } },
+            // Forælder-vare: `kål` har ingen egen pris — kun børnene har.
+            { id: 5, name: 'Kålblanding', base_servings: 1,
+              userfields: { sellable: '1', recipeunit: 'antal', recipeunitnumber: '1' } },
         ],
         '/objects/recipes_pos': [
             { id: 1, recipe_id: 1, product_id: 10, amount: 0.5, qu_id: 1 },
             { id: 2, recipe_id: 2, product_id: 20, amount: 1, qu_id: 2 },
+            { id: 3, recipe_id: 3, product_id: 40, amount: 1, qu_id: 1 },
+            { id: 4, recipe_id: 4, product_id: 30, amount: 1, qu_id: 1 },
+            { id: 5, recipe_id: 5, product_id: 50, amount: 2, qu_id: 1 },
         ],
         '/objects/recipes_nestings': [],
         '/objects/products': [
             { id: 10, name: 'Spidskål', qu_id_stock: 1, qu_id_purchase: 1 },
             { id: 20, name: 'Øl - Pilsner', qu_id_stock: 2, qu_id_purchase: 2 },
+            { id: 30, name: 'Remoulade', qu_id_stock: 1, qu_id_purchase: 1 },
+            { id: 40, name: 'Mayonaise', qu_id_stock: 1, qu_id_purchase: 1 },
+            // Grocy ruller børnenes LAGER op på forælderen, men ikke deres pris.
+            { id: 50, name: 'kål', qu_id_stock: 1, qu_id_purchase: 1 },
+            { id: 51, name: 'Spidskål-barn', parent_product_id: 50, qu_id_stock: 1, qu_id_purchase: 1 },
+            { id: 52, name: 'Hvidkål-barn',  parent_product_id: 50, qu_id_stock: 1, qu_id_purchase: 1 },
         ],
         '/objects/quantity_units': [{ id: 1, name: 'Kilo' }, { id: 2, name: 'Antal' }],
         '/objects/quantity_unit_conversions': [],
         // Grocys eget tal er 4× for højt (desired_servings) — hvis det skriges
         // ind i cachen igen, fanger asserten det.
         '/recipes/fulfillment': [{ recipe_id: 1, costs: 48 }, { recipe_id: 2, costs: 0 }],
-        '/objects/stock': [{ product_id: 10, amount: 5, price: 24, purchased_date: '2026-08-05' }],
+        // En lagerpost bærer prisen på DET køb — altså seneste køb, 40. Bruges
+        // den som kilde (den gamle bulk-genvej), koster kålsalaten 20 i stedet
+        // for 12, og asserten nedenfor fanger det.
+        '/objects/stock': [{ product_id: 10, amount: 5, price: 40, purchased_date: '2026-08-05' }],
     };
+    // Købshistorikken er kilden efter #557: et mængdevægtet snit over de
+    // seneste 90 dage. Spidskål er købt 4 kg til 20 og senest 1 kg til 40 —
+    // snittet er 24, og nødkøbet ligger 67 % derfra, så det advares der om
+    // uden at flytte prisen.
+    //
+    // Datoerne regnes ud fra i dag. En fast dato ville rådne: testen ville
+    // bestå i dag og tavst begynde at måle fallback-grenen om tre måneder.
+    const { offsetISO } = require('../db/helpers');
+    //
+    // Den første postering ligger UDEN FOR vinduet og er af den slags Grocy
+    // nægter at fortryde (Chilli Pulver-typen, prisen ganget med tusind). Den
+    // ligger her med vilje: glemmer adapteren at sende vinduets startdato med,
+    // koster kålsalaten 404 kr i stedet for 12, og asserten nedenfor fanger det.
+    const KOEB = {
+        10: [
+            { price: 40000, amount: 0.1, purchased_date: offsetISO(-200) },
+            { price: 20,    amount: 4,   purchased_date: offsetISO(-40)  },
+            { price: 40,    amount: 1,   purchased_date: offsetISO(-5)   },
+        ],
+        51: [{ price: 24, amount: 1, purchased_date: offsetISO(-10) }],
+        52: [{ price: 14, amount: 1, purchased_date: offsetISO(-10) }],
+    };
+    // Varer uden købshistorik falder tilbage på Grocys egne tal (trin 3).
+    // Remoulade bærer en pris på 60 som er et optællings-artefakt, mens
+    // opskriften koster 100.
+    const PRODUKT_PRIS = {
+        20: {},                                   // øllen har ingen prishistorik
+        30: { last_price: 60, avg_price: 60 },
+        40: { last_price: 100, avg_price: 100 },
+    };
+    // Gemmes FØR stubben, så HTTP-kaldet til vores egen route nedenfor ikke
+    // også løber ind i Grocy-attrappen.
+    const logOpslag = [];
+    const rigtigFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
         // Stien matches EKSAKT (uden query). `includes` ville lade
         // `/objects/recipes_pos` matche `/objects/recipes` og returnere
         // opskrifterne som ingredienser — en stub der lyver om sig selv.
         const sti = String(url).split('?')[0];
+        // Købsposteringerne spørges pr. produkt, så produkt-id'et står i
+        // query'en og ikke i stien.
+        if (sti.endsWith('/objects/stock_log')) {
+            const q = decodeURIComponent(String(url)).match(/product_id=(\d+)/);
+            if (q) logOpslag.push(q[1]);
+            return { ok: true, status: 200, json: async () => (q ? KOEB[q[1]] : null) || [] };
+        }
         const n = Object.keys(SVAR).find(k => sti.endsWith(k));
         if (n) return { ok: true, status: 200, json: async () => SVAR[n] };
         // Enkeltopslag for varer uden lager: øllen har ingen prishistorik.
-        if (/\/stock\/products\/\d+$/.test(sti)) return { ok: true, status: 200, json: async () => ({}) };
+        const pm = sti.match(/\/stock\/products\/(\d+)$/);
+        if (pm) return { ok: true, status: 200, json: async () => PRODUKT_PRIS[pm[1]] || {} };
         throw new Error('uventet kald: ' + url);
     };
 
@@ -258,6 +361,80 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
 
     ok(out.sources?.bon >= 1, 'kvitteringen tæller kilderne, så en tilbagerulning ville kunne ses');
     ok(out.incomplete === 1, 'og hvor mange der mangler en pris');
+
+    // ── #557: gennemsnittet er ankeret, hele vejen til cachen ──
+    // Havde seneste køb vundet, ville kålsalaten koste 0,5 × 40 = 20 kr.
+    // Asserten på 12 kr ovenfor er altså også testen af prisreglen.
+    const kaalAdv = kaal.price_warnings_json ? JSON.parse(kaal.price_warnings_json) : [];
+    ok(kaalAdv.some(w => w.kind === 'last_vs_avg' && String(w.product_id) === '10'),
+       'enkeltkøbet langt fra gennemsnittet skrives ned som en advarsel');
+    ok(classifyCachedCost(kaal).warnings.length === 1,
+       'og visningen kan læse den');
+    ok(classifyCachedCost(kaal).isMinimum === false && classifyCachedCost(kaal).unknown === false,
+       'en advarsel gør hverken kostprisen ukendt eller til et minimum');
+
+    // ── #558: lagerprisen på et produceret gode taber til opskriften ──
+    const fisken = raekker.find(r => r.grocy_recipe_id === 4) || {};
+    ok(Math.abs(fisken.cost_price_excl_moms - 100) < 0.005,
+       `opskriftens 100 kr bruges, ikke lagerprisens 60 (fik ${fisken.cost_price_excl_moms})`);
+    const fiskAdv = fisken.price_warnings_json ? JSON.parse(fisken.price_warnings_json) : [];
+    ok(fiskAdv.some(w => w.kind === 'produced_stock_price_differs' && String(w.product_id) === '30'),
+       'og afvigelsen står i cachen, så den kan ses i Opskrifter & priser');
+    ok(!fisken.missing_prices_json, 'uden at retten markeres som manglende pris');
+    ok(out.warned >= 2, 'kvitteringen tæller de opskrifter der bør ses efter');
+
+    // ── Når routen ikke sender feltet, ser skærmen det aldrig ──
+    // Rækkevisningen ovenfor får `cost_price_warnings` serveret. Uden det her
+    // kunne `/overview` holde op med at sende det, og ingen test ville sige fra.
+    const express = require('express');
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => { req.session = { userId: 1, userRole: 'admin' }; next(); });
+    app.use('/api/recipes', require('../routes/recipes_overview'));
+    const srv = app.listen(0);
+    await new Promise(r => srv.once('listening', r));
+    const svar = await (await rigtigFetch(`http://127.0.0.1:${srv.address().port}/api/recipes/overview`)).json();
+    srv.close();
+
+    // ── Drill-downet skal vise SAMME pris som rækken man klikkede på ──
+    // Panelet udledte tidligere prisen selv ud af Grocys råsvar. Gjorde det
+    // dét igen, ville det vise seneste køb (40) mens rækken viser 90-dages
+    // snittet (24) — og så ved man ikke hvilket tal der gælder.
+    const srv2 = app.listen(0);
+    await new Promise(r => srv2.once('listening', r));
+    const panel = await (await rigtigFetch(
+        `http://127.0.0.1:${srv2.address().port}/api/recipes/1/composition`)).json();
+    srv2.close();
+    const spidskaal = (panel.ingredients || []).find(i => String(i.product_id) === '10') || {};
+    ok(Math.abs(spidskaal.cost - 12) < 0.005,
+       `panelet regner med snittet 24, ikke seneste køb 40 (fik ${spidskaal.cost})`);
+    ok(Math.abs((panel.total_cost ?? 0) - 12) < 0.005,
+       'og totalen i panelet er den samme som rækkens');
+
+    // Forælderen `kål` har ingen egen pris; den arver gennemsnittet af børnene
+    // (24 og 14 → 19). Uden arven ville linjen stå som "—" i panelet mens den
+    // indgik i totalen — præcis dét den gamle børne-hentning i routen løste.
+    logOpslag.length = 0;
+    const srv3 = app.listen(0);
+    await new Promise(r => srv3.once('listening', r));
+    const panel5 = await (await rigtigFetch(
+        `http://127.0.0.1:${srv3.address().port}/api/recipes/5/composition`)).json();
+    srv3.close();
+    const kaalLinje = (panel5.ingredients || []).find(i => String(i.product_id) === '50') || {};
+    ok(Math.abs(kaalLinje.cost - 38) < 0.005,
+       `forælderen arver børnenes snit 19 × 2 kg = 38 (fik ${kaalLinje.cost})`);
+    ok(kaalLinje.cost_inherited === true, 'og panelet siger at prisen er arvet');
+    ok(logOpslag.length > 0 && logOpslag.length <= 3,
+       `klik-stien prissætter kun opskriftens varer + deres børn, ikke hele kataloget `
+       + `(${logOpslag.length} opslag)`);
+
+    const rk = (svar.recipes || []).find(x => x.grocy_recipe_id === 4) || {};
+    const adv = rk.cost_price_warnings || [];
+    ok(adv.length === 1, 'routen sender advarslen med ud til skærmen');
+    ok(/Remoulade/.test(adv[0]?.text || ''), 'færdigformuleret af serveren, så alle flader siger det samme');
+    ok((svar.summary?.price_warning_count ?? 0) >= 2, 'og tæller dem i opsummeringen');
+    ok(rk.cost_is_minimum === false && rk.cost_unknown === false,
+       'uden at rækken markeres som ufuldstændig');
 
     console.log(`\n${pass} PASS · ${fail} FAIL\n`);
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}

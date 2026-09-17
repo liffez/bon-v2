@@ -12,7 +12,7 @@
  */
 
 const { getDb } = require('../db/database');
-const { getDefaultLocationId } = require('../db/helpers');
+const { getDefaultLocationId, offsetISO, getRecipeCostWindowDays } = require('../db/helpers');
 
 /* ══════════════════════════════════════════════════════════════
    CACHE
@@ -368,17 +368,26 @@ function getRecipesRaw() {
 }
 
 /**
- * Enhedskost pr. produkt (kr pr. LAGER-enhed, ex moms).
+ * Enhedskost pr. produkt (kr pr. LAGER-enhed, ex moms) MED ophav.
  *
- * Grocy har ingen bulk-vej til priser: `/objects/stock` bærer kun priser for
- * varer der er PÅ lager (73 af 215 målt i drift), og resten kræver et opslag
- * hver. Derfor er den her tung — 100+ kald — og hører hjemme i det natlige
- * job (`scripts/refresh-recipe-costs.js`), ikke på en request-sti.
+ * PRISEN REGNES AF KØBSHISTORIKKEN, IKKE AF GROCYS TAL (#557)
+ * Kostpris-grundlaget er et mængdevægtet snit af købsposteringer de seneste
+ * `windowDays` dage (indstillingen, default 90), læst fra `stock_log`. Reglen selv — og hvorfor
+ * hverken Grocys `avg_price` eller et snit over al tid duer — står i
+ * `services/recipeCost.js` ved `unitCostDetail`.
  *
- * Prisrækkefølgen er den samme som `services/production.js` og
- * `routes/recipes_overview.js` allerede bruger: seneste købspris → gennemsnit
- * → lagerværdi/mængde. Prisen bevares i Grocys historik uanset lager, så
- * udsolgte varer også får en pris.
+ * ÉT LOG-OPSLAG PR. PRODUKT
+ * `/objects/stock_log` svarer **500 uden `limit`** (hele tabellen læses ind før
+ * den skæres til), så der spørges pr. produkt med filtre på. Filtrene er ikke
+ * kosmetik: uden `order=…desc` returnerer Grocy de ÆLDSTE rækker først, og et
+ * `limit` ville så skære de nye væk — præcis dem vi skal bruge.
+ *
+ * `/stock/products/:id` spørges KUN for de produkter der ingen køb har i loggen
+ * overhovedet. Det er fallback-trin 3, og det er en håndfuld varer — ikke de
+ * ~225 opslag reglen kostede da Grocys eget gennemsnit var ankeret.
+ *
+ * Lagerpostens pris fra `/objects/stock` er trin 3's FØRSTE led (ikke et
+ * nødspor): den er det nyeste vi ved om varen når loggen intet siger.
  *
  * Forældre-produkter arver gennemsnittet af børnenes priser. Grocy ruller
  * børnenes LAGER op på forælderen (derfor findes makeEffectiveStock), men
@@ -386,50 +395,120 @@ function getRecipesRaw() {
  * 14,50, og kålen ligger i Frisk Grønt, som er nestet i 26 menuer.
  *
  * @param {number} concurrency  samtidige opslag (default 6)
- * @returns {Promise<Map<string, number>>}  product_id → kr/stock-enhed
+ * @param {object} [opts]
+ *   fresh       springer cachen over. Det natlige job og "Opdater priser"-
+ *               knappen skal have friske tal — det er hele deres formål.
+ *   productIds  prissæt kun disse produkter. Drill-down-panelet skal vise de
+ *               SAMME priser som totalen, men må ikke betale for hele kataloget
+ *               på en klik-sti. Delmængden hverken læser eller skriver cachen,
+ *               fordi den ikke er hele svaret.
+ *   windowDays  vinduet i dage. Udeladt ⇒ indstillingen
+ *               (`settings.recipe_cost_price_window_days`, default 90).
+ * @returns {Promise<Map<string, object>>}  product_id → unitCostDetail()
  */
-async function getProductUnitCosts(concurrency = 6) {
-    const { unitCostFromRow, parentPriceFromChildren } = require('./recipeCost');
+async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
+    const { unitCostDetail, parentPriceFromChildren, clampWindowDays } = require('./recipeCost');
+    const subset = Array.isArray(opts.productIds) ? opts.productIds.map(String) : null;
+
+    // Vinduet er en indstilling (#557). Det står i CACHE-NØGLEN, ikke kun i
+    // beregningen: ellers ville et skift servere de gamle tal i op til ti
+    // minutter, og indstillingen ville se ud som om den ikke virkede.
+    const windowDays = opts.windowDays != null
+        ? clampWindowDays(opts.windowDays)
+        : getRecipeCostWindowDays();
+    const cacheKey = `product_unit_cost_details:${windowDays}`;
+
+    if (!subset && !opts.fresh) {
+        const cached = getCached(cacheKey);
+        if (cached) return cached;
+    }
+
     const [products, stockRows] = await Promise.all([
         getProducts(),
         grocyFetch('/objects/stock').catch(() => []),
     ]);
 
-    const priser = new Map();
-
-    // 1) Bulk: nyeste lagerpost pr. produkt bærer en pris for alt der er på lager.
+    // Nyeste lagerpost pr. produkt — fallback-trin 3's første led.
     const nyeste = new Map();
     for (const r of (stockRows || [])) {
         const pid = String(r.product_id);
-        const pris = parseFloat(r.price);
-        if (!(pris > 0)) continue;
+        if (!(parseFloat(r.price) > 0)) continue;
         const nu = nyeste.get(pid);
         if (!nu || String(r.purchased_date || '') > String(nu.purchased_date || '')) nyeste.set(pid, r);
     }
-    for (const [pid, r] of nyeste) priser.set(pid, parseFloat(r.price));
 
-    // 2) Resten enkeltvis — udsolgte varer har stadig en prishistorik.
-    const mangler = products.filter(p => !priser.has(String(p.id)));
+    // Hvilke produkter skal prissættes? Ved en delmængde tages børnene med:
+    // en forælder uden egen pris arver gennemsnittet af dem, og uden børnene
+    // i kortet ville `kål` stå til "—" i panelet og indgå i totalen med 9,63.
+    let maal = products;
+    if (subset) {
+        const oensket = new Set(subset);
+        for (const p of products) {
+            if (p.parent_product_id && oensket.has(String(p.parent_product_id))) oensket.add(String(p.id));
+        }
+        maal = products.filter(p => oensket.has(String(p.id)));
+    }
+
+    // Vinduets startdato. `offsetISO` er forankret i Europe/Copenhagen —
+    // `new Date().toISOString()` ville give gårsdagens dato mellem midnat og
+    // kl. 02 dansk sommertid, og vinduet ville rykke sig en dag om natten.
+    const since = offsetISO(-windowDays);
+
+    const detaljer = new Map();
     let i = 0;
     await Promise.all(Array.from({ length: Math.max(1, concurrency) }, async () => {
-        while (i < mangler.length) {
-            const p = mangler[i++];
+        while (i < maal.length) {
+            const p = maal[i++];
+            const pid = String(p.id);
+
+            let koeb = null;
             try {
-                const d = await grocyFetch('/stock/products/' + p.id);
-                const c = unitCostFromRow(d);
-                if (c != null) priser.set(String(p.id), c);
-            } catch (e) { /* uden pris — resolveren rapporterer den som manglende */ }
+                koeb = await grocyFetch(
+                    `/objects/stock_log?query%5B%5D=product_id%3D${p.id}`
+                    + `&query%5B%5D=transaction_type%3Dpurchase`
+                    + `&query%5B%5D=undone%3D0`
+                    + `&order=row_created_timestamp%3Adesc&limit=200`);
+            } catch (e) {
+                koeb = null;   // loggen kunne ikke læses → fald igennem til trin 3
+            }
+            if (!Array.isArray(koeb)) koeb = null;
+
+            // Grocys egne tal hentes KUN når loggen intet har at sige.
+            let grocyRow = null;
+            if (!koeb || !koeb.length) {
+                grocyRow = await grocyFetch('/stock/products/' + p.id).catch(() => null);
+            }
+
+            const det = unitCostDetail(grocyRow, koeb, {
+                since, windowDays,
+                stockRowPrice: nyeste.get(pid) ? nyeste.get(pid).price : null,
+            });
+            if (det) detaljer.set(pid, det);
+            // Ellers: uden pris — resolveren rapporterer den som manglende.
         }
     }));
 
-    // 3) Forældre arver gennemsnittet af de børn der HAR en pris.
-    //    Samme regel som drill-down-panelet bruger — se recipeCost.js.
-    for (const p of products) {
-        if (priser.has(String(p.id))) continue;
-        const snit = parentPriceFromChildren(products, p.id, cid => priser.get(cid) ?? null);
-        if (snit != null) priser.set(String(p.id), snit);
+    // Forældre arver gennemsnittet af de børn der HAR en pris.
+    for (const p of maal) {
+        if (detaljer.has(String(p.id))) continue;
+        const snit = parentPriceFromChildren(products, p.id, cid => detaljer.get(cid)?.cost ?? null);
+        if (snit != null) {
+            detaljer.set(String(p.id), {
+                cost: snit, source: 'parent_avg',
+                last_price: null, avg_price: null, deviation_pct: null, warn: false,
+                purchases_in_window: 0, window_days: windowDays,
+            });
+        }
     }
 
+    if (!subset) setCached(cacheKey, detaljer);
+    return detaljer;
+}
+
+async function getProductUnitCosts(concurrency = 6, opts = {}) {
+    const detaljer = await getProductUnitCostDetails(concurrency, opts);
+    const priser = new Map();
+    for (const [pid, d] of detaljer) if (d && d.cost > 0) priser.set(pid, d.cost);
     return priser;
 }
 
@@ -450,7 +529,8 @@ function readRecipeCostCache() {
     const m = new Map();
     try {
         const rows = getDb().prepare(
-            `SELECT grocy_recipe_id, cost_price_excl_moms, cost_source, missing_prices_json
+            `SELECT grocy_recipe_id, cost_price_excl_moms, cost_source, missing_prices_json,
+                    price_warnings_json
              FROM recipe_cost_cache`
         ).all();
         for (const r of rows) {
@@ -458,6 +538,7 @@ function readRecipeCostCache() {
                 cost: Number(r.cost_price_excl_moms) || 0,
                 source: r.cost_source || 'bon',
                 missing: r.missing_prices_json ? JSON.parse(r.missing_prices_json) : null,
+                warnings: r.price_warnings_json ? JSON.parse(r.price_warnings_json) : null,
             });
         }
     } catch (e) { /* tabellen findes ikke endnu — fald tilbage */ }
@@ -1595,6 +1676,7 @@ module.exports = {
     getRecipes,
     getRecipesRaw,
     getProductUnitCosts,
+    getProductUnitCostDetails,
     readRecipeCostCache,
     getRecipesRawMap,
     getEconomicProductMap,

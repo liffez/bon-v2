@@ -11,6 +11,7 @@
  * PUT    /api/recipes/targets             — bulk-upsert mål
  * PATCH  /api/recipes/targets/:category   — opdater ét mål (inline-edit)
  * DELETE /api/recipes/targets/:category   — fjern mål for kategori
+ * PUT    /api/recipes/price-window        — kostpris-vinduet i dage (#557)
  * GET    /api/grocy/recipe-link/:id       — 302-redirect til Grocy
  *
  * Moms-doktrin: revenue summeres som incl moms i SQL og konverteres via
@@ -30,19 +31,19 @@ const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const { convertAndFormat } = require('../services/quConvert');
 
-// Kostpris pr. stock-enhed ex moms fra Grocy produkt-detaljer. last_price (seneste
-// købspris) er master; avg_price (gns.) som fallback. Bevares i prishistorikken
-// UANSET lager, så udsolgte varer også får en pris.
-// Enhedspris pr. lager-enhed. Delegeres til `services/recipeCost.js` så
-// drill-downet og kostpris-beregningen ikke kan blive uenige om hvad en vare
-// koster — den lokale kopi manglede `value/amount`-faldet og gav derfor null
-// på varer beregningen godt kunne prissætte.
-function lastPriceOf(details) {
-    return details ? unitCostFromRow(details) : null;
+// Enhedspris pr. lager-enhed, ex moms, fra SAMME kilde som totalen:
+// `getProductUnitCostDetails`, der regner 90-dages snittet af købsposteringer
+// (#557). Panelet må ikke udlede prisen selv — gjorde det dét, ville det vise
+// seneste køb mens rækken man klikkede på viste gennemsnittet, og så ved man
+// ikke hvilket tal der gælder.
+function unitCostOf(d) {
+    return (d && Number.isFinite(d.cost) && d.cost > 0) ? d.cost : null;
 }
 const itemPriceBackfill = require('../services/itemPriceBackfill');
 const { refreshRecipeCosts, classifyCachedCost } = require('../services/recipeCostRefresh');
-const { unitCostFromRow, parentPriceFromChildren } = require('../services/recipeCost');
+const { describeWarning, clampWindowDays, PRICE_WINDOW_DAYS_DEFAULT,
+        MIN_PRICE_WINDOW_DAYS, MAX_PRICE_WINDOW_DAYS } = require('../services/recipeCost');
+const { getRecipeCostWindowDays, invalidateRecipeCostWindowCache } = require('../db/helpers');
 const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
 
@@ -257,6 +258,10 @@ router.get('/overview', handle(async (req, res) => {
         // ud i en kolonne; forskellen skal stå der.
         const k = classifyCachedCost(cost);
         const costMissing = k.missing;
+        // Advarsler er et EGET spor ved siden af de manglende priser: prisen
+        // ER kendt, den ser bare forkert ud (#557/#558). Derfor rører de
+        // hverken `cost_unknown` eller `cost_is_minimum`.
+        const costWarnings = (k.warnings || []).map(w => ({ ...w, text: describeWarning(w) }));
         const costSource = k.source;
         const costUnknown = k.unknown;
         const costIsMinimum = k.isMinimum;
@@ -291,6 +296,7 @@ router.get('/overview', handle(async (req, res) => {
             cost_unknown: costUnknown,
             cost_is_minimum: costIsMinimum,
             cost_missing_prices: costMissing,
+            cost_price_warnings: costWarnings,
             sales_price_excl_moms: salesPriceExcl,
             db_kr_excl_moms: dbKr,
             db_pct: dbPct,
@@ -314,6 +320,7 @@ router.get('/overview', handle(async (req, res) => {
     // et falsk dækningsbidrag, for den har ingen salgspris at måle mod.
     const costUnknownCount = recipes.filter(r => r.cost_unknown && r.sales_price_excl_moms != null).length;
     const costMinimumCount = recipes.filter(r => r.cost_is_minimum).length;
+    const priceWarningCount = recipes.filter(r => (r.cost_price_warnings || []).length > 0).length;
     const notSoldCount = recipes.filter(r => r.sold_units === 0).length;
     const okoCount = recipes.filter(r => r.is_organic).length;
 
@@ -347,6 +354,7 @@ router.get('/overview', handle(async (req, res) => {
         cost_refreshed_at: _sqliteUtcToIso(oldestRefreshed),
         cost_stale: _staleLevel(oldestRefreshed),
         backfill_ran: !backfillResult.skipped,
+        price_window_days: getRecipeCostWindowDays(),
         summary: {
             active_count: activeCount,
             total_count: recipes.length,
@@ -355,6 +363,7 @@ router.get('/overview', handle(async (req, res) => {
             missing_price_count: missingPriceCount,
             cost_unknown_count: costUnknownCount,
             cost_minimum_count: costMinimumCount,
+            price_warning_count: priceWarningCount,
             not_sold_count: notSoldCount,
             oko_count: okoCount,
             share_under_target_pct: shareUnderTargetPct,
@@ -388,6 +397,7 @@ router.post('/refresh-costs', handle(async (req, res) => {
         sources: out.sources,
         incomplete: out.incomplete,
         unknown: out.unknown,
+        warned: out.warned,
         errors: out.errorDetails.length ? out.errorDetails : undefined,
         duration_ms: Date.now() - t0,
         refreshed_at: new Date().toISOString(),
@@ -544,7 +554,61 @@ router.get('/targets', handle(async (req, res) => {
         // Grocy nede — returnér kun targets uden categories-liste
     }
 
-    res.json({ categories, targets });
+    res.json({
+        categories, targets,
+        price_window_days: getRecipeCostWindowDays(),
+        price_window_default: PRICE_WINDOW_DAYS_DEFAULT,
+        price_window_min: MIN_PRICE_WINDOW_DAYS,
+        price_window_max: MAX_PRICE_WINDOW_DAYS,
+    });
+}));
+
+// ─── PUT /api/recipes/price-window ────────────────────────────
+// Kostpris-vinduet (#557). Ligger her og ikke i den globale settings-liste,
+// fordi det er en indstilling for DENNE side — den redigeres hvor dens
+// virkning kan ses, og tallet står skrevet ud i overskriften.
+router.put('/price-window', handle(async (req, res) => {
+    const raw = req.body?.days;
+    if (raw == null || String(raw).trim() === '' || !Number.isFinite(Number(raw))) {
+        return res.status(400).json({ error: 'days skal være et tal' });
+    }
+    const days = clampWindowDays(raw);
+
+    const db = getDb();
+    const foer = getRecipeCostWindowDays();
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('recipe_cost_price_window_days', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                               updated_at = CURRENT_TIMESTAMP`).run(String(days));
+    invalidateRecipeCostWindowCache();
+
+    try {
+        logChange({
+            entity_type: 'settings', entity_id: 0, action: 'update',
+            field_name: 'recipe_cost_price_window_days',
+            old_value: String(foer), new_value: String(days),
+            user_id: req.session?.userId || null,
+            notes: 'Kostpris-vinduet ændret fra Opskrifter & priser',
+        });
+    } catch (err) { /* changelog non-critical */ }
+
+    // Tallene på skærmen er regnet under det GAMLE vindue. Gemte vi bare
+    // indstillingen, ville siden se uændret ud, og skiftet ville ligne noget
+    // der ikke virkede. Derfor genberegnes kostpriserne her — samme kode som
+    // "Opdater priser"-knappen. Fejler Grocy, er indstillingen stadig gemt,
+    // og det siges i svaret frem for at blive slugt.
+    let refreshed = null, refreshError = null;
+    try {
+        const out = await refreshRecipeCosts(db);
+        refreshed = out.refreshed;
+        broadcast('recipe_costs_refreshed', {
+            refreshed: out.refreshed, refreshed_at: new Date().toISOString(),
+        });
+    } catch (err) {
+        refreshError = err.message;
+    }
+
+    res.json({ ok: true, days, clamped: days !== Math.round(Number(raw)),
+               refreshed, refresh_error: refreshError });
 }));
 
 // ─── PUT /api/recipes/targets (bulk-upsert) ───────────────────
@@ -683,9 +747,10 @@ router.get('/:id/composition', handle(async (req, res) => {
     // Denne opskrifts direkte ingredienser
     const posForRecipe = allPos.filter(p => String(p.recipe_id) === String(id));
 
-    // Produkt-detaljer (last_price + stock_amount) pr. ingrediens, parallelt.
-    // Nødvendigt fordi bulk-/stock KUN har varer på lager — priser på udsolgte
-    // varer (fx Æbler) skal med, og de ligger i Grocys prishistorik (last_price).
+    // Produkt-detaljer pr. ingrediens, parallelt. Bruges KUN til lagertallet i
+    // panelet; prisen kommer fra `getProductUnitCostDetails` nedenfor.
+    // Nødvendigt fordi `/objects/stock` kun har varer der ER på lager, og en
+    // udsolgt vare (fx Æbler) stadig skal vises med sin beholdning på 0.
     const ingProductIds = [...new Set(posForRecipe.map(p => String(p.product_id)))];
     const detailsList = await Promise.all(
         ingProductIds.map(pid => grocyAdapter.getProductDetails(pid).catch(() => null))
@@ -698,25 +763,12 @@ router.get('/:id/composition', handle(async (req, res) => {
     // største linje i Frisk Grønt som "—" mens den indgik i totalen med 9,63 kr.
     // Kun de FÅ børn der faktisk skal bruges hentes; hele produktkataloget
     // ville være 100+ kald på en klik-sti.
-    const forældreUdenPris = ingProductIds.filter(pid => lastPriceOf(detailsMap.get(pid)) == null);
-    const børnIds = [...new Set(forældreUdenPris.flatMap(pid =>
-        products.filter(x => String(x.parent_product_id) === String(pid)).map(x => String(x.id))
-    ))];
-    const arvetPris = new Map();
-    if (børnIds.length) {
-        const børnDetaljer = await Promise.all(
-            børnIds.map(pid => grocyAdapter.getProductDetails(pid).catch(() => null))
-        );
-        const børnPris = new Map();
-        børnIds.forEach((pid, i) => {
-            const c = lastPriceOf(børnDetaljer[i]);
-            if (c != null) børnPris.set(pid, c);
-        });
-        for (const pid of forældreUdenPris) {
-            const snit = parentPriceFromChildren(products, pid, cid => børnPris.get(cid) ?? null);
-            if (snit != null) arvetPris.set(pid, snit);
-        }
-    }
+    // Prisen hentes for netop denne opskrifts ingredienser — ikke for hele
+    // kataloget. Forældre-arven (fx `kål`, som kun børnene har en pris på)
+    // ligger inde i kaldet, så den er den samme her som i totalen.
+    const prisDetaljer = await grocyAdapter
+        .getProductUnitCostDetails(6, { productIds: ingProductIds })
+        .catch(() => new Map());
 
     // Direkte ingredienser (recipes_pos)
     const ingredients = posForRecipe.map(pos => {
@@ -733,8 +785,9 @@ router.get('/:id/composition', handle(async (req, res) => {
         // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
         // last_price/avg_price bevares uanset lager, så udsolgte varer også får en pris.
         const d = detailsMap.get(String(pos.product_id));
-        const unitCost = lastPriceOf(d) ?? (arvetPris.get(String(pos.product_id)) ?? null);
-        const prisArvet = lastPriceOf(d) == null && arvetPris.has(String(pos.product_id));
+        const pris = prisDetaljer.get(String(pos.product_id));
+        const unitCost = unitCostOf(pris);
+        const prisArvet = unitCost != null && pris.source === 'parent_avg';
         const amountStock = parseFloat(pos.amount) || 0;
         const stockAmount = d ? (Number(d.stock_amount) || 0) : null;
         return {
@@ -790,6 +843,8 @@ router.get('/:id/composition', handle(async (req, res) => {
         total_cost: bonCost.has(recipe.id) ? r2(bonCost.get(recipe.id).cost) : null,
         total_cost_source: bonCost.get(recipe.id)?.source ?? null,
         total_cost_missing: bonCost.get(recipe.id)?.missing || [],
+        total_cost_warnings: (bonCost.get(recipe.id)?.warnings || [])
+            .map(w => ({ ...w, text: describeWarning(w) })),
         ingredients,
         sub_recipes,
     });
