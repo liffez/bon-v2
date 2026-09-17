@@ -602,7 +602,21 @@ function handleSmagningBooking(data) {
                 guestCount: mt.fixed_guest_count ?? (data.guest_count ? parseInt(data.guest_count) : null),
                 meetingTypeLabel: mt.label,
             })
-            .then(r => { if (r.created) broadcast('crm_activity_created', { activity_id: activityId, customer_id: customerId, type: 'meeting' }); })
+            .then(r => {
+                if (r.created) {
+                    broadcast('crm_activity_created', { activity_id: activityId, customer_id: customerId, type: 'meeting' });
+                    return;
+                }
+                // Ingen bon, ingen undtagelse — så sig hvorfor. Uden den her
+                // linje er "auto-oprettelse slået fra" og "noget gik galt" ikke
+                // til at skelne fra hinanden i loggen, og bonen mangler bare.
+                const hvorfor = {
+                    disabled: 'auto-oprettelse er slået fra i Settings → Booking — Smagsprøve',
+                    already_exists: 'aftalen har allerede en bon',
+                    missing_customer_or_date: 'aftalen mangler kunde eller dato',
+                }[r.reason] || r.reason;
+                console.warn(`[booking-smagning] Ingen bon til activity #${activityId}: ${hvorfor}`);
+            })
             .catch(err => console.error('[booking-smagning] Bon kunne ikke oprettes:', err.message));
     }
 

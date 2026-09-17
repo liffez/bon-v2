@@ -7609,6 +7609,66 @@ har måske sin egen. Sæt desuden `company_phone` under System.
 
 ---
 
+### Smagsprøve-bonen fødes godkendt og med vores egen vogn (17. september 2026)
+
+Første rigtige booking i drift (B4298) landede som **NY og uden vogn**. Begge dele
+er forkerte for præcis denne bon-type, og ingen af dem er kosmetik.
+
+**Status.** NY betyder "der er landet noget, nogen skal tage stilling". Men en
+smagning er fuldt afklaret i det sekund kunden trykker book: menuen er fast,
+adressen er tastet, tidspunktet er et slot vi selv har åbnet. Der er ingenting at
+afklare — så bonen lægger sig i NY-bunken og stjæler opmærksomhed fra de
+bestillinger der FAKTISK mangler noget. **Migration 175** seeder
+`booking_smagning_bon_status = 'GODKENDT'`. Vil man se dem igennem først, sættes
+`VENTER` (Venter info) i Settings; derfor en indstilling frem for en hårdkodet
+værdi.
+
+> ⚠️ **Koden valideres mod `status_definitions` før den bruges.** `getStatusId()`
+> giver `undefined` for en ukendt kode, og så kaster INSERT'en. En tastefejl i
+> Settings ville altså slå auto-oprettelsen ihjel for **hver eneste** booking —
+> tavst, set udefra. `resolveBonStatus()` falder tilbage til NY og siger det i
+> loggen. Låst af en test der bogstaveligt sætter `VRØVL` i indstillingen.
+
+**Vognen.** Vi kører selv smagsprøven ud. Uden vognen står bonen som "Ikke
+planlagt endnu" i Logistik og på køkkenkortet, og nogen skal huske at vælge den i
+hånden — på hver eneste smagning. `booking_smagning_vehicle_id` sættes af
+migrationen ved at **slå vognen op på `type = 'volvo'` + `is_internal`**, ikke på
+et hårdkodet id: seeden i 057 giver ingen garanti for hvilket id den fik. Tom
+værdi = book ikke automatisk, hvilket er et gyldigt valg.
+
+- `logBookingEvent()` ejer hele koblingen — `delivery_events`, `delivery_method`,
+  `courier_provider`, prisestimat, afhentningstid, changelog og SSE. Vi skriver
+  ikke nogen af dem selv; så ville de to veje ind i en booking kunne skride fra
+  hinanden.
+- **`status: 'booked'` er ærligt for en intern vogn.** Der er ingen leverandør at
+  få en bekræftelse fra — "booket" betyder her at bilen er vores og tildelt.
+  (Migration 148's `booking_confirmed_by` handler om **ruter**, ikke om
+  bon-niveauets events.)
+- `userId` er null: intet menneske trykkede. `booked_by_user_id` står tom frem for
+  at pege på en tilfældig.
+- **Fejler den, koster det ikke bonen** — og det er ikke tavst: grunden skrives i
+  interne noter *med anvisningen* ("Vælg vogn under BESTIL BUD"), ved siden af en
+  eventuel menu-advarsel. Samme doktrin som resten af filen.
+
+**Tests:** `npm run test:smagning-bon` — 74 → **82 asserts**. §11 dækker status
+(standard, indstillingen slår igennem, ukendt kode koster ikke bonen), §12 vognen
+(migrationen slår den op på type, bonen bærer den, `delivery_method` synkroniseret,
+booking-event skrevet, tom = ingen vogn, ukendt vogn → advarsel på bonen).
+Settings-blokken **renderes i en vm-sandkasse** frem for kun at blive grep'et: en
+grep ser ikke en exception, og så ville hele sektionen bare være tom.
+**Mutations-testet: seks mutationer, alle fanget** (2/2/5/5/1/4).
+
+> Testen sætter `process.env.ORS_API_KEY = ''` før require. Uden nøgle kaster
+> routing `no_api_key`, som `computePickupTime` fanger — så en `.env` på maskinen
+> ikke pludselig får testen til at ringe ud til ORS.
+
+**Deploy:** migrationen kører ved genstart og gælder **nye** bons. **B4298 skal
+rettes i hånden**: sæt status til Godkendt og vælg Volvo Duett under BESTIL BUD.
+Kontrollér bagefter i Settings → Booking — Smagsprøve at vognen står på Volvo
+Duett (migrationen har valgt den, men den kan skiftes uden en udrulning).
+
+---
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

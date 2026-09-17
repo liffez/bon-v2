@@ -32,6 +32,10 @@ const ok = (c, m) => { if (c) { console.log('  \x1b[32m✓\x1b[0m', m); pass++; 
 
 process.env.DB_PATH  = TEST_DB;
 process.env.NODE_ENV = 'test';
+// Ingen netværk: uden ORS-nøgle kaster routing 'no_api_key', som
+// computePickupTime fanger. Sat eksplicit, så en .env på maskinen ikke
+// får testen til at ringe ud til ORS.
+process.env.ORS_API_KEY = '';
 
 require('../db/migrate').runMigrations(TEST_DB);
 
@@ -297,6 +301,162 @@ async function main() {
     // Den hjemmelavede vælger må ikke ligge tilbage ved siden af.
     ok(!/id="bs-smagning-pick"/.test(html), 'den gamle <select> er væk');
     ok(!/function bsSmagningAdd\(/.test(html), 'og dens tilføj-handler ligeså');
+
+    // ── 10) Takkesiden siger det samme som mailen ───────────────────
+    //
+    // Den sagde "Adresse: {{firmaAdresse}}" — vores adresse, ikke kundens — og
+    // siden hardkodede variablen til tom streng, så linjen stod bare som
+    // "Adresse:" uden noget efter. Telefonnummeret ligeså.
+    console.log('\n10 · Takkesiden');
+    const ty = row(`SELECT body_text b FROM page_templates WHERE key = 'thankyou_smagning'`).b || '';
+    ok(!/\{\{firmaAdresse\}\}/.test(ty), 'takkesiden viser ikke længere VORES adresse');
+    ok(/\{\{leveringsAdresse\}\}/.test(ty), 'men leveringsadressen');
+
+    const form = fs.readFileSync(path.join(__dirname, '..', 'booking', 'smagning.html'), 'utf8');
+    const tvFn = (form.match(/function buildThankyouVars\([\s\S]*?\n}/) || [''])[0];
+    ok(!/firmaTelefon:\s*''/.test(tvFn), 'telefonnummeret er ikke længere hardkodet tomt');
+    ok(/state\.contact\?\.phone/.test(tvFn), 'det hentes fra /meeting-types');
+    ok(/leveringsAdresse:\s*data\.address_text/.test(tvFn), 'og leveringsadressen fra det kunden tastede');
+
+    // Alle variabler takkesiden bruger skal kunne fyldes af siden.
+    const tyVars = [...ty.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]);
+    const tomme = tyVars.filter(v => new RegExp(v + ":\\s*''").test(tvFn));
+    ok(tomme.length === 0, `ingen af takkesidens variabler er hardkodet tomme (fandt: ${tomme.join(', ') || 'ingen'})`);
+
+    // ── 11) Bonens status ───────────────────────────────────────────
+    //
+    // NY betyder "nogen skal tage stilling". En booket smagning er afklaret i
+    // det sekund kunden trykker book — menu, adresse og tid er alle givne — så
+    // den hører ikke til i NY-bunken sammen med de bestillinger der faktisk
+    // mangler noget.
+    console.log('\n11 · Bonens status');
+    const stDefault = row(`SELECT value v FROM settings WHERE key = 'booking_smagning_bon_status'`).v;
+    ok(stDefault === 'GODKENDT', `standard er GODKENDT (fik '${stDefault}')`);
+
+    const st1 = row(`SELECT sd.code c FROM bons b JOIN status_definitions sd ON sd.id = b.status_id WHERE b.id = ?`,
+                    act.bon_id ?? -1).c;
+    ok(st1 === 'GODKENDT', `REGRESSIONEN: bonen fra bookingen er ikke NY (fik '${st1}')`);
+
+    // Vil man se dem igennem først, sættes VENTER — derfor en indstilling.
+    setSetting('booking_smagning_bon_status', 'VENTER');
+    const { date: d9, slot: s9 } = findDateWithSlot();
+    const r9 = booking.handleSmagningBooking({
+        first_name: 'Sofie', email: 'sofie@example.invalid',
+        date: d9, time: s9.time, meeting_type: 'smagning', ...ADDR
+    });
+    await settle();
+    const act9 = row('SELECT bon_id FROM crm_activities WHERE id = ?', r9?.activityId ?? -1);
+    const st2 = row(`SELECT sd.code c FROM bons b JOIN status_definitions sd ON sd.id = b.status_id WHERE b.id = ?`,
+                    act9.bon_id ?? -1).c;
+    ok(st2 === 'VENTER', `indstillingen slår igennem (fik '${st2}')`);
+
+    // En tastefejl i Settings må ikke koste bonen: getStatusId() giver
+    // undefined for en ukendt kode, og så ville INSERT'en kaste.
+    setSetting('booking_smagning_bon_status', 'VRØVL');
+    const { date: d10, slot: s10 } = findDateWithSlot();
+    const r10 = booking.handleSmagningBooking({
+        first_name: 'Mads', email: 'mads@example.invalid',
+        date: d10, time: s10.time, meeting_type: 'smagning', ...ADDR
+    });
+    await settle();
+    const act10 = row('SELECT bon_id FROM crm_activities WHERE id = ?', r10?.activityId ?? -1);
+    ok(!!act10.bon_id, 'en ukendt status i Settings koster IKKE bonen');
+    const st3 = row(`SELECT sd.code c FROM bons b JOIN status_definitions sd ON sd.id = b.status_id WHERE b.id = ?`,
+                    act10.bon_id ?? -1).c;
+    ok(st3 === 'NY', `den falder tilbage til NY (fik '${st3}')`);
+    setSetting('booking_smagning_bon_status', 'GODKENDT');
+
+    // ── 12) Vi kører den selv ud ────────────────────────────────────
+    //
+    // Uden vognen står bonen som "Ikke planlagt endnu" i Logistik og på
+    // køkkenkortet, og nogen skal huske at vælge den i hånden hver gang.
+    console.log('\n12 · Vognen sættes automatisk');
+    const volvo = row(`SELECT id, code FROM delivery_vehicles
+                        WHERE type = 'volvo' AND is_internal = 1 AND is_active = 1
+                        ORDER BY sort_order, id LIMIT 1`);
+    const vehSetting = row(`SELECT value v FROM settings WHERE key = 'booking_smagning_vehicle_id'`).v;
+    ok(!!volvo.id, 'der findes en intern volvo-vogn i stamdata');
+    ok(vehSetting === String(volvo.id),
+       `migrationen slog den op på type, ikke på et hårdkodet id (fik '${vehSetting}')`);
+
+    const bonVeh = row(`SELECT delivery_vehicle_id v, delivery_method m, courier_provider p
+                          FROM bons WHERE id = ?`, act.bon_id ?? -1);
+    ok(bonVeh.v === volvo.id, `REGRESSIONEN: bonen har vognen på sig (fik '${bonVeh.v}')`);
+    ok(bonVeh.m === 'volvo', `delivery_method synkroniseret, så lister og filtre ser den (fik '${bonVeh.m}')`);
+    ok(bonVeh.p === volvo.code, 'courier_provider ligeså');
+
+    const ev = row(`SELECT event_type t, vehicle_id v FROM delivery_events WHERE bon_id = ?`, act.bon_id ?? -1);
+    ok(ev.t === 'booked' && ev.v === volvo.id, 'og der ligger et booking-event, så historikken kan læses');
+
+    // "Book ikke automatisk" er et gyldigt valg.
+    setSetting('booking_smagning_vehicle_id', '');
+    const { date: d11, slot: s11 } = findDateWithSlot();
+    const r11 = booking.handleSmagningBooking({
+        first_name: 'Ea', email: 'ea@example.invalid',
+        date: d11, time: s11.time, meeting_type: 'smagning', ...ADDR
+    });
+    await settle();
+    const act11 = row('SELECT bon_id FROM crm_activities WHERE id = ?', r11?.activityId ?? -1);
+    const bon11 = row('SELECT delivery_vehicle_id v FROM bons WHERE id = ?', act11.bon_id ?? -1);
+    ok(!!act11.bon_id && bon11.v == null, 'tom indstilling = ingen vogn, og bonen laves stadig');
+
+    // En vogn der er slettet må ikke kunne vælte bonen — og må ikke være tavs.
+    setSetting('booking_smagning_vehicle_id', '99999');
+    const { date: d12, slot: s12 } = findDateWithSlot();
+    const r12 = booking.handleSmagningBooking({
+        first_name: 'Bo', email: 'bo@example.invalid',
+        date: d12, time: s12.time, meeting_type: 'smagning', ...ADDR
+    });
+    await settle();
+    const act12 = row('SELECT bon_id FROM crm_activities WHERE id = ?', r12?.activityId ?? -1);
+    ok(!!act12.bon_id, 'en ukendt vogn koster ikke bonen');
+    const bon12 = row('SELECT internal_notes n FROM bons WHERE id = ?', act12.bon_id ?? -1);
+    ok(/BESTIL BUD/.test(bon12.n || ''), 'og grunden står på bonen med anvisningen — ikke i stilhed');
+    setSetting('booking_smagning_vehicle_id', String(volvo.id || ''));
+
+    // Uden en vej til at ændre dem i Settings ville begge kræve SQL.
+    ok(/id="bs-smagning-status"[\s\S]{0,160}booking_smagning_bon_status/.test(html),
+       'Settings har en status-vælger koblet til den rigtige indstilling');
+    ok(/id="bs-smagning-vehicle"[\s\S]{0,160}booking_smagning_vehicle_id/.test(html),
+       'og en vogn-vælger ligeså');
+    ok(/Book ikke automatisk/.test(html), 'med "book ikke" som et synligt valg');
+    ok(/fetchStatuses\(\), fetchDeliveryVehicles\(\)/.test(html),
+       'listerne hentes fra API — ingen hårdkodet kopi af statusser eller vogne');
+
+    // Og blokken skal kunne RENDERE. En grep ser ikke en exception (fx en
+    // helper der ikke findes i scope), og så ville hele sektionen være tom.
+    const vm = require('node:vm');
+    const src = (html.match(/function _smagningBonBlock\(\)[\s\S]*?\n}/) || [''])[0];
+    const sandbox = {
+        esc: x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])),
+        allSettings: {
+            booking_smagning_create_bon: '1',
+            booking_smagning_bon_status: 'VENTER',
+            booking_smagning_vehicle_id: String(volvo.id),
+        },
+        _smagningPayTypes: [{ code: 'sponsorship', label: 'Sponsorat', counts_as_revenue: 0 }],
+        _smagningPriceCats: [{ code: 'catering', label: 'Catering' }],
+        _smagningStatuses: [{ code: 'NY', label: 'Ny', category: 'normal' },
+                            { code: 'VENTER', label: 'Venter info', category: 'normal' },
+                            { code: 'GODKENDT', label: 'Godkendt', category: 'normal' }],
+        _smagningVehicles: [{ id: volvo.id, label: 'Volvo Duett', is_internal: 1 },
+                            { id: volvo.id + 100, label: 'By-expressen', is_internal: 0 }],
+    };
+    let blok = '';
+    try {
+        vm.createContext(sandbox);
+        vm.runInContext(src + '\n_smagningBonBlock();', sandbox);
+        blok = vm.runInContext('_smagningBonBlock()', sandbox);
+    } catch (err) {
+        blok = `RENDER-FEJL: ${err.message}`;
+    }
+    ok(!/RENDER-FEJL/.test(blok), `blokken renderer uden at kaste (${blok.slice(0, 80)})`);
+    ok(/<option value="VENTER" selected>Venter info<\/option>/.test(blok),
+       'den gemte status står som valgt');
+    ok(new RegExp('<option value="' + volvo.id + '" selected>Volvo Duett').test(blok),
+       'og den gemte vogn ligeså');
+    ok(/egen vogn/.test(blok) && /By-expressen(?! \u2014 egen vogn)/.test(blok),
+       'egne vogne er mærket, så man kan se hvad der er vores');
 
     console.log(`\n${'─'.repeat(52)}`);
     console.log(`  ${pass} PASS · ${fail} FAIL`);
