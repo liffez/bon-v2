@@ -667,34 +667,58 @@
     border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    padding: 14px;
+    padding: 12px;
     z-index: 1050;
-    min-width: 260px;
-    max-height: 60vh;
-    overflow-y: auto;
+    min-width: 250px;
+    max-height: calc(100vh - 140px);
     display: none;
     right: 16px;
     top: 60px;
 }
-.ops-target-pop.open { display: block; }
+/* Popoveren er en kolonne: kun kategori-listen scroller, så Gem/Luk
+   aldrig skubbes ud af syne når der er mange kategorier (13 i drift). */
+.ops-target-pop.open { display: flex; flex-direction: column; }
 .ops-target-pop h4 {
-    font-size: 12px;
-    margin: 0 0 8px;
+    font-size: 11px;
+    margin: 0 0 6px;
     color: #6a6359;
     text-transform: uppercase;
+    flex: 0 0 auto;
 }
+.ops-pop-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* Skærer bevidst midt i en række: den halve række er det eneste signal om
+       at der er mere nedenunder — en overlay-scrollbar vises ikke før man ruller. */
+    max-height: 210px;
+    padding-right: 2px;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+.ops-pop-wide {
+    width: 100%;
+    margin: 6px 0 12px;
+    flex: 0 0 auto;
+}
+.ops-pop-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex: 0 0 auto;
+}
+.ops-pop-actions .ops-btn-primary { flex: 1; }
 .ops-target-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 4px 0;
+    padding: 2px 0;
     font-size: 12px;
 }
 .ops-target-row input {
-    width: 60px;
+    width: 54px;
     text-align: right;
-    padding: 4px 6px;
+    padding: 3px 5px;
     border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 4px;
 }
@@ -710,21 +734,24 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 4px 0;
+    padding: 2px 0;
     font-size: 12px;
+    flex: 0 0 auto;
 }
 .ops-window-row input {
-    width: 60px;
+    width: 54px;
     text-align: right;
-    padding: 4px 6px;
+    padding: 3px 5px;
     border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 4px;
 }
 .ops-window-hint {
     font-size: 11px;
-    line-height: 1.45;
+    line-height: 1.4;
     color: #6a6359;
-    margin-top: 4px;
+    margin-top: 3px;
+    cursor: help;
+    flex: 0 0 auto;
 }
 
 /* Toast (success/error) */

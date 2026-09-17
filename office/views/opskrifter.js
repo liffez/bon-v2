@@ -557,17 +557,14 @@ function _opsRenderTargetPop(pop) {
                        value="${vindue}"> dage
             </span>
         </div>
-        <div class="ops-window-hint">
-            Kostprisen er et mængdevægtet snit af indkøbene i vinduet. Et kort vindue holder
-            gamle, forkerte priser ude; et langt fanger flere varer. Varer uden indkøb i vinduet
-            bruger seneste køb.
+        <div class="ops-window-hint" title="Kostprisen er et mængdevægtet snit af indkøbene i vinduet. Et kort vindue holder gamle, forkerte priser ude; et langt fanger flere varer. Varer uden indkøb i vinduet bruger seneste køb.">
+            Mængdevægtet snit af indkøbene i vinduet. Uden indkøb: seneste køb.
         </div>
-        <div style="display:flex;gap:6px;margin:8px 0 14px;">
-            <button class="ops-btn-primary" style="flex:1" data-act="save-window">Gem og genberegn</button>
-        </div>
+        <button class="ops-btn-primary ops-pop-wide" data-act="save-window">Gem og genberegn</button>
 
         <h4>Mål for DB% pr. kategori</h4>
         ${allCats.length === 0 ? '<div style="color:#6a6359;font-size:11px">Ingen kategorier fundet i Grocy</div>' : ''}
+        <div class="ops-pop-scroll">
         ${allCats.map(cat => `
             <div class="ops-target-row">
                 <span>${_opsEsc(cat)}</span>
@@ -579,7 +576,8 @@ function _opsRenderTargetPop(pop) {
                 </span>
             </div>
         `).join('')}
-        <div style="display:flex;gap:6px;margin-top:10px;">
+        </div>
+        <div class="ops-pop-actions">
             <button class="ops-btn-primary" style="flex:1" data-act="save-targets">Gem</button>
             <button class="ops-btn-secondary" data-act="close-targets">Luk</button>
         </div>
