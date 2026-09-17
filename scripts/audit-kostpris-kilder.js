@@ -9,16 +9,18 @@
 //      Lagerprisen på noget vi selv laver er et artefakt — `setInventory()`
 //      sender ingen pris, så Grocy bærer den forrige videre fra optælling til
 //      optælling. Rødløg - Sylt stod 96 % over råvarerne.
-//   2. Varer hvor seneste køb ligger langt fra gennemsnittet. Typisk fordi
+//   2. Varer hvor seneste køb ligger langt fra 90-dages snittet. Typisk fordi
 //      varen har flere varenumre (mayo: 1 kg-pose 114,56 · 5 kg-spand 42,01).
+//      Samme sted: hvor mange varer reglen overhovedet når, og hvor mange der
+//      falder tilbage på seneste køb fordi der ikke er købt ind i vinduet.
 //   3. Effekten pr. opskrift, opdelt på de to regler, så man kan se hvilken
 //      der flytter hvad.
 //
-// FØR-tallet er ikke et gæt: den gamle adfærd genskabes ved at fodre den samme
-// beregning med den GAMLE prisrækkefølge (seneste køb først) og ved at fjerne
-// `product_id` fra de producerende opskrifter hvis produkt HAR en lagerpris —
-// præcis de tilfælde hvor den gamle regel lod lagerprisen vinde. Ingen kopi af
-// den gamle kode, og ingen omskiftere i produktionskoden.
+// FØR-tallet er ikke et gæt: mains adfærd genskabes ved at fodre den samme
+// beregning med mains prisrækkefølge (bulk-genvejens lagerpost, ellers seneste
+// køb) og ved at fjerne `product_id` fra de producerende opskrifter hvis produkt
+// HAR en lagerpris — præcis de tilfælde hvor den gamle regel lod lagerprisen
+// vinde. Ingen kopi af den gamle kode, og ingen omskiftere i produktionskoden.
 //
 // SKRIVER INTET — hverken til Grocy eller til forretningsdata. Alle Grocy-kald
 // er GET. (At åbne databasen kører ventende migrations, som i ethvert andet
@@ -49,8 +51,8 @@ process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 
 
 const grocy = require('../services/grocyAdapter');
 const {
-    computeAll, unitCostDetail, yieldInStockUnits,
-    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT,
+    computeAll, yieldInStockUnits,
+    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT, PRICE_WINDOW_DAYS,
 } = require('../services/recipeCost');
 
 const C = { dim: '\x1b[2m', red: '\x1b[31m', grn: '\x1b[32m', yel: '\x1b[33m', b: '\x1b[1m', off: '\x1b[0m' };
@@ -65,13 +67,19 @@ const pct = n => (n == null) ? '—' : (n > 0 ? '+' : '') + Number(n).toFixed(0)
 const pad = (s, n) => String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s).padEnd(n);
 const padL = (s, n) => String(s).padStart(n);
 
-/** Prisrækkefølgen FØR #557: seneste køb → gennemsnit → lagerværdi/mængde. */
-function gammelPrisregel(d) {
+/**
+ * Prisen som main giver den, så FØR-tallet ikke er et gæt:
+ *   1) bulk-genvejen — nyeste lagerposts pris for alt der ER på lager
+ *   2) ellers `/stock/products/:id`: last_price → avg_price → værdi/mængde
+ * `parent_avg` var ens før og efter.
+ */
+function gammelPrisregel(d, lagerpost) {
+    if (lagerpost > 0) return lagerpost;
     if (!d) return null;
     if (d.last_price > 0) return d.last_price;
     if (d.avg_price > 0) return d.avg_price;
-    // `stock_value`/`stock_row`/`parent_avg` var ens før og efter.
-    return (d.source === 'avg' || d.source === 'last') ? null : d.cost;
+    if (d.source === 'stock_value' || d.source === 'parent_avg') return d.cost;
+    return null;
 }
 
 /**
@@ -102,11 +110,23 @@ async function main() {
     const detaljer = await grocy.getProductUnitCostDetails();
     const produktById = new Map(products.map(p => [String(p.id), p]));
 
+    // Nyeste lagerposts pris pr. produkt — mains bulk-genvej, som FØR-tallet
+    // skal bruge. `/stock` (aggregeret) bærer den ikke; `/objects/stock` gør.
+    const lagerposter = await fetch(cfg.url + '/objects/stock', { headers: { 'GROCY-API-KEY': cfg.key } })
+        .then(r => r.ok ? r.json() : []).catch(() => []);
+    const nyesteLagerpost = new Map();
+    for (const r of lagerposter) {
+        if (!(parseFloat(r.price) > 0)) continue;
+        const pid = String(r.product_id);
+        const nu = nyesteLagerpost.get(pid);
+        if (!nu || String(r.purchased_date || '') > String(nu.purchased_date || '')) nyesteLagerpost.set(pid, r);
+    }
+
     const priserNy = new Map();
     const priserGl = new Map();
     for (const [pid, d] of detaljer) {
         if (d.cost > 0) priserNy.set(pid, d.cost);
-        const g = gammelPrisregel(d);
+        const g = gammelPrisregel(d, nyesteLagerpost.get(pid)?.price);
         if (g > 0) priserGl.set(pid, g);
     }
 
@@ -153,8 +173,8 @@ async function main() {
               + ` · ${prod.filter(p => p.lager == null).length} uden lagerpris\n`);
 
     // ── 2. Seneste køb mod gennemsnit ────────────────────────
-    console.log(`${C.b}2. Varer hvor seneste køb ligger langt fra gennemsnittet${C.off}`);
-    console.log(`${C.dim}   Tærskel: ${WARN_LAST_VS_AVG_PCT} %. Gennemsnittet bruges.${C.off}\n`);
+    console.log(`${C.b}2. Varer hvor seneste køb ligger langt fra ${PRICE_WINDOW_DAYS}-dages snittet${C.off}`);
+    console.log(`${C.dim}   Tærskel: ${WARN_LAST_VS_AVG_PCT} %. Snittet bruges.${C.off}\n`);
     const spredt = [];
     for (const [pid, d] of detaljer) {
         if (!d.warn) continue;
@@ -166,11 +186,32 @@ async function main() {
         console.log(`   ${pad(p.navn, 26)}${padL('seneste ' + kr(p.last_price), 20)}`
                   + `${padL('snit ' + kr(p.avg_price), 16)}${C.red}${padL(pct(p.deviation_pct), 11)}${C.off}`);
     }
-    console.log(`\n   ${spredt.length} af ${detaljer.size} prissatte varer\n`);
+    console.log(`\n   ${spredt.length} af ${detaljer.size} prissatte varer`);
+
+    // Hvor mange varer når reglen overhovedet? Er der ingen køb i vinduet,
+    // falder prisen tilbage på seneste køb — altså den gamle adfærd. Bliver
+    // dét tallet for de fleste, er udsvinget ikke dæmpet, og så er vinduet
+    // for kort. Derfor står fordelingen her og ikke kun i koden.
+    const kilder = new Map();
+    for (const d of detaljer.values()) kilder.set(d.source, (kilder.get(d.source) || 0) + 1);
+    const kildeNavn = {
+        avg_window:    `snit over ${PRICE_WINDOW_DAYS} dage`,
+        last_purchase: 'seneste køb (ingen køb i vinduet)',
+        stock_row:     'nyeste lagerpost (ingen køb i loggen)',
+        last:          'Grocys last_price',
+        avg:           'Grocys avg_price',
+        stock_value:   'lagerværdi/mængde',
+        parent_avg:    'arvet fra børnene',
+    };
+    console.log(`   ${C.dim}Prisens ophav:${C.off}`);
+    for (const [k, n] of [...kilder].sort((a, b) => b[1] - a[1])) {
+        console.log(`     ${padL(n, 5)}  ${kildeNavn[k] || k}`);
+    }
+    console.log('');
 
     // ── 3. Effekt pr. opskrift ───────────────────────────────
     console.log(`${C.b}3. Hvad flytter sig${C.off}`);
-    console.log(`${C.dim}   FØR = gammel prisrækkefølge + lagerprisen på producerede goder.${C.off}\n`);
+    console.log(`${C.dim}   FØR = main: bulk-genvejen + lagerprisen på producerede goder.${C.off}\n`);
     const flyt = [];
     for (const r of recipes) {
         const a = før.get(r.id)?.cost ?? 0;

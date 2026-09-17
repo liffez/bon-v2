@@ -258,12 +258,16 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
               userfields: { recipeunit: 'kg', recipeunitnumber: '1' } },
             { id: 4, name: 'Fisken', base_servings: 1,
               userfields: { sellable: '1', recipeunit: 'antal', recipeunitnumber: '1' } },
+            // Forælder-vare: `kål` har ingen egen pris — kun børnene har.
+            { id: 5, name: 'Kålblanding', base_servings: 1,
+              userfields: { sellable: '1', recipeunit: 'antal', recipeunitnumber: '1' } },
         ],
         '/objects/recipes_pos': [
             { id: 1, recipe_id: 1, product_id: 10, amount: 0.5, qu_id: 1 },
             { id: 2, recipe_id: 2, product_id: 20, amount: 1, qu_id: 2 },
             { id: 3, recipe_id: 3, product_id: 40, amount: 1, qu_id: 1 },
             { id: 4, recipe_id: 4, product_id: 30, amount: 1, qu_id: 1 },
+            { id: 5, recipe_id: 5, product_id: 50, amount: 2, qu_id: 1 },
         ],
         '/objects/recipes_nestings': [],
         '/objects/products': [
@@ -271,6 +275,10 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
             { id: 20, name: 'Øl - Pilsner', qu_id_stock: 2, qu_id_purchase: 2 },
             { id: 30, name: 'Remoulade', qu_id_stock: 1, qu_id_purchase: 1 },
             { id: 40, name: 'Mayonaise', qu_id_stock: 1, qu_id_purchase: 1 },
+            // Grocy ruller børnenes LAGER op på forælderen, men ikke deres pris.
+            { id: 50, name: 'kål', qu_id_stock: 1, qu_id_purchase: 1 },
+            { id: 51, name: 'Spidskål-barn', parent_product_id: 50, qu_id_stock: 1, qu_id_purchase: 1 },
+            { id: 52, name: 'Hvidkål-barn',  parent_product_id: 50, qu_id_stock: 1, qu_id_purchase: 1 },
         ],
         '/objects/quantity_units': [{ id: 1, name: 'Kilo' }, { id: 2, name: 'Antal' }],
         '/objects/quantity_unit_conversions': [],
@@ -282,23 +290,52 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
         // for 12, og asserten nedenfor fanger det.
         '/objects/stock': [{ product_id: 10, amount: 5, price: 40, purchased_date: '2026-08-05' }],
     };
-    // Pr. produkt — dét er kilden efter #557. Spidskål har et enkeltkøb til 40
-    // langt over gennemsnittet 24; Remoulade bærer en lagerpris på 60 som er et
-    // optællings-artefakt, mens opskriften koster 100.
+    // Købshistorikken er kilden efter #557: et mængdevægtet snit over de
+    // seneste 90 dage. Spidskål er købt 4 kg til 20 og senest 1 kg til 40 —
+    // snittet er 24, og nødkøbet ligger 67 % derfra, så det advares der om
+    // uden at flytte prisen.
+    //
+    // Datoerne regnes ud fra i dag. En fast dato ville rådne: testen ville
+    // bestå i dag og tavst begynde at måle fallback-grenen om tre måneder.
+    const { offsetISO } = require('../db/helpers');
+    //
+    // Den første postering ligger UDEN FOR vinduet og er af den slags Grocy
+    // nægter at fortryde (Chilli Pulver-typen, prisen ganget med tusind). Den
+    // ligger her med vilje: glemmer adapteren at sende vinduets startdato med,
+    // koster kålsalaten 404 kr i stedet for 12, og asserten nedenfor fanger det.
+    const KOEB = {
+        10: [
+            { price: 40000, amount: 0.1, purchased_date: offsetISO(-200) },
+            { price: 20,    amount: 4,   purchased_date: offsetISO(-40)  },
+            { price: 40,    amount: 1,   purchased_date: offsetISO(-5)   },
+        ],
+        51: [{ price: 24, amount: 1, purchased_date: offsetISO(-10) }],
+        52: [{ price: 14, amount: 1, purchased_date: offsetISO(-10) }],
+    };
+    // Varer uden købshistorik falder tilbage på Grocys egne tal (trin 3).
+    // Remoulade bærer en pris på 60 som er et optællings-artefakt, mens
+    // opskriften koster 100.
     const PRODUKT_PRIS = {
-        10: { last_price: 40, avg_price: 24 },
         20: {},                                   // øllen har ingen prishistorik
         30: { last_price: 60, avg_price: 60 },
         40: { last_price: 100, avg_price: 100 },
     };
     // Gemmes FØR stubben, så HTTP-kaldet til vores egen route nedenfor ikke
     // også løber ind i Grocy-attrappen.
+    const logOpslag = [];
     const rigtigFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
         // Stien matches EKSAKT (uden query). `includes` ville lade
         // `/objects/recipes_pos` matche `/objects/recipes` og returnere
         // opskrifterne som ingredienser — en stub der lyver om sig selv.
         const sti = String(url).split('?')[0];
+        // Købsposteringerne spørges pr. produkt, så produkt-id'et står i
+        // query'en og ikke i stien.
+        if (sti.endsWith('/objects/stock_log')) {
+            const q = decodeURIComponent(String(url)).match(/product_id=(\d+)/);
+            if (q) logOpslag.push(q[1]);
+            return { ok: true, status: 200, json: async () => (q ? KOEB[q[1]] : null) || [] };
+        }
         const n = Object.keys(SVAR).find(k => sti.endsWith(k));
         if (n) return { ok: true, status: 200, json: async () => SVAR[n] };
         // Enkeltopslag for varer uden lager: øllen har ingen prishistorik.
@@ -358,6 +395,38 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
     await new Promise(r => srv.once('listening', r));
     const svar = await (await rigtigFetch(`http://127.0.0.1:${srv.address().port}/api/recipes/overview`)).json();
     srv.close();
+
+    // ── Drill-downet skal vise SAMME pris som rækken man klikkede på ──
+    // Panelet udledte tidligere prisen selv ud af Grocys råsvar. Gjorde det
+    // dét igen, ville det vise seneste køb (40) mens rækken viser 90-dages
+    // snittet (24) — og så ved man ikke hvilket tal der gælder.
+    const srv2 = app.listen(0);
+    await new Promise(r => srv2.once('listening', r));
+    const panel = await (await rigtigFetch(
+        `http://127.0.0.1:${srv2.address().port}/api/recipes/1/composition`)).json();
+    srv2.close();
+    const spidskaal = (panel.ingredients || []).find(i => String(i.product_id) === '10') || {};
+    ok(Math.abs(spidskaal.cost - 12) < 0.005,
+       `panelet regner med snittet 24, ikke seneste køb 40 (fik ${spidskaal.cost})`);
+    ok(Math.abs((panel.total_cost ?? 0) - 12) < 0.005,
+       'og totalen i panelet er den samme som rækkens');
+
+    // Forælderen `kål` har ingen egen pris; den arver gennemsnittet af børnene
+    // (24 og 14 → 19). Uden arven ville linjen stå som "—" i panelet mens den
+    // indgik i totalen — præcis dét den gamle børne-hentning i routen løste.
+    logOpslag.length = 0;
+    const srv3 = app.listen(0);
+    await new Promise(r => srv3.once('listening', r));
+    const panel5 = await (await rigtigFetch(
+        `http://127.0.0.1:${srv3.address().port}/api/recipes/5/composition`)).json();
+    srv3.close();
+    const kaalLinje = (panel5.ingredients || []).find(i => String(i.product_id) === '50') || {};
+    ok(Math.abs(kaalLinje.cost - 38) < 0.005,
+       `forælderen arver børnenes snit 19 × 2 kg = 38 (fik ${kaalLinje.cost})`);
+    ok(kaalLinje.cost_inherited === true, 'og panelet siger at prisen er arvet');
+    ok(logOpslag.length > 0 && logOpslag.length <= 3,
+       `klik-stien prissætter kun opskriftens varer + deres børn, ikke hele kataloget `
+       + `(${logOpslag.length} opslag)`);
 
     const rk = (svar.recipes || []).find(x => x.grocy_recipe_id === 4) || {};
     const adv = rk.cost_price_warnings || [];

@@ -142,8 +142,7 @@
     "test:web-order-flag": "node --experimental-sqlite --test tests/web_order_flag.test.js",
     "test:consume-policy": "node --experimental-sqlite scripts/test-consume-policy.js",
     "audit:produktionspolitik": "node --env-file=.env scripts/audit-production-policy.js",
-    "audit:kostpris-kilder": "node --experimental-sqlite scripts/audit-kostpris-kilder.js",
-    "diagnose:snitpris": "node scripts/diagnose-avg-price.js"
+    "audit:kostpris-kilder": "node --experimental-sqlite scripts/audit-kostpris-kilder.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

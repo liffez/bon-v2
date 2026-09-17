@@ -45,54 +45,139 @@ const { yieldInStockUnits, unitIdByName } = require('../shared/recipe_yield');
 const WARN_LAST_VS_AVG_PCT      = 30;   // #557
 const WARN_STOCK_VS_RECIPE_PCT  = 20;   // #558
 
+// Vinduet kostprisen vægtes over. Ikke en optimering — det er dét der holder
+// en forkert postering fra 2024 ude af tallet. Se `unitCostDetail`.
+const PRICE_WINDOW_DAYS = 90;           // #557
+
 /** Et positivt tal, eller null. 0 er ikke en pris (kål stod til 0). */
 function _pos(v) {
     const n = Number(v);
     return (Number.isFinite(n) && n > 0) ? n : null;
 }
 
+/** Datoen en købspostering hører til. `purchased_date` er forretningsdatoen;
+ *  `row_created_timestamp` er hvornår rækken blev skrevet — som regel samme
+ *  dag, men den første er den rigtige når de afviger. Klippet til YYYY-MM-DD,
+ *  så den kan sammenlignes som tekst mod vinduets startdato. */
+function _purchaseDate(p) {
+    return String(p.purchased_date || p.row_created_timestamp || '').slice(0, 10);
+}
+
+/** Mængdevægtet snit. Uden vægtning ville ét indkøb af 0,1 kg tælle lige så
+ *  meget som ét af 20 kg, og så er snittet ikke en pris — det er et gennemsnit
+ *  af kvitteringer.
+ *
+ *  Rækkerne er filtreret af kalderen (`unitCostDetail`) — ét sted, ikke to.
+ *  En gentagen kontrol her ville være uopnåelig kode, og uopnåelig kode kan
+ *  ikke testes: en fejl i den ville stå upåagtet. */
+function _weighted(rows) {
+    let sumPris = 0, sumMgd = 0;
+    for (const r of rows) {
+        sumPris += Number(r.price) * Number(r.amount);
+        sumMgd  += Number(r.amount);
+    }
+    return sumMgd > 0 ? sumPris / sumMgd : null;
+}
+
 /**
  * Enhedskost ex moms pr. LAGER-enhed for ét produkt — med ophav.
  *
- * GENNEMSNITTET ER ANKERET (#557)
+ * VI REGNER SNITTET SELV, OVER DE SENESTE 90 DAGE (#557)
  * `last_price` er prisen på ÉT bilag. Køber køkkenet en enkelt billig 5 kg-spand
  * mayo som nødløsning, falder kostprisen på hver eneste mayo-ret 63 % indtil
  * næste pose bliver købt — spanden er brugt op længe inden. Mayo ligger i seks
  * af de otte `RR produktion Hurtig`-blandinger, så udsvinget rammer bredt.
- * Gennemsnittet svinger ikke med den seneste kvittering.
  *
- * Men gennemsnittet er STABILT, ikke RIGTIGT. Har varen flere varenumre — mayo
- * har en 1 kg-pose til 114,56 kr/kg og en 5 kg-spand til 42,01 — lander snittet
- * mellem dem og passer på ingen af dem. Den rigtige pris kræver pris pr.
- * stregkode plus et udpeget standard-varenummer (fejl 1 og 3 i #557). Indtil da
- * advarer vi når de to tal er langt fra hinanden, frem for at vælge i stilhed.
+ * Men Grocys eget `avg_price` duer ikke som anker: det vægter kun det der står
+ * på hylden lige nu, så står der kun spanden, ER gennemsnittet spandens pris.
+ * Målt 17. sep 2026 kunne ingen formel over købshistorikken genskabe Grocys tal
+ * for 8 af de undersøgte produkter — de to størrelser er ikke det samme.
  *
- * @returns {{cost, source, last_price, avg_price, deviation_pct, warn}|null}
+ * Og et snit over HELE historikken duer heller ikke, af en grund der ikke er
+ * teoretisk: en håndfuld varer bærer posteringer fra 2024 med prisen ganget med
+ * tusind (Chilli Pulver 329.280 kr hvor medianen er 329,28). Grocy NÆGTER at
+ * fortryde et køb hvis beholdningen det skabte er brugt op, så historikken kan
+ * ikke renses. Asymmetrien er hele pointen: `last_price` heler sig selv — næste
+ * rigtige køb erstatter den — mens et gennemsnit over al tid kun kan fortyndes.
+ * Vinduet løser begge dele: det dæmper udsvinget OG lader de gamle fejl falde
+ * ud af sig selv.
+ *
+ * FALDER TILBAGE I DENNE RÆKKEFØLGE (beslutning 17. sep 2026)
+ *   1. mængdevægtet snit af køb i vinduet
+ *   2. ingen køb i vinduet      → seneste køb
+ *   3. ingen køb overhovedet    → Grocys egne tal: nyeste lagerpost →
+ *                                 last_price → avg_price → lagerværdi/mængde
+ *   4. intet af det             → null, og opskriften bliver et MINIMUM
+ *
+ * ADVARSLEN VÆLGER IKKE. Den siger at seneste køb ligger langt fra snittet, så
+ * en ægte prisstigning kan ses uden at ét nødkøb flytter menuen.
+ *
+ * @param {object|null} grocyRow  `/stock/products/:id` — kun brugt i trin 3
+ * @param {Array|null}  purchases købsposteringer fra `stock_log`
+ *                                (`undone = 0`, pris > 0), nyeste først eller ej
+ * @param {object} [opts]
+ *   since          ISO-dato (YYYY-MM-DD). Køb PÅ eller EFTER den tæller med.
+ *                  Udeladt ⇒ ingen tidsgrænse (bruges af tests og af kaldere
+ *                  der selv har skåret listen til).
+ *   stockRowPrice  prisen på nyeste lagerpost — trin 3's første led.
+ * @returns {{cost, source, last_price, avg_price, deviation_pct, warn,
+ *            purchases_in_window}|null}
  */
-function unitCostDetail(row) {
-    if (!row) return null;
+function unitCostDetail(grocyRow, purchases = null, opts = {}) {
+    const { since = null, stockRowPrice = null } = opts;
 
-    const last = _pos(row.last_price);
-    const avg  = _pos(row.avg_price ?? row.average_price);
+    const koeb = Array.isArray(purchases)
+        ? purchases.filter(p => _pos(p.price) != null && Number(p.amount) > 0)
+        : [];
 
-    if (avg != null) {
-        const dev = (last != null) ? (last - avg) / avg * 100 : null;
+    // Seneste køb findes i HELE listen, ikke kun i vinduet. Findes der køb i
+    // vinduet, er det nyeste af dem også det nyeste overhovedet, så de to kan
+    // ikke komme i modstrid — men uden for vinduet er det stadig det tal der
+    // skal bruges i trin 2.
+    const senest = koeb.length
+        ? koeb.reduce((a, b) => (_purchaseDate(b) > _purchaseDate(a) ? b : a))
+        : null;
+
+    // ── 1) Mængdevægtet snit over vinduet ───────────────────────────────
+    const iVindue = since ? koeb.filter(p => _purchaseDate(p) >= since) : koeb;
+    const snit = _weighted(iVindue);
+    if (snit != null) {
+        const last = _pos(senest.price);
+        const dev  = (last - snit) / snit * 100;
         return {
-            cost: avg, source: 'avg',
-            last_price: last, avg_price: avg,
+            cost: snit, source: 'avg_window',
+            last_price: last, avg_price: snit,
             deviation_pct: dev,
-            warn: dev != null && Math.abs(dev) > WARN_LAST_VS_AVG_PCT,
+            warn: Math.abs(dev) > WARN_LAST_VS_AVG_PCT,
+            purchases_in_window: iVindue.length,
         };
     }
-    if (last != null) {
-        // Kun ét køb registreret — så ER seneste køb gennemsnittet.
-        return { cost: last, source: 'last', last_price: last, avg_price: null,
-                 deviation_pct: null, warn: false };
+
+    // ── 2) Ingen køb i vinduet → seneste køb ────────────────────────────
+    if (senest) {
+        const last = _pos(senest.price);
+        return { cost: last, source: 'last_purchase', last_price: last, avg_price: null,
+                 deviation_pct: null, warn: false, purchases_in_window: 0,
+                 last_purchase_date: _purchaseDate(senest) };
     }
-    const value = Number(row.value), amount = Number(row.amount);
+
+    // ── 3) Ingen køb overhovedet → Grocys egne tal ──────────────────────
+    const base = { last_price: null, avg_price: null, deviation_pct: null,
+                   warn: false, purchases_in_window: 0 };
+
+    const lagerpost = _pos(stockRowPrice);
+    if (lagerpost != null) return { ...base, cost: lagerpost, source: 'stock_row' };
+
+    const gLast = _pos(grocyRow && grocyRow.last_price);
+    if (gLast != null) return { ...base, cost: gLast, source: 'last', last_price: gLast };
+
+    const gAvg = _pos(grocyRow && (grocyRow.avg_price ?? grocyRow.average_price));
+    if (gAvg != null) return { ...base, cost: gAvg, source: 'avg', avg_price: gAvg };
+
+    const value  = Number(grocyRow && grocyRow.value);
+    const amount = Number(grocyRow && grocyRow.amount);
     if (Number.isFinite(value) && Number.isFinite(amount) && amount > 1e-9) {
-        return { cost: value / amount, source: 'stock_value', last_price: null,
-                 avg_price: null, deviation_pct: null, warn: false };
+        return { ...base, cost: value / amount, source: 'stock_value' };
     }
     return null;
 }
@@ -102,8 +187,8 @@ function unitCostDetail(row) {
  * kaldere der kun skal bruge tallet ikke også skal kende ophavet.
  * Prisen bevares i Grocys historik uanset lager, så udsolgte varer også tæller.
  */
-function unitCostFromRow(row) {
-    const d = unitCostDetail(row);
+function unitCostFromRow(row, purchases = null, opts = {}) {
+    const d = unitCostDetail(row, purchases, opts);
     return d ? d.cost : null;
 }
 
@@ -332,7 +417,8 @@ function describeWarning(w) {
                  + `så lagerprisen ${kr(w.stock_price)} er brugt.`;
         case 'last_vs_avg':
             return `${w.product}: seneste køb ${kr(w.last_price)} ligger ${pct(w.deviation_pct)} `
-                 + `fra gennemsnittet ${kr(w.avg_price)}. Gennemsnittet er brugt.`;
+                 + `fra ${PRICE_WINDOW_DAYS}-dages gennemsnittet ${kr(w.avg_price)}. `
+                 + `Gennemsnittet er brugt.`;
         default:
             return `${w.product || 'ukendt vare'}: prisen bør ses efter.`;
     }
@@ -341,5 +427,5 @@ function describeWarning(w) {
 module.exports = {
     computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName,
     parentPriceFromChildren, describeWarning,
-    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT,
+    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT, PRICE_WINDOW_DAYS,
 };

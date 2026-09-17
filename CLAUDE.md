@@ -7758,24 +7758,54 @@ fejlen forplantede sig til margin-analysen på hver ret der bruger dem.
   råvarer har en pris — bruges lagerprisen, men **det siges højt** som en advarsel.
   Et tavst fald tilbage ville ligne en almindelig købt vare.
 
-**#557 — gennemsnittet er ankeret, ikke seneste køb.** `unitCostFromRow` valgte
-`last_price` først. Købte køkkenet én billig 5 kg-spand mayo som nødløsning, faldt
+**#557 — kostprisen er et mængdevægtet snit af køb de seneste 90 dage.** `unitCostFromRow`
+valgte `last_price` først. Købte køkkenet én billig 5 kg-spand mayo som nødløsning, faldt
 kostprisen på hver mayo-ret 63 % indtil næste pose blev købt — spanden var brugt op
 længe inden. Mayo er i seks af de otte `RR produktion Hurtig`-blandinger.
 
-> **Gennemsnittet er STABILT, ikke RIGTIGT.** Mayo har to varenumre (1 kg-pose
-> 114,56 kr/kg · 5 kg-spand 42,01), og snittet lander mellem dem og passer på ingen af
-> dem. Den rigtige pris kræver pris pr. **stregkode** plus et udpeget standard-varenummer
-> — fejl 1 og 3 i #557, som IKKE er løst her. Indtil da advares der når seneste køb
-> ligger mere end 30 % fra snittet.
+Snittet regnes af `stock_log`, ikke af Grocy. **Grocys eget `avg_price` duer ikke som
+anker:** det vægter kun det der står på hylden lige nu, så står der kun spanden, ER
+gennemsnittet spandens pris. Det er efterprøvet, ikke antaget — for 8 af de undersøgte
+produkter kunne ingen formel over købshistorikken genskabe Grocys tal (Chilli Pulver:
+Grocy 20.012, vejet over loggen 24.502, simpelt snit 109.903).
+
+> ⚠️ **Vinduet er ikke en finjustering — det er dét der gør reglen brugbar.**
+> En håndfuld varer bærer posteringer fra 2024 med prisen ganget med tusind
+> (Chilli Pulver 329.280 kr hvor medianen er 329,28; Lufttørret Skinke 215.000;
+> Chili Mayo 80.000). Grocy **nægter** at fortryde et køb hvis beholdningen det skabte
+> er brugt op, så historikken kan ikke renses — målt 17. sep: 0 af 19 skæve posteringer
+> kunne fortrydes. Asymmetrien er pointen: `last_price` heler sig selv, for næste rigtige
+> køb erstatter den, mens et snit over al tid kun kan fortyndes — og bærer den dårlige
+> postering også en stor mængde, sker selv dét aldrig. Alle de giftige posteringer er fra
+> 2024, så vinduet ser ingen af dem. Vi renser ikke historikken; vi holder op med at læse
+> så langt tilbage.
+
+**Falder tilbage i denne rækkefølge:** snit over vinduet → seneste køb (ingen køb i
+vinduet) → Grocys egne tal: nyeste lagerpost → `last_price` → `avg_price` →
+lagerværdi/mængde → `missing_price`. `source` på hver pris siger hvilket led der blev
+brugt, og `audit:kostpris-kilder` viser fordelingen — falder de fleste varer tilbage på
+seneste køb, er udsvinget ikke dæmpet, og så er vinduet for kort.
+
+> **Snittet er STABILT, ikke RIGTIGT.** Mayo har to varenumre (1 kg-pose 114,56 kr/kg ·
+> 5 kg-spand 42,01), og snittet lander mellem dem og passer på ingen af dem. Den rigtige
+> pris kræver pris pr. **stregkode** — fejl 1 og 3 i #557, som ligger i **#657**:
+> varemodtagelsen sender i dag slet ingen pris til Grocy, så lagerposterne bærer det
+> sidste nogen tastede i hånden. Indtil den er bygget, vægter snittet de tal vi har.
 
 > ⚠️ **Prisreglen ville have ramt ved siden af.** `getProductUnitCosts()` havde en
 > bulk-genvej: nyeste lagerposts `price` blev brugt for alt der var på lager, og den gik
-> **uden om** `unitCostFromRow`. Men den pris ER seneste køb — så reglen gjaldt kun de
-> varer der IKKE var på lager, og mayo er på lager. Genvejen er væk; der spørges nu
-> `/stock/products/:id` for hvert produkt (~225 kald mod ~120 før — tungere, men ikke en
-> ny størrelsesorden), og svaret caches 10 minutter så request-stier kun betaler én gang.
-> Lagerpostens pris er beholdt som **nødspor** hvis opslaget fejler.
+> **uden om** prisvalget. Men den pris ER seneste køb — så reglen gjaldt kun de varer der
+> IKKE var på lager, og mayo er på lager. Genvejen er væk. Nu spørges `stock_log` én gang
+> pr. produkt, og `/stock/products/:id` **kun** for de varer der slet ingen køb har.
+> `/objects/stock_log` svarer 500 uden `limit`, og uden `order=…desc` returnerer Grocy de
+> ÆLDSTE rækker først — et `limit` ville så skære netop de nye væk.
+
+> ⚠️ **Drill-down-panelet må ikke udlede prisen selv.** Det læste tidligere Grocys råsvar
+> og valgte i egen rækkefølge. Med den nye regel ville det vise seneste køb mens rækken
+> man klikkede på viste snittet — to tal for samme vare, uden at man kan se hvilket der
+> gælder. Panelet henter nu prisen fra `getProductUnitCostDetails(6, { productIds })`,
+> altså samme kilde som totalen, men kun for opskriftens egne varer (plus deres børn, så
+> `kål` stadig kan arve). Delmængden hverken læser eller skriver cachen.
 
 **To slags tvivl, to spor** (migration 171, `price_warnings_json`):
 `missing_prices_json` siger *"vi kender ikke prisen"* → kostprisen er et **minimum** og
@@ -7791,24 +7821,33 @@ som den gør. Teksten kommer fra `describeWarning()` på serveren, så tabellen,
 
 **`npm run audit:kostpris-kilder`** (read-only, kør på serveren — kræver Grocy) genskaber
 begge issuers tabeller mod den levende Grocy og måler hvad reglerne flytter, opdelt på de
-to. FØR-tallet er ikke et gæt: den gamle adfærd genskabes ved at ændre **input** — gammel
-prisrækkefølge, og `product_id` fjernet fra producerende opskrifter hvis produkt har en
-lagerpris — altså præcis de tilfælde hvor den gamle regel lod lagerprisen vinde. Ingen
+to, plus fordelingen af hvor priserne kommer fra. FØR-tallet er ikke et gæt: mains adfærd
+genskabes ved at ændre **input** — bulk-genvejens lagerpost, ellers seneste køb, og
+`product_id` fjernet fra producerende opskrifter hvis produkt har en lagerpris. Ingen
 kopi af den gamle kode, og ingen omskifter i produktionskoden. Dækket af
 `scripts/test-kostpris-effekt.js`, fordi et forkert FØR-tal giver et forkert måletal.
 
-**Tests:** `npm run test:kostpris` — 125 asserts (37 + 11 + 68 + 9), plus `G9` i
+`scripts/audit-grocy-prices.js` (fra #571) er den anden halvdel: den finder de enkelte
+forkerte posteringer og skriver journal-id'et ud, så rækken kan slås op i Lagerjournalen.
+
+**Tests:** `npm run test:kostpris` — 149 asserts (54 + 11 + 73 + 12), plus `G9` i
 konverterings-gaten (23/0). Kæden er dækket hele vejen: reglerne som rene funktioner,
 det der havner i `recipe_cost_cache`, `/overview`-svaret (routeren mountes in-process med
 Grocy stubbet på `fetch`), og rækken + drill-down-panelet renderet fra den ægte
 `office/views/opskrifter.js` i en vm-sandkasse.
 
-**Mutations-testet: tolv mutationer, alle fanget** af hver sin navngivne assert —
-heriblandt at rulle bulk-genvejen tilbage (4 falder), at blande advarslerne ind i de
-manglende priser både i beregningen (2) og i det der gemmes (3), og at lade routen holde
-op med at sende feltet (3). Mutationerne køres mod hvert testscript **for sig**:
-`test:kostpris` kæder dem med `&&`, så en fejl i det første ville skjule om de to andre
-overhovedet blev kørt — og de første par runder så derfor grønnere ud end de var.
+**Mutations-testet: tretten mutationer, alle fanget** af hver sin navngivne assert —
+heriblandt at fjerne vinduet (6 falder), at regne et simpelt snit i stedet for et vægtet
+(3), at lade drill-downet udlede prisen selv (1) og at glemme vinduets startdato i
+adapteren (1). Mutationerne køres mod hvert testscript **for sig**: `test:kostpris` kæder
+dem med `&&`, så en fejl i det første ville skjule om de øvrige overhovedet blev kørt —
+og de første par runder så derfor grønnere ud end de var.
+
+> ⚠️ **To ting, begge fanget undervejs.** Fire asserts **kastede** i stedet for at fejle,
+> så mutationen lignede et brudt testscript frem for en fanget fejl (optional chaining nu).
+> Og "seneste køb er det NYESTE, ikke det sidste i listen" bestod af den forkerte grund:
+> i fixturen VAR det nyeste køb også sidste element, så asserten kunne ikke se forskel.
+> Samme fælde som i #441 og i menu-order-sorteringen.
 Regression grøn: conversion-gate 23, lag1a, produktion, consume-hardening,
 consume-policy, co2, event-retur, event-return-cost, yield-model, gram-chaining,
 resolver-graph, subrecipe-status, packing-units, prep-packing, recipe-factor.

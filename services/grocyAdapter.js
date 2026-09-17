@@ -12,7 +12,7 @@
  */
 
 const { getDb } = require('../db/database');
-const { getDefaultLocationId } = require('../db/helpers');
+const { getDefaultLocationId, offsetISO } = require('../db/helpers');
 
 /* ══════════════════════════════════════════════════════════════
    CACHE
@@ -370,20 +370,24 @@ function getRecipesRaw() {
 /**
  * Enhedskost pr. produkt (kr pr. LAGER-enhed, ex moms) MED ophav.
  *
- * ET OPSLAG PR. PRODUKT — MED VILJE (#557)
- * Der lå tidligere en genvej her: `/objects/stock` bærer en pris pr. lagerpost,
- * og den nyeste blev brugt for alt der var på lager. Men den pris ER seneste
- * køb, og den gik uden om `unitCostFromRow` — så prisreglen gjaldt kun de varer
- * der IKKE var på lager. Mayo er på lager. Rettelsen ville have ramt ved siden
- * af præcis dér hvor den skulle virke.
+ * PRISEN REGNES AF KØBSHISTORIKKEN, IKKE AF GROCYS TAL (#557)
+ * Kostpris-grundlaget er et mængdevægtet snit af købsposteringer de seneste
+ * `PRICE_WINDOW_DAYS` dage, læst fra `stock_log`. Reglen selv — og hvorfor
+ * hverken Grocys `avg_price` eller et snit over al tid duer — står i
+ * `services/recipeCost.js` ved `unitCostDetail`.
  *
- * Nu spørges `/stock/products/:id` for hvert produkt, hvor `avg_price` findes.
- * Det er ~225 kald mod ~120 før — tungere, men ikke en ny størrelsesorden, og
- * langsom og rigtig slår hurtig og forkert. Svaret caches 10 minutter, så
- * request-stier (fx event-returen) kun betaler prisen én gang.
+ * ÉT LOG-OPSLAG PR. PRODUKT
+ * `/objects/stock_log` svarer **500 uden `limit`** (hele tabellen læses ind før
+ * den skæres til), så der spørges pr. produkt med filtre på. Filtrene er ikke
+ * kosmetik: uden `order=…desc` returnerer Grocy de ÆLDSTE rækker først, og et
+ * `limit` ville så skære de nye væk — præcis dem vi skal bruge.
  *
- * Lagerpostens pris beholdes som NØDSPOR hvis opslaget fejler — så en enkelt
- * timeout koster ophavet, ikke prisen.
+ * `/stock/products/:id` spørges KUN for de produkter der ingen køb har i loggen
+ * overhovedet. Det er fallback-trin 3, og det er en håndfuld varer — ikke de
+ * ~225 opslag reglen kostede da Grocys eget gennemsnit var ankeret.
+ *
+ * Lagerpostens pris fra `/objects/stock` er trin 3's FØRSTE led (ikke et
+ * nødspor): den er det nyeste vi ved om varen når loggen intet siger.
  *
  * Forældre-produkter arver gennemsnittet af børnenes priser. Grocy ruller
  * børnenes LAGER op på forælderen (derfor findes makeEffectiveStock), men
@@ -391,24 +395,29 @@ function getRecipesRaw() {
  * 14,50, og kålen ligger i Frisk Grønt, som er nestet i 26 menuer.
  *
  * @param {number} concurrency  samtidige opslag (default 6)
- * @param {object} [opts]        `{ fresh: true }` springer cachen over. Det
- *                               natlige job og "Opdater priser"-knappen skal
- *                               have friske tal — det er hele deres formål.
+ * @param {object} [opts]
+ *   fresh       springer cachen over. Det natlige job og "Opdater priser"-
+ *               knappen skal have friske tal — det er hele deres formål.
+ *   productIds  prissæt kun disse produkter. Drill-down-panelet skal vise de
+ *               SAMME priser som totalen, men må ikke betale for hele kataloget
+ *               på en klik-sti. Delmængden hverken læser eller skriver cachen,
+ *               fordi den ikke er hele svaret.
  * @returns {Promise<Map<string, object>>}  product_id → unitCostDetail()
  */
 async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
-    if (!opts.fresh) {
+    const subset = Array.isArray(opts.productIds) ? opts.productIds.map(String) : null;
+    if (!subset && !opts.fresh) {
         const cached = getCached('product_unit_cost_details');
         if (cached) return cached;
     }
 
-    const { unitCostDetail, parentPriceFromChildren } = require('./recipeCost');
+    const { unitCostDetail, parentPriceFromChildren, PRICE_WINDOW_DAYS } = require('./recipeCost');
     const [products, stockRows] = await Promise.all([
         getProducts(),
         grocyFetch('/objects/stock').catch(() => []),
     ]);
 
-    // Nødspor: nyeste lagerpost pr. produkt. Bruges KUN når opslaget fejler.
+    // Nyeste lagerpost pr. produkt — fallback-trin 3's første led.
     const nyeste = new Map();
     for (const r of (stockRows || [])) {
         const pid = String(r.product_id);
@@ -417,49 +426,74 @@ async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
         if (!nu || String(r.purchased_date || '') > String(nu.purchased_date || '')) nyeste.set(pid, r);
     }
 
+    // Hvilke produkter skal prissættes? Ved en delmængde tages børnene med:
+    // en forælder uden egen pris arver gennemsnittet af dem, og uden børnene
+    // i kortet ville `kål` stå til "—" i panelet og indgå i totalen med 9,63.
+    let maal = products;
+    if (subset) {
+        const oensket = new Set(subset);
+        for (const p of products) {
+            if (p.parent_product_id && oensket.has(String(p.parent_product_id))) oensket.add(String(p.id));
+        }
+        maal = products.filter(p => oensket.has(String(p.id)));
+    }
+
+    // Vinduets startdato. `offsetISO` er forankret i Europe/Copenhagen —
+    // `new Date().toISOString()` ville give gårsdagens dato mellem midnat og
+    // kl. 02 dansk sommertid, og vinduet ville rykke sig en dag om natten.
+    const since = offsetISO(-PRICE_WINDOW_DAYS);
+
     const detaljer = new Map();
     let i = 0;
     await Promise.all(Array.from({ length: Math.max(1, concurrency) }, async () => {
-        while (i < products.length) {
-            const p = products[i++];
+        while (i < maal.length) {
+            const p = maal[i++];
             const pid = String(p.id);
+
+            let koeb = null;
             try {
-                const d = await grocyFetch('/stock/products/' + p.id);
-                const det = unitCostDetail(d);
-                if (det) { detaljer.set(pid, det); continue; }
-            } catch (e) { /* falder igennem til nødsporet */ }
-            const r = nyeste.get(pid);
-            if (r) {
-                detaljer.set(pid, {
-                    cost: parseFloat(r.price), source: 'stock_row',
-                    last_price: null, avg_price: null, deviation_pct: null, warn: false,
-                });
+                koeb = await grocyFetch(
+                    `/objects/stock_log?query%5B%5D=product_id%3D${p.id}`
+                    + `&query%5B%5D=transaction_type%3Dpurchase`
+                    + `&query%5B%5D=undone%3D0`
+                    + `&order=row_created_timestamp%3Adesc&limit=200`);
+            } catch (e) {
+                koeb = null;   // loggen kunne ikke læses → fald igennem til trin 3
             }
+            if (!Array.isArray(koeb)) koeb = null;
+
+            // Grocys egne tal hentes KUN når loggen intet har at sige.
+            let grocyRow = null;
+            if (!koeb || !koeb.length) {
+                grocyRow = await grocyFetch('/stock/products/' + p.id).catch(() => null);
+            }
+
+            const det = unitCostDetail(grocyRow, koeb, {
+                since,
+                stockRowPrice: nyeste.get(pid) ? nyeste.get(pid).price : null,
+            });
+            if (det) detaljer.set(pid, det);
             // Ellers: uden pris — resolveren rapporterer den som manglende.
         }
     }));
 
     // Forældre arver gennemsnittet af de børn der HAR en pris.
-    // Samme regel som drill-down-panelet bruger — se recipeCost.js.
-    for (const p of products) {
+    for (const p of maal) {
         if (detaljer.has(String(p.id))) continue;
         const snit = parentPriceFromChildren(products, p.id, cid => detaljer.get(cid)?.cost ?? null);
         if (snit != null) {
             detaljer.set(String(p.id), {
                 cost: snit, source: 'parent_avg',
                 last_price: null, avg_price: null, deviation_pct: null, warn: false,
+                purchases_in_window: 0,
             });
         }
     }
 
-    setCached('product_unit_cost_details', detaljer);
+    if (!subset) setCached('product_unit_cost_details', detaljer);
     return detaljer;
 }
 
-/**
- * Som ovenfor, men kun tallet. De fleste kaldere skal ikke kende ophavet.
- * @returns {Promise<Map<string, number>>}  product_id → kr/stock-enhed
- */
 async function getProductUnitCosts(concurrency = 6, opts = {}) {
     const detaljer = await getProductUnitCostDetails(concurrency, opts);
     const priser = new Map();

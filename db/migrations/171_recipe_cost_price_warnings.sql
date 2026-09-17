@@ -13,10 +13,19 @@
 -- To slags advarsler ligger her (se services/recipeCost.js):
 --   produced_stock_price_differs  lagerprisen på et produceret gode afviger
 --                                 fra hvad opskriften koster at lave (#558)
---   last_vs_avg                   seneste køb ligger langt fra gennemsnittet,
---                                 typisk fordi varen har flere varenumre (#557)
+--   last_vs_avg                   seneste køb ligger langt fra 90-dages
+--                                 snittet, typisk fordi varen har flere
+--                                 varenumre (#557)
 --
 -- NULL = ingen advarsler. Samme mønster som 153 brugte for `cost_source`.
+--
+-- ⚠️ NUMMERET 171 ER OPTAGET AF `171_booking_notif_source.sql`, OG DET SKAL
+-- BLIVE SÅDAN. `db/migrate.js` sporer på FILNAVN, ikke på nummer, så begge
+-- kører — dubletten gør ingen skade. Men denne fil ER allerede anvendt i
+-- drift: `audit:kostpris-kilder` åbner databasen, og at åbne den kører
+-- ventende migrations. Omdøbes filen til 176, ser runneren et ukendt navn og
+-- kører `ALTER TABLE` igen → `duplicate column name` → serveren i crash-loop
+-- ved hver opstart. Præcis det der væltede driften 20. august.
 -- ============================================================
 
 ALTER TABLE recipe_cost_cache ADD COLUMN price_warnings_json TEXT;

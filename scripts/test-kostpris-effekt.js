@@ -6,7 +6,8 @@
 // kommer derfra, så FØR-tallet skal være den gamle adfærd — ikke en tilnærmelse.
 // Det genskabes ved at ændre INPUT frem for beregningen:
 //
-//   · prisen slås op i den gamle rækkefølge (seneste køb først)
+//   · prisen slås op som main gør det: bulk-genvejens lagerpost først, ellers
+//     seneste køb → Grocys gennemsnit
 //   · `product_id` fjernes fra producerende opskrifter hvis produkt HAR en
 //     pris — så falder beregningen tilbage på lagerprisen, som den gjorde før
 //
@@ -43,8 +44,17 @@ console.log('\nMåle-scriptets FØR-tal\n');
 
 console.log('E1 · Den gamle prisrækkefølge');
 {
+    // Mains FØRSTE led var bulk-genvejen: nyeste lagerposts pris for alt der
+    // var på lager. Den gik uden om prisvalget, så uden den i emuleringen ville
+    // FØR-tallet være et andet end det main faktisk viste.
+    ok(gammelPrisregel({ last_price: 42.01, avg_price: 78.29, source: 'avg_window', cost: 78.29 }, 40) === 40,
+       'bulk-genvejens lagerpost vinder — sådan regnede main for alt på lager');
+    ok(gammelPrisregel({ last_price: 42.01, avg_price: 78.29, source: 'avg_window', cost: 78.29 }, 0) === 42.01,
+       'uden lagerpost: seneste køb — det var reglen før #557');
     ok(gammelPrisregel({ last_price: 42.01, avg_price: 78.29, source: 'avg', cost: 78.29 }) === 42.01,
        'seneste køb først — det var reglen før #557');
+    ok(near(gammelPrisregel({ source: 'stock_value', cost: 25 }), 25),
+       'lagerværdi/mængde er den samme før og efter');
     ok(gammelPrisregel({ last_price: null, avg_price: 78.29, source: 'avg', cost: 78.29 }) === 78.29,
        'gennemsnittet når der ikke er et seneste køb');
     // `stock_value`, `stock_row` og `parent_avg` valgtes ens før og efter, så

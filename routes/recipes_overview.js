@@ -30,18 +30,17 @@ const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const { convertAndFormat } = require('../services/quConvert');
 
-// Enhedspris pr. lager-enhed, ex moms. Delegeres til `services/recipeCost.js` så
-// drill-downet og kostpris-beregningen ikke kan blive uenige om hvad en vare
-// koster — den lokale kopi manglede `value/amount`-faldet og gav derfor null
-// på varer beregningen godt kunne prissætte. Rækkefølgen bor dér: gennemsnittet
-// først (#557). Prisen bevares i Grocys historik uanset lager, så udsolgte
-// varer også får en pris.
-function unitCostOf(details) {
-    return details ? unitCostFromRow(details) : null;
+// Enhedspris pr. lager-enhed, ex moms, fra SAMME kilde som totalen:
+// `getProductUnitCostDetails`, der regner 90-dages snittet af købsposteringer
+// (#557). Panelet må ikke udlede prisen selv — gjorde det dét, ville det vise
+// seneste køb mens rækken man klikkede på viste gennemsnittet, og så ved man
+// ikke hvilket tal der gælder.
+function unitCostOf(d) {
+    return (d && Number.isFinite(d.cost) && d.cost > 0) ? d.cost : null;
 }
 const itemPriceBackfill = require('../services/itemPriceBackfill');
 const { refreshRecipeCosts, classifyCachedCost } = require('../services/recipeCostRefresh');
-const { unitCostFromRow, parentPriceFromChildren, describeWarning } = require('../services/recipeCost');
+const { describeWarning } = require('../services/recipeCost');
 const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
 
@@ -690,9 +689,10 @@ router.get('/:id/composition', handle(async (req, res) => {
     // Denne opskrifts direkte ingredienser
     const posForRecipe = allPos.filter(p => String(p.recipe_id) === String(id));
 
-    // Produkt-detaljer (last_price + stock_amount) pr. ingrediens, parallelt.
-    // Nødvendigt fordi bulk-/stock KUN har varer på lager — priser på udsolgte
-    // varer (fx Æbler) skal med, og de ligger i Grocys prishistorik (last_price).
+    // Produkt-detaljer pr. ingrediens, parallelt. Bruges KUN til lagertallet i
+    // panelet; prisen kommer fra `getProductUnitCostDetails` nedenfor.
+    // Nødvendigt fordi `/objects/stock` kun har varer der ER på lager, og en
+    // udsolgt vare (fx Æbler) stadig skal vises med sin beholdning på 0.
     const ingProductIds = [...new Set(posForRecipe.map(p => String(p.product_id)))];
     const detailsList = await Promise.all(
         ingProductIds.map(pid => grocyAdapter.getProductDetails(pid).catch(() => null))
@@ -705,25 +705,12 @@ router.get('/:id/composition', handle(async (req, res) => {
     // største linje i Frisk Grønt som "—" mens den indgik i totalen med 9,63 kr.
     // Kun de FÅ børn der faktisk skal bruges hentes; hele produktkataloget
     // ville være 100+ kald på en klik-sti.
-    const forældreUdenPris = ingProductIds.filter(pid => unitCostOf(detailsMap.get(pid)) == null);
-    const børnIds = [...new Set(forældreUdenPris.flatMap(pid =>
-        products.filter(x => String(x.parent_product_id) === String(pid)).map(x => String(x.id))
-    ))];
-    const arvetPris = new Map();
-    if (børnIds.length) {
-        const børnDetaljer = await Promise.all(
-            børnIds.map(pid => grocyAdapter.getProductDetails(pid).catch(() => null))
-        );
-        const børnPris = new Map();
-        børnIds.forEach((pid, i) => {
-            const c = unitCostOf(børnDetaljer[i]);
-            if (c != null) børnPris.set(pid, c);
-        });
-        for (const pid of forældreUdenPris) {
-            const snit = parentPriceFromChildren(products, pid, cid => børnPris.get(cid) ?? null);
-            if (snit != null) arvetPris.set(pid, snit);
-        }
-    }
+    // Prisen hentes for netop denne opskrifts ingredienser — ikke for hele
+    // kataloget. Forældre-arven (fx `kål`, som kun børnene har en pris på)
+    // ligger inde i kaldet, så den er den samme her som i totalen.
+    const prisDetaljer = await grocyAdapter
+        .getProductUnitCostDetails(6, { productIds: ingProductIds })
+        .catch(() => new Map());
 
     // Direkte ingredienser (recipes_pos)
     const ingredients = posForRecipe.map(pos => {
@@ -740,8 +727,9 @@ router.get('/:id/composition', handle(async (req, res) => {
         // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
         // last_price/avg_price bevares uanset lager, så udsolgte varer også får en pris.
         const d = detailsMap.get(String(pos.product_id));
-        const unitCost = unitCostOf(d) ?? (arvetPris.get(String(pos.product_id)) ?? null);
-        const prisArvet = unitCostOf(d) == null && arvetPris.has(String(pos.product_id));
+        const pris = prisDetaljer.get(String(pos.product_id));
+        const unitCost = unitCostOf(pris);
+        const prisArvet = unitCost != null && pris.source === 'parent_avg';
         const amountStock = parseFloat(pos.amount) || 0;
         const stockAmount = d ? (Number(d.stock_amount) || 0) : null;
         return {
