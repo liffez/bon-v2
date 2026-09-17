@@ -166,7 +166,7 @@ router.get('/overview', AUTH, handle(async (req, res) => {
         const kind = p ? (/emballage/i.test(groupName.get(String(p.product_group_id)) || '') ? 'emballage' : 'raavare') : null;
         return { ...x, product_id: p ? p.id : null, kind };
     });
-    const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    const recipes = [...recipesMap.values()];   // RÅ: motoren skal se product_id + udbytte (produceret mellemprodukt)
     // Enhed + kategori pr. opskrift (fra userfields) — så rapporten kan vise at
     // "6,5 kg/kg produktion" og "0,3 kg/stk sandwich" IKKE er sammenlignelige.
     const meta = new Map([...recipesMap.values()].map(r => {
@@ -278,7 +278,7 @@ router.get('/recipe/:id', AUTH, handle(async (req, res) => {
     ]);
     const recipe = recipesMap.get(id);
     if (!recipe) return res.status(404).json({ error: 'Opskrift ikke fundet' });
-    const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    const recipes = [...recipesMap.values()];   // RÅ: motoren skal se product_id + udbytte (produceret mellemprodukt)
     const bd = engine.breakdownRecipe(id, { recipes, pos, nestings, products, conversions, units, groups });
 
     // Produkter med egen opskrift (fx Langtids Stegt Gris) gøres klikbare i panelet,
@@ -339,7 +339,7 @@ router.get('/bon/:id/accuracy', AUTH, handle(async (req, res) => {
         grocy.getRecipesRawMap(), grocy.getAllRecipesPos(), grocy.getRecipeNestings(),
         grocy.getProducts(), grocy.getQuantityUnitConversions(), grocy.getQuantityUnits(),
     ]);
-    const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    const recipes = [...recipesMap.values()];   // RÅ: motoren skal se product_id + udbytte (produceret mellemprodukt)
     const results = engine.computeAll({ recipes, pos, nestings, products, conversions, units });
 
     // Linje-vægtet aggregering (unit-testet i co2Aggregate).

@@ -72,48 +72,13 @@ function computeRecipe(recipeId, ctx, memo, stack) {
 
     for (const p of (ctx.posByRecipe.get(recipeId) || [])) {
         const product = ctx.productById.get(String(p.product_id));
-        const amount = parseFloat(p.amount) || 0;
         if (!product) { missing_factor.add(`#${p.product_id}`); continue; }
-        if (isExcluded(product)) continue;   // §1 'na' — udelades helt, ikke en mangel
-
-        // ── Produceret mellemprodukt: rul ned i opskriften bag det (§7.3) ──
-        //
-        // Når en blanding bliver et rigtigt produkt (#268), holder menuen op med
-        // at neste den og peger i stedet på produktet. Uden det her ville
-        // remouladens CO₂ forsvinde tavst i samme øjeblik — det nye produkt har
-        // ingen `co2e_per_kg`, og et manglende bidrag ser ud som nul.
-        //
-        // En egen faktor på produktet vinder altid: den er sat af et menneske,
-        // og at lægge den oveni opskriften ville dobbelt-tælle.
-        const ownFactor = readFactor(product);
-        const producer = (ownFactor == null && ctx.producedBy)
-            ? ctx.producedBy.get(String(product.id)) : null;
-        if (producer) {
-            const perBatch = producedYieldStock(producer, product, ctx);
-            if (perBatch > 0) {
-                const sub = computeRecipe(producer.id, ctx, memo, stack);
-                // Brøkdele er rigtige her: spørgsmålet er hvor meget CO₂ der
-                // ligger bag mængden, ikke hvor mange hele batches nogen rører.
-                const scale = amount / perBatch;
-                total       += sub.total * scale;
-                covered_kg  += sub.covered_kg * scale;
-                missing_kg  += sub.missing_kg * scale;
-                sub.missing_factor.forEach(x => missing_factor.add(x));
-                sub.missing_kgvej.forEach(x => missing_kgvej.add(x));
-                continue;
-            }
-            // Uden erklæret udbytte kan bidraget ikke skaleres. Så er varen en
-            // ægte mangel — ikke et gæt.
-        }
-
-        const kg = stockToKg(product, amount, ctx.conversions, ctx.kiloId);
-        if (kg == null) { missing_kgvej.add(product.name); continue; }
-
-        const factor = ownFactor;
-        if (factor == null) { missing_factor.add(product.name); missing_kg += kg; continue; }
-
-        total += kg * factor;
-        covered_kg += kg;
+        const r = resolveIngredient(product, parseFloat(p.amount) || 0, ctx, memo, stack);
+        total      += r.total;
+        covered_kg += r.covered_kg;
+        missing_kg += r.missing_kg;
+        r.missing_factor.forEach(x => missing_factor.add(x));
+        r.missing_kgvej.forEach(x => missing_kgvej.add(x));
     }
 
     for (const n of (ctx.nestByRecipe.get(recipeId) || [])) {
@@ -131,6 +96,150 @@ function computeRecipe(recipeId, ctx, memo, stack) {
     const result = { total, covered_kg, missing_kg, missing_factor, missing_kgvej };
     memo.set(recipeId, result);
     return result;
+}
+
+/**
+ * Én ingrediens-linje → bidrag. Delt af computeRecipe og breakdownRecipe, så
+ * rapportens total og drill-downens linjer ikke kan være uenige.
+ *
+ * Rækkefølge — den mest specifikke kilde vinder:
+ *   1. §1 'na'            → udelades helt (ikke en mangel)
+ *   2. egen co2e_per_kg   → sat af et menneske eller importen; vinder altid
+ *   3. producerende opskrift (§7.3) → rul ned i dens råvarer, skaleret efter udbytte
+ *   4. familie (parent_product_id) → forælder uden faktor = gennemsnit af
+ *      børnenes; barn uden faktor = forælderens
+ *   5. ellers             → mangler faktor
+ *
+ * @returns { total, covered_kg, missing_kg, missing_factor:Set, missing_kgvej:Set,
+ *            status, kg, factor, source, source_note, producer_id }
+ */
+function resolveIngredient(product, amount, ctx, memo, stack) {
+    const out = { total: 0, covered_kg: 0, missing_kg: 0,
+                  missing_factor: new Set(), missing_kgvej: new Set(),
+                  status: 'ok', kg: null, factor: null, source: null, source_note: null, producer_id: null };
+    if (isExcluded(product)) { out.status = 'na'; return out; }
+
+    const uf = product.userfields || {};
+    const kg = stockToKg(product, amount, ctx.conversions, ctx.kiloId);
+    out.kg = kg;
+    let factor = readFactor(product);
+    out.source = uf.co2e_source || null;
+
+    // ── Produceret mellemprodukt: rul ned i opskriften bag det (§7.3) ──
+    //
+    // Når en blanding bliver et rigtigt produkt (#268), holder menuen op med at
+    // neste den og peger i stedet på produktet (Remoulade, Tahin dressing). Uden
+    // det her forsvinder blandingens CO₂ tavst — produktet har ingen egen faktor.
+    if (factor == null && ctx.producedBy) {
+        const producer = ctx.producedBy.get(String(product.id));
+        const perBatch = producer ? producedYieldStock(producer, product, ctx) : null;
+        if (producer && perBatch > 0) {
+            const sub = computeRecipe(producer.id, ctx, memo, stack);
+            // Brøkdele er rigtige her: spørgsmålet er hvor meget CO₂ der ligger
+            // bag mængden, ikke hvor mange hele batches nogen rører.
+            const scale = amount / perBatch;
+            out.total      = sub.total * scale;
+            out.covered_kg = sub.covered_kg * scale;
+            out.missing_kg = sub.missing_kg * scale;
+            sub.missing_factor.forEach(x => out.missing_factor.add(x));
+            sub.missing_kgvej.forEach(x => out.missing_kgvej.add(x));
+            out.producer_id = producer.id;
+            out.source = 'opskrift';
+            out.source_note = `beregnet fra opskriften "${producer.name}"`;
+            out.status = (sub.missing_factor.size || sub.missing_kgvej.size) ? 'sub_incomplete' : 'ok';
+            if (kg) out.factor = out.total / kg;
+            return out;
+        }
+        // Uden erklæret udbytte kan bidraget ikke skaleres — så falder vi videre.
+    }
+
+    if (kg == null) { out.status = 'missing_kgvej'; out.missing_kgvej.add(product.name); return out; }
+
+    if (factor == null) {
+        const inh = inheritedFactor(product, ctx);
+        if (inh) { factor = inh.factor; out.source = 'arvet'; out.source_note = inh.note; }
+    }
+    if (factor == null) {
+        out.status = 'missing_factor';
+        out.missing_factor.add(product.name);
+        out.missing_kg = kg;
+        return out;
+    }
+    out.factor = factor;
+    out.total = kg * factor;
+    out.covered_kg = kg;
+    return out;
+}
+
+/**
+ * Faktor arvet via Grocys forælder/barn-relation, eller null.
+ *
+ * `kål` er forælder til Spidskål og Hvidkål: opskriften bruger `kål`, lageret
+ * trækkes fra børnene. Har forælderen ingen egen faktor, er gennemsnittet af
+ * børnenes det bedste bud — samme regel som kostprisen bruger
+ * (recipeCost.parentPriceFromChildren), så pris og CO₂ ræsonnerer ens.
+ * Omvendt arver et barn uden faktor forælderens (Fatdane-varianterne).
+ * Kun EGNE faktorer læses — ingen kæder, ingen gæt oven på gæt.
+ */
+function inheritedFactor(product, ctx) {
+    const kids = (ctx.childrenByParent && ctx.childrenByParent.get(String(product.id))) || [];
+    const withF = kids.map(c => ({ c, f: readFactor(c) })).filter(x => x.f != null && !isExcluded(x.c));
+    if (withF.length) {
+        const avg = withF.reduce((a, x) => a + x.f, 0) / withF.length;
+        return { factor: avg, note: `gennemsnit af ${withF.map(x => x.c.name).join(', ')}` };
+    }
+    const pid = product.parent_product_id;
+    if (pid && String(pid) !== '0') {
+        const parent = ctx.productById.get(String(pid));
+        const f = parent && !isExcluded(parent) ? readFactor(parent) : null;
+        if (f != null) return { factor: f, note: `arvet fra ${parent.name}` };
+    }
+    return null;
+}
+
+/**
+ * Fælles opslagsstruktur for computeAll og breakdownRecipe. Holdes ét sted:
+ * drill-downen manglede engang `producedBy`, og så viste panelet "Mangler
+ * faktor" på en vare som totalen faktisk regnede med.
+ *
+ * `data.recipes` SKAL være de rå Grocy-opskrifter (med product_id + userfields)
+ * — ellers kan motoren ikke se at en vare produceres, og udbyttet mangler.
+ */
+function buildCtx(data) {
+    const kiloId = findKiloId(data.units || []);
+    const posByRecipe = new Map();
+    for (const p of (data.pos || [])) {
+        if (!posByRecipe.has(p.recipe_id)) posByRecipe.set(p.recipe_id, []);
+        posByRecipe.get(p.recipe_id).push(p);
+    }
+    const nestByRecipe = new Map();
+    for (const n of (data.nestings || [])) {
+        if (!nestByRecipe.has(n.recipe_id)) nestByRecipe.set(n.recipe_id, []);
+        nestByRecipe.get(n.recipe_id).push(n);
+    }
+    const productById = new Map((data.products || []).map(p => [String(p.id), p]));
+    const baseServings = new Map((data.recipes || []).map(r => [r.id, parseFloat(r.base_servings) || 1]));
+
+    // product_id → producerende opskrift. Deterministisk ved flere producenter
+    // (Falaffel har tre), så to kørsler ikke kan give hver sit CO₂-tal.
+    const producedBy = new Map();
+    for (const r of (data.recipes || [])) {
+        const pid = Number(r.product_id);
+        if (!pid) continue;
+        const cur = producedBy.get(String(pid));
+        if (!cur || Number(r.id) < Number(cur.id)) producedBy.set(String(pid), r);
+    }
+
+    const childrenByParent = new Map();
+    for (const p of (data.products || [])) {
+        const par = p.parent_product_id;
+        if (!par || String(par) === '0') continue;
+        if (!childrenByParent.has(String(par))) childrenByParent.set(String(par), []);
+        childrenByParent.get(String(par)).push(p);
+    }
+
+    return { posByRecipe, nestByRecipe, productById, conversions: data.conversions || [], kiloId,
+             baseServings, producedBy, childrenByParent, units: data.units || [] };
 }
 
 /** Nøjagtighed pr. masse: dækket kg / kendt kg. null hvis ingen kendt masse. */
@@ -176,32 +285,8 @@ function accuracyPct(res) {
  * @returns Map<recipeId, { co2e_per_serving, total, base_servings, missing_factor[], missing_kgvej[], complete }>
  */
 function computeAll(data) {
-    const kiloId = findKiloId(data.units || []);
-    const posByRecipe = new Map();
-    for (const p of (data.pos || [])) {
-        if (!posByRecipe.has(p.recipe_id)) posByRecipe.set(p.recipe_id, []);
-        posByRecipe.get(p.recipe_id).push(p);
-    }
-    const nestByRecipe = new Map();
-    for (const n of (data.nestings || [])) {
-        if (!nestByRecipe.has(n.recipe_id)) nestByRecipe.set(n.recipe_id, []);
-        nestByRecipe.get(n.recipe_id).push(n);
-    }
-    const productById = new Map((data.products || []).map(p => [String(p.id), p]));
-    const baseServings = new Map((data.recipes || []).map(r => [r.id, parseFloat(r.base_servings) || 1]));
-
-    // product_id → producerende opskrift. Deterministisk ved flere producenter
-    // (Falaffel har tre), så to kørsler ikke kan give hver sit CO₂-tal.
-    const producedBy = new Map();
-    for (const r of (data.recipes || [])) {
-        const pid = Number(r.product_id);
-        if (!pid) continue;
-        const cur = producedBy.get(String(pid));
-        if (!cur || Number(r.id) < Number(cur.id)) producedBy.set(String(pid), r);
-    }
-
-    const ctx = { posByRecipe, nestByRecipe, productById, conversions: data.conversions || [], kiloId, baseServings,
-                  producedBy, units: data.units || [] };
+    const ctx = buildCtx(data);
+    const baseServings = ctx.baseServings;
     const memo = new Map();
 
     const out = new Map();
@@ -242,25 +327,12 @@ function computeAll(data) {
  *                          contribution,pct,complete}] }
  */
 function breakdownRecipe(recipeId, data) {
-    const kiloId = findKiloId(data.units || []);
     const unitName = new Map((data.units || []).map(u => [u.id, u.name_short || u.name]));
     const groupName = new Map((data.groups || []).map(g => [String(g.id), g.name]));
 
-    const posByRecipe = new Map();
-    for (const p of (data.pos || [])) {
-        if (!posByRecipe.has(p.recipe_id)) posByRecipe.set(p.recipe_id, []);
-        posByRecipe.get(p.recipe_id).push(p);
-    }
-    const nestByRecipe = new Map();
-    for (const n of (data.nestings || [])) {
-        if (!nestByRecipe.has(n.recipe_id)) nestByRecipe.set(n.recipe_id, []);
-        nestByRecipe.get(n.recipe_id).push(n);
-    }
-    const productById  = new Map((data.products || []).map(p => [String(p.id), p]));
-    const recipeById   = new Map((data.recipes  || []).map(r => [r.id, r]));
-    const baseServings = new Map((data.recipes  || []).map(r => [r.id, parseFloat(r.base_servings) || 1]));
-
-    const ctx = { posByRecipe, nestByRecipe, productById, conversions: data.conversions || [], kiloId, baseServings };
+    const ctx = buildCtx(data);
+    const { posByRecipe, nestByRecipe, productById, baseServings } = ctx;
+    const recipeById = new Map((data.recipes || []).map(r => [r.id, r]));
     const memo = new Map();
     const div = baseServings.get(recipeId) || 1;
     // Rekursiv masse-dækning for HELE opskriften (til nøjagtigheds-tallet).
@@ -276,23 +348,25 @@ function breakdownRecipe(recipeId, data) {
                 mass_kg: null, missing_kg: null, status: 'unknown_product', is_packaging: false });
             continue;
         }
-        const kgFull = stockToKg(product, amount, ctx.conversions, kiloId);
-        const factor = readFactor(product);
-        const uf = product.userfields || {};
+        // Samme opløsning som totalen — egen faktor, opskrift eller arv.
+        const r = resolveIngredient(product, amount, ctx, memo, new Set([recipeId]));
         const grp = groupName.get(String(product.product_group_id)) || '';
-        const kg = kgFull == null ? null : kgFull / div;
-        let status = 'ok', contribution = null;
-        if (isExcluded(product)) status = 'na';   // §1 — bevidst udeladt (vises, tælles ikke)
-        else if (kgFull == null) status = 'missing_kgvej';
-        else if (factor == null) status = 'missing_factor';
-        else contribution = kg * factor;
+        const na = r.status === 'na';
+        const known = r.covered_kg + r.missing_kg;   // kendt masse bag linjen (også ned gennem en opskrift)
         ingredients.push({
             product_id: product.id, name: product.name, amount_per_serving: amount / div,
-            unit: unitName.get(product.qu_id_stock) || null, kg: status === 'na' ? null : kg, factor,
-            source: uf.co2e_source || null, contribution, status, is_packaging: /emballage/i.test(grp),
+            unit: unitName.get(product.qu_id_stock) || null,
+            kg: (na || r.kg == null) ? null : r.kg / div,
+            factor: r.factor, source: r.source, source_note: r.source_note,
+            producer_recipe_id: r.producer_id,
+            contribution: r.status === 'ok' ? r.total / div : null,
+            status: r.status, is_packaging: /emballage/i.test(grp),
             // 'na' udelades af masse-regnskabet i begge retninger (som computeRecipe).
-            mass_kg: status === 'na' ? null : kg,
-            missing_kg: status === 'missing_factor' ? kg : (status === 'ok' ? 0 : null),
+            mass_kg: na ? null : (r.producer_id ? known / div : (r.kg == null ? null : r.kg / div)),
+            missing_kg: (r.status === 'ok' || r.status === 'missing_factor' || r.status === 'sub_incomplete')
+                ? r.missing_kg / div : null,
+            missing_names: r.status === 'sub_incomplete'
+                ? [...r.missing_factor, ...r.missing_kgvej] : undefined,
         });
     }
 
@@ -335,4 +409,5 @@ function breakdownRecipe(recipeId, data) {
     };
 }
 
-module.exports = { computeAll, computeRecipe, breakdownRecipe, stockToKg, readFactor, isExcluded, findKiloId };
+module.exports = { computeAll, computeRecipe, breakdownRecipe, buildCtx, inheritedFactor,
+                   stockToKg, readFactor, isExcluded, findKiloId };
