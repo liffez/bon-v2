@@ -836,3 +836,20 @@
     font-weight: 600;
     cursor: pointer;
 }
+
+/* "Kom der varer?" efter en op-rettelse (#658) — et tilbud, ikke et spørgsmål */
+.so-nudge {
+    background: rgba(142, 99, 31, 0.10);
+    color: var(--brand-primary, #8e631f);
+    border: 1px solid rgba(142, 99, 31, 0.35);
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.so-nudge-link {
+    border: none; background: none; padding: 0; cursor: pointer;
+    color: inherit; font: inherit; font-weight: 600; text-decoration: underline;
+}
+.so-nudge-x {
+    border: none; background: none; cursor: pointer; color: inherit;
+    font-size: 17px; line-height: 1; padding: 0 2px; margin-left: auto; opacity: .6;
+}
+.so-nudge-x:hover { opacity: 1; }

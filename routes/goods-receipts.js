@@ -222,6 +222,25 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 error: `items[${i}].status='${status}' er ugyldig. Tilladte: ${VALID_ITEM_STATUSES.join(', ')}`
             });
         }
+        // #658 §14.4: mængden kan være tastet i flere enheder. Posterne
+        // valideres her, ikke halvvejs nede i konverteringen — en ugyldig
+        // post skal give en besked, ikke en mængde ingen kan gøre rede for.
+        const entries = items[i]?.entries;
+        if (entries !== undefined && entries !== null) {
+            if (!Array.isArray(entries)) {
+                return res.status(400).json({ error: `items[${i}].entries skal være en liste` });
+            }
+            for (let e = 0; e < entries.length; e++) {
+                const quId = parseInt(entries[e]?.qu_id);
+                const qty  = Number(entries[e]?.qty);
+                if (!Number.isFinite(quId) || quId <= 0) {
+                    return res.status(400).json({ error: `items[${i}].entries[${e}].qu_id mangler` });
+                }
+                if (!Number.isFinite(qty) || qty <= 0) {
+                    return res.status(400).json({ error: `items[${i}].entries[${e}].qty skal være > 0` });
+                }
+            }
+        }
     }
 
     // Produktnavnene og de skema-drevne ekstrafelter er fri tekst fra
@@ -294,20 +313,53 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         const pid   = item.grocy_product_id ? parseInt(item.grocy_product_id) : null;
         const qty   = Number(item.received_quantity) || 0;
         const quId  = item.qu_id != null && item.qu_id !== '' ? parseInt(item.qu_id) : null;
+        const entries = Array.isArray(item.entries) && item.entries.length ? item.entries : null;
 
         // Manuelt tilføjede varer (uden Grocy-produkt) og nul-mængder rører aldrig
         // lageret — der er intet at omregne, og ingen fejl at melde.
-        if (!pid || qty <= 0) return { stockAmount: null, quId, error: null };
+        if (!pid || (qty <= 0 && !entries)) return { stockAmount: null, quId, entries: null, error: null };
 
         if (quMetaError) {
             return {
-                stockAmount: null, quId,
+                stockAmount: null, quId, entries: null,
                 error: `Kunne ikke hente enheds-data fra Grocy (${quMetaError}) — lager ikke opdateret`,
             };
         }
 
-        const r = resolveToStockAmount({ product: productMap.get(pid), amount: qty, quId, conversions });
-        return { stockAmount: r.amount, quId, error: r.error };
+        const product = productMap.get(pid);
+
+        // #658 §14.4: er mængden tastet i flere felter, er summen af posterne
+        // det eneste der posteres. Serveren omregner hver post med SINE egne
+        // omregninger — klientens factor_used gemmes som dokumentation for
+        // hvad der gjaldt på tastetidspunktet (§14.9), ikke som noget vi
+        // regner videre på. Kan bare ÉN post ikke omregnes, rører vi ikke
+        // lageret: en delvis sum ville være et forkert tal uden en fejl.
+        if (entries) {
+            let sum = 0;
+            const gemte = [];
+            for (const e of entries) {
+                const eQu  = parseInt(e.qu_id);
+                const eQty = Number(e.qty);
+                const r = resolveToStockAmount({ product, amount: eQty, quId: eQu, conversions });
+                if (r.error) return { stockAmount: null, quId, entries: null, error: r.error };
+                sum += r.amount;
+                gemte.push({
+                    qu_id: eQu,
+                    qty: eQty,
+                    // Faktoren serveren FAKTISK brugte. Afviger den fra
+                    // klientens, er det serverens der gælder — og så skal det
+                    // være den der står i sporet.
+                    factor_used: eQty ? Math.round((r.amount / eQty) * 1e8) / 1e8 : null,
+                });
+            }
+            return {
+                stockAmount: Math.round(sum * 1e6) / 1e6,
+                quId, entries: gemte, error: null,
+            };
+        }
+
+        const r = resolveToStockAmount({ product, amount: qty, quId, conversions });
+        return { stockAmount: r.amount, quId, entries: null, error: r.error };
     });
 
     // ── #657: pris pr. lager-enhed fra Grocy (stregkodens last_price) ────────
@@ -421,10 +473,10 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             INSERT INTO goods_receipt_items (
                 receipt_id, grocy_product_id, product_name,
                 expected_quantity, unit, received_quantity,
-                received_qu_id, received_quantity_stock,
+                received_qu_id, received_quantity_stock, received_entries_json,
                 received_price, received_price_source,
                 status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
@@ -440,6 +492,7 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 // ikke afgøres uden at gætte, hvilket var hele problemet.
                 converted[i].quId,
                 converted[i].stockAmount,
+                converted[i].entries ? JSON.stringify(converted[i].entries) : null,
                 prices[i].price,
                 prices[i].source,
                 item.status || 'ok',
@@ -491,11 +544,19 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         const item = items[i];
         const itemId = itemIds[i];
 
-        const shouldAddStock = item.status === 'ok' ||
-            (item.status === 'wrong' && item.received_quantity > 0) ||
-            (item.status === 'damaged' && item.received_quantity > 0);
+        // Mængden kan stå i posterne frem for i received_quantity (#658).
+        // Uden dette ville en linje tastet som "2 kasser + 25 stk" blive
+        // sprunget over, fordi det ene tal stod 0 — og varen ville aldrig
+        // nå lageret, uden at nogen fik det at vide.
+        const mængde = converted[i].stockAmount != null
+            ? converted[i].stockAmount
+            : (item.received_quantity || 0);
 
-        if (!shouldAddStock || !item.grocy_product_id || (item.received_quantity || 0) <= 0) {
+        const shouldAddStock = item.status === 'ok' ||
+            (item.status === 'wrong' && mængde > 0) ||
+            (item.status === 'damaged' && mængde > 0);
+
+        if (!shouldAddStock || !item.grocy_product_id || mængde <= 0) {
             grocyResults.push({
                 product_name: item.product_name,
                 grocy_added: false,

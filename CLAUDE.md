@@ -186,6 +186,7 @@ bon-v2/
 │   ├── flyver.js + flyver.css      ← Nødbesked-system
 │   ├── modal.js + modal.css        ← Genbrugelig modal (historik, info, råvarer)
 │   ├── vare_picker.js + vare_picker.css ← Standalone VarePicker (bruges i kort + drawer)
+│   ├── mangde_felter.js + mangde_felter.css ← Mængde tastet i flere enheder på én gang ("2 kasser og 25 stk") — delt af varemodtagelse (#658) og optælling (§14.6)
 │   ├── bon_opret_modal.js + bon_opret_modal.css ← Hurtig bon-oprettelse
 │   ├── bon_drawer.js + bon_drawer.css   ← Bon-detalje drawer (fuld redigering)
 │   ├── kunde_soeg.js + kunde_soeg.css   ← Kunde/firma-søgekomponent
@@ -8091,6 +8092,125 @@ regnet om og indkøbs-fladerne blinde for det. Alt gendannet bagefter.
 én gang (Indkøb → ⚙ → Hørkram), så stregkoderne får friske priser. Varer med flere
 varenumre skal have et foretrukket valgt i ✎ eller under "Alle koblinger" —
 ellers sendes der ingen pris for dem.
+
+### Varer kan modtages uden en bestilling (#658, 18. september 2026)
+
+Varemodtagelsen byggede sin vareliste af det der var **bestilt i Bon**. Indkøbs-
+modulet bruges ikke, så listen var tom næsten hver gang, og lagerdelen blev
+sprunget over. Målt i drift 18. september:
+
+| | |
+|---|---|
+| modtagelser i Bon i alt | 33 |
+| … heraf med **nul varer** | **24** (i september: 6 af 6) |
+| manuelle varelinjer nogensinde tastet | **3** — og alle tre uden `grocy_product_id` |
+| køb mod lagerrettelser i Grocy (90 dage) | 120 mod 379 |
+| køb der bar en pris | **16 af 120 (13 %)** |
+
+Historien var altså ikke "de bruger ikke varemodtagelsen" — de bruger den to
+gange om ugen for fødevarekontrollens skyld. Der var bare ikke noget at modtage.
+De tre manuelle linjer siger det præcist: `Kartoffel 7 Kg`, `Brød 4 enhed=7`
+(nogen tastede 7 i enheds-promptet) og `spidskål 2 stk` — hvor Spidskål findes i
+Grocy som produkt 27. Personen kunne ikke vælge den gennem tre `prompt()`-bokse,
+og linjen nåede aldrig lageret.
+
+**Leverandøren udpeger selv sine varer.** Varenumrene i Grocy bærer et
+handelssted (`product_barcodes.shopping_location_id`), og handelsstedet er koblet
+til leverandøren (`supplier_grocy_locations`). Vælger man Hørkram, står dens
+varer der — i drift 89, fordi Hørkram er koblet til **tre** handelssteder (2, 5
+og 9). Derfor en liste pr. leverandørnavn, ikke ét id. Søgning er nødudgangen,
+ikke indgangen: man står med kasserne og bekræfter tal, man leder ikke efter varer.
+
+**Mængden tastes i flere enheder på én gang** — `shared/mangde_felter.js`, som er
+§14.6 i `docs/CLAUDE_LAGEROPTAELLING.md`:
+
+```
+Brød Rug     [ 2 ] Kasse   [   ] Kilo   [ 25 ] stk      = 24,25 kg
+```
+
+Komponenten er **delt**, ikke intern i skærmen: optællingen (#331) skal bruge den
+samme, og to kopier ville skride fra hinanden. Kun enheder med en brugbar faktor
+tilbydes — et felt der ikke kan omregnes er en fælde (#358), så hellere ét felt
+end tre hvoraf to fejler bagefter. Målt i grocy-hq: 8 varer har tre felter, 61 har
+to, 112 har ét.
+
+> **Serveren summerer med SINE egne omregninger.** Klientens `factor_used` gemmes
+> (migration 178, `received_entries_json`) som dokumentation for hvad der gjaldt
+> på tastetidspunktet — §14.9's faktordiagnose skal kunne se forskel på en der
+> tæller sjusket og en kassefaktor der er forkert, og modtagelsen er dét sted hvor
+> en forkert faktor er lettest at opdage. Men den regnes der aldrig videre på: en
+> klient der påstår 1 Kasse = 999 Kilo kan ikke skrive 1998 kg ind i lageret.
+> **Kan bare én post ikke omregnes, rører vi ikke lageret** — en delvis sum ville
+> være et forkert tal uden en fejl.
+
+**Pris-status står på varekortet**, med ret-på-stedet (vælg varenummer / sæt
+overslag — endpointsene kom med #657). Det er ikke pynt: 13 varer i drift har
+flere varenumre uden et foretrukket valg og får derfor ingen pris. Valget er ét
+klik, men kun hvis nogen bliver spurgt — og her bliver de spurgt dér hvor svaret
+findes. Kom varen fra en indtastet kode, VED vi hvilket varenummer der kom, og så
+er prisen entydig uden noget valg.
+
+**Kodefeltet tager imod hvad som helst** — varenummer først, så `hk_gtin`.
+`inputmode="numeric"` giver taltastatur, og iOS-tastaturets "Scan tekst" kan læse
+varenummeret fra følgesedlen uden en linje kode. Kamera-scanning er
+[#662](https://github.com/liffez/bon-v2/issues/662): kun **20 af 181** varer har
+en rigtig stregkode (18 af 120 købsposteringer), og iPad/Safari har ikke
+`BarcodeDetector`. En ukendt kode skriver **intet** til Grocy — stregkodefeltet
+bruges hos os til varenumre, og en fremmed kode derinde ville forurene
+leverandør-listerne.
+
+**Lageroversigten spørger bagefter.** Gik lageret OP, vises en linje —
+*"Kom der varer? Registrér som modtagelse"* — der bærer tallet med over
+(`sessionStorage.vm_carry`, ryddes ved læsning, udløber efter 30 min).
+Gemme-vejen er **uændret**: en almindelig rettelse koster ikke et tryk mere.
+Købet oprettes bevidst ikke fra lageroversigten — så ville vi lave køb der
+springer fødevarekontrollen over, og dét er den anden halvdel af problemet.
+Lageroversigten bliver ikke et indkøbsværktøj; den peger på det rigtige sted.
+
+**Arbejdslisten bor i appen, ikke i et issue.** Indkøb → Produkter har et filter
+`N uden pris` med årsagen skrevet ud på rækken. En liste i et issue er forældet i
+samme sekund nogen retter en vare. Tallet på knappen og listen bag den deler ét
+prædikat (`_isUdenPris`) — ellers står man med "147 uden pris" og 151 rækker og
+kan ikke vide hvilket der lyver.
+
+**Opret produkt** fik forbrugs-enhed (§14's tredje felt) med sit eget faktorfelt
+— uden faktor gemmes enheden ikke, for så ville feltet være en fælde. Og
+handelsstedets blanke valg hedder nu **"— ved ikke endnu —"**: man opretter tit
+en vare til en ny opskrift uden at vide hvor den købes, og det må aldrig blokere
+— men det skal være et valg man har truffet, ikke et felt man overså. Varen står
+bagefter på arbejdslisten.
+
+**Effekten** (målt mod grocy-hq, 90 dage): **56 af 120 køb (47 %) ville få en
+pris mod 16 i dag.** De resterende 64 er kendte og fikserbare — 13 varer mangler
+et foretrukket varenummer (Kartofler har 7, Purløg 4), og resten mangler en
+kobling eller et overslag. Mange af de varer der slet ingen pris har, er ting vi
+selv laver (Remoulade, Rødkål-Sylt, Chili Mayo); de skal aldrig have en
+leverandørpris og hører til #558's opskriftsvej.
+
+**Tests**: `npm run test:modtag` — 12 server-tests (skemaet bygget af de rigtige
+migrations i `:memory:`, Grocy stubbet så "hver eneste skrivning fejler" kan
+fremprovokeres) + 52 klient-asserts (vm-sandkasse, de ægte funktioner).
+**Mutations-testet: 12 mutationer, alle fanget** — heriblandt at lade en
+Grocy-fejl vælte hele registreringen (fælder FVST-testen), at springe tavlen over
+uden varer, og at stole på klientens faktor. Regression grøn: consume-hardening
+120, leverandorpriser 101, last-checked 57, stock-inactive 40, grocy-hidden 34,
+run-optaelling 112.
+
+> ⚠️ **Én ting overlevede ikke testen første gang:** `_vmSubmitCode` læste
+> kodefeltet fra `_vmDom`. Panelet bygges om ved hver render, så referencen kunne
+> pege på et felt der ikke længere var på skærmen — brugerens tal stod ét sted og
+> handleren læste et andet, **tavst**. Feltet slås nu op i DOM'en.
+
+> ⚠️ **Fundet undervejs, ikke rettet:** `locations`-rækken for `test` peger på
+> `https://grocytest.ristetrug.dk/api`, som svarer **401**. Den levende instans er
+> `.env`'s `GROCY_TEST_URL` = `https://grocy-test.ristetrug.dk/api`. Hver frisk
+> dev-DB kan altså ikke nå grocytest — samme fejlklasse som HQ/grocycafe-fælden
+> fra juli. Hører til sit eget issue.
+
+**Deploy:** migration 178 kører ved genstart. Flowet virker med det samme, men
+kandidatlisten kræver at leverandøren er koblet til sit Grocy-handelssted
+(Settings → Indkøb → Leverandører). I drift er Hørkram, Inco, RR Produktion,
+Serviwet og Trykkeriet friheden koblet; Metro er ikke.
 
 ---
 

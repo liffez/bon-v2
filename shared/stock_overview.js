@@ -970,6 +970,10 @@ async function _soAdjustInventory(productId) {
         var priceNote = (diff > 0 && invRes && invRes.price_sent)
             ? ' · ' + _soFmtPrice(invRes.price_sent, item.qu_name) : '';
         _soShowToast(esc(item.name) + ': ' + sign + diff + ' ' + esc(item.qu_name) + ' (nu ' + _soRound(newAmount) + ')' + priceNote, 'success');
+        // #658: gik lageret OP, kan der være kommet varer. Det spørger vi om
+        // BAGEFTER, aldrig før — en almindelig rettelse må ikke koste et tryk
+        // mere. Linjen kan ignoreres; den forsvinder af sig selv.
+        if (diff > 0) _soNudgeModtagelse(item, diff);
         _soCloseExpand(productId);
 
         // Update local data + re-render
@@ -983,6 +987,75 @@ async function _soAdjustInventory(productId) {
     } finally {
         delete _soSaving[productId];
     }
+}
+
+/* ── "Kom der varer?" (#658) ──────────────────────────────────
+ *
+ * Målt i grocy-hq: 379 lagerrettelser mod 120 køb på 90 dage. Varerne kommer
+ * ind ad DEN dør. En rettelse er ikke et køb — den fodrer hverken
+ * kostprisens snit eller fødevarekontrollen — men den der lige har rettet
+ * tallet op er den eneste der ved om der faktisk kom noget.
+ *
+ * Derfor et tilbud, ikke et spørgsmål: gemme-vejen er uændret, og den der
+ * bare retter et tal mærker ingen forskel. Lageroversigten bliver heller
+ * ikke et indkøbsværktøj — den peger på det rigtige sted.
+ */
+function _soNudgeModtagelse(item, diff) {
+    var area = document.getElementById('soToastArea');
+    if (!area) return;
+
+    var bar = document.createElement('div');
+    bar.className = 'so-toast so-nudge';
+
+    var txt = document.createElement('span');
+    txt.textContent = 'Kom der varer? ';
+    bar.appendChild(txt);
+
+    var link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'so-nudge-link';
+    link.textContent = 'Registrér som modtagelse';
+    link.title = 'Så tæller det som et køb — med pris og fødevarekontrol';
+    link.addEventListener('click', function() {
+        // Tallet tages med, så det ikke skal tastes igen. Fødevarekontrollen
+        // udfyldes én gang for hele leverancen ovre i modtagelsen — derfor
+        // oprettes købet ikke herfra.
+        try {
+            sessionStorage.setItem('vm_carry', JSON.stringify({
+                pid: item.product_id,
+                name: item.name,
+                qty: diff,
+                qu_id: item.qu_id != null ? item.qu_id : null,
+                ts: Date.now(),
+            }));
+        } catch (err) { /* privat vindue — så mister vi kun tallet */ }
+
+        if (document.body.classList.contains('zone-mobile') &&
+            typeof window._mSwitchView === 'function') {
+            window._mSwitchView('modtag');
+        } else {
+            window.location.href = '/kitchen/purchasing.html#varemodtagelse';
+        }
+    });
+    bar.appendChild(link);
+
+    var luk = document.createElement('button');
+    luk.type = 'button';
+    luk.className = 'so-nudge-x';
+    luk.textContent = '\u00d7';
+    luk.title = 'Skjul';
+    luk.addEventListener('click', function() { bar.remove(); });
+    bar.appendChild(luk);
+
+    area.appendChild(bar);
+
+    // Lever længere end en kvittering — man skal kunne nå at beslutte sig —
+    // men forsvinder selv, så den ikke bliver stående som en opgave.
+    setTimeout(function() {
+        bar.style.opacity = '0';
+        bar.style.transition = 'opacity 0.4s';
+        setTimeout(function() { bar.remove(); }, 400);
+    }, 12000);
 }
 
 function _soAdjStep(productId, delta) {
