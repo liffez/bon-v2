@@ -7831,8 +7831,16 @@ Grocy 20.012, vejet over loggen 24.502, simpelt snit 109.903).
 **Falder tilbage i denne rækkefølge:** snit over vinduet → seneste køb (ingen køb i
 vinduet) → Grocys egne tal: nyeste lagerpost → `last_price` → `avg_price` →
 lagerværdi/mængde → `missing_price`. `source` på hver pris siger hvilket led der blev
-brugt, og `audit:kostpris-kilder` viser fordelingen — falder de fleste varer tilbage på
-seneste køb, er udsvinget ikke dæmpet, og så er vinduet for kort.
+brugt, og `audit:kostpris-kilder` viser fordelingen.
+
+> ⚠️ **Målt i drift 17. sep: kun 16 af 156 varer får snittet. 127 falder tilbage på
+> seneste køb.** Reglen er altså i dag næsten inert — og mayo-tilfældet, som er hele
+> motivationen, er formentlig ikke dækket. Et tomt vindue kan betyde to ting, og de
+> kræver hver sin handling: at der ikke ER købt ind, eller at leverancerne ikke bærer en
+> pris. Derfor tælles prisløse købsposteringer i vinduet for sig
+> (`purchases_in_window_unpriced`) og rapporteres af auditen. **#657** er den ene
+> forklaring: varemodtagelsen sender ingen pris til Grocy, så en leverance skriver en
+> postering der ikke kan vægte noget.
 
 > **Snittet er STABILT, ikke RIGTIGT.** Mayo har to varenumre (1 kg-pose 114,56 kr/kg ·
 > 5 kg-spand 42,01), og snittet lander mellem dem og passer på ingen af dem. Den rigtige

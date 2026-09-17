@@ -207,6 +207,24 @@ async function main() {
     for (const [k, n] of [...kilder].sort((a, b) => b[1] - a[1])) {
         console.log(`     ${padL(n, 5)}  ${kildeNavn[k] || k}`);
     }
+
+    // Er vinduet tomt fordi der ikke er købt ind — eller fordi leverancerne
+    // ikke bærer en pris? De to ligner hinanden i tallene ovenfor og kræver
+    // hver sin handling. Varemodtagelsen sender i dag ingen pris (#657).
+    let udenPris = 0, varerUdenPris = 0;
+    for (const d of detaljer.values()) {
+        const n = d.purchases_in_window_unpriced || 0;
+        if (n > 0) { udenPris += n; varerUdenPris++; }
+    }
+    if (udenPris) {
+        console.log(`\n   ${C.yel}${udenPris} købsposteringer i vinduet bærer ingen pris`
+                  + ` (${varerUdenPris} varer)${C.off}`);
+        console.log(`   ${C.dim}De kan ikke vægte noget, så vinduet står tomt selv om der ER`
+                  + ` købt ind.${C.off}`);
+        console.log(`   ${C.dim}Det er #657: varemodtagelsen sender ingen pris til Grocy.${C.off}`);
+    } else {
+        console.log(`\n   ${C.dim}Alle køb i vinduet bærer en pris.${C.off}`);
+    }
     console.log('');
 
     // ── 3. Effekt pr. opskrift ───────────────────────────────

@@ -351,6 +351,22 @@ console.log(`\nK9 · Kostprisen er et mængdevægtet snit af køb de seneste ${P
        'mangler forretningsdatoen, bruges den skrevne dato');
 
     ok(unitCostDetail(null, []) === null, 'tom liste uden Grocy-tal → null, ikke 0');
+
+    // Prisløse køb i vinduet tælles for sig. Varemodtagelsen sender i dag
+    // ingen pris til Grocy (#657), så en leverance skriver en postering der
+    // ikke kan vægte noget — og uden tallet ligner et tomt vindue at køkkenet
+    // ikke har handlet, hvilket er en helt anden diagnose.
+    const u = unitCostDetail(null, [
+        kob(50, 2, '2026-08-01'),
+        { amount: 9, purchased_date: '2026-08-15' },            // leverance uden pris
+        { price: 0, amount: 4, purchased_date: '2026-08-20' },  // do.
+    ], { since: SINCE });
+    ok(near(u?.cost, 50), 'de prisløse vægter ikke snittet');
+    ok(u?.purchases_in_window === 1 && u?.purchases_in_window_unpriced === 2,
+       'men de tælles, så et tomt vindue kan skelnes fra "ingen har købt ind"');
+    const t = unitCostDetail({ last_price: 9 }, [{ amount: 3, purchased_date: '2026-08-15' }], { since: SINCE });
+    ok(t?.source === 'last' && t?.purchases_in_window_unpriced === 1,
+       'og de tælles også når de er det ENESTE i vinduet');
 }
 
 // ── K10 · enhedsnavne ────────────────────────────────────────

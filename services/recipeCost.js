@@ -126,9 +126,14 @@ function _weighted(rows) {
 function unitCostDetail(grocyRow, purchases = null, opts = {}) {
     const { since = null, stockRowPrice = null } = opts;
 
-    const koeb = Array.isArray(purchases)
-        ? purchases.filter(p => _pos(p.price) != null && Number(p.amount) > 0)
-        : [];
+    const alle = Array.isArray(purchases) ? purchases : [];
+    const koeb = alle.filter(p => _pos(p.price) != null && Number(p.amount) > 0);
+
+    // Køb i vinduet UDEN pris tælles for sig. Varemodtagelsen sender i dag
+    // ingen pris til Grocy (#657), så en leverance skriver en købspostering
+    // der ikke kan vægte noget — og så står vinduet tomt selv om der ER købt
+    // ind. Uden tallet ligner det at køkkenet ikke har handlet.
+    const iVindueAlle = since ? alle.filter(p => _purchaseDate(p) >= since) : alle;
 
     // Seneste køb findes i HELE listen, ikke kun i vinduet. Findes der køb i
     // vinduet, er det nyeste af dem også det nyeste overhovedet, så de to kan
@@ -150,6 +155,7 @@ function unitCostDetail(grocyRow, purchases = null, opts = {}) {
             deviation_pct: dev,
             warn: Math.abs(dev) > WARN_LAST_VS_AVG_PCT,
             purchases_in_window: iVindue.length,
+            purchases_in_window_unpriced: iVindueAlle.length - iVindue.length,
         };
     }
 
@@ -158,12 +164,14 @@ function unitCostDetail(grocyRow, purchases = null, opts = {}) {
         const last = _pos(senest.price);
         return { cost: last, source: 'last_purchase', last_price: last, avg_price: null,
                  deviation_pct: null, warn: false, purchases_in_window: 0,
+                 purchases_in_window_unpriced: iVindueAlle.length,
                  last_purchase_date: _purchaseDate(senest) };
     }
 
     // ── 3) Ingen køb overhovedet → Grocys egne tal ──────────────────────
     const base = { last_price: null, avg_price: null, deviation_pct: null,
-                   warn: false, purchases_in_window: 0 };
+                   warn: false, purchases_in_window: 0,
+                   purchases_in_window_unpriced: iVindueAlle.length };
 
     const lagerpost = _pos(stockRowPrice);
     if (lagerpost != null) return { ...base, cost: lagerpost, source: 'stock_row' };
