@@ -162,6 +162,7 @@ async function main() {
         prod.push({
             navn: produkt.name, opskriftNavn: r.name, lager, opskrift, udbytte: y,
             afv: (lager != null && opskrift) ? (lager - opskrift) / opskrift * 100 : null,
+            raavarer: (b && b.cost > 0) ? b.cost : null,
             enhed: (produkt.qu_id_stock && (units.find(u => String(u.id) === String(produkt.qu_id_stock)) || {}).name) || '',
             flere: flereProducenter.has(pid),
             vinder: vinderR && String(vinderR.id) === String(r.id),
@@ -169,8 +170,12 @@ async function main() {
         });
     }
     prod.sort((a, b) => Math.abs(b.afv ?? -1) - Math.abs(a.afv ?? -1));
-    console.log(`   ${pad('Vare', 26)}${padL('lagerpris', 11)}${padL('opskriften', 12)}`
-              + `${padL('afvigelse', 11)}  ${padL('udbytte', 10)}`);
+    // Kolonnerne står i regnestykkets rækkefølge: råvarer ÷ udbytte = opskriften.
+    // Uden dem ser en stor afvigelse ud som en uenighed om PRISEN, og det er den
+    // næsten aldrig — det er udbyttet der er tastet forkert. Med summen ved siden
+    // af kan man se hvilket af de to input der er galt.
+    console.log(`   ${pad('Vare', 26)}${padL('lagerpris', 11)}  ${padL('råvarer', 10)}`
+              + `${padL('÷ udbytte', 13)}${padL('= opskriften', 14)}${padL('afvigelse', 11)}`);
     for (const p of prod) {
         const mark = p.afv == null ? C.dim
             : Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT ? C.red : C.grn;
@@ -188,8 +193,9 @@ async function main() {
         const udb = p.udbytte > 0
             ? `${Number(p.udbytte).toLocaleString('da-DK', { maximumFractionDigits: 3 })} ${p.enhed}`
             : '—';
-        console.log(`   ${pad(p.navn, 26)}${padL(kr(p.lager), 11)}${padL(kr(p.opskrift), 12)}`
-                  + `${mark}${padL(pct(p.afv), 11)}${C.off}  ${C.dim}${padL(udb, 10)}${C.off}${note}`);
+        console.log(`   ${pad(p.navn, 26)}${padL(kr(p.lager), 11)}  ${C.dim}${padL(kr(p.raavarer), 10)}`
+                  + `${padL(udb, 13)}${C.off}${padL(kr(p.opskrift), 14)}`
+                  + `${mark}${padL(pct(p.afv), 11)}${C.off}${note}`);
     }
     const overTaerskel = prod.filter(p => p.afv != null && Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT);
     console.log(`\n   ${prod.length} producerede varer · ${overTaerskel.length} over tærsklen`
