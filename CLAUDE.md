@@ -7806,6 +7806,16 @@ fejlen forplantede sig til margin-analysen på hver ret der bruger dem.
   råvarer har en pris — bruges lagerprisen, men **det siges højt** som en advarsel.
   Et tavst fald tilbage ville ligne en almindelig købt vare.
 
+> ⚠️ **Flere opskrifter kan producere samme vare, og kun én bestemmer prisen.**
+> Falaffel har tre: to i `RR Produktion` og én i `xgamle opskrifter`.
+> `buildProducedByIndex` vælger **laveste opskrift-id** — deterministisk, så to kørsler
+> ikke giver hver sit tal, men laveste id er også den **ældste**. Er en udgået opskrift
+> ikke frigjort fra sit produkt, er det altså DEN der sætter kostprisen på hver eneste
+> menu der bruger varen. Vi gætter bevidst ikke ud fra kategorinavne — hvilken opskrift
+> der gælder er stamdata, og "xgamle opskrifter" er et navn nogen har fundet på. I stedet
+> navngiver `audit:kostpris-kilder` varerne, markerer vinderen, og siger at feltet
+> "Produces product" skal ryddes i Grocy på dem der ikke skal gælde.
+
 **#557 — kostprisen er et mængdevægtet snit af køb de seneste 90 dage.** `unitCostFromRow`
 valgte `last_price` først. Købte køkkenet én billig 5 kg-spand mayo som nødløsning, faldt
 kostprisen på hver mayo-ret 63 % indtil næste pose blev købt — spanden var brugt op
