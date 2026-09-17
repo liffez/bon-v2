@@ -202,6 +202,39 @@ function unitCostFromRow(row, purchases = null, opts = {}) {
 
 
 /**
+ * product_id → den opskrift der producerer varen.
+ *
+ * DETERMINISTISK, IKKE KLOG. Flere opskrifter kan producere samme vare —
+ * Falaffel har tre — og laveste id vinder, så to kørsler ikke giver hver sit
+ * tal. Laveste id er også den ÆLDSTE, så er en udgået opskrift ikke blevet
+ * frigjort fra sit produkt, er det den der bestemmer kostprisen.
+ *
+ * Vi gætter bevidst ikke ud fra kategorinavne: hvilken opskrift der gælder er
+ * stamdata, ikke en heuristik. `audit:kostpris-kilder` navngiver i stedet de
+ * varer der har flere producenter, så feltet kan ryddes i Grocy.
+ *
+ * @returns {{index: Map<string, object>, multiple: Map<string, object[]>}}
+ *   multiple: kun de varer hvor der ER mere end én producent.
+ */
+function buildProducedByIndex(recipes) {
+    const alle = new Map();
+    for (const r of (recipes || [])) {
+        const pid = Number(r.product_id);
+        if (!pid) continue;
+        const key = String(pid);
+        if (!alle.has(key)) alle.set(key, []);
+        alle.get(key).push(r);
+    }
+    const index = new Map(), multiple = new Map();
+    for (const [pid, rs] of alle) {
+        rs.sort((a, b) => Number(a.id) - Number(b.id));
+        index.set(pid, rs[0]);
+        if (rs.length > 1) multiple.set(pid, rs);
+    }
+    return { index, multiple };
+}
+
+/**
  * Beregn kostpris for ALLE opskrifter.
  *
  * @param data { recipes, pos, nestings, products, units, conversions,
@@ -232,15 +265,7 @@ function computeAll(data) {
     const productById = new Map((data.products || []).map(p => [String(p.id), p]));
     const recipeById  = new Map((data.recipes || []).map(r => [String(r.id), r]));
 
-    // product_id → producerende opskrift. Deterministisk ved flere producenter
-    // (Falaffel har tre), så to kørsler ikke giver hver sit tal.
-    const producedBy = new Map();
-    for (const r of (data.recipes || [])) {
-        const pid = Number(r.product_id);
-        if (!pid) continue;
-        const cur = producedBy.get(String(pid));
-        if (!cur || Number(r.id) < Number(cur.id)) producedBy.set(String(pid), r);
-    }
+    const producedBy = buildProducedByIndex(data.recipes || []).index;
 
     const ctx = { posBy, nestBy, productById, recipeById, producedBy,
                   units: data.units || [], conversions: data.conversions || [],
@@ -434,6 +459,6 @@ function describeWarning(w) {
 
 module.exports = {
     computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName,
-    parentPriceFromChildren, describeWarning,
+    parentPriceFromChildren, describeWarning, buildProducedByIndex,
     WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT, PRICE_WINDOW_DAYS,
 };

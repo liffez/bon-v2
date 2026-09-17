@@ -52,7 +52,7 @@ process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 
 const grocy = require('../services/grocyAdapter');
 const { todayISO } = require('../db/helpers');
 const {
-    computeAll, yieldInStockUnits,
+    computeAll, yieldInStockUnits, buildProducedByIndex,
     WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT, PRICE_WINDOW_DAYS,
 } = require('../services/recipeCost');
 
@@ -144,12 +144,17 @@ async function main() {
     // ── 1. Producerede goder ─────────────────────────────────
     console.log(`${C.b}1. Producerede goder — lagerpris mod hvad opskriften koster${C.off}`);
     console.log(`${C.dim}   Tærskel for advarsel: ${WARN_STOCK_VS_RECIPE_PCT} %. Opskriften vinder altid.${C.off}\n`);
+    // Samme indeks som beregningen bruger — ikke en kopi, så de to ikke kan
+    // blive uenige om hvilken opskrift der gælder.
+    const { index: producentAf, multiple: flereProducenter } = buildProducedByIndex(recipes);
+
     const prod = [];
     for (const r of recipes) {
         const pid = String(Number(r.product_id) || '');
         if (!pid) continue;
         const produkt = produktById.get(pid);
         if (!produkt) continue;
+        const vinderR = producentAf.get(pid);
         const y = yieldInStockUnits(r, produkt, units, conversions);
         const b = efter.get(r.id);
         const opskrift = (y > 0 && b && b.cost > 0) ? b.cost / y : null;
@@ -157,6 +162,9 @@ async function main() {
         prod.push({
             navn: produkt.name, opskriftNavn: r.name, lager, opskrift, udbytte: y,
             afv: (lager != null && opskrift) ? (lager - opskrift) / opskrift * 100 : null,
+            flere: flereProducenter.has(pid),
+            vinder: vinderR && String(vinderR.id) === String(r.id),
+            vinderNavn: vinderR ? vinderR.name : '',
         });
     }
     prod.sort((a, b) => Math.abs(b.afv ?? -1) - Math.abs(a.afv ?? -1));
@@ -164,14 +172,38 @@ async function main() {
     for (const p of prod) {
         const mark = p.afv == null ? C.dim
             : Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT ? C.red : C.grn;
-        const note = p.opskrift == null
+        let note = p.opskrift == null
             ? `  ${C.dim}(kostprisen kan ikke regnes${p.udbytte > 0 ? '' : ' — intet udbytte'})${C.off}` : '';
+        // Er varen produceret af flere opskrifter, bestemmer kun ÉN prisen.
+        // Uden markeringen ser rækkerne ud som om de alle gælder.
+        if (p.flere) note += p.vinder
+            ? `  ${C.dim}← denne bestemmer prisen${C.off}`
+            : `  ${C.yel}(bruges ikke — "${p.vinderNavn}" vinder)${C.off}`;
         console.log(`   ${pad(p.navn, 26)}${padL(kr(p.lager), 11)}${padL(kr(p.opskrift), 12)}`
                   + `${mark}${padL(pct(p.afv), 11)}${C.off}${note}`);
     }
     const overTaerskel = prod.filter(p => p.afv != null && Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT);
     console.log(`\n   ${prod.length} producerede varer · ${overTaerskel.length} over tærsklen`
-              + ` · ${prod.filter(p => p.lager == null).length} uden lagerpris\n`);
+              + ` · ${prod.filter(p => p.lager == null).length} uden lagerpris`);
+
+    if (flereProducenter.size) {
+        console.log(`\n   ${C.yel}${flereProducenter.size} varer produceres af mere end én opskrift.${C.off}`);
+        console.log(`   ${C.dim}Laveste opskrift-id vinder — altså den ÆLDSTE. Er en udgået opskrift`
+                  + ` ikke${C.off}`);
+        console.log(`   ${C.dim}frigjort fra sit produkt, er det DEN der bestemmer kostprisen.`
+                  + ` Ryd feltet${C.off}`);
+        console.log(`   ${C.dim}"Produces product" i Grocy på dem der ikke skal gælde.${C.off}`);
+        for (const [pid, rs] of flereProducenter) {
+            console.log(`     ${produktById.get(pid)?.name || ('#' + pid)}:`);
+            for (const r of rs) {
+                const vinder = String(r.id) === String(rs[0].id);
+                const kat = (r.userfields || {}).grupper || '—';
+                console.log(`       ${vinder ? C.grn + '→' : C.dim + ' '} #${padL(r.id, 4)} ${pad(r.name, 30)}`
+                          + ` ${kat}${C.off}`);
+            }
+        }
+    }
+    console.log('');
 
     // ── 2. Seneste køb mod gennemsnit ────────────────────────
     console.log(`${C.b}2. Varer hvor seneste køb ligger langt fra ${PRICE_WINDOW_DAYS}-dages snittet${C.off}`);

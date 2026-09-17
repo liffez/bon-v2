@@ -17,7 +17,7 @@
 'use strict';
 
 const { computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName,
-        PRICE_WINDOW_DAYS }
+        PRICE_WINDOW_DAYS, buildProducedByIndex }
     = require('../services/recipeCost');
 
 /** En købspostering som `stock_log` leverer den. */
@@ -367,6 +367,32 @@ console.log(`\nK9 · Kostprisen er et mængdevægtet snit af køb de seneste ${P
     const t = unitCostDetail({ last_price: 9 }, [{ amount: 3, purchased_date: '2026-08-15' }], { since: SINCE });
     ok(t?.source === 'last' && t?.purchases_in_window_unpriced === 1,
        'og de tælles også når de er det ENESTE i vinduet');
+}
+
+// ── K9b · flere opskrifter producerer samme vare ─────────────
+console.log('\nK9b · Én vare, flere producerende opskrifter');
+{
+    // Falaffel produceres af tre: to i RR Produktion og én i "xgamle
+    // opskrifter". Kun ÉN kan bestemme kostprisen.
+    const rs = [
+        { id: 140, name: 'Falaffel- stegning-styk', product_id: 30 },
+        { id: 97,  name: 'Falaffel- stegning',      product_id: 30 },
+        { id: 12,  name: 'Original Falaffel- stegning', product_id: 30 },
+        { id: 50,  name: 'Remoulade',               product_id: 20 },
+    ];
+    const { index, multiple } = buildProducedByIndex(rs);
+    ok(index.get('30')?.id === 12, 'laveste id vinder — og det er den ÆLDSTE opskrift');
+    ok(multiple.has('30') && multiple.get('30').length === 3,
+       'alle tre rapporteres, så feltet kan ryddes i Grocy');
+    ok(multiple.get('30')?.[0]?.id === 12, 'og vinderen står først i listen');
+    ok(!multiple.has('20'), 'en vare med ÉN producent er ikke en konflikt');
+    ok(buildProducedByIndex([{ id: 1, name: 'Uden vare' }]).index.size === 0,
+       'en opskrift uden product_id producerer ingenting');
+
+    // Rækkefølgen i input må ikke kunne ændre svaret — ellers ville to
+    // kørsler give hver sit tal for den samme vare.
+    const omvendt = buildProducedByIndex([...rs].reverse());
+    ok(omvendt.index.get('30')?.id === 12, 'svaret afhænger ikke af inputtets rækkefølge');
 }
 
 // ── K10 · enhedsnavne ────────────────────────────────────────
