@@ -55,6 +55,10 @@ require.cache[grocyPath].exports = {
     getProducts: async () => stub.products,
     getQuantityUnitConversions: async () => stub.conversions,
     addToStock: async (pid, amount) => { stub._addCalls.push({ pid, amount }); },
+    // Varemodtagelsen bruger addToStockFull fra #657 (for at kunne sende en pris med).
+    addToStockFull: async (pid, body) => { stub._addCalls.push({ pid, amount: body.amount, body }); },
+    getProductBarcodes: async () => [],
+    getQuantityUnits: async () => [],
     updateProductUserfields: async () => {},
     updateShoppingListItem: async () => {},
     deleteShoppingListItem: async () => {},

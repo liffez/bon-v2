@@ -28,6 +28,7 @@ const grocy           = require('../services/grocyAdapter');
 const webhook         = require('../services/goodsReceiptWebhook');
 const { resolveToStockAmount } = require('../services/quConvert');
 const receiptSchema   = require('../services/receiptSchema');
+const supplierPrices  = require('../services/supplierPrices');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'uploads', 'receipts');
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -309,6 +310,41 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         return { stockAmount: r.amount, quId, error: r.error };
     });
 
+    // ── #657: pris pr. lager-enhed fra Grocy (stregkodens last_price) ────────
+    //
+    // Prisen tages fra det varenummer der FAKTISK blev bestilt (ordered_varenr på
+    // indkøbslisten), ellers fra varens foretrukne/eneste varenummer. Kendes den
+    // ikke, sendes INGEN pris — Grocy fører så den forrige videre som før. En fejl
+    // her må aldrig koste modtagelsen: fødevarekontrollen er lovpligtig, prisen er ikke.
+    let priceMeta = null;
+    try {
+        priceMeta = await supplierPrices.loadGrocyMeta(grocy);
+    } catch (err) {
+        console.warn('[goods-receipts] Kunne ikke hente priser fra Grocy:', err.message);
+    }
+    const prices = items.map((item, i) => {
+        const pid = item.grocy_product_id ? parseInt(item.grocy_product_id) : null;
+        if (!pid || !priceMeta || converted[i].error || !(converted[i].stockAmount > 0)) {
+            return { price: null, source: null };
+        }
+        const ordered = Array.isArray(item.ordered_varenrs)
+            ? [...new Set(item.ordered_varenrs.map(String).filter(Boolean))] : [];
+        try {
+            // Flere forskellige varenumre i samme leverance (pose + spand): én
+            // leverandørpris for dem alle ville være et gæt. Kun et manuelt
+            // overslag kan svare her, for det hører til VAREN, ikke til et
+            // varenummer — derfor lader vi kun det være tilbage.
+            const all = supplierPrices.candidatesFor(priceMeta, pid);
+            const candidates = ordered.length > 1 ? all.filter(c => c.is_estimate) : all;
+            const r = supplierPrices.resolveProductPrice(candidates,
+                { barcode: ordered.length === 1 ? ordered[0] : null });
+            return { price: r.price, source: r.candidate ? r.candidate.barcode : null };
+        } catch (err) {
+            console.warn(`[goods-receipts] Prisopslag fejlede for ${item.product_name}:`, err.message);
+            return { price: null, source: null };
+        }
+    });
+
     // Resolve receiver-navn FØR transaction: foretrukket eksplicit name,
     // ellers slå op fra users-tabel via id. Bruges både i INSERT og webhook.
     let receiverName = received_by_name || null;
@@ -386,8 +422,9 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 receipt_id, grocy_product_id, product_name,
                 expected_quantity, unit, received_quantity,
                 received_qu_id, received_quantity_stock,
+                received_price, received_price_source,
                 status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
@@ -403,6 +440,8 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 // ikke afgøres uden at gætte, hvilket var hele problemet.
                 converted[i].quId,
                 converted[i].stockAmount,
+                prices[i].price,
+                prices[i].source,
                 item.status || 'ok',
                 item.notes || null
             );
@@ -481,17 +520,18 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         }
 
         try {
-            await grocy.addToStock(
-                item.grocy_product_id,
-                converted[i].stockAmount,   // #358: lager-enhed, ikke indkøbs-enhed
-                null, // best_before_date — Grocy bruger default_due_days
-                location_id || null
-            );
+            await grocy.addToStockFull(item.grocy_product_id, {
+                amount: converted[i].stockAmount,   // #358: lager-enhed, ikke indkøbs-enhed
+                best_before_date: null,              // null → Grocy bruger default_due_days
+                location_id: location_id || undefined,
+                price: prices[i].price,              // #657: kr pr. lager-enhed, ex moms — eller udeladt
+            });
             updateItem.run(1, null, itemId);
             grocyResults.push({
                 product_name: item.product_name,
                 grocy_added: true,
-                error: null
+                error: null,
+                price_sent: prices[i].price,
             });
 
             // #336 — stemple varen som observeret her. Kun når lageret rent

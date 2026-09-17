@@ -772,3 +772,67 @@
     white-space: nowrap;
 }
 .so-reactivate-btn:hover { border-color: var(--brand-primary); }
+
+/* ── Indkøbspris (#657) ─────────────────────── */
+/* Samme dæmpede tone som "ikke tjekket": en oplysning, ikke en alarm. */
+.so-pill-noprice { background: rgba(0,0,0,0.06); color: var(--color-text); }
+
+.so-edit-price {
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-background);
+    font-size: 13px;
+}
+.so-price-head { font-weight: 600; margin-bottom: 4px; }
+.so-price-value { font-size: 15px; font-weight: 600; }
+.so-price-value .so-edit-hint { font-weight: 400; }
+.so-price-missing { color: var(--brand-primary); font-weight: 600; }
+.so-price-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+.so-price-row .so-edit-hint { margin-top: 0; }
+.so-price-select { width: auto; max-width: 100%; flex: 1 1 220px; }
+.so-price-input  { width: 110px; flex: 0 0 110px; }
+/* Overslaget står for sig — det er en anden slags tal end leverandørens (#657). */
+.so-price-est {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-border);
+}
+.so-price-estimate-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: #efe6f6;
+    color: #6b3f9e;
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: 1px;
+}
+.so-price-link {
+    background: none;
+    border: none;
+    padding: 0 4px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--brand-primary);
+    text-decoration: underline;
+    cursor: pointer;
+}
+.so-price-save {
+    min-height: var(--touch-target-min, 44px);
+    padding: 0 14px;
+    border: none;
+    border-radius: 6px;
+    background: var(--brand-primary);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}

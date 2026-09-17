@@ -788,6 +788,7 @@ router.get('/:id/composition', handle(async (req, res) => {
         const pris = prisDetaljer.get(String(pos.product_id));
         const unitCost = unitCostOf(pris);
         const prisArvet = unitCost != null && pris.source === 'parent_avg';
+        const prisOverslag = unitCost != null && pris.source === 'estimate';
         const amountStock = parseFloat(pos.amount) || 0;
         const stockAmount = d ? (Number(d.stock_amount) || 0) : null;
         return {
@@ -803,6 +804,8 @@ router.get('/:id/composition', handle(async (req, res) => {
             // Prisen er arvet fra børnene (gennemsnit) — værd at sige, for
             // Spidskål og Hvidkål koster ikke det samme.
             cost_inherited: prisArvet || undefined,
+            // Prisen er et manuelt overslag, ikke noget vi har betalt (#657).
+            cost_estimated: prisOverslag || undefined,
             // Klikbar kun hvis produktet har sin EGEN opskrift (og ikke er den vi står på).
             producing_recipe_id: (producingId && producingId !== id) ? producingId : null,
         };

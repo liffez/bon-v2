@@ -730,10 +730,14 @@ function _vmBuildItemsFromShoppingList(supplierKey) {
                 status: 'ok',
                 notes: '',
                 slIds: [],
+                // #657: hvilke varenumre der blev bestilt — prisen hører til dem.
+                varenrs: [],
             };
         }
         byProduct[pid].expected += (sl.amount || 0);
         byProduct[pid].slIds.push(sl.id);
+        var vn = String((sl.userfields || {}).ordered_varenr || '');
+        if (vn && byProduct[pid].varenrs.indexOf(vn) < 0) byProduct[pid].varenrs.push(vn);
     }
 
     _vmState.items = [];
@@ -1976,6 +1980,9 @@ async function _vmSubmit() {
                 status: item.status,
                 notes: item.notes || null,
                 shopping_list_id: item.slIds && item.slIds.length > 0 ? item.slIds[0] : null,
+                // #657: serveren tager prisen fra det bestilte varenummer. Er der
+                // bestilt flere forskellige (pose + spand), kendes prisen ikke.
+                ordered_varenrs: item.varenrs && item.varenrs.length ? item.varenrs : null,
             };
         });
 

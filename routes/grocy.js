@@ -14,6 +14,7 @@ const router  = express.Router();
 const { handle } = require('../db/helpers');
 const grocy    = require('../services/grocyAdapter');
 const packSizeGuard = require('../services/packSizeGuard');
+const supplierPrices = require('../services/supplierPrices');
 const { getDb } = require('../db/database');
 const { refreshRecipeUnitCountsSafe } = require('../services/recipeUnits');
 
@@ -295,8 +296,18 @@ router.post('/stock/:id/inventory', handle(async (req, res) => {
     const productId = parseInt(req.params.id);
     const { amount, best_before_date } = req.body;
     if (amount == null) return res.status(400).json({ error: 'amount er påkrævet' });
-    await grocy.setInventory(productId, amount, best_before_date || null);
-    res.json({ ok: true, product_id: productId, new_amount: amount });
+    // #657: send leverandørprisen fra Grocy med, så en op-rettelse bærer en frisk pris i
+    // stedet for den Grocy fører videre. Kendes den ikke, sendes intet — aldrig et
+    // gæt — og en fejl i opslaget må ikke vælte lagerrettelsen.
+    let priced = { price: null, reason: 'missing' };
+    try { priced = await supplierPrices.priceForStock(grocy, productId); }
+    catch (err) { console.warn('[grocy] prisopslag fejlede:', err.message); }
+    const r = await grocy.setInventory(productId, amount, best_before_date || null, { price: priced.price });
+    res.json({
+        ok: true, product_id: productId, new_amount: amount,
+        unchanged: !!(r && r.unchanged),
+        price_sent: priced.price, price_reason: priced.reason,
+    });
 }));
 
 /* ── Stock add (initial lagerbeholdning ved opret-produkt) ── */

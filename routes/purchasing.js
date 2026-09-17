@@ -637,4 +637,111 @@ router.patch('/suppliers/:id/mail/read', handle((req, res) => {
     res.json({ ok: true, updated: result.changes });
 }));
 
+/* ══════════════════════════════════════════════════════════════
+   LEVERANDØRPRISER (#657) — læses og skrives i Grocy, ikke i Bon.
+   Se services/supplierPrices.js.
+   ══════════════════════════════════════════════════════════════ */
+
+const supplierPrices = require('../services/supplierPrices');
+
+/* POST /prices/refresh-horkram  { barcodes? } — friske Hørkram-priser på stregkoderne */
+router.post('/prices/refresh-horkram', handle(async (req, res) => {
+    const barcodes = Array.isArray(req.body?.barcodes)
+        ? req.body.barcodes.map(String).filter(Boolean) : null;
+    const { fetchSnapshotSummaries } = require('./horkram');
+    const result = await supplierPrices.refreshHorkramPrices(getDb(), {
+        grocy, fetchSnapshots: fetchSnapshotSummaries,
+    }, { barcodes });
+    res.json(result);
+}));
+
+/* GET /prices/overview — pris-status pr. aktivt produkt */
+router.get('/prices/overview', handle(async (req, res) => {
+    res.json(await supplierPrices.priceOverview(grocy));
+}));
+
+/* GET /prices/product/:id — varenumre + hvilken pris der gælder */
+router.get('/prices/product/:id', handle(async (req, res) => {
+    const pid = parseInt(req.params.id);
+    if (!pid) return res.status(400).json({ error: 'Ugyldigt produkt-id' });
+    const r = await supplierPrices.priceForStock(grocy, pid);
+    res.json({
+        product_id: pid,
+        price: r.price,
+        reason: r.reason,
+        reason_text: r.reason_text,
+        barcode: r.candidate ? r.candidate.barcode : null,
+        stock_unit: r.stock_unit,
+        candidates: r.candidates,
+        estimate_price: (r.candidates.find(c => c.is_estimate) || {}).stock_price ?? null,
+    });
+}));
+
+/* PUT /prices/product/:id/estimate  { stock_price|null, recompute? } — manuelt overslag
+   Gemmes som et internt varenummer i Grocy. null/0 rydder det.
+
+   `recompute` genberegner kostpriserne bagefter (samme kode som "Opdater
+   priser"). De flader der sætter et overslag FOR at få en kostpris beder om
+   det; lageroversigten gør ikke — dér er det en lagerhandling, og et kald der
+   tager ti sekunder hører ikke hjemme på en touchskærm. */
+router.put('/prices/product/:id/estimate', handle(async (req, res) => {
+    const pid = parseInt(req.params.id);
+    if (!pid) return res.status(400).json({ error: 'Ugyldigt produkt-id' });
+    const raw = req.body ? req.body.stock_price : null;
+    let set, r;
+    try {
+        set = await supplierPrices.setEstimatePrice(grocy, pid, raw);
+        r = await supplierPrices.priceForStock(grocy, pid);
+    } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
+        throw err;
+    }
+
+    // Overslaget ER gemt nu. Slår genberegningen fejl, siges det i svaret frem
+    // for at blive slugt — og frem for at vælte en handling der lykkedes.
+    let refreshed = null, refreshError = null;
+    if (req.body && req.body.recompute) {
+        try {
+            const { refreshRecipeCosts } = require('../services/recipeCostRefresh');
+            const out = await refreshRecipeCosts(getDb());
+            refreshed = out.refreshed;
+        } catch (err) { refreshError = err.message; }
+    }
+
+    res.json({
+        ok: true, estimate_price: set.price, removed: set.removed,
+        price: r.price, reason: r.reason, reason_text: r.reason_text,
+        refreshed, refresh_error: refreshError,
+    });
+}));
+
+/* PUT /prices/product/:id/preferred  { barcode_id|null } — hvilket varenummer gælder */
+router.put('/prices/product/:id/preferred', handle(async (req, res) => {
+    const pid = parseInt(req.params.id);
+    if (!pid) return res.status(400).json({ error: 'Ugyldigt produkt-id' });
+    const raw = req.body ? req.body.barcode_id : undefined;
+    const barcodeId = raw === null || raw === undefined || raw === '' ? null : parseInt(raw);
+    try {
+        await supplierPrices.setPreferredBarcode(grocy, pid, barcodeId);
+    } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
+        throw err;
+    }
+    const r = await supplierPrices.priceForStock(grocy, pid);
+    res.json({ ok: true, price: r.price, reason: r.reason, reason_text: r.reason_text });
+}));
+
+/* PUT /prices/barcode/:id  { stock_price } — ret et varenummers pris (kr pr. lager-enhed, ex moms) */
+router.put('/prices/barcode/:id', handle(async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Ugyldigt varenummer-id' });
+    try {
+        const r = await supplierPrices.setBarcodeStockPrice(grocy, id, req.body ? req.body.stock_price : null);
+        res.json({ ok: true, ...r });
+    } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
+        throw err;
+    }
+}));
+
 module.exports = router;

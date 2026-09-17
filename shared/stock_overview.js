@@ -13,7 +13,9 @@
           fetchGrocyLocations, fetchGrocyProductGroups, fetchShoppingLocations,
           fetchGrocyQuantityUnitConversions,
           postGrocyInventory, postGrocyShoppingList,
-          putGrocyProduct, putGrocyProductUserfields, esc */
+          putGrocyProduct, putGrocyProductUserfields, esc,
+          fetchSupplierPriceOverview, fetchSupplierPrice,
+          setPreferredBarcode, setBarcodeStockPrice */
 
 // ════════════════════════════════════════════════════════════
 // STATE
@@ -33,6 +35,7 @@ var _soShopLocsMap    = {};   // shopping_location_id -> name
 var _soShopLocsArr    = [];   // raw shopping locations array
 var _soConversions    = [];   // raw quantity_unit_conversions (til salgs-/forbrugsenhed-visning)
 var _soEditIds        = [];   // product_ids under redigering (1 = enkelt, >1 = bulk)
+var _soPriceMap       = null; // #657: product_id -> { price, stock_unit, reason_text } — fra Grocy. null = ukendt
 
 var _soFilteredData   = [];   // after filters applied
 var _soSelectMode     = false;
@@ -67,7 +70,11 @@ async function _soLoadData() {
             fetchGrocyLocations(),
             fetchGrocyProductGroups(),
             fetchShoppingLocations().catch(function() { return []; }),
-            fetchGrocyQuantityUnitConversions().catch(function() { return []; })
+            fetchGrocyQuantityUnitConversions().catch(function() { return []; }),
+            // #657: indkøbsprisen er en ekstra oplysning — fejler den, vises
+            // lageret stadig; pillen "uden pris" udelades bare.
+            (typeof fetchSupplierPriceOverview === 'function'
+                ? fetchSupplierPriceOverview() : Promise.resolve(null)).catch(function() { return null; })
         ]);
 
         var rawStock    = results[0];
@@ -77,6 +84,7 @@ async function _soLoadData() {
         var rawGroups   = results[4];
         var rawShopLocs = results[5] || [];
         _soConversions  = results[6] || [];
+        _soPriceMap     = results[7] || null;
 
         // Build lookup maps
         _soQUnitsMap = {};
@@ -357,6 +365,11 @@ function _soHandleClick(e) {
         _soSaveEdit();
         return;
     }
+    var priceBtn = target.closest('button[data-price-act]');
+    if (priceBtn) {
+        _soHandlePriceAction(priceBtn);
+        return;
+    }
 
     // Status pill click -> filter ("N varer" rydder alt)
     var pill = target.closest('.so-status-pill[data-filter]');
@@ -453,6 +466,9 @@ function _soHandleChange(e) {
     if (e.target.id === 'soAddLocFilter') {
         _soRenderAddList();
     }
+    if (e.target.matches && e.target.matches('select[data-price-act]')) {
+        _soHandlePriceAction(e.target);
+    }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -513,6 +529,7 @@ function _soApplyFilters() {
     } else {
         _soFilteredData = activeMatches.filter(function(item) {
             if (status === 'unchecked') return _soIsUnchecked(item);
+            if (status === 'noprice')   return _soHasNoPrice(item);
             return !status || item.status === status;
         });
     }
@@ -532,12 +549,13 @@ function _soUpdateStatusBar(activeMatches, inactiveCount) {
     inactiveCount = inactiveCount || 0;
 
     var total   = activeMatches.length;
-    var expired = 0, duesoon = 0, low = 0, unchecked = 0;
+    var expired = 0, duesoon = 0, low = 0, unchecked = 0, noprice = 0;
     activeMatches.forEach(function(i) {
         if (i.status === 'expired') expired++;
         if (i.status === 'duesoon') duesoon++;
         if (i.status === 'low')     low++;
         if (_soIsUnchecked(i))      unchecked++;
+        if (_soHasNoPrice(i))       noprice++;
     });
 
     // "N varer" er også vejen tilbage: ét klik rydder status-pille, søgning,
@@ -567,6 +585,12 @@ function _soUpdateStatusBar(activeMatches, inactiveCount) {
             (_soActiveStatusFilter === 'unchecked' ? ' active' : '') +
             '" data-filter="unchecked" title="Aldrig tjekket, eller tjek-intervallet er overskredet">' +
             unchecked + ' ikke tjekket</span>';
+    }
+    if (noprice > 0) {
+        html += '<span class="so-status-pill so-pill-noprice' +
+            (_soActiveStatusFilter === 'noprice' ? ' active' : '') +
+            '" data-filter="noprice" title="Varer uden en kendt indkøbspris. Når lageret skrives op, fører Grocy så den gamle pris videre. Åbn ✎ for at se hvorfor.">' +
+            noprice + ' uden pris</span>';
     }
     if (inactiveCount > 0) {
         html += '<span class="so-status-pill so-pill-inactive' +
@@ -935,14 +959,17 @@ async function _soAdjustInventory(productId) {
             return;
         }
 
-        await postGrocyInventory(productId, newAmount, item.best_before_date || null);
+        var invRes = await postGrocyInventory(productId, newAmount, item.best_before_date || null);
         // Stemplet skrives EFTER lager-skrivningen og må aldrig vælte den:
         // fejler stemplingen, er tallet stadig gemt, og det siges højt.
         await _soStampChecked(item);
 
         var diff = _soRound(newAmount - item.amount);
         var sign = diff > 0 ? '+' : '';
-        _soShowToast(esc(item.name) + ': ' + sign + diff + ' ' + esc(item.qu_name) + ' (nu ' + _soRound(newAmount) + ')', 'success');
+        // #657: sig stille hvilken pris det tilføjede fik — kun når lageret gik op.
+        var priceNote = (diff > 0 && invRes && invRes.price_sent)
+            ? ' · ' + _soFmtPrice(invRes.price_sent, item.qu_name) : '';
+        _soShowToast(esc(item.name) + ': ' + sign + diff + ' ' + esc(item.qu_name) + ' (nu ' + _soRound(newAmount) + ')' + priceNote, 'success');
         _soCloseExpand(productId);
 
         // Update local data + re-render
@@ -1293,6 +1320,14 @@ function _soRecalcCheck(item) {
     item.check = _soCheckStatus(item.check_interval, item.last_checked);
 }
 
+// Pillen "uden pris" (#657). Kendes prisoversigten ikke (fx Grocy-fejl), tælles
+// intet — ellers ville hele lageret pludselig stå som "uden pris".
+function _soHasNoPrice(item) {
+    if (!_soPriceMap || !item) return false;
+    var po = _soPriceMap[item.product_id];
+    return !po || po.price === null || po.price === undefined;
+}
+
 // Pillen "ikke tjekket": aldrig set, eller intervallet er overskredet.
 function _soIsUnchecked(item) {
     var c = item.check || _soCheckStatus(item.check_interval, item.last_checked);
@@ -1487,6 +1522,8 @@ function _soOpenEdit(ids) {
 
     var ov = document.getElementById('soEditOverlay');
     if (ov) ov.classList.add('so-visible');
+
+    if (!bulk) _soLoadEditPrice(ids[0]);
 }
 
 function _soFieldRow(label, controlHtml, hint) {
@@ -1539,6 +1576,8 @@ function _soBuildEditForm(ids) {
     }
 
     var rows = '';
+    // #657: indkøbsprisen bor i Grocy (stregkodernes pris). Hentes efter åbning.
+    if (!bulk) rows += '<div class="so-edit-price" id="soEditPrice"><span class="so-edit-hint">Henter indkøbspris…</span></div>';
     rows += _soFieldRow('Aktiv', activeCtrl);
     rows += selectField('soEdit_location_id', 'Standardplacering', _soLocationsArr, p.location_id, false);
     rows += selectField('soEdit_shopping_location_id', 'Standard-butik', _soShopLocsArr, p.shopping_location_id, true, '(ingen)');
@@ -1547,6 +1586,200 @@ function _soBuildEditForm(ids) {
     rows += numField('soEdit_hverdag', 'Tjek-interval (dage)', uf.HverDag, 'Hvor ofte varen skal tælles i optælling. Tom = uændret.');
 
     return rows;
+}
+
+// ════════════════════════════════════════════════════════════
+// INDKØBSPRIS I ✎ (#657)
+//
+// Lageroversigten er et lagerværktøj, ikke et indkøbsværktøj. Sektionen VISER
+// prisen og hvor den kommer fra. Der tastes kun når prisen mangler — eller når
+// nogen bevidst trykker "Ret". Prisen gemmes på varenummeret i Grocy.
+// ════════════════════════════════════════════════════════════
+
+function _soUnitShort(unitName) {
+    var u = String(unitName || '').toLowerCase();
+    return { kilo: 'kg', kg: 'kg', liter: 'l', l: 'l', antal: 'stk', stk: 'stk' }[u] || u;
+}
+
+function _soFmtPrice(price, unitName) {
+    var short = _soUnitShort(unitName);
+    return Number(price).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        ' kr' + (short ? '/' + short : '');
+}
+
+/** "82,53" · "82.53" · "1.234,50" → tal. Et punktum er kun tusindtalsskilletegn, når der også står et komma. */
+function _soParsePrice(raw) {
+    var t = String(raw || '').trim().replace(/\s|kr/gi, '');
+    if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+    var n = parseFloat(t);
+    return isFinite(n) ? n : NaN;
+}
+
+async function _soLoadEditPrice(productId) {
+    var el = document.getElementById('soEditPrice');
+    if (!el || typeof fetchSupplierPrice !== 'function') { if (el) el.remove(); return; }
+    try {
+        var data = await fetchSupplierPrice(productId);
+        if (_soEditIds.length !== 1 || _soEditIds[0] !== productId) return;  // modalen er skiftet
+        el.innerHTML = _soRenderEditPrice(data, false);
+        el._soPriceData = data;
+    } catch (err) {
+        el.innerHTML = '<span class="so-edit-hint">Indkøbsprisen kunne ikke hentes: ' + esc(err.message) + '</span>';
+    }
+}
+
+/**
+ * Prisafsnittet i ✎.
+ *
+ * To slags priser, bevidst adskilt: LEVERANDØRENS (et varenummer, hentet eller
+ * rettet) og et manuelt OVERSLAG. Overslaget er sidste udvej — det vises kun
+ * når der ikke er en leverandørpris, eller når der allerede står et, så det kan
+ * rettes og fjernes. Der skal ikke tastes mere end højst nødvendigt.
+ *
+ * @param {boolean|'estimate'} editing  true = ret leverandørprisen, 'estimate' = ret overslaget
+ */
+function _soRenderEditPrice(d, editing) {
+    var unit  = d.stock_unit || '';
+    var all   = d.candidates || [];
+    var cands = all.filter(function(c) { return !c.is_estimate; });
+    var est   = all.find(function(c) { return c.is_estimate; }) || null;
+    var isEstimate = d.reason === 'estimate';
+    var html  = '<div class="so-price-head">Indkøbspris <span class="so-edit-hint">ex moms</span></div>';
+
+    var chosen = cands.find(function(c) { return c.barcode === d.barcode; }) || null;
+
+    if (d.price !== null && d.price !== undefined) {
+        html += '<div class="so-price-value">' +
+            (isEstimate ? '<span class="so-price-estimate-tag">overslag</span> ' : '') +
+            esc(_soFmtPrice(d.price, unit)) +
+            (isEstimate
+                ? ''
+                : ' <span class="so-edit-hint">· varenr. ' + esc(d.barcode || '') +
+                  (chosen && chosen.fetched_at
+                      ? ' · hentet ' + esc(_soFormatExpiryDate(String(chosen.fetched_at).slice(0, 10))) : '') +
+                  '</span>' +
+                  (editing === true ? '' : ' <button type="button" class="so-price-link" data-price-act="edit">Ret</button>')) +
+            '</div>';
+    } else {
+        html += '<div class="so-price-missing">Ingen pris — ' + esc(d.reason_text || '') + '</div>';
+    }
+
+    if (!cands.length) {
+        html += '<div class="so-edit-hint">Ingen leverandør-varenummer er koblet til varen. ' +
+            'Kobl et under Indkøb, når det kendes.</div>';
+    } else {
+        // Flere varenumre: vælg hvilket prisen tages fra (foretrukket i Grocy).
+        if (cands.length > 1) {
+            html += '<label class="so-price-row"><span class="so-edit-hint">Pris fra varenummer</span> ' +
+                '<select class="so-edit-input so-price-select" data-price-act="preferred">' +
+                '<option value="">(ikke valgt)</option>' +
+                cands.map(function(c) {
+                    var sel = c.is_preferred ? ' selected' : '';
+                    return '<option value="' + c.id + '"' + sel + '>' + esc(c.barcode) + ' · ' +
+                        (c.stock_price != null ? esc(_soFmtPrice(c.stock_price, unit)) : 'ingen pris') + '</option>';
+                }).join('') + '</select></label>';
+        }
+
+        // Prisfelt: kun når prisen mangler på det varenummer der gælder — eller efter "Ret".
+        var target = chosen
+            || cands.find(function(c) { return c.is_preferred; })
+            || (cands.length === 1 ? cands[0] : null);
+        var needsPrice = target && (target.stock_price === null || target.stock_price === undefined);
+        if (target && (editing === true || needsPrice)) {
+            var val = target.stock_price != null ? String(target.stock_price).replace('.', ',') : '';
+            html += '<div class="so-price-row">' +
+                '<input type="text" inputmode="decimal" class="so-edit-input so-price-input" id="soPriceInput" ' +
+                'value="' + esc(val) + '" placeholder="0,00" data-barcode-id="' + target.id + '">' +
+                ' <span class="so-edit-hint">kr/' + esc(_soUnitShort(unit)) + ' (varenr. ' + esc(target.barcode) + ')</span>' +
+                ' <button type="button" class="so-price-save" data-price-act="save">Gem pris</button>' +
+                '</div>' +
+                (target.shopping_location_id ? '<div class="so-edit-hint">Hentes prisen automatisk fra leverandøren, overskrives den næste gang.</div>' : '');
+        } else if (!target && cands.length > 1) {
+            html += '<div class="so-edit-hint">Vælg varenummeret, så kan prisen ses og rettes.</div>';
+        }
+    }
+
+    html += _soRenderEstimateBlock(d, est, unit, editing, isEstimate);
+    return html;
+}
+
+/**
+ * Overslaget — dit eget bedste bud, når varen endnu ikke har et varenummer.
+ * Det er også en pris, og at sende INGEN pris er ikke gratis: Grocy fører bare
+ * den forrige videre, og så bygger kostprisen på et tal ingen kan gøre rede for.
+ */
+function _soRenderEstimateBlock(d, est, unit, editing, isEstimate) {
+    var hasSupplierPrice = d.price !== null && d.price !== undefined && !isEstimate;
+    // Intet overslag OG en leverandørpris der virker → intet at vise. Ellers
+    // ville hver eneste vare bede om et gæt den ikke har brug for.
+    if (!est && hasSupplierPrice) return '';
+
+    var editMode = editing === 'estimate' || !est;
+    var val = est && est.stock_price != null ? String(est.stock_price).replace('.', ',') : '';
+
+    var html = '<div class="so-price-est">';
+    if (est && !editMode) {
+        html += '<div class="so-price-row"><span class="so-edit-hint">Eget overslag</span> ' +
+            '<strong>' + esc(_soFmtPrice(est.stock_price, unit)) + '</strong>' +
+            (hasSupplierPrice ? ' <span class="so-edit-hint">· bruges ikke, varenummeret har en pris</span>' : '') +
+            ' <button type="button" class="so-price-link" data-price-act="edit-estimate">Ret</button>' +
+            ' <button type="button" class="so-price-link" data-price-act="clear-estimate">Fjern</button>' +
+            '</div>';
+    } else {
+        html += '<div class="so-price-row">' +
+            '<span class="so-edit-hint">Eget overslag</span> ' +
+            '<input type="text" inputmode="decimal" class="so-edit-input so-price-input" id="soEstimateInput" ' +
+            'value="' + esc(val) + '" placeholder="0,00">' +
+            ' <span class="so-edit-hint">kr/' + esc(_soUnitShort(unit)) + '</span>' +
+            ' <button type="button" class="so-price-save" data-price-act="save-estimate">Gem overslag</button>' +
+            (est ? ' <button type="button" class="so-price-link" data-price-act="clear-estimate">Fjern</button>' : '') +
+            '</div>' +
+            '<div class="so-edit-hint">Dit bedste bud, ex moms. Bruges kun indtil varen får et ' +
+            'varenummer med en pris — den vinder altid.</div>';
+    }
+    return html + '</div>';
+}
+
+async function _soHandlePriceAction(el) {
+    var box = document.getElementById('soEditPrice');
+    if (!box || !box._soPriceData) return;
+    var d = box._soPriceData;
+    var act = el.getAttribute('data-price-act');
+    var pid = d.product_id;
+    try {
+        if (act === 'edit')          { box.innerHTML = _soRenderEditPrice(d, true); return; }
+        if (act === 'edit-estimate') { box.innerHTML = _soRenderEditPrice(d, 'estimate'); return; }
+        if (act === 'preferred') {
+            var id = el.value ? parseInt(el.value) : null;
+            await setPreferredBarcode(pid, id);
+        } else if (act === 'save') {
+            var inp = document.getElementById('soPriceInput');
+            var n = _soParsePrice(inp.value);
+            if (!(n > 0)) { _soShowToast('Skriv en pris større end 0', 'warn'); return; }
+            await setBarcodeStockPrice(parseInt(inp.getAttribute('data-barcode-id')), n);
+            _soShowToast('Pris gemt', 'success');
+        } else if (act === 'save-estimate') {
+            var ei = document.getElementById('soEstimateInput');
+            var en = _soParsePrice(ei.value);
+            if (!(en > 0)) { _soShowToast('Skriv et overslag større end 0', 'warn'); return; }
+            await setEstimatePrice(pid, en);
+            _soShowToast('Overslag gemt', 'success');
+        } else if (act === 'clear-estimate') {
+            await setEstimatePrice(pid, null);
+            _soShowToast('Overslag fjernet', 'success');
+        } else {
+            return;
+        }
+        var fresh = await fetchSupplierPrice(pid);
+        box._soPriceData = fresh;
+        box.innerHTML = _soRenderEditPrice(fresh, false);
+        if (_soPriceMap) {
+            _soPriceMap[pid] = { price: fresh.price, stock_unit: fresh.stock_unit, reason_text: fresh.reason_text };
+            _soApplyFilters();
+        }
+    } catch (err) {
+        _soShowToast('Fejl: ' + esc(err.message), 'error');
+    }
 }
 
 async function _soSaveEdit() {
@@ -1687,6 +1920,10 @@ if (typeof module !== 'undefined' && module.exports) {
         _soCheckStatus:  _soCheckStatus,
         _soFormatSince:  _soFormatSince,
         _soIsUnchecked:  _soIsUnchecked,
+        _soHasNoPrice:   _soHasNoPrice,
+        _soRenderEditPrice: _soRenderEditPrice,
+        _soFmtPrice:     _soFmtPrice,
+        _soParsePrice:   _soParsePrice,
         _soSortItems:    _soSortItems,
         _soClearAllFilters: _soClearAllFilters,
         _soHasAnyFilter:    _soHasAnyFilter,

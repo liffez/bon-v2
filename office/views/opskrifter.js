@@ -860,9 +860,9 @@ function _opsCompBodyHtml(data) {
         return `<tr>
             <td class="ops-comp-name">${_opsStockDot(i.in_stock)}${nameHtml}</td>
             <td class="num">${_opsEsc(_opsCompAmount(i))}</td>
-            <td class="num">${_opsCompCost(i.cost)}${i.cost_inherited
+            <td class="num" data-est-cell="${i.product_id}">${_opsEstimateTag(i)}${_opsCompCost(i.cost)}${i.cost_inherited
                 ? '<span class="ops-inherited" title="Forældre-vare uden egen pris — gennemsnit af underprodukterne">~</span>'
-                : ''}</td>
+                : ''}${_opsEstimateAdd(i)}</td>
         </tr>`;
     };
     const subRow = (s) => `<tr class="ops-comp-sub" data-comp-recipe="${s.recipe_id}">
@@ -907,6 +907,8 @@ function _opsCompBodyHtml(data) {
         ? '<div class="ops-comp-note">— = ingen pris registreret på råvaren i Grocy. ~ = pris arvet som gennemsnit af en forældre-vares underprodukter.</div>'
         : ings.some(i => i.cost_inherited)
         ? '<div class="ops-comp-note">~ = pris arvet som gennemsnit af en forældre-vares underprodukter.</div>'
+        : ings.some(i => i.cost_estimated)
+        ? '<div class="ops-comp-note">overslag = prisen er skrevet i hånden, ikke målt på et indkøb.</div>'
         : '';
 
     // Advarslerne hører til HER og ikke kun på rækken: panelet er stedet man
@@ -957,6 +959,68 @@ function _opsStockDot(inStock) {
         : '<span class="ops-stock-dot out" title="Ikke på lager"></span>';
 }
 
+/**
+ * Mærket FORAN beløbet (#657): det fortæller hvad slags tal der kommer, og
+ * lader beløbene blive stående i en ret kolonne ude til højre.
+ * Klikbart, så prisen kan rettes hvor man ser den.
+ */
+function _opsEstimateTag(i) {
+    if (!i.product_id || !i.cost_estimated) return '';
+    return `<button class="ops-estimated" data-est-pid="${i.product_id}" data-est-unit="${_opsEsc(i.stock_unit || '')}"
+            title="Manuelt overslag — ikke en målt indkøbspris. Klik for at rette.">overslag</button>`;
+}
+
+/**
+ * Knappen EFTER stregen: en råvare uden pris kan ikke prissættes af sig selv,
+ * men et menneske kan give sit bedste bud. Den står her, hvor man opdager at
+ * kostprisen ikke kan regnes — ikke inde i lageroversigten.
+ */
+function _opsEstimateAdd(i) {
+    if (!i.product_id || i.cost != null) return '';
+    return `<button class="ops-est-add" data-est-pid="${i.product_id}" data-est-unit="${_opsEsc(i.stock_unit || '')}"
+            title="Sæt dit eget bedste bud på prisen">+ overslag</button>`;
+}
+
+/** Inline-felt i cellen: skriv overslaget, gem, og se kostprisen regne om. */
+function _opsOpenEstimateEditor(td, pid, unit) {
+    const before = td.innerHTML;
+    td.innerHTML = `<span class="ops-est-edit">
+        <input type="text" inputmode="decimal" class="ops-est-input" placeholder="0,00">
+        <span class="ops-est-unit">kr/${_opsEsc(unit || '')}</span>
+        <button class="ops-btn-primary ops-est-save">Gem</button>
+        <button class="ops-btn-link ops-est-cancel">Fortryd</button>
+    </span>`;
+    const input = td.querySelector('.ops-est-input');
+    input.focus();
+
+    const close = () => { td.innerHTML = before; _opsBindCompEvents(); };
+    td.querySelector('.ops-est-cancel').addEventListener('click', (e) => { e.stopPropagation(); close(); });
+    const save = async (e) => {
+        e.stopPropagation();
+        const n = parseFloat(String(input.value).trim().replace(/\./g, '').replace(',', '.'));
+        if (!Number.isFinite(n) || n <= 0) { _opsToast('Skriv et overslag større end 0', true); return; }
+        const btn = td.querySelector('.ops-est-save');
+        btn.disabled = true; btn.textContent = 'Regner…';
+        try {
+            // Kostpriserne genberegnes i samme kald — ellers ville rækken vise
+            // det nye tal mens totalen under den stod på det gamle.
+            const out = await setEstimatePrice(pid, n, true);
+            _opsToast(out.refresh_error
+                ? 'Overslag gemt, men kostpriserne kunne ikke genberegnes: ' + out.refresh_error
+                : 'Overslag gemt — kostpriserne er regnet om');
+            // Varen kan indgå i flere opskrifter — hele cachen er nu forældet.
+            _opsState.compCache = {};
+            await _opsRenderComposition();
+            _opsLoad();
+        } catch (err) {
+            _opsToast('Fejl: ' + err.message, true);
+            close();
+        }
+    };
+    td.querySelector('.ops-est-save').addEventListener('click', save);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(e); });
+}
+
 function _opsBindCompEvents() {
     const body = document.getElementById('ops-comp-body');
     const nav = document.getElementById('ops-comp-nav');
@@ -966,6 +1030,15 @@ function _opsBindCompEvents() {
             _opsState.compStack.pop();
             _opsRenderComposition();
         }
+    });
+
+    body?.querySelectorAll('[data-est-pid]').forEach(el => {
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const pid = el.getAttribute('data-est-pid');
+            const td = el.closest('[data-est-cell]');
+            if (td) _opsOpenEstimateEditor(td, pid, el.getAttribute('data-est-unit'));
+        });
     });
 
     body?.querySelectorAll('[data-comp-recipe]').forEach(el => {
