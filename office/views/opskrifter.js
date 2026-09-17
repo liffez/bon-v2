@@ -176,6 +176,15 @@ function _opsRender() {
                     <div class="ops-kpi-value">${s.cost_unknown_count ?? 0}</div>
                     <div class="ops-kpi-sub">med salgspris${s.cost_minimum_count ? ' · ' + s.cost_minimum_count + ' delvist kendt' : ''}</div>
                 </div>
+                ${/* Vises også når filteret er tændt — ellers forsvinder pillen
+                      og efterlader en tom tabel uden vej tilbage. */
+                  ((s.price_warning_count ?? 0) || _opsState.activeFilters.has('price-warning')) ? `
+                <div class="ops-kpi clickable ${_opsState.activeFilters.has('price-warning') ? 'active' : ''}" data-filter="price-warning"
+                     title="Kostprisen er komplet, men bygger på mindst én pris der ser forkert ud — en produceret vares lagerpris der afviger fra opskriften, eller et enkeltkøb langt fra gennemsnittet.">
+                    <div class="ops-kpi-label">Pris bør ses efter</div>
+                    <div class="ops-kpi-value">${s.price_warning_count}</div>
+                    <div class="ops-kpi-sub">tallet er der — kilden er i tvivl</div>
+                </div>` : ''}
                 <div class="ops-kpi clickable ${_opsState.activeFilters.has('not-sold') ? 'active' : ''}" data-filter="not-sold">
                     <div class="ops-kpi-label">Ikke solgt i perioden</div>
                     <div class="ops-kpi-value">${s.not_sold_count}</div>
@@ -238,6 +247,7 @@ function _opsFilterAndSort(recipes) {
         if (_opsState.activeFilters.has('loss-making') && !r.loss_making) return false;
         if (_opsState.activeFilters.has('missing-price') && r.sales_price_excl_moms != null) return false;
         if (_opsState.activeFilters.has('cost-unknown') && !r.cost_unknown) return false;
+        if (_opsState.activeFilters.has('price-warning') && !(r.cost_price_warnings || []).length) return false;
         if (_opsState.activeFilters.has('not-sold') && r.sold_units !== 0) return false;
         if (_opsState.activeFilters.has('oko') && !r.is_organic) return false;
         return true;
@@ -338,6 +348,16 @@ function _opsRowHtml(r) {
     if (r.sales_price_excl_moms == null) badges.push('<span class="ops-badge ops-badge-no-price">ingen pris</span>');
     if (r.cost_unknown) badges.push(`<span class="ops-badge ops-badge-no-cost" title="Ingen kendt råvarepris${manglerTxt ? ' — mangler: ' + _opsEsc(manglerTxt) : ''}">ingen kostpris</span>`);
     else if (r.cost_is_minimum) badges.push(`<span class="ops-badge ops-badge-part-cost" title="Kostprisen er et minimum — mangler pris på: ${_opsEsc(manglerTxt)}">delvis kostpris</span>`);
+    // Advarsler er ikke "mangler" — prisen er kendt, men noget ved den ser
+    // forkert ud (#557/#558). Teksten kommer fra serveren, så tabellen,
+    // drill-downet og `audit:kostpris-kilder` siger det samme om det samme tal.
+    const advarsler = r.cost_price_warnings || [];
+    if (advarsler.length) {
+        const txt = advarsler.map(_opsWarnTekst).join('\n');
+        const antal = advarsler.length > 1 ? ` ${advarsler.length}` : '';
+        badges.push(`<span class="ops-badge ops-badge-price-warn" title="${_opsEsc(txt)}">`
+                  + `pris?${antal}</span>`);
+    }
     if (r.loss_making) badges.push('<span class="ops-badge ops-badge-loss">tab</span>');
 
     return `
@@ -838,12 +858,20 @@ function _opsCompBodyHtml(data) {
         ? '<div class="ops-comp-note">~ = pris arvet som gennemsnit af en forældre-vares underprodukter.</div>'
         : '';
 
+    // Advarslerne hører til HER og ikke kun på rækken: panelet er stedet man
+    // kigger når man vil vide hvorfor kostprisen ser ud som den gør.
+    const advarsler = data.total_cost_warnings || [];
+    const warnNote = advarsler.length
+        ? `<div class="ops-comp-note ops-comp-warn">${advarsler
+            .map(w => _opsEsc(_opsWarnTekst(w))).join('<br>')}</div>`
+        : '';
+
     const table = rows
         ? `<table class="ops-comp-table">
              <thead><tr><th>Råvare</th><th class="num">Mængde</th><th class="num">Kostpris</th></tr></thead>
              <tbody>${rows}</tbody>
              ${totalRow}
-           </table>${costNote}`
+           </table>${costNote}${warnNote}`
         : '<div class="ops-comp-empty">Ingen råvarer registreret på denne opskrift.</div>';
 
     // Kun køkken-opskrift her — Grocy-linket ligger allerede i metadata-sektionen.
@@ -922,6 +950,13 @@ function _opsStaleLabel(refreshedAt, level) {
     if (level === 'critical') return `<span class="ops-stale-crit">opdateret for ${days} dage siden</span>`;
     if (level === 'warn')     return `<span class="ops-stale-warn">opdateret for ${days} dage siden</span>`;
     return `opdateret for ${days} dage siden`;
+}
+
+// Serveren formulerer advarslen (`describeWarning`), så tabellen, panelet og
+// `audit:kostpris-kilder` siger det samme. Faldet tilbage er kun for en klient
+// der møder en ældre server — "undefined" i en tooltip er værre end intet.
+function _opsWarnTekst(w) {
+    return w?.text || (w?.product ? `${w.product}: prisen bør ses efter.` : 'Prisen bør ses efter.');
 }
 
 function _opsEsc(s) {

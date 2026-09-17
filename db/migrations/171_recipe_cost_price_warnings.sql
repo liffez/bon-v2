@@ -1,0 +1,22 @@
+-- 171_recipe_cost_price_warnings.sql
+-- ============================================================
+-- Advarsler på kostprisen — et EGET spor ved siden af `missing_prices_json`.
+--
+-- De to siger ikke det samme:
+--   missing_prices_json  "vi kender ikke prisen"      → kostprisen er et minimum
+--   price_warnings_json  "vi kender den, men er i tvivl" → kostprisen er komplet
+--
+-- Blandes de sammen, bliver en opskrift med en tvivlsom pris markeret som
+-- ufuldstændig, og `classifyCachedCost` ville sætte et "≤" på et tal der ikke
+-- er et minimum. To forskellige beskeder til køkkenet, to kolonner.
+--
+-- To slags advarsler ligger her (se services/recipeCost.js):
+--   produced_stock_price_differs  lagerprisen på et produceret gode afviger
+--                                 fra hvad opskriften koster at lave (#558)
+--   last_vs_avg                   seneste køb ligger langt fra gennemsnittet,
+--                                 typisk fordi varen har flere varenumre (#557)
+--
+-- NULL = ingen advarsler. Samme mønster som 153 brugte for `cost_source`.
+-- ============================================================
+
+ALTER TABLE recipe_cost_cache ADD COLUMN price_warnings_json TEXT;

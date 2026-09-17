@@ -16,7 +16,8 @@
 
 'use strict';
 
-const { computeAll, unitCostFromRow, yieldInStockUnits, unitIdByName } = require('../services/recipeCost');
+const { computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName }
+    = require('../services/recipeCost');
 
 const QUS = [
     { id: 4, name: 'Kilo' }, { id: 5, name: 'Gram' },
@@ -32,8 +33,14 @@ function run(world) {
         recipes: world.recipes, pos: world.pos, nestings: world.nestings || [],
         products: world.products, units: QUS, conversions: world.conversions || [],
         priceByProduct: new Map(Object.entries(world.prices || {})),
+        priceDetailByProduct: new Map(Object.entries(world.priceDetails || {})),
     });
 }
+
+/** Advarslerne som en flad liste — de er en Map internt, så de kan merges. */
+const warns = r => [...r.warnings.values()];
+const hasWarn = (r, kind, pid) =>
+    warns(r).some(w => w.kind === kind && (pid == null || String(w.product_id) === String(pid)));
 
 console.log('\nKostpris-resolveren\n');
 
@@ -78,17 +85,107 @@ console.log('\nK2 · Produceret vare uden købspris arver fra opskriften');
     ok(r.complete === true, 'ikke rapporteret som manglende pris');
 }
 
-console.log('\nK2b · En rigtig købspris vinder over den arvede');
+// ── K2b · produceret gode: opskriften vinder over lagerprisen (#558) ──
+console.log('\nK2b · Lagerprisen på et produceret gode taber til opskriften (#558)');
 {
-    const w = {
+    // Et gode vi selv laver har ingen købspris. Står der alligevel en, er den
+    // et artefakt af optællingen — `setInventory()` sender ingen pris, så Grocy
+    // bærer den forrige videre. Remoulade stod til 43,47 og kostede 70,15.
+    const base = {
         recipes: [{ id: 10, name: 'Remoulade', base_servings: 1, product_id: 20,
                     userfields: { recipeunit: 'kg', recipeunitnumber: '1' } },
                   { id: 24, name: 'Fisken', base_servings: 1, userfields: {} }],
         products: [{ id: 1, name: 'Mayo', qu_id_stock: 4 }, { id: 20, name: 'Remoulade', qu_id_stock: 4 }],
         pos: [{ recipe_id: 10, product_id: 1, amount: 1 }, { recipe_id: 24, product_id: 20, amount: 1 }],
-        prices: { 1: 100, 20: 60 },   // produktet ER købt til 60
     };
-    ok(near(run(w).get(24).cost, 60), 'købsprisen bruges — det er hvad varen FAKTISK kostede');
+
+    // Lagerprisen 60 findes, men opskriften koster 100. Opskriften vinder.
+    const r = run({ ...base, prices: { 1: 100, 20: 60 } }).get(24);
+    ok(near(r.cost, 100), `opskriftens 100 bruges, ikke lagerprisens 60 (fik ${r.cost.toFixed(2)})`);
+    ok(hasWarn(r, 'produced_stock_price_differs', 20),
+       '40 % afvigelse rapporteres som advarsel');
+    ok(r.complete === true, 'en advarsel gør IKKE kostprisen ufuldstændig');
+    ok(r.missing_price.size === 0, 'advarslen står ikke som en manglende pris');
+
+    // Tæt på hinanden → ingen støj. 95 mod 100 er 5 %.
+    const taet = run({ ...base, prices: { 1: 100, 20: 95 } }).get(24);
+    ok(near(taet.cost, 100), 'opskriften bruges også når de to ligger tæt');
+    ok(warns(taet).length === 0, 'under 20 % afvigelse advares der ikke');
+
+    // Ingen lagerpris overhovedet: uændret fra før (#269-tilfældet).
+    const ingen = run({ ...base, prices: { 1: 100 } }).get(24);
+    ok(near(ingen.cost, 100), 'uden lagerpris arves opskriften som hidtil');
+    ok(warns(ingen).length === 0, 'og der er intet at advare om');
+}
+
+// ── K2c · købte varer er urørte ──────────────────────────────
+console.log('\nK2c · En KØBT vare beholder sin lagerpris');
+{
+    // Ingen opskrift producerer produkt 1, så reglen i K2b gælder ikke her.
+    const w = {
+        recipes: [{ id: 24, name: 'Fisken', base_servings: 1, userfields: {} }],
+        products: [{ id: 1, name: 'Mayo', qu_id_stock: 4 }],
+        pos: [{ recipe_id: 24, product_id: 1, amount: 1 }],
+        prices: { 1: 100 },
+    };
+    const r = run(w).get(24);
+    ok(near(r.cost, 100), 'lagerprisen ER hvad varen kostede');
+    ok(warns(r).length === 0, 'og den er ikke i tvivl');
+}
+
+// ── K2d · kan opskriften ikke regnes, siges det højt ─────────
+console.log('\nK2d · Uden udbytte falder vi tilbage på lagerprisen — og siger det');
+{
+    // Producenten mangler `recipeunitnumber`, så udbyttet er ukendt (#372).
+    // Lagerprisen er så det eneste tal der findes; det må ikke ligne en
+    // almindelig købt vare.
+    const w = {
+        recipes: [{ id: 10, name: 'Remoulade', base_servings: 1, product_id: 20, userfields: {} },
+                  { id: 24, name: 'Fisken', base_servings: 1, userfields: {} }],
+        products: [{ id: 1, name: 'Mayo', qu_id_stock: 4 }, { id: 20, name: 'Remoulade', qu_id_stock: 4 }],
+        pos: [{ recipe_id: 10, product_id: 1, amount: 1 }, { recipe_id: 24, product_id: 20, amount: 1 }],
+        prices: { 1: 100, 20: 60 },
+    };
+    const r = run(w).get(24);
+    ok(near(r.cost, 60), `lagerprisen bruges når opskriften ikke kan regnes (fik ${r.cost.toFixed(2)})`);
+    ok(hasWarn(r, 'produced_recipe_cost_unavailable', 20), 'og det står som en advarsel');
+}
+
+// ── K2e · advarsler ruller op gennem træet ───────────────────
+console.log('\nK2e · En advarsel dybt nede kan ses på retten');
+{
+    // Menu → nesting → produceret gode. Den der kigger på retten skal kunne se
+    // at tallet bygger på noget der bør ses efter — ellers er advarslen gemt.
+    const w = {
+        recipes: [{ id: 10, name: 'Remoulade', base_servings: 1, product_id: 20,
+                    userfields: { recipeunit: 'kg', recipeunitnumber: '1' } },
+                  { id: 24, name: 'Fisken', base_servings: 1, userfields: {} },
+                  { id: 77, name: 'Slider Boks', base_servings: 1, userfields: {} }],
+        products: [{ id: 1, name: 'Mayo', qu_id_stock: 4 }, { id: 20, name: 'Remoulade', qu_id_stock: 4 }],
+        pos: [{ recipe_id: 10, product_id: 1, amount: 1 }, { recipe_id: 24, product_id: 20, amount: 1 }],
+        nestings: [{ recipe_id: 77, includes_recipe_id: 24, servings: 1 }],
+        prices: { 1: 100, 20: 60 },
+    };
+    ok(hasWarn(run(w).get(77), 'produced_stock_price_differs', 20),
+       'advarslen følger med op i den nestende opskrift');
+}
+
+// ── K2f · nødkøbet flytter ikke prisgrundlaget (#557) ────────
+console.log('\nK2f · Et enkeltkøb langt fra gennemsnittet advares der om (#557)');
+{
+    // Mayo har to varenumre: 1 kg-posen til 114,56 og 5 kg-spanden til 42,01.
+    // Købes spanden som nødløsning, er gennemsnittet det stabile tal — men de
+    // to ligger så langt fra hinanden at ingen af dem er "prisen".
+    const w = {
+        recipes: [{ id: 24, name: 'Fisken', base_servings: 1, userfields: {} }],
+        products: [{ id: 1, name: 'Mayonaise', qu_id_stock: 4 }],
+        pos: [{ recipe_id: 24, product_id: 1, amount: 1 }],
+        prices: { 1: 78.29 },
+        priceDetails: { 1: unitCostDetail({ last_price: 42.01, avg_price: 78.29 }) },
+    };
+    const r = run(w).get(24);
+    ok(hasWarn(r, 'last_vs_avg', 1), 'afvigelsen mellem seneste køb og gennemsnit rapporteres');
+    ok(r.complete === true, 'men kostprisen er stadig komplet');
 }
 
 // ── K3 · udbytte i en anden enhed end lager-enheden ──────────
@@ -171,7 +268,16 @@ console.log('\nK7 · En cyklus vælter ikke beregningen');
 // ── K8 · hjælpere ────────────────────────────────────────────
 console.log('\nK8 · Prisrækkefølge og enhedsnavne');
 {
-    ok(unitCostFromRow({ last_price: 90, avg_price: 240 }) === 90, 'seneste købspris slår gennemsnittet');
+    ok(unitCostFromRow({ last_price: 90, avg_price: 240 }) === 240,
+       'gennemsnittet slår seneste køb — ét bilag flytter ikke prisgrundlaget (#557)');
+    ok(unitCostFromRow({ last_price: 90 }) === 90,
+       'er der kun ét køb, ER det gennemsnittet');
+    ok(unitCostDetail({ last_price: 42.01, avg_price: 78.29 }).warn === true,
+       'over 30 % fra gennemsnittet → advarsel');
+    ok(unitCostDetail({ last_price: 72, avg_price: 78.29 }).warn === false,
+       'under 30 % → ingen advarsel');
+    ok(unitCostDetail({ avg_price: 78.29 }).warn === false,
+       'uden et seneste køb er der intet at sammenligne med');
     ok(unitCostFromRow({ last_price: 0, avg_price: 240 }) === 240, 'en nul-pris er ikke en pris (kål havde 0)');
     ok(near(unitCostFromRow({ value: 50, amount: 2 }), 25), 'lagerværdi/mængde som sidste udvej');
     ok(unitCostFromRow({}) === null, 'ingen pris → null, ikke 0');

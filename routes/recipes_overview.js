@@ -30,19 +30,18 @@ const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const { convertAndFormat } = require('../services/quConvert');
 
-// Kostpris pr. stock-enhed ex moms fra Grocy produkt-detaljer. last_price (seneste
-// købspris) er master; avg_price (gns.) som fallback. Bevares i prishistorikken
-// UANSET lager, så udsolgte varer også får en pris.
-// Enhedspris pr. lager-enhed. Delegeres til `services/recipeCost.js` så
+// Enhedspris pr. lager-enhed, ex moms. Delegeres til `services/recipeCost.js` så
 // drill-downet og kostpris-beregningen ikke kan blive uenige om hvad en vare
 // koster — den lokale kopi manglede `value/amount`-faldet og gav derfor null
-// på varer beregningen godt kunne prissætte.
-function lastPriceOf(details) {
+// på varer beregningen godt kunne prissætte. Rækkefølgen bor dér: gennemsnittet
+// først (#557). Prisen bevares i Grocys historik uanset lager, så udsolgte
+// varer også får en pris.
+function unitCostOf(details) {
     return details ? unitCostFromRow(details) : null;
 }
 const itemPriceBackfill = require('../services/itemPriceBackfill');
 const { refreshRecipeCosts, classifyCachedCost } = require('../services/recipeCostRefresh');
-const { unitCostFromRow, parentPriceFromChildren } = require('../services/recipeCost');
+const { unitCostFromRow, parentPriceFromChildren, describeWarning } = require('../services/recipeCost');
 const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
 
@@ -257,6 +256,10 @@ router.get('/overview', handle(async (req, res) => {
         // ud i en kolonne; forskellen skal stå der.
         const k = classifyCachedCost(cost);
         const costMissing = k.missing;
+        // Advarsler er et EGET spor ved siden af de manglende priser: prisen
+        // ER kendt, den ser bare forkert ud (#557/#558). Derfor rører de
+        // hverken `cost_unknown` eller `cost_is_minimum`.
+        const costWarnings = (k.warnings || []).map(w => ({ ...w, text: describeWarning(w) }));
         const costSource = k.source;
         const costUnknown = k.unknown;
         const costIsMinimum = k.isMinimum;
@@ -291,6 +294,7 @@ router.get('/overview', handle(async (req, res) => {
             cost_unknown: costUnknown,
             cost_is_minimum: costIsMinimum,
             cost_missing_prices: costMissing,
+            cost_price_warnings: costWarnings,
             sales_price_excl_moms: salesPriceExcl,
             db_kr_excl_moms: dbKr,
             db_pct: dbPct,
@@ -314,6 +318,7 @@ router.get('/overview', handle(async (req, res) => {
     // et falsk dækningsbidrag, for den har ingen salgspris at måle mod.
     const costUnknownCount = recipes.filter(r => r.cost_unknown && r.sales_price_excl_moms != null).length;
     const costMinimumCount = recipes.filter(r => r.cost_is_minimum).length;
+    const priceWarningCount = recipes.filter(r => (r.cost_price_warnings || []).length > 0).length;
     const notSoldCount = recipes.filter(r => r.sold_units === 0).length;
     const okoCount = recipes.filter(r => r.is_organic).length;
 
@@ -355,6 +360,7 @@ router.get('/overview', handle(async (req, res) => {
             missing_price_count: missingPriceCount,
             cost_unknown_count: costUnknownCount,
             cost_minimum_count: costMinimumCount,
+            price_warning_count: priceWarningCount,
             not_sold_count: notSoldCount,
             oko_count: okoCount,
             share_under_target_pct: shareUnderTargetPct,
@@ -388,6 +394,7 @@ router.post('/refresh-costs', handle(async (req, res) => {
         sources: out.sources,
         incomplete: out.incomplete,
         unknown: out.unknown,
+        warned: out.warned,
         errors: out.errorDetails.length ? out.errorDetails : undefined,
         duration_ms: Date.now() - t0,
         refreshed_at: new Date().toISOString(),
@@ -698,7 +705,7 @@ router.get('/:id/composition', handle(async (req, res) => {
     // største linje i Frisk Grønt som "—" mens den indgik i totalen med 9,63 kr.
     // Kun de FÅ børn der faktisk skal bruges hentes; hele produktkataloget
     // ville være 100+ kald på en klik-sti.
-    const forældreUdenPris = ingProductIds.filter(pid => lastPriceOf(detailsMap.get(pid)) == null);
+    const forældreUdenPris = ingProductIds.filter(pid => unitCostOf(detailsMap.get(pid)) == null);
     const børnIds = [...new Set(forældreUdenPris.flatMap(pid =>
         products.filter(x => String(x.parent_product_id) === String(pid)).map(x => String(x.id))
     ))];
@@ -709,7 +716,7 @@ router.get('/:id/composition', handle(async (req, res) => {
         );
         const børnPris = new Map();
         børnIds.forEach((pid, i) => {
-            const c = lastPriceOf(børnDetaljer[i]);
+            const c = unitCostOf(børnDetaljer[i]);
             if (c != null) børnPris.set(pid, c);
         });
         for (const pid of forældreUdenPris) {
@@ -733,8 +740,8 @@ router.get('/:id/composition', handle(async (req, res) => {
         // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
         // last_price/avg_price bevares uanset lager, så udsolgte varer også får en pris.
         const d = detailsMap.get(String(pos.product_id));
-        const unitCost = lastPriceOf(d) ?? (arvetPris.get(String(pos.product_id)) ?? null);
-        const prisArvet = lastPriceOf(d) == null && arvetPris.has(String(pos.product_id));
+        const unitCost = unitCostOf(d) ?? (arvetPris.get(String(pos.product_id)) ?? null);
+        const prisArvet = unitCostOf(d) == null && arvetPris.has(String(pos.product_id));
         const amountStock = parseFloat(pos.amount) || 0;
         const stockAmount = d ? (Number(d.stock_amount) || 0) : null;
         return {
@@ -790,6 +797,8 @@ router.get('/:id/composition', handle(async (req, res) => {
         total_cost: bonCost.has(recipe.id) ? r2(bonCost.get(recipe.id).cost) : null,
         total_cost_source: bonCost.get(recipe.id)?.source ?? null,
         total_cost_missing: bonCost.get(recipe.id)?.missing || [],
+        total_cost_warnings: (bonCost.get(recipe.id)?.warnings || [])
+            .map(w => ({ ...w, text: describeWarning(w) })),
         ingredients,
         sub_recipes,
     });

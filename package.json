@@ -116,7 +116,7 @@
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js",
     "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js",
     "test:produktion": "node scripts/test-production-unit.js && node scripts/test-production-yield.js && node scripts/test-auto-batch.js && node --experimental-sqlite scripts/test-autobatch-packing.js && node scripts/test-convert-units.js && node scripts/test-preview-produced.js",
-    "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js",
+    "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js && node --experimental-sqlite scripts/test-kostpris-effekt.js",
     "audit:udbytte": "node --env-file=.env --experimental-sqlite scripts/audit-recipe-yield.js",
     "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js",
     "test:autobatch-packing": "node --experimental-sqlite scripts/test-autobatch-packing.js",
@@ -137,7 +137,8 @@
     "test:attribution": "node --experimental-sqlite --test tests/bon_attribution.test.js tests/changelog_render.test.js",
     "test:web-order-flag": "node --experimental-sqlite --test tests/web_order_flag.test.js",
     "test:consume-policy": "node --experimental-sqlite scripts/test-consume-policy.js",
-    "audit:produktionspolitik": "node --env-file=.env scripts/audit-production-policy.js"
+    "audit:produktionspolitik": "node --env-file=.env scripts/audit-production-policy.js",
+    "audit:kostpris-kilder": "node --env-file=.env scripts/audit-kostpris-kilder.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

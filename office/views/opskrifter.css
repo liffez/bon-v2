@@ -269,6 +269,12 @@
 .ops-badge-no-cost { background: #fbe9e9; color: #bc181b; }
 /* Delvis kostpris er en note, ikke en alarm — tallet er brugbart, bare lavt sat. */
 .ops-badge-part-cost { background: #fdf3e0; color: #8e631f; }
+/* "Prisen ser forkert ud" er hverken et manglende tal eller en alarm: den er
+   komplet, men bygger på noget der bør ses efter. Egen kulør, så den ikke
+   forveksles med "delvis kostpris" — som betyder at der MANGLER noget. */
+.ops-badge-price-warn { background: #efeaf6; color: #5b4a7d; }
+/* Samme kulør i drill-downet, så noten og badgen kan kendes som det samme. */
+.ops-comp-warn { color: #5b4a7d; }
 
 .ops-unknown {
     color: #bc181b;

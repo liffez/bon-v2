@@ -130,6 +130,12 @@ function computeBatchPrice(lines, actualYield) {
  * IKKE. Rækkefølge: `last_price` (pris pr. stock-enhed ved seneste køb) →
  * `value / amount` (gns. lagerværdi) → null (ukendt, route bør flagge).
  *
+ * ⚠️ Bevidst IKKE ændret med #557. Kostpris-beregningen slår nu op på
+ * gennemsnittet frem for seneste køb, men den her prissætter en PRODUKTION —
+ * den skriver en pris ind i Grocy, og dens input er en `/stock`-række, som
+ * ikke bærer `avg_price`. Skal de to være enige, er det en beslutning om hvad
+ * en batch er værd, ikke en omskrivning. Se #557.
+ *
  * @param {object} row  Grocy stock-række
  * @returns {number|null}  kr/stock-enhed ex moms, eller null hvis ukendt
  */

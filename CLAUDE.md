@@ -7435,6 +7435,89 @@ subrecipe-status 16, resolver-graph 8, yield-model 14, packing-units 18, gram-ch
 topup 35, preview-produced 21, plus `test:produktion`, `test:consume-hardening` og
 `test:deduct-watchdog` uden en eneste FAIL.
 
+### Kostprisen på et produceret gode kommer fra opskriften (#558 + #557, 17. september 2026)
+
+Et mellemprodukt vi selv laver — remoulade, syltede rødløg, chili-mayo — har ingen
+købspris. Men flere af dem HAVDE en pris i Grocy, og den var ikke en købspris:
+`setInventory()` sender ingen pris, så Grocy bærer den forrige videre fra optælling til
+optælling. Målt mod grocy-hq: **Rødløg - Sylt 34,99 mod råvarernes 17,81 (+96 %)**,
+Remoulade 43,47 mod 70,15, Chili Mayo 80 mod 118,75. Kostprisen foretrak det tal, så
+fejlen forplantede sig til margin-analysen på hver ret der bruger dem.
+
+- **Opskriften vinder ALTID for et produceret gode** (`ctx.producedBy` findes).
+  **Købte varer er urørte** — for dem ER lagerprisen hvad varen kostede.
+  Afviger de to mere end 20 %, rapporteres det som en **advarsel**, ikke som en
+  manglende pris: vi vælger opskriften og siger at de er uenige, frem for at vælge i
+  stilhed.
+- **Det lukker hullet i gaten (#269).** Før konverteringen henter menuen kostprisen
+  gennem opskriften; efter hentede den den fra produktets lagerpris — *hvis der var en*.
+  Tahin slap grøn igennem netop fordi produktet ingen pris havde **endnu**. Den kom
+  bagefter, og så flyttede kostprisen sig uden at nogen havde rørt noget. Nu arves
+  prisen fra opskriften på begge sider, og springet kan ikke flytte tallet.
+  Låst fast af `G9` i `scripts/test-conversion-gate.js`: med den gamle regel sprang den
+  målte kostpris fra 30,35 til 21,06; nu er de to ens.
+- **Kan opskriften ikke regnes** — intet erklæret udbytte (#372), eller ingen af dens
+  råvarer har en pris — bruges lagerprisen, men **det siges højt** som en advarsel.
+  Et tavst fald tilbage ville ligne en almindelig købt vare.
+
+**#557 — gennemsnittet er ankeret, ikke seneste køb.** `unitCostFromRow` valgte
+`last_price` først. Købte køkkenet én billig 5 kg-spand mayo som nødløsning, faldt
+kostprisen på hver mayo-ret 63 % indtil næste pose blev købt — spanden var brugt op
+længe inden. Mayo er i seks af de otte `RR produktion Hurtig`-blandinger.
+
+> **Gennemsnittet er STABILT, ikke RIGTIGT.** Mayo har to varenumre (1 kg-pose
+> 114,56 kr/kg · 5 kg-spand 42,01), og snittet lander mellem dem og passer på ingen af
+> dem. Den rigtige pris kræver pris pr. **stregkode** plus et udpeget standard-varenummer
+> — fejl 1 og 3 i #557, som IKKE er løst her. Indtil da advares der når seneste køb
+> ligger mere end 30 % fra snittet.
+
+> ⚠️ **Prisreglen ville have ramt ved siden af.** `getProductUnitCosts()` havde en
+> bulk-genvej: nyeste lagerposts `price` blev brugt for alt der var på lager, og den gik
+> **uden om** `unitCostFromRow`. Men den pris ER seneste køb — så reglen gjaldt kun de
+> varer der IKKE var på lager, og mayo er på lager. Genvejen er væk; der spørges nu
+> `/stock/products/:id` for hvert produkt (~225 kald mod ~120 før — tungere, men ikke en
+> ny størrelsesorden), og svaret caches 10 minutter så request-stier kun betaler én gang.
+> Lagerpostens pris er beholdt som **nødspor** hvis opslaget fejler.
+
+**To slags tvivl, to spor** (migration 171, `price_warnings_json`):
+`missing_prices_json` siger *"vi kender ikke prisen"* → kostprisen er et **minimum** og
+vises med "≤". `price_warnings_json` siger *"vi kender den, men den ser forkert ud"* →
+kostprisen er **komplet**. Blandes de sammen, sættes et "≤" på et tal der ikke er et
+minimum. Advarsler rører derfor hverken `complete`, `cost_unknown` eller `cost_is_minimum`.
+
+**Synligt for kontoret:** lilla `pris?`-mærke på rækken i Opskrifter & priser med
+forklaringen i tooltip, en KPI-pille *"Pris bør ses efter"* (kun når der er noget), og
+noten i drill-down-panelet — dér man kigger når man vil vide hvorfor kostprisen ser ud
+som den gør. Teksten kommer fra `describeWarning()` på serveren, så tabellen, panelet og
+`audit:kostpris-kilder` siger det samme om det samme tal.
+
+**`npm run audit:kostpris-kilder`** (read-only, kør på serveren — kræver Grocy) genskaber
+begge issuers tabeller mod den levende Grocy og måler hvad reglerne flytter, opdelt på de
+to. FØR-tallet er ikke et gæt: den gamle adfærd genskabes ved at ændre **input** — gammel
+prisrækkefølge, og `product_id` fjernet fra producerende opskrifter hvis produkt har en
+lagerpris — altså præcis de tilfælde hvor den gamle regel lod lagerprisen vinde. Ingen
+kopi af den gamle kode, og ingen omskifter i produktionskoden. Dækket af
+`scripts/test-kostpris-effekt.js`, fordi et forkert FØR-tal giver et forkert måletal.
+
+**Tests:** `npm run test:kostpris` — 125 asserts (37 + 11 + 68 + 9), plus `G9` i
+konverterings-gaten (23/0). Kæden er dækket hele vejen: reglerne som rene funktioner,
+det der havner i `recipe_cost_cache`, `/overview`-svaret (routeren mountes in-process med
+Grocy stubbet på `fetch`), og rækken + drill-down-panelet renderet fra den ægte
+`office/views/opskrifter.js` i en vm-sandkasse.
+
+**Mutations-testet: tolv mutationer, alle fanget** af hver sin navngivne assert —
+heriblandt at rulle bulk-genvejen tilbage (4 falder), at blande advarslerne ind i de
+manglende priser både i beregningen (2) og i det der gemmes (3), og at lade routen holde
+op med at sende feltet (3). Mutationerne køres mod hvert testscript **for sig**:
+`test:kostpris` kæder dem med `&&`, så en fejl i det første ville skjule om de to andre
+overhovedet blev kørt — og de første par runder så derfor grønnere ud end de var.
+Regression grøn: conversion-gate 23, lag1a, produktion, consume-hardening,
+consume-policy, co2, event-retur, event-return-cost, yield-model, gram-chaining,
+resolver-graph, subrecipe-status, packing-units, prep-packing, recipe-factor.
+
+> **Kan ikke ses i den lokale dev-DB** — den peger på grocytest, hvor de producerede
+> goder og deres priser ikke findes. Verificér mod grocy-hq.
+
 ---
 
 ## Næste opgave

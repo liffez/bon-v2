@@ -202,6 +202,45 @@ const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
     ok(Math.abs(cOwn.total - (0.065 * 2 + 0.35 * 99)) < 1e-9,
        `og opskriften lægges ikke oveni — ${r4(cOwn.total)} = 0,065×2 + 0,35×99`);
 
-    console.log(`\n${pass} PASS · ${fail} FAIL\n`);
+    
+    // ── G9 · kostprisen springer ikke ved konverteringen (#558) ──
+    // Hullet i gaten var ikke at den målte forkert, men at den målte det
+    // rigtige på det forkerte tidspunkt: FØR konverteringen henter menuen
+    // kostprisen gennem opskriften, EFTER hentede den den fra produktets
+    // lagerpris — hvis der var en. Tahin slap grøn igennem netop fordi
+    // produktet ingen pris havde endnu; den kom bagefter, og så flyttede
+    // kostprisen sig uden at nogen havde rørt noget.
+    //
+    // Med #558 arves prisen fra opskriften på BEGGE sider. Springet kan ikke
+    // længere flytte tallet, hverken ved konverteringen eller ved næste
+    // optælling.
+    console.log('\nG9 · Kostprisen er den samme før og efter konverteringen (#558)');
+    {
+        const { computeAll } = require('../services/recipeCost');
+        // Produkt 20 bærer en lagerpris der IKKE er en købspris — præcis det
+        // artefakt optællingen efterlader (Remoulade stod til 43,47).
+        const priser = new Map([['10', 100], ['11', 40], ['12', 90], ['20', 43.47]]);
+        const kør = (w, recipes) => computeAll({
+            recipes: recipes || [...w.recipes.values()],
+            pos: w.pos, nestings: w.nestings, products: PRODUCTS,
+            units: QUS, conversions: CONVERSIONS, priceByProduct: priser,
+        }).get(1).cost;
+
+        const før = kør(WORLD_BEFORE);
+        const efter = kør(WORLD_AFTER);
+        ok(r4(før) === r4(efter),
+           `samme kostpris begge veje — ${før.toFixed(2)} mod ${efter.toFixed(2)}`);
+        ok(r4(før) === 30.35, `og det er råvarernes pris, ikke lagerprisens (${før.toFixed(2)})`);
+
+        // Kontrolprøve: med den GAMLE regel vandt lagerprisen, og så SPRANG
+        // tallet ved konverteringen. Uden den her ville asserten ovenfor kunne
+        // bestå fordi de to verdener tilfældigvis lignede hinanden.
+        const gammelEfter = kør(WORLD_AFTER,
+            [...WORLD_AFTER.recipes.values()].map(r => r.id === 2 ? { ...r, product_id: null } : r));
+        ok(r4(gammelEfter) !== r4(før),
+           `den gamle regel sprang fra ${før.toFixed(2)} til ${gammelEfter.toFixed(2)}`);
+    }
+
+console.log(`\n${pass} PASS · ${fail} FAIL\n`);
     process.exit(fail ? 1 : 0);
 })();
