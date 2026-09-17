@@ -170,7 +170,7 @@ async function main() {
     }
     prod.sort((a, b) => Math.abs(b.afv ?? -1) - Math.abs(a.afv ?? -1));
     console.log(`   ${pad('Vare', 26)}${padL('lagerpris', 11)}${padL('opskriften', 12)}`
-              + `${padL('afvigelse', 11)}${padL('udbytte', 10)}`);
+              + `${padL('afvigelse', 11)}  ${padL('udbytte', 10)}`);
     for (const p of prod) {
         const mark = p.afv == null ? C.dim
             : Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT ? C.red : C.grn;
@@ -189,7 +189,7 @@ async function main() {
             ? `${Number(p.udbytte).toLocaleString('da-DK', { maximumFractionDigits: 3 })} ${p.enhed}`
             : '—';
         console.log(`   ${pad(p.navn, 26)}${padL(kr(p.lager), 11)}${padL(kr(p.opskrift), 12)}`
-                  + `${mark}${padL(pct(p.afv), 11)}${C.off}${C.dim}${padL(udb, 10)}${C.off}${note}`);
+                  + `${mark}${padL(pct(p.afv), 11)}${C.off}  ${C.dim}${padL(udb, 10)}${C.off}${note}`);
     }
     const overTaerskel = prod.filter(p => p.afv != null && Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT);
     console.log(`\n   ${prod.length} producerede varer · ${overTaerskel.length} over tærsklen`
