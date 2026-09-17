@@ -7,7 +7,7 @@ const { sendFromTemplate, sendMail, refetchUnmatchedMail, bonMailContext } = req
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
 const { isInternalEmail } = require('../services/internalIdentity');
-const { logChange, sqlTime } = require('../db/helpers');
+const { logChange, sqlTime, todayISO, copenhagenDayStartSql, addDaysISO } = require('../db/helpers');
 const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
 
 // Er den videresendte afsender vores egen adresse?
@@ -419,6 +419,168 @@ router.get('/threads/counts', requireAuth(), handle((req, res) => {
     res.json({
         aabne: row.aabne || 0, udsat: row.udsat || 0, kunde: row.kunde || 0,
         luk: row.luk || 0, alle: row.alle || 0, ufordelt: um.c || 0, arkiv: ark.c || 0,
+        sendt_idag: countSentToday(db),
+    });
+}));
+
+/* ── SENDT-OVERSIGT ─────────────────────────────────────────
+ * "Hvem har vi skrevet til i dag?" Simply gemmer ingen sendt-mappe, men Bon
+ * har selv en kopi af alt der går gennem sendMail(): hver udgående besked er
+ * en mail_messages-række med retning 'out'.
+ *
+ * To afgrænsninger, begge valgt af driften:
+ *   · Leverandørmails er ude (indkøbsordrer + s-tråde) — de hører til Indkøb.
+ *   · Automatiske mails er skjult som standard. "Automatisk" = is_system
+ *     (web-ordre-/booking-bekræftelser) ELLER ingen afsender-bruger
+ *     (påmindelses-cron, vagthundens alarm, testmail). En ordrebekræftelse
+ *     et menneske trykker afsted fra bonen, tæller som manuel — det ER hende
+ *     der har sendt den.
+ *
+ * Mails sendt fra Outlook/webmail uden om Bon er ikke med; dem ser Bon aldrig.
+ * Tidspunktet er afsendelsen (sent_at); en fejlet mail har intet, og står på
+ * det tidspunkt forsøget blev gjort.
+ */
+const SENT_AT_SQL = 'COALESCE(mm.sent_at, mm.created_at)';
+const SENT_AUTO_SQL = '(mm.is_system = 1 OR mm.created_by_user_id IS NULL)';
+const SENT_MAX_DAYS = 366;
+const SENT_LIMIT = 500;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Fælles WHERE for listen og tælleren. Returnerer { where[], args[] } UDEN
+// auto-filteret — det lægges på af kalderen, så skjulte kan tælles.
+function sentFilter({ fromSql, toSql, userId, mailbox, q }) {
+    const where = [
+        "mm.direction = 'out'",
+        'mt.purchase_order_id IS NULL',
+        'mt.supplier_id IS NULL',
+        `${SENT_AT_SQL} >= ?`,
+        `${SENT_AT_SQL} < ?`,
+    ];
+    const args = [fromSql, toSql];
+    if (userId) { where.push('mm.created_by_user_id = ?'); args.push(userId); }
+    // Samme regel som tråd-listens kilde-mærke: kontakt@ hvis adressen siger det, ellers bon@.
+    if (mailbox === 'kontakt') where.push("LOWER(mm.from_email) LIKE '%kontakt%'");
+    else if (mailbox === 'bon') where.push("LOWER(COALESCE(mm.from_email, '')) NOT LIKE '%kontakt%'");
+    if (q) {
+        const like = '%' + q + '%';
+        where.push(`(mm.to_email LIKE ? OR mm.subject LIKE ?
+                     OR TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) LIKE ?
+                     OR TRIM(COALESCE(bc.first_name,'') || ' ' || COALESCE(bc.last_name,'')) LIKE ?
+                     OR co.name LIKE ? OR b.bon_number LIKE ?)`);
+        args.push(like, like, like, like, like, like);
+    }
+    return { where, args };
+}
+
+const SENT_JOINS = `
+    FROM mail_messages mm
+    JOIN mail_threads mt   ON mt.id = mm.thread_id
+    LEFT JOIN users u      ON u.id  = mm.created_by_user_id
+    LEFT JOIN customers c  ON c.id  = mt.customer_id
+    LEFT JOIN bons b       ON b.id  = mt.bon_id
+    LEFT JOIN customers bc ON bc.id = b.customer_id
+    LEFT JOIN companies co ON co.id = COALESCE(c.company_id, b.company_id, bc.company_id)`;
+
+// Antal manuelle mails sendt i dag (dansk døgn) — tallet på fanen.
+function countSentToday(db) {
+    const today = todayISO();
+    const f = sentFilter({ fromSql: copenhagenDayStartSql(today), toSql: copenhagenDayStartSql(addDaysISO(today, 1)) });
+    const row = db.prepare(`SELECT COUNT(*) AS c ${SENT_JOINS}
+        WHERE ${f.where.join(' AND ')} AND NOT ${SENT_AUTO_SQL}`).get(...f.args);
+    return row?.c || 0;
+}
+
+// GET /api/mail/sent?from=YYYY-MM-DD&to=YYYY-MM-DD&mine=1&auto=1&mailbox=bon|kontakt&q=
+// from/to er danske kalenderdatoer, begge inklusive. Standard: i dag.
+router.get('/sent', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    let from = String(req.query.from || '').trim() || todayISO();
+    let to = String(req.query.to || '').trim() || from;
+    if (!ISO_DATE_RE.test(from) || !ISO_DATE_RE.test(to)) {
+        return res.status(400).json({ error: 'from/to skal være datoer (ÅÅÅÅ-MM-DD)' });
+    }
+    if (to < from) [from, to] = [to, from];
+    const fromSql = copenhagenDayStartSql(from);
+    const toSql = copenhagenDayStartSql(addDaysISO(to, 1));
+    if (!fromSql || !toSql) return res.status(400).json({ error: 'Ugyldig dato' });
+    const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    if (days > SENT_MAX_DAYS) {
+        return res.status(400).json({ error: `Vælg højst ${SENT_MAX_DAYS} dage ad gangen` });
+    }
+
+    const mine = req.query.mine === '1' || req.query.mine === 'true';
+    const includeAuto = req.query.auto === '1' || req.query.auto === 'true';
+    const mailbox = ['bon', 'kontakt'].includes(req.query.mailbox) ? req.query.mailbox : '';
+    const q = String(req.query.q || '').trim();
+    // "Kun mine" uden en bruger ville give ALT — sig det hellere.
+    const userId = mine ? getUserId(req) : null;
+    if (mine && !userId) return res.status(401).json({ error: 'Ikke logget ind' });
+
+    const f = sentFilter({ fromSql, toSql, userId, mailbox, q });
+    const baseWhere = f.where.join(' AND ');
+
+    // Opgørelsen tæller UDEN auto-filteret, så listen kan sige hvad den skjuler.
+    const agg = db.prepare(`
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN ${SENT_AUTO_SQL} THEN 1 ELSE 0 END) AS auto,
+               SUM(CASE WHEN mm.sent_at IS NULL AND NOT ${SENT_AUTO_SQL} THEN 1 ELSE 0 END) AS failed_manual,
+               SUM(CASE WHEN mm.sent_at IS NULL THEN 1 ELSE 0 END) AS failed_all
+        ${SENT_JOINS} WHERE ${baseWhere}`).get(...f.args) || {};
+
+    const where = includeAuto ? baseWhere : `${baseWhere} AND NOT ${SENT_AUTO_SQL}`;
+    const rows = db.prepare(`
+        SELECT mm.id, mm.thread_id, mm.to_email, mm.to_name, mm.from_email, mm.subject,
+               mm.sent_at, mm.send_error, mm.has_attachments,
+               ${SENT_AT_SQL} AS at,
+               ${SENT_AUTO_SQL} AS is_auto,
+               u.name AS sent_by,
+               mt.bon_id, mt.customer_id, mt.handling_status,
+               b.bon_number, b.is_offer,
+               TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))   AS cust_name,
+               TRIM(COALESCE(bc.first_name,'') || ' ' || COALESCE(bc.last_name,'')) AS bon_cust_name,
+               co.name AS company_name,
+               SUBSTR(COALESCE(mm.body_text, ''), 1, 400) AS snippet
+        ${SENT_JOINS}
+        WHERE ${where}
+        ORDER BY ${SENT_AT_SQL} DESC, mm.id DESC
+        LIMIT ?`).all(...f.args, SENT_LIMIT + 1);
+
+    const truncated = rows.length > SENT_LIMIT;
+    if (truncated) rows.length = SENT_LIMIT;
+
+    res.json({
+        from, to, days,
+        total: includeAuto ? (agg.total || 0) : (agg.total || 0) - (agg.auto || 0),
+        hidden_auto: includeAuto ? 0 : (agg.auto || 0),
+        failed: includeAuto ? (agg.failed_all || 0) : (agg.failed_manual || 0),
+        truncated,
+        limit: SENT_LIMIT,
+        rows: rows.map(r => {
+            const recipient = r.cust_name || r.bon_cust_name || r.to_name || null;
+            let link = null;
+            if (r.bon_id) link = { type: 'bon', id: r.bon_id, label: (r.is_offer ? 'Tilbud ' : 'Bon ') + (r.bon_number || '#' + r.bon_id) };
+            else if (r.customer_id) link = { type: 'customer', id: r.customer_id, label: '#k-' + r.customer_id };
+            return {
+                id: r.id,
+                thread_id: r.thread_id,
+                // En tråd uden handling_status kan ikke åbnes i indbakken (fx
+                // vagthundens alarm, der ikke hører til en kunde).
+                openable: r.handling_status != null,
+                at: r.at,
+                sent: !!r.sent_at,
+                error: r.sent_at ? null : (r.send_error || 'Ikke bekræftet sendt'),
+                is_auto: !!r.is_auto,
+                recipient,
+                to_email: r.to_email,
+                company_name: r.company_name || null,
+                subject: r.subject || '(uden emne)',
+                sent_by: r.sent_by || null,
+                src: String(r.from_email || '').toLowerCase().includes('kontakt') ? 'kontakt' : 'bon',
+                has_attachments: !!r.has_attachments,
+                link,
+                snippet: r.snippet || '',
+            };
+        }),
     });
 }));
 

@@ -7435,6 +7435,41 @@ subrecipe-status 16, resolver-graph 8, yield-model 14, packing-units 18, gram-ch
 topup 35, preview-produced 21, plus `test:produktion`, `test:consume-hardening` og
 `test:deduct-watchdog` uden en eneste FAIL.
 
+
+### Indbakke: "↗ Sendt" — hvem har vi skrevet til? (17. september 2026)
+
+Simply gemmer ingen sendt-mappe, og en sendt mail kunne kun findes under den
+enkelte kunde. Bon har dog selv en kopi af alt der går gennem `sendMail()`
+(`mail_messages` med retning `out`), så det var en visning der manglede, ikke data.
+
+- **Ny fane `↗ Sendt`** i CRM → Indbakke med dagens antal. Én række pr. sendt
+  mail: klokkeslæt · modtager (kundens navn, ellers adressen) · emne · bon@/kontakt@
+  · kunde/bon · hvem der sendte. Klik åbner tråden som i de andre faner.
+- **Interval**: I dag · I går · Denne uge · Sidste uge · Sidste 7 dage · Denne
+  måned · Sidste måned + fri fra/til. `◀ ▶` flytter med periodens **enhed**
+  (hel uge/måned), ikke et gæt ud fra datoerne — "I dag" den 1. ligner ellers en
+  måned. Dagsoverskrifter når perioden er mere end én dag. Højst 366 dage og
+  500 rækker (listen siger det, hvis den klipper).
+- **Kun mine** og **Vis automatiske** huskes pr. browser.
+- **Leverandørmails er altid ude** (`supplier_id`/`purchase_order_id`) — de hører til Indkøb.
+- **Automatiske skjules som standard, men tælles** ("2 automatiske skjult · vis").
+  Automatisk = `is_system = 1` **eller** ingen afsender-bruger (påmindelses-cron,
+  vagthundens alarm, testmail). En ordrebekræftelse et menneske sender fra bonen
+  er manuel.
+- **Fejlede afsendelser vises med rødt** (#362's `send_error`) og tæller med i fanens tal.
+- **Dansk døgn**: `copenhagenDayStartSql()` + `addDaysISO()` i `db/helpers.js`
+  regner det UTC-øjeblik en dansk dag begynder. En mail kl. 00:30 dansk tid ligger
+  på gårsdagens UTC-dato og skal alligevel med i "i dag".
+- **`is_system` skrives nu ved INSERT** i `sendMail`, ikke først efter en vellykket
+  afsendelse — ellers stod en fejlet booking-bekræftelse (som bærer sælgerens
+  `userId`) som en menneske-mail.
+- Mails sendt fra Outlook/webmail uden om Bon er ikke med; dem ser Bon aldrig.
+
+**Tests:** `npm run test:mail-sendt` (12, mod de ægte endpoints over HTTP) +
+S6 i `test-mail-send-truth.js`. Mutations-testet: dansk døgn, leverandør- og
+indkøbsfilter, auto-reglen (begge halvdele), kun mine, datobyt, retning og
+fanens tæller fælder hver sine asserts. Browser-verificeret mod syntetiske data.
+
 ---
 
 ### {{booking_link}} gik ud til kunden som rå tekst (17. september 2026)
@@ -8152,6 +8187,7 @@ POST   /api/users/:id/password                          routes/users.js (admin)
 GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 GET    /api/mail/inbox?status=open|archived|all&q=       routes/mail.js (samlet indbakke + arkiv-søgning + suggested_customer)
+GET    /api/mail/sent?from=&to=&mine=&auto=&mailbox=&q=  routes/mail.js (sendt-oversigt: udgående kunde-/bon-mails i dansk datointerval)
 POST   /api/mail/unmatched/:id/restore                   routes/mail.js (fortryd arkivering)
 POST   /api/mail/threads/:id/move  {customer_id|bon_id}  routes/mail.js (flyt fejlkoblet tråd + lærte adresser)
 POST   /api/mail/test                                    routes/mail.js (admin)
