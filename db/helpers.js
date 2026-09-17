@@ -807,6 +807,54 @@ function unitCountablePredicate() {
  * Genberegn total_units på en bon — boks-aware (se bonUnitsExpr).
  * Returnerer den nye total.
  */
+/**
+ * insertBonLines — skriv linjer på en bon og få tallene til at passe bagefter.
+ *
+ * Samler de fire ting der ALTID hører sammen når linjer lægges maskinelt på en
+ * bon: INSERT, recalc af enheder, recalc af totalen og et changelog-spor. Lå de
+ * hos hver kalder, ville de drive fra hinanden — og en glemt recalc er usynlig
+ * indtil et tal et helt andet sted er forkert.
+ *
+ * `lines` har formen fra services/menuItemsToLines.js (resolveMenuItemLines).
+ * Linjer uden pris får `line_total = null`, ikke 0: prisen er ukendt, ikke gratis.
+ *
+ * @returns {number} antal indsatte linjer
+ */
+function insertBonLines(db, bonId, lines, opts = {}) {
+    if (!Array.isArray(lines) || !lines.length) return 0;
+
+    const insert = db.prepare(`
+        INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit,
+            cost_price, unit_price, line_total, sort_order, is_accessory, special_request, co2e, notes)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `);
+    let sort = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) AS mx FROM bon_lines WHERE bon_id = ?`).get(bonId).mx;
+    for (const l of lines) {
+        const lineTotal = (l.unit_price != null && l.quantity) ? l.quantity * l.unit_price : null;
+        insert.run(
+            bonId, l.grocy_recipe_id, l.product_name, l.category, l.quantity, l.unit,
+            l.cost_price, l.unit_price, lineTotal, ++sort, 0, null, l.co2e, null
+        );
+    }
+
+    // Server-autoritativ recalc — samme helpers som POST /:id/lines.
+    recalcBonTotalUnits(db, bonId);
+    recalcBonTotal(db, bonId, { logIfChanged: false });
+
+    logChange({
+        entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines',
+        newValue: opts.changelogMessage || `${lines.length} linje(r) auto-genereret`,
+        notes: opts.notes || null,
+        userId: opts.userId ?? null,
+    });
+
+    if (opts.broadcast !== false) {
+        const { broadcast } = require('../shared/sse');
+        broadcast('bon_updated', { id: bonId });
+    }
+    return lines.length;
+}
+
 function recalcBonTotalUnits(db, bonId) {
     const { contrib, join, args } = bonUnitsExpr();
     const total = db.prepare(`
@@ -1069,7 +1117,7 @@ module.exports = {
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
     bonUnitsExpr, unitCountablePredicate,
-    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, hasDeliveryLine, findDeliveryLine,
+    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, insertBonLines, hasDeliveryLine, findDeliveryLine,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql, bonOwnsStockCostSql,
     driftLocationSql,
     countsAsSale, salesPriceCategorySql,

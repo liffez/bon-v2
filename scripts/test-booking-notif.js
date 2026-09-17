@@ -48,6 +48,14 @@ const db = getDb();
 const setSetting = (k, v) => db.prepare(
     `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(k, v);
 
+// Smagninger leveres og kræver derfor en adresse (migration 172). Den er ikke
+// det testen handler om, men uden den afviser handleren bookingen.
+const ADR = {
+    address_street: 'Vesterbrogade', address_nr: '10',
+    address_zip: '1620', address_city: 'København V',
+    address_lat: 55.6721, address_lon: 12.5560,
+};
+
 const internalOf = () => captured.find(c => c.templateKey === 'booking_internal_notification');
 const confirmOf  = (key) => captured.find(c => c.templateKey === key);
 
@@ -96,7 +104,7 @@ async function main() {
     captured.length = 0;
     const r1 = booking.handleSmagningBooking({
         first_name: 'Lærke', last_name: 'Andersen', email: 'laerke@example.invalid',
-        date: dateStr, time: slot.time, meeting_type: 'smagning'
+        date: dateStr, time: slot.time, meeting_type: 'smagning', ...ADR
     });
     ok(!!r1?.activityId, `bookingen oprettes (activity #${r1?.activityId})`);
     await settle();
@@ -120,7 +128,7 @@ async function main() {
     const r2 = booking.handleSmagningBooking({
         token,
         first_name: 'Lærke', last_name: 'Andersen', email: 'laerke@example.invalid',
-        date: dateStr, time: slot2.time, meeting_type: 'smagning'
+        date: dateStr, time: slot2.time, meeting_type: 'smagning', ...ADR
     });
     ok(!!r2?.activityId, `token-bookingen oprettes (activity #${r2?.activityId})`);
     await settle();
@@ -138,7 +146,7 @@ async function main() {
         'de to kilder er skelnelige — ellers er linjen værdiløs i en kampagne');
 
     // Og aktiviteten bærer stadig sin egen kilde i databasen.
-    const act = db.prepare(`SELECT booked_via FROM crm_activities WHERE id = ?`).get(r2.activityId);
+    const act = db.prepare(`SELECT booked_via FROM crm_activities WHERE id = ?`).get(r2?.activityId ?? -1) || {};
     ok(act?.booked_via === 'token_link', `crm_activities.booked_via = 'token_link' (fik '${act?.booked_via}')`);
 
     // ── 3) Kontakt-flow: samme regel ─────────────────────────────────
@@ -177,7 +185,7 @@ async function main() {
     booking.handleSmagningBooking({
         token,
         first_name: 'Lærke', last_name: 'Andersen', email: 'laerke@example.invalid',
-        date: dateStr, time: slot4.time, meeting_type: 'smagning'
+        date: dateStr, time: slot4.time, meeting_type: 'smagning', ...ADR
     });
     await settle();
     ok(!internalOf(), 'ingen intern notifikation når toggle er slået fra');

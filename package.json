@@ -105,6 +105,7 @@
     "test:offer-tag": "node --experimental-sqlite scripts/test-offer-mail-tag.js",
     "test:booking-link": "node --experimental-sqlite scripts/test-booking-link-mail.js",
     "test:booking-notif": "node --experimental-sqlite scripts/test-booking-notif.js",
+    "test:smagning-bon": "node --experimental-sqlite scripts/test-smagning-bon.js",
     "test:mail-signature": "node --env-file=.env.test --experimental-sqlite tests/mail_signature.test.js",
     "audit:kunder": "node --experimental-sqlite scripts/economic-customer-audit.js",
     "audit:dubletter": "node --experimental-sqlite scripts/company-duplicates.js",

@@ -441,8 +441,7 @@ async function generateLinesFromMenuItems(db, bonId, data) {
 
   const grocyAdapter = require('../services/grocyAdapter');
   const { resolveMenuItemLines } = require('../services/menuItemsToLines');
-  const { recalcBonTotalUnits, recalcBonTotal, logChange } = require('../db/helpers');
-  const { broadcast } = require('../shared/sse');
+  const { insertBonLines } = require('../db/helpers');
 
   // Bonens priskategori — festival-events rammer festival-prisen, ellers catering.
   const pcRow = db.prepare(`
@@ -474,30 +473,10 @@ async function generateLinesFromMenuItems(db, bonId, data) {
   }
   if (!lines.length) return;
 
-  const insert = db.prepare(`
-    INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit,
-        cost_price, unit_price, line_total, sort_order, is_accessory, special_request, co2e, notes)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `);
-  let sort = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) AS mx FROM bon_lines WHERE bon_id = ?`).get(bonId).mx;
-  for (const l of lines) {
-    const lineTotal = (l.unit_price != null && l.quantity) ? l.quantity * l.unit_price : null;
-    insert.run(
-      bonId, l.grocy_recipe_id, l.product_name, l.category, l.quantity, l.unit,
-      l.cost_price, l.unit_price, lineTotal, ++sort, 0, null, l.co2e, null
-    );
-  }
-
-  // Server-autoritativ recalc (samme helpers som POST /:id/lines)
-  recalcBonTotalUnits(db, bonId);
-  recalcBonTotal(db, bonId, { logIfChanged: false });
-
-  logChange({
-    entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines',
-    newValue: `${lines.length} linje(r) auto-genereret fra web-bestilling`,
+  insertBonLines(db, bonId, lines, {
+    changelogMessage: `${lines.length} linje(r) auto-genereret fra web-bestilling`,
     notes: 'Kundens menu-valg',
   });
-  broadcast('bon_updated', { id: bonId });
 
   console.log(`[web-order] Auto-genererede ${lines.length} linje(r) på bon ${bonId} (priskategori=${priceCategory})`);
 }

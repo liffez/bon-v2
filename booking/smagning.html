@@ -219,6 +219,23 @@
     /* Hidden helpers */
     .hidden { display: none; }
 
+    /* Leveringsadresse med DAWA-autocomplete. Samme opførsel som
+       bestillingsformularen — listen ligger oven på de næste felter. */
+    .addr-wrap { position: relative; }
+    .addr-sugg {
+      position: absolute; z-index: 20; left: 0; right: 0; top: 100%;
+      margin: 2px 0 0; padding: 0; list-style: none;
+      background: #fff; border: 2px solid var(--border); border-radius: 8px;
+      max-height: 240px; overflow-y: auto; display: none;
+      box-shadow: 0 6px 18px rgba(0,0,0,.10);
+    }
+    .addr-sugg li { padding: .55rem .8rem; cursor: pointer; font-size: .9rem; }
+    .addr-sugg li:hover, .addr-sugg li.active { background: var(--brand-light, #f4ede1); }
+    .addr-status { font-size: .8rem; margin-top: .3rem; min-height: 1.1em; }
+    .addr-status.ok { color: #2e7d32; }
+    .addr-status.err { color: var(--err); }
+    .addr-status.checking { color: var(--text-muted); }
+
     /* Tak-side */
     .thank-you {
       padding: 3rem 2rem;
@@ -336,6 +353,17 @@
       <div class="field">
         <label>Firma <span style="color:var(--text-muted);font-weight:400">(valgfri — privatkunde lader feltet stå tom)</span></label>
         <input type="text" name="company" id="company" autocomplete="organization">
+      </div>
+
+      <div class="field hidden" id="field-address">
+        <label>Leveringsadresse <span class="req">*</span>
+          <span style="color:var(--text-muted);font-weight:400">— vi kører smagsprøven ud til jer</span>
+        </label>
+        <div class="addr-wrap">
+          <input type="text" id="address_text" autocomplete="off" placeholder="Fx Prinsesse Charlottesgade 16, 2200…">
+          <ul class="addr-sugg" id="addr-sugg"></ul>
+        </div>
+        <div class="addr-status" id="addr-status"></div>
       </div>
 
       <div class="field-row" id="row-extra">
@@ -501,6 +529,13 @@ function applyMeetingTypeFields(mt) {
 
   document.getElementById('row-extra')
           .classList.toggle('hidden', fixedGuests !== null && !asksEvent);
+
+  // En smagning køres UD til kunden, så den skal have en adresse. "Andet" er
+  // en uforpligtende snak der fint kan tages på telefon. Reglen står på
+  // mødetypen (needs_delivery_address), ikke som en nøgle hardkodet her.
+  const needsAddr = !!(mt && mt.needs_delivery_address);
+  document.getElementById('field-address').classList.toggle('hidden', !needsAddr);
+  if (!needsAddr) clearAddress();
 }
 
 function selectMeetingType(key) {
@@ -804,6 +839,17 @@ function validateForm() {
     }
   });
 
+  // Adressen er ikke [required] i markup'en, fordi feltet kun gælder de
+  // mødetyper der leveres — et fast required ville blokere "Andet".
+  if (state.selectedMt?.needs_delivery_address) {
+    const inp = document.getElementById('address_text');
+    if (!inp.value.trim()) {
+      inp.closest('.field').classList.add('field-error');
+      if (!firstError) firstError = inp;
+      valid = false;
+    }
+  }
+
   if (firstError) {
     firstError.focus();
     firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -815,6 +861,125 @@ document.getElementById('booking-form').addEventListener('input', e => {
   const f = e.target.closest('.field');
   if (f) f.classList.remove('field-error');
 });
+
+// ============================================================
+// LEVERINGSADRESSE (DAWA)
+// ============================================================
+// Tredje kopi af det her opslag (shared/utils.js + public/embed/bestilling.html
+// er de to andre). Siden er standalone og kan ikke importere, så kopien er et
+// vilkår — men tests/dawa_autocomplete.test.js holder de tre i takt.
+//
+// To forespørgsler: én afgrænset til hovedstadsområdet og én uden filter.
+// DAWA svarer 0 hits når fuzzy kombineres med et kommunefilter, så kun den
+// globale er fuzzy. Uden det lokale opslag lå København slet ikke i svaret.
+const DAWA_LOCAL_KOMMUNER = ['0101','0147','0151','0153','0155','0157','0159','0161','0163','0165',
+  '0167','0169','0173','0175','0183','0185','0187','0190','0230','0240'];
+
+function dawaSortByPostnr(items) {
+  return (items || []).map((it, i) => ({ it, i })).sort((a, b) => {
+    let pa = parseInt((a.it.adresse || {}).postnr, 10), pb = parseInt((b.it.adresse || {}).postnr, 10);
+    if (isNaN(pa)) pa = 99999; if (isNaN(pb)) pb = 99999;
+    return (pa - pb) || (a.i - b.i);
+  }).map(x => x.it);
+}
+function dawaMergeSuggestions(local, global, limit) {
+  const seen = {}, out = [];
+  const take = list => dawaSortByPostnr(list).forEach(it => {
+    const key = (it.adresse && it.adresse.id) || it.tekst;
+    if (!key || seen[key]) return;
+    seen[key] = true; out.push(it);
+  });
+  take(local); take(global);
+  return out.slice(0, limit);
+}
+async function dawaSearch(q, limit = 10) {
+  const enc = encodeURIComponent(q);
+  const get = url => fetch(url).then(r => { if (!r.ok) throw new Error('DAWA ' + r.status); return r.json(); })
+                               .then(d => Array.isArray(d) ? d : []);
+  const [local, global] = await Promise.all([
+    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&kommunekode=${DAWA_LOCAL_KOMMUNER.join('|')}`).catch(() => []),
+    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&fuzzy=true`),
+  ]);
+  return dawaMergeSuggestions(local, global, limit);
+}
+
+let validatedAddress = null;
+let addrDebounce = null;
+
+function setAddrStatus(cls, txt) {
+  const el = document.getElementById('addr-status');
+  el.className = 'addr-status ' + (cls || '');
+  el.textContent = txt || '';
+}
+
+function clearAddress() {
+  validatedAddress = null;
+  const input = document.getElementById('address_text');
+  if (input) input.value = '';
+  document.getElementById('addr-sugg').style.display = 'none';
+  setAddrStatus('', '');
+}
+
+async function searchAddr(q) {
+  const sugg = document.getElementById('addr-sugg');
+  if (q.length < 2) { sugg.style.display = 'none'; return; }
+  try {
+    const d = await dawaSearch(q);
+    if (d.length) {
+      sugg.innerHTML = d.map(x => `<li data-id="${x.adresse.id}">${x.tekst}</li>`).join('');
+      sugg.style.display = 'block';
+    } else {
+      sugg.style.display = 'none';
+    }
+  } catch { sugg.style.display = 'none'; }
+}
+
+async function pickAddr(id, txt) {
+  document.getElementById('address_text').value = txt;
+  document.getElementById('addr-sugg').style.display = 'none';
+  setAddrStatus('checking', 'Slår adressen op…');
+  try {
+    const r = await fetch(`https://api.dataforsyningen.dk/adresser/${id}`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const adg = d.adgangsadresse;
+    validatedAddress = {
+      tekst:  txt,
+      street: adg.vejstykke.navn,
+      nr:     adg.husnr,
+      zip:    String(adg.postnummer.nr),
+      city:   adg.postnummer.navn,
+      lat:    adg.adgangspunkt.koordinater[1],
+      lon:    adg.adgangspunkt.koordinater[0]
+    };
+    setAddrStatus('ok', '✓ Adressen er fundet');
+  } catch {
+    // Vi kunne ikke slå den op — men vi smider ikke kundens indtastning væk.
+    // Serveren tager en adresse uden koordinater; geokodningen prøver igen.
+    validatedAddress = { tekst: txt, street: txt, nr: '', zip: '', city: '', lat: null, lon: null };
+    setAddrStatus('', 'Adressen kunne ikke verificeres — vi bruger den du skrev.');
+  }
+}
+
+(function initAddr() {
+  const input = document.getElementById('address_text');
+  const sugg  = document.getElementById('addr-sugg');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    validatedAddress = null;
+    setAddrStatus('', '');
+    clearTimeout(addrDebounce);
+    const q = input.value.trim();
+    addrDebounce = setTimeout(() => searchAddr(q), 250);
+  });
+  sugg.addEventListener('click', e => {
+    const li = e.target.closest('li[data-id]');
+    if (li) pickAddr(li.dataset.id, li.textContent);
+  });
+  document.addEventListener('click', e => {
+    if (!input.contains(e.target) && !sugg.contains(e.target)) sugg.style.display = 'none';
+  });
+})();
 
 document.getElementById('booking-form').addEventListener('submit', async e => {
   e.preventDefault();
@@ -835,6 +1000,20 @@ document.getElementById('booking-form').addEventListener('submit', async e => {
   data.meeting_type = state.selectedMt.key;
   data.date = state.selectedDate;
   data.time = state.selectedTime;
+
+  // Leveringsadresse — kun når mødetypen skal leveres. Feltet er skjult ellers,
+  // og serveren afviser alligevel en manglende adresse på en leveret type.
+  if (state.selectedMt.needs_delivery_address) {
+    const a = validatedAddress || {};
+    const typed = document.getElementById('address_text').value.trim();
+    data.address_street = a.street || typed;
+    data.address_nr     = a.nr   || '';
+    data.address_zip    = a.zip  || '';
+    data.address_city   = a.city || '';
+    data.address_text   = a.tekst || typed;
+    if (a.lat != null) data.address_lat = a.lat;
+    if (a.lon != null) data.address_lon = a.lon;
+  }
   data.submittedAt = new Date().toISOString();
   if (state.token) data.token = state.token;
 

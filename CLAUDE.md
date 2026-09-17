@@ -7088,6 +7088,80 @@ opdateret.
 
 ---
 
+### En smagning er en levering, ikke et møde hos os (17. september 2026)
+
+Booking-modulet var bygget som "kunden kommer forbi". Bekræftelsen sagde
+`Hos os: {{firmaAdresse}}`, formularen spurgte aldrig hvor kunden var, og
+aftalen endte aldrig i en bon. Virkeligheden er en anden: køkkenet pakker en
+fast smagsprøve — sliderskinne, sandwich i boks, cookieknæk — og vi kører den
+ud på dagen. Linjen var altså ikke bare uinformativ, den var **forkert**: den
+bad kunden møde op hos os.
+
+Tre ting fandtes i forvejen og gjorde arbejdet mindre end det lød:
+`crm_activities.bon_id` (koblingen), `payment_types.counts_as_revenue = 0`
+(Modregning/Sponsorat — så en gratis bon er én indstilling, ikke kode) og
+`resolveMenuItemLines` fra web-bestillingen, der laver linjer med priser
+snapshottet fra Grocy.
+
+**Telefonnummeret var ren data.** `company_phone` stod tom, så bekræftelsen
+sagde bogstaveligt *"ring til os på ."* Sættes i Settings → System.
+
+- **Migration 172**: `meeting_types.needs_delivery_address` (pr. type — "Andet"
+  er en snak der fint kan tages på telefon) + `crm_activities.delivery_address_id`
+  + fire indstillinger (auto-opret, menu, betalingstype, priskategori).
+  **Migration 173** retter bekræftelsens tekst, kun hvis den er urørt.
+- **Formularen** har DAWA-autocomplete, vist ud fra mødetypens flag. Kravet
+  håndhæves på **serveren** ud fra databasen, så en manipuleret POST ikke kan
+  springe det over.
+- **Bonen** får tid, adresse, pax og menuen, og dukker dermed op i køkkenet og
+  i Logistik af sig selv. Den ægte pris bliver stående — `counts_as_revenue = 0`
+  gør den til 0 i omsætning, mens enheder og produktion tæller som de skal.
+  Samme design som Sponsorat, så man kan se hvad smagsprøverne koster.
+- **Menuen er en indstilling**, ikke kode: retterne vælges i Settings fra
+  Grocys liste. Køkkenet skal kunne ændre smagsprøven uden en udrulning.
+
+> ⚠️ **Bon-oprettelsen er best-effort, og det er en beslutning — ikke sjusk.**
+> Kunden må ALDRIG få en fejl på bookingformularen fordi Grocy er nede. Er den
+> det, oprettes bonen **uden linjer** med grunden skrevet i interne noter:
+> adressen og tidspunktet er det køkkenet skal bruge først, og en bon der
+> tydeligt mangler mad er bedre end ingen bon. Ingen af de tre svigtveje er
+> stille — hver efterlader et spor på bonen eller i svaret.
+
+**Og der er en vej tilbage.** Slog auto-oprettelsen fejl, står aftalen uden
+bon — uden en udvej ville det være præcis den stille fejl resten af koden
+værner mod: bookingen ser fin ud, og køkkenet ser ingenting. Mødedetaljen i
+Kunde 360° viser derfor `⚠ Der er ingen bon på aftalen` med en **Opret bon**-knap
+(`POST /api/crm/activity/:id/create-bon`). Adressen ligger på aktiviteten netop
+for at overleve en fejlet bon.
+
+**Drive-by:** `insertBonLines` er trukket ud i `db/helpers.js` og deles nu af
+web-ordren og smagningen. De fire ting der altid hører sammen — INSERT, recalc
+af enheder, recalc af total, changelog — lå hos hver kalder, og en glemt recalc
+er usynlig indtil et tal et helt andet sted er forkert. Og
+`buildInternalNotificationVars` udfylder nu `antalGaester` fra mødetypen: en
+smagning er altid til to, men formularen sender intet, så sælgerens mail sagde
+`Antal:` blankt om noget vi udmærket vidste.
+
+**Tests:** `npm run test:smagning-bon` — 38 asserts in-process mod de ægte
+handlers (temp-DB af de rigtige migrations, Grocy stubbet).
+**Mutations-testet:** otte regler rulles hver især tilbage og fælder
+20/16/6/2/2/2/1/1 navngivne asserts. `tests/dawa_autocomplete.test.js` dækker nu
+den tredje kopi af DAWA-opslaget (bookingsiden kan ikke importere), efterprøvet
+ved at ændre kommunelisten i kopien.
+
+> ⚠️ **To fælder i testen, begge fanget:** en assert med `|| true` der altid
+> bestod, og en fixture-adresse der var husets EGEN — så kunne testen ikke se
+> forskel på "kundens adresse" og "vores", hvilket er præcis den forveksling
+> fejlen bestod i. Dertil fire asserts der **kastede** i stedet for at fejle,
+> så to mutationer så ud som brudte testscripts frem for fangne fejl.
+
+**Deploy:** migrationerne kører ved genstart. Bagefter i Settings →
+Booking — Smagsprøve: vælg retterne til smagsprøven (uden dem oprettes bonen
+uden linjer) og kontrollér betalingstypen — default er `Sponsorat`, og huset
+har måske sin egen. Sæt desuden `company_phone` under System.
+
+---
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
