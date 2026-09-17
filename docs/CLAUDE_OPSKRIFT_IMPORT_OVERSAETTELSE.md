@@ -1,9 +1,10 @@
 # CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md
 
-**Version:** v0.3
+**Version:** v0.4
 **Status:** Tillæg til `CLAUDE_OPSKRIFT_IMPORT.md` — oversættelseslag, enheder, svind, udbytte, målvægt og underopskrifter
 **Dato:** september 2026
 
+**Ændringer fra v0.3 (17.09.2026, gennemgang):** §8 rettet — nesting ER i brug i drift (28 referencer) og udfases af #270; importeren opretter aldrig nestings. Faktorbiblioteket starter som nyt modul og flytter IKKE CO₂-faktorerne (§7). `ingredient_alias` er planlagt, ikke eksisterende. Krydring harmoniseret til 0,5 % salt + 0,1 % peber (§6.2/§6.4/§9). Densitet har én kilde (§7). DTU-data holdes ude af git (§7). §12.1 følger Spor B's disciplin.
 **Ændringer fra v0.2:** Målvægt fastsat til 400 g for standardskålen (900 ml). Rollemodellen omskrevet fra procentfordeling til absolutte roller med basen som residual. Spinat afklaret som garniture. Eksisterende salatopskrifter skal justeres (§12).
 **Ændringer fra v0.1:** Bærer-klassifikation udgår af v1. Salater flyttet fra kilo-konvention til målvægt pr. skål. Emballage som egen skaleringsakse. Faktorbibliotek udskilt som eget modul.
 
@@ -194,7 +195,7 @@ en portion protein, uanset skålens størrelse.
 | **Protein** | Absolut — en portion er en portion | 100 g |
 | **Dressing** | Absolut pr. skål — mere gør salaten våd | 25 g |
 | **Garniture** | Absolut — pynt-skala. Spinat og andre blade hører her | 60–80 g samlet |
-| **Krydring** | Procent af målvægt | ca. 0,5 % |
+| **Krydring** | Procent af målvægt | ca. 0,6 % (salt 0,5 + peber 0,1) |
 | **Base** | **Residual** — fylder resten op | Beregnet |
 
 ### Beregning
@@ -271,8 +272,7 @@ kildeopskriften, som aldrig nævner den.
 produktionsopskrift skal være reproducerbar, og salt hører desuden med i
 deklarationen.
 
-Importeren sætter et nominelt tal som **procent af målvægten** — salt 1,0 %,
-peber 0,2 % — og markerer linjen "sat ved import, ikke målt" i importnoten.
+Importeren sætter et nominelt tal som **procent af målvægten** — salt 0,5 %, peber 0,1 % (svarer til de 2 g salt i regneeksemplet §11) — og markerer linjen "sat ved import, ikke målt" i importnoten.
 Procent frem for fast gramtal, så tallet følger med ved skalering. Realistiske
 tal, ikke placeholdere.
 
@@ -284,10 +284,9 @@ Måltabellen er ikke importer-specifik. Den har samme form som CO2-faktorerne:
 **en værdi, en kilde, en version.** DSK v1.2, Klimakompas 2025, DEFRA 2025 og
 DTU 2013 er fire datasæt i det samme register.
 
-Derfor: et **faktorbibliotek** som eget modul, som opskriftsimporteren,
-CO2-modulet og senere næringsberegningen slår op i — i stedet for tre steder der
-hver har deres egen tabel. Det løser samtidig udskiftningen til TRyeIT, fordi
-datasættet bliver konfiguration og ikke kode.
+Derfor: et **faktorbibliotek** som eget modul, som opskriftsimporteren og senere næringsberegningen slår op i — i stedet for tre steder der hver har deres egen tabel. Det løser samtidig udskiftningen til TRyeIT, fordi datasættet bliver konfiguration og ikke kode.
+
+**Afgrænsning (17.09.2026):** CO₂-faktorerne er i drift i dag som Grocy-userfields (`co2e_per_kg`, `co2e_source`, …) plus `co2_material_factors` (migration 121) og `co2_synonyms` (124), med rapport og motor bygget oven på. Biblioteket starter som **nyt modul med DTU-data** og rører ikke CO₂. At CO₂ adopterer registret er en selvstændig opgave bagefter — ikke en del af importen.
 
 ### Kilde: måltabellen
 
@@ -306,8 +305,9 @@ det databasebeskyttelsen dækker. Håndtering:
 3. `dataset`-feltet gør samlingen udskiftelig: TRyeIT-udgaven kan sendes med et
    datasæt bygget på egne målinger og frit tilgængelige værdier, uden kodeændring
 
-Det er samlingen der skal kunne skiftes ud, ikke de enkelte tal.
-(Ikke en juridisk vurdering.)
+Det er samlingen der skal kunne skiftes ud, ikke de enkelte tal. (Ikke en juridisk vurdering.)
+
+**Indtil tilladelsen er hjemme, hører DTU-samlingen ikke i git.** ETL-output lægges i `data/` (gitignored) og importeres lokalt/på serveren, som andre eksterne datasæt. Samme regel som for forretningstal.
 
 ### ETL, ikke live-opslag
 
@@ -358,13 +358,13 @@ for ca. 180 retter. Referencegrundlag for de absolutte roller i §6.2.
 `1 dl = 100 ml`, `1 spsk = 15 ml`, `1 tsk = 5 ml`.
 
 **`faktor_densitet`** — kg/l pr. produkttype, til ml→kg på væsker. Ikke fra DTU;
-egen tabel (vand 0,998, mælk 1,03, eddike 5 % ca. 1,007, olie ca. 0,915, sirup
-1,3–1,4). Udvides efter behov.
+egen tabel (vand 0,998, mælk 1,03, eddike 5 % ca. 1,007, olie ca. 0,915, sirup 1,3–1,4). Udvides efter behov.
+
+**Én kilde:** Grocy har også QU-konverteringer kilo↔liter pr. produkt (dem #372 opretter for drikkevarerne). De to må ikke vedligeholdes hver for sig. `faktor_densitet` er kilden; importeren opretter Grocy-konverteringen ud fra den når en ny væskevare oprettes, og en manuel Grocy-konvertering der afviger fra tabellen rapporteres, ikke overskrives.
 
 ### Kobling til Grocy-varer
 
-DTU-navn → Grocy-vare kører gennem den eksisterende `ingredient_alias`-tabel og
-resolveren med konfidensbånd A/B/C. "Agurk, rå" → "Agurk - Grøn" er et B-match
+DTU-navn → Grocy-vare kører gennem `ingredient_alias`-tabellen og resolveren med konfidensbånd A/B/C — begge er **planlagt i moderspecens §3.2 og findes ikke i kode endnu**; CO₂-modulets `co2_synonyms` er det nærmeste der findes, og har samme form. "Agurk, rå" → "Agurk - Grøn" er et B-match
 der bekræftes én gang og derefter huskes.
 
 ---
@@ -373,16 +373,13 @@ der bekræftes én gang og derefter huskes.
 
 ### Model — bekræftet af praksis
 
-Grocys nesting ("Inkluderede opskrifter") bruges **ikke**; feltet står tomt i
-eksisterende opskrifter. En underopskrift bliver:
+Grocys nesting ("Inkluderede opskrifter") **er i brug i drift** — 28 referencer målt 20.08.2026 — men er på vej ud: #270 konverterer de ni Hurtig-blandinger til producerede varer, én ad gangen. `RR Produktion`-opskrifterne bruger allerede produceret-vare-mønstret. **Importeren opretter aldrig nestings.** En underopskrift bliver:
 
 1. Sin egen opskrift efter samme konvention (1 kg for produktion)
 2. Med "Produceret vare" → et mellemprodukt på lager
 3. Moderopskriften forbruger en mængde af **mellemproduktet**
 
-Det er allerede praksis: Chili Mayo og Kylling - BBQ står i BBQ-salaten med
-`[→]`, altså som producerede varer. Modellen skal ikke indføres, bare
-understøttes ved import.
+Det er allerede praksis: Chili Mayo og Kylling - BBQ står i BBQ-salaten med `[→]`, altså som producerede varer. Modellen skal ikke indføres, bare understøttes ved import — og importeren må ikke genindføre det #270 er ved at fjerne.
 
 Det giver kostpris, allergener og CO2 som roll-up, lagerstyring på dressingen,
 og passer på produktionspolitikkens "RR hurtig produktion".
@@ -424,7 +421,7 @@ selvstændig 1 kg-opskrift?"* med fire svar:
 | 1 dl hvedemel | 0,060 kg | 60 g/dl (DTU 2013, kilde b) |
 | 500 g gulerødder, skrællede | 0,550 kg | +10 % rensesvind (DTU 2013, kilde f) |
 | 2 spsk rapsolie | 0,027 kg | 15 ml/spsk × 0,915 kg/l |
-| Salt efter smag | 0,004 kg | 1,0 % af målvægt — sat ved import, ikke målt |
+| Salt efter smag | 0,002 kg | 0,5 % af målvægt — sat ved import, ikke målt |
 | 1 bøf | 0,175 kg | midtpunkt, kilde angiver 150-200 g |
 
 Antagelseskolonnen er den vigtigste af de tre. Den kan efterprøves bagefter, og
@@ -450,7 +447,7 @@ hvor køkkennoterne i forvejen står:
 
 ```
 Importnote (DTU 2013): 1 dl mel = 60 g. Gulerødder +10 % rensesvind.
-Bøf 175 g, kilde angiver 150-200 g. Salt sat til 1,0 % af målvægt, ikke målt.
+Bøf 175 g, kilde angiver 150-200 g. Salt sat til 0,5 % af målvægt, ikke målt.
 ```
 
 **Bon beholder den strukturerede version** i `import_plan`, så en import kan
@@ -499,8 +496,7 @@ urørt — man skærer ikke i kyllingen for at ramme en skålvægt.
 
 ## 12. Opgaver
 
-1. **Juster de fire eksisterende salatopskrifter** i `02 Salat` til 400 g efter
-   rollemodellen. Basen absorberer differencen i hver.
+1. **Juster de fire eksisterende salatopskrifter** i `02 Salat` til 400 g efter rollemodellen. Basen absorberer differencen i hver. *Det er en Grocy-stamdataændring og kører efter Spor B's disciplin: efter #270, én opskrift ad gangen, `recipe-fingerprint.js` før og efter — kostpris, CO₂ og enhedstælling på de fire flytter sig.*
 2. Vej en fyldt skål af hver af de fire, og registrer pakningsdensiteten i
    `faktor_skaaltype`. Fire målte værdier er mere værd end DTU til dette formål.
 3. Beslut bowl-skålens volumen og målvægt (§6.1) når skålene anskaffes.
