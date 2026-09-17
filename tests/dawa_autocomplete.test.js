@@ -152,20 +152,32 @@ test('svar der ikke er et array (DAWA-fejlobjekt) giver tom liste, ikke crash', 
 });
 
 /* ──────────────────────────────────────────────────────────────
-   §3 Bestillingssidens kopi svarer det samme
+   §3 De offentlige siders kopier svarer det samme
+
+   To standalone-sider bærer hver sin kopi af opslaget, fordi de ikke kan
+   importere noget. Kopierne er et vilkår — at de driver fra hinanden er det
+   ikke: så ville den ene side rangere adresserne anderledes end den anden,
+   og ingen ville opdage det før en kunde ikke kunne finde sin vej.
    ────────────────────────────────────────────────────────────── */
 
-test('public/embed/bestilling.html bærer samme flette-regel som utils.js', () => {
-    const html = fs.readFileSync(path.join(ROOT, 'public', 'embed', 'bestilling.html'), 'utf8');
+const PUBLIC_DAWA_COPIES = [
+    ['public', 'embed', 'bestilling.html'],
+    ['booking', 'smagning.html'],
+];
+
+for (const parts of PUBLIC_DAWA_COPIES) {
+  const rel = parts.join('/');
+  test(rel + ' bærer samme flette-regel som utils.js', () => {
+    const html = fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
     const src = html.split('<script>').slice(1).map(s => s.split('</script>')[0]).join('\n');
     // Kun de rene funktioner — resten af siden rører DOM ved load.
     const pick = (name) => {
         const m = src.match(new RegExp('(?:const|function) ' + name + '[\\s\\S]*?\\n}\\n'));
-        assert.ok(m, 'fandt ikke ' + name + ' i bestilling.html');
+        assert.ok(m, 'fandt ikke ' + name + ' i ' + rel);
         return m[0];
     };
     const kom = src.match(/const DAWA_LOCAL_KOMMUNER = \[[\s\S]*?\];/);
-    assert.ok(kom, 'DAWA_LOCAL_KOMMUNER mangler i bestilling.html');
+    assert.ok(kom, 'DAWA_LOCAL_KOMMUNER mangler i ' + rel);
     const ctx = { parseInt, isNaN, Array, Object };
     vm.createContext(ctx);
     // `const` bindes ikke på sandkassens global — hent dem via scriptets slutværdi.
@@ -185,4 +197,5 @@ test('public/embed/bestilling.html bærer samme flette-regel som utils.js', () =
             'limit ' + limit,
         );
     }
-});
+  });
+}

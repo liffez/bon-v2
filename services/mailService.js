@@ -67,6 +67,25 @@ function getSetting(key) {
 }
 
 /**
+ * {{booking_link}} stod i teksten, men kunne ikke opløses til en rigtig URL.
+ *
+ * Kastes frem for at sende en mail med et hul i. Kalderen oversætter den til
+ * en besked brugeren kan handle på — den er skrevet på dansk til et menneske,
+ * ikke til en log.
+ */
+class BookingLinkError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'BookingLinkError';
+        this.code = 'booking_link_unresolvable';
+    }
+}
+
+// Vises i test-mail hvor der pr. definition ingen kunde er at binde et token
+// til. Skal IKKE ligne en URL — ingen mailklient må kunne gøre den klikbar.
+const BOOKING_LINK_TEST_MARKER = '[booking-link — laves først når mailen sendes til en rigtig kunde]';
+
+/**
  * Erstat {{variabel}} placeholders. Ren tekst-udfolder — sætter IKKE signatur på.
  *
  * Signaturen hører til i sendMail() (se applySignature), så den rammer hver eneste
@@ -79,6 +98,8 @@ function getSetting(key) {
  *   - bookingFlow — 'smagning' eller 'kontakt' (default: 'smagning')
  *   - bookingIntent — meeting_type-key der forvælges (kun smagning)
  *   - appendSignature — udgået; accepteres stadig, men ignoreres
+ *   - lenientBookingLink — KUN til test-mail: et uopløseligt {{booking_link}}
+ *     bliver til en synlig markering i stedet for at kaste. Se BookingLinkError.
  */
 function renderTemplate(body, vars = {}, ctx = {}) {
     let result = body;
@@ -111,15 +132,23 @@ function renderTemplate(body, vars = {}, ctx = {}) {
             // open-tracking + 302 til tools-siden (baseret på token's flow-felt).
             const url = `${baseUrl}/b/${token}`;
             result = result.replace(/\{\{booking_link\}\}/g, url);
+        } else if (ctx.lenientBookingLink) {
+            // KUN test-mail. Der findes ingen kunde at binde et token til, så
+            // linket KAN ikke laves — men pladsholderen slettes ikke: så ville
+            // testen vise en mail der ikke ligner den kunden får. Markeringen
+            // siger hvad der mangler, og den er umulig at forveksle med en URL.
+            result = result.replace(/\{\{booking_link\}\}/g, BOOKING_LINK_TEST_MARKER);
         } else {
-            // Manglende customer_id eller base URL → fjern placeholder så mailen ikke får
-            // en halv URL eller en synlig {{booking_link}}-streng.
-            if (!baseUrl) {
-                console.warn('[mail] {{booking_link}} sprunget over: hverken booking_customer_url_base eller booking_public_url_base er sat');
-            } else if (!customerId) {
-                console.warn('[mail] {{booking_link}} sprunget over: customerId mangler i context');
-            }
-            result = result.replace(/\{\{booking_link\}\}/g, '');
+            // Tavs sletning var det gamle svar her, og den var farlig: mailen
+            // gik afsted med et hul hvor linket skulle stå, og afsenderen fik
+            // intet at vide. Samme fejlklasse som #305/#319 — handlingen påstod
+            // at være lykkedes, mens bivirkningen aldrig fyrede.
+            throw new BookingLinkError(!baseUrl
+                ? 'Booking-linket kan ikke laves: der er ingen URL-base sat op. '
+                  + 'Sæt "URL-base" under Settings → Booking — Smagsprøve.'
+                : 'Booking-linket kan ikke laves: mailen er ikke knyttet til en kunde. '
+                  + '{{booking_link}} kræver en kunde — send fra en bon der har en kunde på sig, '
+                  + 'eller fra CRM → Kunde 360°.');
         }
     }
 
@@ -489,7 +518,7 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
  * bookingFlow / bookingIntent videregives til renderTemplate så {{booking_link}}
  * kan generere et token bundet til kunde + sælger + flow + intent.
  */
-async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, context = null, userId = null, attachments = [], smtpPrefix = 'smtp', bookingFlow = 'smagning', bookingIntent = null, isSystem = false }) {
+async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, context = null, userId = null, attachments = [], smtpPrefix = 'smtp', bookingFlow = 'smagning', bookingIntent = null, isSystem = false, lenientBookingLink = false }) {
     const tmpl = getDb().prepare('SELECT subject, body_text, append_signature FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
@@ -499,7 +528,18 @@ async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerI
         enrichedVars.tag = buildTag(context);
     }
 
-    const renderCtx = { customerId, userId, bookingFlow, bookingIntent };
+    // Kender vi ikke kunden direkte, men mailen hører til en bon, så er bonens
+    // kunde den rigtige. Udledes HER — ét sted — så hvert kaldested ikke skal
+    // huske det hver for sig og drive fra hinanden.
+    //
+    // Kun til RENDERING. customerId sendes bevidst ikke videre til sendMail:
+    // det ville skrive customer_id på en bon-tråd og flytte hvilke tråde der
+    // slås op som kundens "aktive" — en anden ændring end den her.
+    let renderCustomerId = customerId;
+    if (!renderCustomerId && bonId) {
+        renderCustomerId = getDb().prepare('SELECT customer_id FROM bons WHERE id = ?').get(bonId)?.customer_id || null;
+    }
+    const renderCtx = { customerId: renderCustomerId, userId, bookingFlow, bookingIntent, lenientBookingLink };
 
     const subject = renderTemplate(tmpl.subject, enrichedVars, renderCtx);
     const text    = renderTemplate(tmpl.body_text, enrichedVars, renderCtx);
@@ -1150,6 +1190,8 @@ module.exports = {
     triggerPoll,
     refetchUnmatchedMail,
     renderTemplate,
+    BookingLinkError,
+    BOOKING_LINK_TEST_MARKER,
     applySignature,
     generateBookingToken,
     getPollState,

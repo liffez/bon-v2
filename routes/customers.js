@@ -280,16 +280,26 @@ router.post('/:id/mail', handle(async (req, res) => {
 
     // Process body for {{booking_link}} (og evt. fremtidige universelle vars).
     // Signaturen sættes på i sendMail — ikke her.
-    const renderedText = renderTemplate(text, {}, {
-        customerId,
-        userId,
-        bookingFlow:   flow,
-        bookingIntent: booking_intent_meeting_type || null
-    });
-    const renderedSubject = renderTemplate(subject || '', {}, {
-        customerId, userId, bookingFlow: flow,
-        bookingIntent: booking_intent_meeting_type || null
-    });
+    let renderedText, renderedSubject;
+    try {
+        renderedText = renderTemplate(text, {}, {
+            customerId,
+            userId,
+            bookingFlow:   flow,
+            bookingIntent: booking_intent_meeting_type || null
+        });
+        renderedSubject = renderTemplate(subject || '', {}, {
+            customerId, userId, bookingFlow: flow,
+            bookingIntent: booking_intent_meeting_type || null
+        });
+    } catch (err) {
+        // Uopløseligt booking-link er brugerens at rette (typisk manglende
+        // URL-base i Settings) — ikke en serverfejl. Beskeden skal ud i UI'et.
+        if (err.code === 'booking_link_unresolvable') {
+            return res.status(400).json({ error: err.message, code: err.code });
+        }
+        throw err;
+    }
 
     const result = await sendMail({
         to, subject: renderedSubject, text: renderedText,

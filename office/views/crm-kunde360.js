@@ -2650,6 +2650,23 @@ window._k3OpenActivityDetail = function(activityId) {
           '</div>'
         : '';
 
+    // En smagning køres ud til kunden, så den skal ende i en bon køkkenet kan
+    // pakke. Auto-oprettelsen er best-effort (Grocy kan være nede), så hvis den
+    // mangler, skal det kunne SES og rettes herfra — ellers er det en stille
+    // fejl: aftalen ser fin ud, og køkkenet ser ingenting.
+    let bonHtml = '';
+    if (a.bon_id) {
+        bonHtml = '<div style="margin-top:14px;padding:10px 12px;background:#f2f7f2;border:1px solid #cfe3cf;border-radius:8px;font-size:13px;">' +
+            '✓ Bon <a href="#" onclick="event.preventDefault();window.openDrawer&&window.openDrawer(' + a.bon_id + ')" ' +
+            'style="font-weight:600;color:var(--brand-primary,#8e631f)">' + escapeAttr(a.bon_number || ('#' + a.bon_id)) + '</a> ligger klar til køkkenet' +
+            '</div>';
+    } else if (a.meeting_needs_delivery && !a.done_at) {
+        bonHtml = '<div id="k3MeetingBonWarn" style="margin-top:14px;padding:10px 12px;background:#fdf6e3;border:1px solid #e3d6a8;border-radius:8px;font-size:13px;">' +
+            '⚠ Der er ingen bon på aftalen — køkkenet kan ikke se smagsprøven. ' +
+            '<button onclick="_k3CreateMeetingBon(' + a.id + ')" style="margin-left:6px;padding:5px 11px;border:1px solid var(--brand-primary,#8e631f);background:#fff;color:var(--brand-primary,#8e631f);border-radius:6px;cursor:pointer;font-weight:600;">Opret bon</button>' +
+            '</div>';
+    }
+
     const actionsHtml = !a.done_at
         ? '<div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">' +
             '<button onclick="_k3MarkActivityDone(' + a.id + ')" style="padding:8px 14px;border:1px solid var(--brand-primary,#8e631f);background:var(--brand-primary,#8e631f);color:#fff;border-radius:6px;cursor:pointer;font-weight:600;">✓ Markér som afholdt</button>' +
@@ -2659,8 +2676,29 @@ window._k3OpenActivityDetail = function(activityId) {
     if (typeof openModal === 'function') {
         openModal({
             title: '🤝 ' + (a.meeting_type_label || 'Møde'),
-            bodyHtml: tableHtml + messageHtml + actionsHtml
+            bodyHtml: tableHtml + messageHtml + bonHtml + actionsHtml
         });
+    }
+};
+
+// Lav den bon auto-oprettelsen ikke nåede. Serveren siger hvorfor hvis den
+// stadig ikke kan — fx at menuen ikke er sat op — og den besked skal ud i
+// panelet, ikke ned i en konsol.
+window._k3CreateMeetingBon = async function(activityId) {
+    const box = document.getElementById('k3MeetingBonWarn');
+    if (box) box.innerHTML = 'Opretter bon…';
+    try {
+        const r = await fetch('/api/crm/activity/' + activityId + '/create-bon', { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || ('Kunne ikke oprette bon (' + r.status + ')'));
+        if (box) {
+            box.innerHTML = '✓ Bon ' + escapeAttr(d.bon_number || '') + ' oprettet'
+                + (d.lines ? ' med ' + d.lines + ' linje(r)' : '')
+                + (d.warning ? '<div style="margin-top:6px;color:#8a6d3b">' + escapeAttr(d.warning) + '</div>' : '');
+        }
+        _k3LoadData();
+    } catch (err) {
+        if (box) box.innerHTML = '⚠ ' + escapeAttr(err.message);
     }
 };
 

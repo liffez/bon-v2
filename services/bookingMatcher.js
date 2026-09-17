@@ -274,6 +274,10 @@ function fullName(first, last) {
 }
 
 function loadCustomerWithCompany(customerId) {
+    // node:sqlite kan ikke binde undefined og kaster en rå ERR_INVALID_ARG_TYPE.
+    // Kalderne håndterer allerede "ingen kunde" via `|| {}`, så et manglende id
+    // skal give samme tomme svar — ikke vælte mail-orkestreringen.
+    if (customerId == null) return undefined;
     const db = getDb();
     return db.prepare(`
         SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.company_id,
@@ -302,7 +306,7 @@ function buildCommonVars() {
  * @param {string} args.date         YYYY-MM-DD
  * @param {string} args.time         HH:MM
  */
-function buildSmagningMailVars({ customerId, meetingType, date, time }) {
+function buildSmagningMailVars({ customerId, meetingType, date, time, deliveryAddress = '' }) {
     const cust = loadCustomerWithCompany(customerId) || {};
     return {
         ...buildCommonVars(),
@@ -313,7 +317,10 @@ function buildSmagningMailVars({ customerId, meetingType, date, time }) {
         moedeTypeLabel:  meetingType?.label || '',
         varighed:        meetingType?.duration_min != null ? String(meetingType.duration_min) : '',
         datoFormatteret: fmtDanishDate(date),
-        tid:             time || ''
+        tid:             time || '',
+        // Hvor smagsprøven skal hen. Skabelonen sagde før "Hos os: <vores
+        // adresse>" — den inviterede kunden ind til os, selvom vi kører ud.
+        leveringsAdresse: deliveryAddress || ''
     };
 }
 
@@ -370,14 +377,18 @@ function buildKontaktMailVars({ customerId, contactReason }) {
  * @param {string} [args.time]           smagning-flow
  * @param {Object} [args.formData]       Rå webhook-data (guest_count, message)
  */
-function buildInternalNotificationVars({ customerId, flow, meetingType, contactReason, date, time, formData }) {
+function buildInternalNotificationVars({ customerId, flow, meetingType, contactReason, date, time, formData, guestCount = null, viaToken = false }) {
     const cust = loadCustomerWithCompany(customerId) || {};
     const flowLabel = flow === 'smagning' ? 'Smagsprøve' : (flow === 'kontakt' ? 'Kontakt' : flow);
 
     const baseUrl = (getSetting('booking_public_url_base') || '').replace(/\/+$/, '');
     const crmKundeUrl = baseUrl ? `${baseUrl}/office/?view=crm-kunde360&id=${customerId}` : '';
 
-    const guestCount = formData?.guest_count ? String(formData.guest_count) : '';
+    // Formularen sender ikke antallet når mødetypen selv svarer på det (en
+    // smagning er altid til to). Uden fallbacken stod "Antal:" tomt i sælgerens
+    // mail om noget vi udmærket vidste. Samme kilde som aktiviteten bruger.
+    const guests = guestCount ?? formData?.guest_count ?? meetingType?.fixed_guest_count ?? null;
+    const guestText = (guests === null || guests === '') ? '' : String(guests);
     const message    = (formData?.message || '').trim();
 
     return {
@@ -391,14 +402,21 @@ function buildInternalNotificationVars({ customerId, flow, meetingType, contactR
         kontaktAarsagLabel:  contactReason?.label || '',
         datoFormatteret:     fmtDanishDate(date),
         tid:                 time || '',
-        antalGaester:        guestCount,
+        antalGaester:        guestText,
         beskedFraKunde:      message,
+        // Hvilken af de to veje bookingen kom ind ad. I en kampagne er det
+        // forskellen på "mit link virkede" og "nogen fandt selv siden".
+        bookingKilde:        viaToken ? 'Dit mail-link' : 'Fandt selv booking-siden',
         crmKundeUrl:         crmKundeUrl
     };
 }
 
 /**
  * Send intern notifikation til sælger ved ny booking.
+ *
+ * Sendes ved ENHVER booking — også når kunden kom via sælgerens eget mail-link.
+ * Token-flow var undtaget indtil september 2026; undtagelsen byggede på at
+ * sælgeren huskede sine egne links, og det holder ikke i en kampagne.
  *
  * Springes over hvis:
  *   - booking_notify_owner_enabled !== '1'
@@ -408,7 +426,7 @@ function buildInternalNotificationVars({ customerId, flow, meetingType, contactR
  *
  * Fire-and-forget — fejl logges men kastes ikke videre.
  */
-async function sendInternalNotification({ ownerId, flow, customerId, meetingType, contactReason, date, time, formData }) {
+async function sendInternalNotification({ ownerId, flow, customerId, meetingType, contactReason, date, time, formData, guestCount = null, viaToken = false }) {
     if (getSetting('booking_notify_owner_enabled') !== '1') return;
     if (!ownerId) {
         console.log('[booking] Intern notif sprunget over: ingen owner');
@@ -425,7 +443,7 @@ async function sendInternalNotification({ ownerId, flow, customerId, meetingType
     }
 
     const vars = buildInternalNotificationVars({
-        customerId, flow, meetingType, contactReason, date, time, formData
+        customerId, flow, meetingType, contactReason, date, time, formData, guestCount, viaToken
     });
 
     try {

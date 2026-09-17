@@ -7437,6 +7437,178 @@ topup 35, preview-produced 21, plus `test:produktion`, `test:consume-hardening` 
 
 ---
 
+### {{booking_link}} gik ud til kunden som rå tekst (17. september 2026)
+
+En skabelon med `{{booking_link}}` sendt fra bon-draweren landede hos kunden med
+**pladsholderen selv** midt i mailen. Ikke et tomt hul — de fjorten tegn.
+
+Årsagen er en arbejdsdeling ingen havde skrevet ned: bon-draweren og bon-kortet
+folder skabelonen ud i **browseren** (`_drawerApplyTemplate` / `_bmApplyTemplate`)
+og sender resultatet til serveren som fritekst. **Ingen frontend har nogensinde
+sendt `templateKey`** til `POST /api/bons/:id/mail` — kun `POST /api/mail/test`
+gør det. Fritekst-grenen kaldte `sendMail` direkte, som ikke renderer noget, så
+serveren så aldrig en skabelon. `{{booking_link}}` er server-side per
+konstruktion (den skal skrive en token-række), og browseren kan derfor ikke
+opløse den.
+
+Og i den ene sti hvor serveren FAKTISK rendrede, var svaret værre: en uopløselig
+pladsholder blev **slettet i stilhed** med en `console.warn`. Mailen gik afsted
+med et hul hvor linket skulle stå, og afsenderen fik intet at vide. Samme
+fejlklasse som #305/#319 (memory `project_silent_sideeffect_failures`).
+
+- **`POST /api/bons/:id/mail` renderer nu fritekst** — emne og brødtekst — med
+  bonens kunde som kontekst, præcis som `POST /api/customers/:id/mail` altid har
+  gjort. Bonens kunde er den eneste kunde en bon-mail kan handle om.
+- **`renderTemplate` sletter aldrig mere.** Uopløseligt link → `BookingLinkError`
+  (`code: 'booking_link_unresolvable'`) med en dansk besked skrevet til
+  afsenderen, ikke til en log. Ruterne oversætter den til **400** — det er
+  brugerens at rette, ikke en serverfejl — og **ingen mail bliver sendt**.
+- **`lenientBookingLink` er KUN til test-mailen**, som pr. definition ingen kunde
+  har. Dér bliver linket til en synlig markering
+  (`[booking-link — laves først når mailen sendes til en rigtig kunde]`).
+  Den ligner bevidst **ikke** en URL, så ingen mailklient kan gøre den klikbar,
+  og "Send test" virker fortsat på skabelonen. Vi opfinder aldrig et token.
+- **`sendFromTemplate` udleder kunden af `bonId`** når `customerId` ikke er givet
+  — ét sted, så hvert kaldested ikke skal huske det hver for sig. Det er dét der
+  gør at web-ordrens bekræftelse (som kun sender `bonId`) ikke pludselig ville
+  fejle på et booking-link. **Kun til rendering:** `customerId` sendes bevidst
+  ikke videre til `sendMail`, for så ville `customer_id` blive skrevet på en
+  bon-tråd og flytte hvilke tråde der slås op som kundens "aktive".
+- **Fejlen når helt ud i UI'et.** Drawer og bon-kort skrev `Fejl — prøv igen` på
+  knappen og kastede serverens besked væk, så afsenderen intet havde at handle
+  på. Begge viser nu beskeden (`.bm-send-error`).
+- **Settings** viser `{{booking_link}}` som chip med stiplet kant + forklaring i
+  tooltip: den fyldes af serveren, ikke af browseren, og er derfor tom i en test.
+
+**Tests:** `npm run test:booking-link` — 36 asserts mod de ægte endpoints over
+HTTP (temp-DB af de rigtige migrations, spawnet server). Regressionen er en
+fritekst-mail med `{{booking_link}}` sendt som draweren sender den, hvor
+`mail_messages.body_text` bagefter skal bære en rigtig kort URL — og det korte
+link følges hele vejen til sin 302. **Mutations-testet:** seks kerneregler rulles
+hver især tilbage og fælder 13/9/1/2/2/4 navngivne asserts.
+
+> ⚠️ To fælder i testen selv, begge fanget undervejs: en assert der **kastede**
+> (`body.match(...)[0]` på null) i stedet for at fejle, så den vigtigste mutation
+> så ud som et brudt testscript frem for en fanget fejl — og en fixture der
+> sendte `key` i stedet for `templateKey` til test-ruten, hvorved den tavst
+> testede `booking_confirmation` i stedet for skabelonen.
+
+`scripts/test-m7a.js` fastholdt den gamle "fjernes uden fejl"-adfærd og er
+opdateret til den nye. (`scripts/test-m11.js` kan ikke køre uden en seedet
+dev-DB — pre-eksisterende, bekræftet mod `HEAD`.)
+
+**Sælgeren får nu besked ved ENHVER booking (samme runde).** Token-flow — altså
+en booking via sælgerens eget `{{booking_link}}` — sprang den interne
+notifikation over, ud fra at "sælgeren sendte jo linket, hun ved det". Den
+antagelse holder ikke i en kampagne: sendes der tyve links på en uge, kan ingen
+huske hvem der har booket, og bookingen kunne derfor kun opdages ved selv at
+kigge på CRM-dashboardet. At huske er præcis dét systemet er bedre til end
+mennesket. Undtagelsen er fjernet begge steder (smagning + kontakt).
+
+Notifikationen går til **tokenets `sales_user_id`** — den der sendte linket —
+ikke til husets standard-ejer. `booking_notify_owner_enabled` slår fortsat det
+hele fra og er urørt.
+
+Med undtagelsen væk ser de to slags booking ens ud i indbakken, så
+**`{{bookingKilde}}`** siger hvilken det var: `Dit mail-link` eller
+`Fandt selv booking-siden`. I en kampagne er det forskellen på "mit link virkede"
+og "nogen fandt selv siden". **Migration 171** sætter linjen ind i skabelonen —
+men KUN hvis den stadig står præcis som seedet i 051. Har nogen skrevet i den, er
+den deres; variablen ligger i stedet som chip i Settings (booking-skabelonerne
+havde ingen chips og faldt tilbage på bon-sættet, som intet af det indeholder).
+
+> ⚠️ **Vagten i migrationen er kun load-bearing hvis fixturen beholder
+> `Flow:`-linjen.** SQL'ens `replace()` er i sig selv et no-op når søgestrengen
+> ikke findes, så en testfixture uden den linje består uanset om `WHERE`-vagten
+> er der — mutationen slap igennem første gang af netop den grund.
+
+**Tests:** `npm run test:booking-notif` — 22 asserts in-process mod de ægte
+handlers med stubbet `sendFromTemplate` (temp-DB af de rigtige migrations).
+Regressionen er en token-booking hvor den interne notifikation SKAL være der.
+**Mutations-testet:** fem regler rulles hver især tilbage og fælder 5/4/3/1/2
+navngivne asserts. `scripts/test-m7-bcd.js` fastholdt den gamle adfærd og er
+opdateret.
+
+> ⚠️ **Notifikationen er fire-and-forget og ligger EFTER kunde-bekræftelsens
+> `await`.** Måler man synkront efter `handleSmagningBooking`, ser man kun
+> bekræftelsen og tror notifikationen mangler. Testen venter en tick.
+
+---
+
+### En smagning er en levering, ikke et møde hos os (17. september 2026)
+
+Booking-modulet var bygget som "kunden kommer forbi". Bekræftelsen sagde
+`Hos os: {{firmaAdresse}}`, formularen spurgte aldrig hvor kunden var, og
+aftalen endte aldrig i en bon. Virkeligheden er en anden: køkkenet pakker en
+fast smagsprøve — sliderskinne, sandwich i boks, cookieknæk — og vi kører den
+ud på dagen. Linjen var altså ikke bare uinformativ, den var **forkert**: den
+bad kunden møde op hos os.
+
+Tre ting fandtes i forvejen og gjorde arbejdet mindre end det lød:
+`crm_activities.bon_id` (koblingen), `payment_types.counts_as_revenue = 0`
+(Modregning/Sponsorat — så en gratis bon er én indstilling, ikke kode) og
+`resolveMenuItemLines` fra web-bestillingen, der laver linjer med priser
+snapshottet fra Grocy.
+
+**Telefonnummeret var ren data.** `company_phone` stod tom, så bekræftelsen
+sagde bogstaveligt *"ring til os på ."* Sættes i Settings → System.
+
+- **Migration 172**: `meeting_types.needs_delivery_address` (pr. type — "Andet"
+  er en snak der fint kan tages på telefon) + `crm_activities.delivery_address_id`
+  + fire indstillinger (auto-opret, menu, betalingstype, priskategori).
+  **Migration 173** retter bekræftelsens tekst, kun hvis den er urørt.
+- **Formularen** har DAWA-autocomplete, vist ud fra mødetypens flag. Kravet
+  håndhæves på **serveren** ud fra databasen, så en manipuleret POST ikke kan
+  springe det over.
+- **Bonen** får tid, adresse, pax og menuen, og dukker dermed op i køkkenet og
+  i Logistik af sig selv. Den ægte pris bliver stående — `counts_as_revenue = 0`
+  gør den til 0 i omsætning, mens enheder og produktion tæller som de skal.
+  Samme design som Sponsorat, så man kan se hvad smagsprøverne koster.
+- **Menuen er en indstilling**, ikke kode: retterne vælges i Settings fra
+  Grocys liste. Køkkenet skal kunne ændre smagsprøven uden en udrulning.
+
+> ⚠️ **Bon-oprettelsen er best-effort, og det er en beslutning — ikke sjusk.**
+> Kunden må ALDRIG få en fejl på bookingformularen fordi Grocy er nede. Er den
+> det, oprettes bonen **uden linjer** med grunden skrevet i interne noter:
+> adressen og tidspunktet er det køkkenet skal bruge først, og en bon der
+> tydeligt mangler mad er bedre end ingen bon. Ingen af de tre svigtveje er
+> stille — hver efterlader et spor på bonen eller i svaret.
+
+**Og der er en vej tilbage.** Slog auto-oprettelsen fejl, står aftalen uden
+bon — uden en udvej ville det være præcis den stille fejl resten af koden
+værner mod: bookingen ser fin ud, og køkkenet ser ingenting. Mødedetaljen i
+Kunde 360° viser derfor `⚠ Der er ingen bon på aftalen` med en **Opret bon**-knap
+(`POST /api/crm/activity/:id/create-bon`). Adressen ligger på aktiviteten netop
+for at overleve en fejlet bon.
+
+**Drive-by:** `insertBonLines` er trukket ud i `db/helpers.js` og deles nu af
+web-ordren og smagningen. De fire ting der altid hører sammen — INSERT, recalc
+af enheder, recalc af total, changelog — lå hos hver kalder, og en glemt recalc
+er usynlig indtil et tal et helt andet sted er forkert. Og
+`buildInternalNotificationVars` udfylder nu `antalGaester` fra mødetypen: en
+smagning er altid til to, men formularen sender intet, så sælgerens mail sagde
+`Antal:` blankt om noget vi udmærket vidste.
+
+**Tests:** `npm run test:smagning-bon` — 38 asserts in-process mod de ægte
+handlers (temp-DB af de rigtige migrations, Grocy stubbet).
+**Mutations-testet:** otte regler rulles hver især tilbage og fælder
+20/16/6/2/2/2/1/1 navngivne asserts. `tests/dawa_autocomplete.test.js` dækker nu
+den tredje kopi af DAWA-opslaget (bookingsiden kan ikke importere), efterprøvet
+ved at ændre kommunelisten i kopien.
+
+> ⚠️ **To fælder i testen, begge fanget:** en assert med `|| true` der altid
+> bestod, og en fixture-adresse der var husets EGEN — så kunne testen ikke se
+> forskel på "kundens adresse" og "vores", hvilket er præcis den forveksling
+> fejlen bestod i. Dertil fire asserts der **kastede** i stedet for at fejle,
+> så to mutationer så ud som brudte testscripts frem for fangne fejl.
+
+**Deploy:** migrationerne kører ved genstart. Bagefter i Settings →
+Booking — Smagsprøve: vælg retterne til smagsprøven (uden dem oprettes bonen
+uden linjer) og kontrollér betalingstypen — default er `Sponsorat`, og huset
+har måske sin egen. Sæt desuden `company_phone` under System.
+
+---
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

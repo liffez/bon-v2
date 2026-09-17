@@ -272,7 +272,12 @@ router.post('/test', requireAuth('admin'), handle(async (req, res) => {
     };
 
     try {
-        const info = await sendFromTemplate({ templateKey: key, to, vars: dummyVars });
+        // lenientBookingLink: en test-mail har pr. definition ingen kunde, så et
+        // {{booking_link}} kan ikke laves. Testen skal stadig kunne sendes — den
+        // viser da en synlig markering der hvor linket ville stå.
+        const info = await sendFromTemplate({
+            templateKey: key, to, vars: dummyVars, lenientBookingLink: true
+        });
         res.json({ ok: true, messageId: info.messageId });
     } catch (mailErr) {
         return res.status(400).json({ error: mailErr.message });

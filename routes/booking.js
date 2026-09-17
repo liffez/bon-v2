@@ -44,7 +44,7 @@ router.get('/meeting-types', handle((req, res) => {
 
     const rows = getDb().prepare(`
         SELECT id, key, label, emoji, description, duration_min,
-               fixed_guest_count, asks_event_type
+               fixed_guest_count, asks_event_type, needs_delivery_address
         FROM meeting_types
         WHERE is_active = 1 AND is_bookable = 1
         ORDER BY sort_order, id
@@ -198,7 +198,7 @@ router.get('/page-templates/:key', handle((req, res) => {
 router.get('/admin/meeting-types', requireAuth('admin'), handle((req, res) => {
     const rows = getDb().prepare(`
         SELECT id, key, label, emoji, description, duration_min, is_bookable, is_system, is_active, sort_order,
-               fixed_guest_count, asks_event_type
+               fixed_guest_count, asks_event_type, needs_delivery_address
         FROM meeting_types
         ORDER BY sort_order, id
     `).all();
@@ -240,7 +240,7 @@ router.patch('/admin/meeting-types/:id', requireAuth('admin'), handle((req, res)
     if (!row) return res.status(404).json({ error: 'Mødetype ikke fundet' });
 
     const { label, emoji, description, duration_min, is_bookable, is_active, sort_order,
-            fixed_guest_count, asks_event_type } = req.body;
+            fixed_guest_count, asks_event_type, needs_delivery_address } = req.body;
 
     if (row.is_system && is_active === 0) {
         return res.status(400).json({ error: 'Systemmødetype kan ikke deaktiveres' });
@@ -260,6 +260,7 @@ router.patch('/admin/meeting-types/:id', requireAuth('admin'), handle((req, res)
     }
     if (is_bookable !== undefined)  { updates.push('is_bookable = ?');  params.push(is_bookable ? 1 : 0); }
     if (asks_event_type !== undefined) { updates.push('asks_event_type = ?'); params.push(asks_event_type ? 1 : 0); }
+    if (needs_delivery_address !== undefined) { updates.push('needs_delivery_address = ?'); params.push(needs_delivery_address ? 1 : 0); }
     if (fixed_guest_count !== undefined) {
         // Tom streng og null betyder begge "spørg kunden" — feltet ryddes.
         const g = (fixed_guest_count === '' || fixed_guest_count === null) ? null : parseInt(fixed_guest_count);
@@ -397,6 +398,48 @@ router.post('/booking-smagning', async (req, res) => {
     }
 });
 
+/**
+ * Skriv bookingens leveringsadresse til `addresses` og returnér id'et.
+ *
+ * Samme felter som POST /api/addresses tager imod, og samme fire-and-forget
+ * geokodning: DAWA må aldrig kunne blokere eller vælte en booking. Klienten
+ * sender coords med fra autocompleten, så opslaget er som regel unødvendigt.
+ */
+function createDeliveryAddress(db, data) {
+    const street = String(data.address_street || '').trim();
+    if (!street) return null;
+
+    const lat = Number(data.address_lat), lon = Number(data.address_lon);
+    const res = db.prepare(`
+        INSERT INTO addresses (street_name, street_nr, postal_code, city, lat, lon)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+        street,
+        String(data.address_nr   || '').trim() || null,
+        String(data.address_zip  || '').trim() || null,
+        String(data.address_city || '').trim() || null,
+        Number.isFinite(lat) ? lat : null,
+        Number.isFinite(lon) ? lon : null
+    );
+    const id = Number(res.lastInsertRowid);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        require('../services/geocode').geocodeAddress(id)
+            .catch(err => console.warn(`[booking] geokodning af adresse #${id} fejlede:`, err.message));
+    }
+    return id;
+}
+
+/** Adressen som én læsbar linje til bekræftelsesmailen. */
+function formatAddress(db, addressId) {
+    if (!addressId) return '';
+    const a = db.prepare('SELECT street_name, street_nr, postal_code, city FROM addresses WHERE id = ?').get(addressId);
+    if (!a) return '';
+    const vej = [a.street_name, a.street_nr].filter(Boolean).join(' ');
+    const by  = [a.postal_code, a.city].filter(Boolean).join(' ');
+    return [vej, by].filter(Boolean).join(', ');
+}
+
 function handleSmagningBooking(data) {
     const db = getDb();
     const {
@@ -422,9 +465,14 @@ function handleSmagningBooking(data) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) return { error: 'invalid_date' };
     if (!/^\d{2}:\d{2}$/.test(data.time))       return { error: 'invalid_time' };
 
+    // Leveringsadresse — kun for de mødetyper der skal leveres. En smagning
+    // KØRES UD; uden en adresse kan hverken bekræftelsen, køkkenet eller
+    // Logistik gøre deres arbejde. Kravet står på mødetypen (migration 172),
+    // ikke i formularen, så en manipuleret POST ikke kan springe det over.
+
     // 3. Hent meeting_type
     const mt = db.prepare(`
-        SELECT id, label, duration_min, fixed_guest_count, asks_event_type
+        SELECT id, label, duration_min, fixed_guest_count, asks_event_type, needs_delivery_address
         FROM meeting_types
         WHERE key = ? AND is_active = 1 AND is_bookable = 1
     `).get(data.meeting_type);
@@ -433,8 +481,21 @@ function handleSmagningBooking(data) {
         return { error: 'unknown_meeting_type' };
     }
 
+    if (mt.needs_delivery_address && !String(data.address_street || '').trim()) {
+        console.warn('[booking-smagning] Mangler leveringsadresse til', mt.label);
+        return { error: 'missing_address' };
+    }
+
     // 4. Atomisk: re-tjek slot er ledigt + opret crm_activity i samme transaction.
     //    Forhindrer race-condition hvor to brugere booker samme slot samtidigt.
+    // Adressen skrives FØR aktiviteten, så dens id kan gemmes med i samme
+    // transaktion. Slår slot-tjekket fejl, står en ubrugt adresserække tilbage
+    // — det er harmløst, og alternativet (adressen mistes) er det ikke.
+    let addressId = null;
+    if (mt.needs_delivery_address) {
+        addressId = createDeliveryAddress(db, data);
+    }
+
     let activityId, customerId, companyId, ownerId;
     try {
         const txResult = transaction(db, () => {
@@ -468,12 +529,13 @@ function handleSmagningBooking(data) {
                 INSERT INTO crm_activities (
                     customer_id, type, meeting_type_id, due_at, duration_min,
                     guest_count, event_type, text, owner_user_id,
-                    booked_via, created_at
-                ) VALUES (?, 'meeting', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    booked_via, delivery_address_id, created_at
+                ) VALUES (?, 'meeting', ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             `).run(
                 match.customerId, mt.id, dueAt, mt.duration_min,
                 guestCount, eventType, message, owner,
-                data.token ? 'token_link' : 'public_smagning'
+                data.token ? 'token_link' : 'public_smagning',
+                addressId
             );
 
             const newId = Number(r.lastInsertRowid);
@@ -526,9 +588,33 @@ function handleSmagningBooking(data) {
         booked_via: data.token ? 'token_link' : 'public_smagning'
     });
 
-    // 7. Mails (fire-and-forget — webhook returnerer altid 200 til kunden).
+    // 7. Bonen — så køkkenet kan pakke smagsprøven og Logistik kan køre den ud.
+    //
+    // Fire-and-forget. En smagning er aftalt i det øjeblik aktiviteten står i
+    // databasen; bonen er en afledt ting vi kan lave igen fra CRM. Kunden må
+    // ALDRIG få en fejl på formularen fordi Grocy er nede.
+    if (mt.needs_delivery_address) {
+        require('../services/smagningBon')
+            .createSmagningBon({
+                activityId, customerId, companyId,
+                date: data.date, time: data.time,
+                addressId,
+                guestCount: mt.fixed_guest_count ?? (data.guest_count ? parseInt(data.guest_count) : null),
+                meetingTypeLabel: mt.label,
+            })
+            .then(r => { if (r.created) broadcast('crm_activity_created', { activity_id: activityId, customer_id: customerId, type: 'meeting' }); })
+            .catch(err => console.error('[booking-smagning] Bon kunne ikke oprettes:', err.message));
+    }
+
+    // 8. Mails (fire-and-forget — webhook returnerer altid 200 til kunden).
     //    a) Bekræftelse til kunden via kontakt@
-    //    b) Intern notifikation til sælger (skippes hvis token-flow — sælger vidste det)
+    //    b) Intern notifikation til sælger — ALTID, også ved token-flow.
+    //
+    // Token-flow var tidligere undtaget ud fra "sælgeren sendte jo linket, hun
+    // ved det". Den holder ikke i en kampagne: sendes der tyve links på en uge,
+    // kan ingen huske hvem der har booket. Notifikationen er netop dét systemet
+    // er bedre til end hukommelsen. {{bookingKilde}} fortæller hvilken af delene
+    // det var, så et kampagne-svar kan skelnes fra en der selv fandt siden.
     sendBookingMails({
         flow: 'smagning',
         customerEmail: data.email,
@@ -538,7 +624,9 @@ function handleSmagningBooking(data) {
         date: data.date,
         time: data.time,
         formData: data,
-        skipInternalNotif: !!data.token
+        deliveryAddress: formatAddress(db, addressId),
+        guestCount: mt.fixed_guest_count ?? (data.guest_count ? parseInt(data.guest_count) : null),
+        viaToken: !!data.token
     }).catch(err => console.error('[booking-smagning] Mail-orkestrering:', err.message));
 
     console.log(`[booking-smagning] Booking oprettet: activity #${activityId}, kunde=${customerId}, ejer=${ownerId}`);
@@ -550,7 +638,7 @@ function handleSmagningBooking(data) {
  * Orkestrer kunde-bekræftelse + intern notifikation for en booking.
  * Kaldes fire-and-forget fra webhook-handlers så mail-fejl ikke vælter responset.
  */
-async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meetingType, contactReason, date, time, formData, skipInternalNotif = false }) {
+async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meetingType, contactReason, date, time, formData, deliveryAddress = '', guestCount = null, viaToken = false }) {
     const {
         buildSmagningMailVars,
         buildKontaktMailVars,
@@ -564,7 +652,7 @@ async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meet
     if (customerEmail && customerId) {
         try {
             if (flow === 'smagning') {
-                const vars = buildSmagningMailVars({ customerId, meetingType, date, time });
+                const vars = buildSmagningMailVars({ customerId, meetingType, date, time, deliveryAddress });
                 await sendFromTemplate({
                     templateKey: 'booking_smagning_confirmation',
                     to: customerEmail,
@@ -595,21 +683,19 @@ async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meet
         }
     }
 
-    // b) Intern notifikation til sælger
-    if (!skipInternalNotif) {
-        await sendInternalNotification({
-            ownerId,
-            flow,
-            customerId,
-            meetingType,
-            contactReason,
-            date,
-            time,
-            formData
-        });
-    } else {
-        console.log(`[booking-${flow}] Intern notif sprunget over (token-flow)`);
-    }
+    // b) Intern notifikation til sælger — uanset hvordan bookingen kom ind.
+    await sendInternalNotification({
+        ownerId,
+        flow,
+        customerId,
+        meetingType,
+        contactReason,
+        date,
+        time,
+        formData,
+        guestCount,
+        viaToken
+    });
 }
 
 // ===========================================================================
@@ -723,7 +809,8 @@ function handleKontaktBooking(data) {
         booked_via: bookedVia
     });
 
-    // 8. Mails (fire-and-forget) — spring intern notif over ved token-flow
+    // 8. Mails (fire-and-forget). Intern notif sendes også ved token-flow — se
+    //    begrundelsen i smagnings-handleren ovenfor.
     sendBookingMails({
         flow: 'kontakt',
         customerEmail: data.email,
@@ -731,7 +818,7 @@ function handleKontaktBooking(data) {
         ownerId: owner,
         contactReason: reason,
         formData: data,
-        skipInternalNotif: !!data.token
+        viaToken: !!data.token
     }).catch(err => console.error('[booking-kontakt] Mail-orkestrering:', err.message));
 
     console.log(`[booking-kontakt] Task oprettet: activity #${activityId}, kunde=${match.customerId}, årsag=${reason.key}, result=${result || '(none)'}`);
