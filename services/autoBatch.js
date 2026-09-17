@@ -41,16 +41,10 @@
 
 'use strict';
 
-const { buildProducerIndex, yieldPerBatchStockOf, collectRecipeNeedsFlat } = require('./ingredientResolver');
-
-/** Grocy-gruppen der afgør hvem der laver varen. Sammenlignes normaliseret. */
-const HURTIG_GROUP = 'rr produktion hurtig';
+const { buildProducerIndex, yieldPerBatchStockOf, collectRecipeNeedsFlat,
+        productionTypeOf } = require('./ingredientResolver');
 
 const FLOAT_TOL = 1e-9;
-
-function groupOf(recipeRaw) {
-    return String(recipeRaw?.userfields?.grupper || '').trim().toLowerCase();
-}
 
 /**
  * Hvor meget rækker råvarerne til?
@@ -135,8 +129,10 @@ function planAutoBatches({ needs, rawRecipeMap, posByRecipe, nestingsByRecipe,
         if (!product) continue;
 
         // Gruppen er grænsen. Er varen kun lavet af `RR Produktion`, rører vi
-        // den ALDRIG — personalet laver den efter plan.
-        const hurtig = producers.filter(r => groupOf(r) === HURTIG_GROUP);
+        // den ALDRIG — personalet laver den efter plan. Politikken aflæses via
+        // den DELTE `productionTypeOf` (#329), så auto-batchen og lagertrækket
+        // ikke kan blive uenige om hvem der laver hvad.
+        const hurtig = producers.filter(r => productionTypeOf(r) === 'on_demand');
         if (!hurtig.length) continue;
 
         const stock = effectiveStock(pid);
@@ -244,7 +240,7 @@ function autoBatchNonce(bonId, recipeId) {
     return `auto:bon:${bonId}:recipe:${recipeId}`;
 }
 
-module.exports = { planAutoBatches, affordableBatches, autoBatchNonce, groupOf, HURTIG_GROUP };
+module.exports = { planAutoBatches, affordableBatches, autoBatchNonce };
 
 /**
  * Udfør planen: producér i Grocy, skriv revisionsspor, læg manglende råvarer

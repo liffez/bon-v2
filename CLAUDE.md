@@ -7309,6 +7309,76 @@ funktioner browseren bruger) + en fjerde case i `T_BESTILLING_CUTOFF_UI` der læ
 wiring-mutationen, hvor ét af de tre links rulles tilbage til en bar mailto.
 Regression grøn: cutoff 22, attribution 23, dawa 12, wish-lines 64.
 
+### Produktionstypen bor ét sted — og et planlagt mellemprodukt trækkes som vare (#329, 16. september 2026)
+
+To roller deler den samme opskriftstabel: **`RR produktion Hurtig`** er mayo og dressing,
+som Bon selv laver ved LEVERET af råvarer der står på lager (#267), og **`RR Produktion`**
+er langtidsstegt gris og syltede rødløg, som personalet laver efter plan, i forvejen.
+Grænsen mellem dem er Grocy-gruppen — og den blev aflæst i **to** filer med hver sin kopi
+af navnet og hver sin `groupOf`. To steder der skal blive enige om det samme er præcis
+sådan #349 og #353 opstod.
+
+- **`productionTypeOf(recipeRaw)`** i [services/ingredientResolver.js](services/ingredientResolver.js)
+  giver `'on_demand'` · `'to_stock'` · `null` (opskriften producerer ingen vare), og
+  **`buildProductionPolicy(rawRecipeMap)`** slår det op pr. `product_id`. Har en vare
+  flere producenter — Falaffel har tre — og er bare **én** af dem Hurtig, er varen
+  `on_demand`: det er dén mulighed der afgør hvad trækket må gøre, og samme valg
+  `planAutoBatches` allerede traf. `autoBatch.js`, `grocyAdapter.planConsume`,
+  `tjek-dagen.js` og `audit-blend-batches.js` importerer nu politikken.
+- **Vagten i `resolveConsumeItems`:** er en underopskrift `to_stock`, trækkes **varen** —
+  aldrig dens råvarer. Råvarerne blev trukket dengang varen blev produceret; trak menuen
+  dem igen, ville de være væk to gange i Grocy og kun én gang i virkeligheden, og varen
+  ville aldrig blive trukket. Både en dobbelt-tælling og en skjult mangel i ét. Er varen
+  tom, SKAL det kunne ses (`CLAUDE_HURTIG_PRODUKTION.md` §7.2 — den må gå i shortfall);
+  et fald-igennem til råvarerne ville dække over præcis dét signal.
+- **Hurtig er bevidst undtaget** (brugerens valg): er en `on_demand`-opskrift stadig
+  nestet, trækkes dens råvarer som hidtil. Først når menuen er rewired til en produktlinje,
+  trækkes produktet — og da har auto-batchen lavet det. **Ingen adfærdsændring i drift.**
+- **Uden erklæret udbytte** falder vi tilbage til råvarerne og **siger det højt**. Et
+  tavst nul-træk ville gøre råvarelageret for højt uden at nogen kunne se hvorfor — samme
+  fejlklasse som #305/#319. Hullet er et manglende felt i Grocy (#372), ikke en beslutning
+  koden skal træffe. Låst af mutation M4.
+
+> **Vagten er inert i drift i dag — det er målt, ikke antaget.** Snapshottet i
+> `data/gate-baseline/` siger: 14 opskrifter producerer en vare, og **nul** af dem er
+> nestet. Den halv-konverterede tilstand findes altså ikke endnu; vagten er der for at
+> #270's udrulning ikke kan tabe på rækkefølgen, hvor produktet oprettes før menuerne er
+> rewired (`--kun-rewire`). Beviset er at `test-recipe-factor.js` blev grøn **uden at
+> blive rørt**. Den aktuelle tilstand måles på serveren med
+> `npm run audit:produktionspolitik` (read-only).
+
+**Rapporten viser også det den IKKE kan se.** Første kørsel i drift gav 13 `to_stock` +
+3 `on_demand` — og driften spurgte hvor dressingerne var. Svaret: Senneps Mayo (6 menuer),
+Frisk Grønt (26), Løvstikke Mayo (8), Skære Slider Brød (12), Trøffel Mayo, Yoghurt
+dressing, Balsamico + løg og Æggesalat har **ingen `Produces product`** i Grocy, så
+`productionTypeOf` giver `null` og de er usynlige for de tre første lister pr.
+konstruktion. Rapporten har derfor en fjerde: **"nestet uden vare"**, grupperet efter
+Grocy-gruppen og med antal menuer, tungeste først. Uden den kan man ikke skelne *"alt er
+konverteret"* fra *"jeg kigger kun på de konverterede"* — og det er netop dét der gør
+resten troværdigt.
+
+> Vi filtrerer bevidst **ikke** på gruppen, men viser den: en slider-boks der nester sin
+> ret er en anden ting end en dressing, og hvilke der bør blive en vare (§5.1) er en
+> beslutning om stamdata, ikke noget en rapport skal træffe. Gruppe-nøglen normaliseres
+> med den delte `recipeGroupOf`, så to stavemåder ikke bliver to blokke.
+
+> ⚠️ **Enhederne hentes kun når vagten kan fyre.** Første udgave lagde
+> `grocy.getQuantityUnits()` i `resolveConsumeItems`' ubetingede `Promise.all`, og
+> `test-recipe-factor.js` styrtede med *"Lokation Test mangler grocy_api_key"* — testen
+> stubber adapteren, men ikke dén funktion. Samme fælde som race-testens `getStockFresh`
+> ovenfor. Kaldet ligger nu bag en billig forhånds-scanning af nestings, så den hotteste
+> sti ikke bærer en afhængighed den ikke bruger.
+
+**Tests:** `npm run test:consume-policy` — 16 asserts (politikken som én definition ·
+`to_stock` trækker varen · `on_demand` uændret · ukendt udbytte falder tilbage og siger
+det · vagten holder i dybde 2). Grocy stubbes på adapteren. **Mutations-testet: 6
+mutationer, alle fanget** (vagt slået fra → 4 falder · politik ignorerer gruppen → 5 ·
+`continue` fjernet → 2 · tavst nul ved ukendt udbytte → 2 · første-producent-vinder → 1 ·
+politik uden produkt-krav → 1). Regression grøn: recipe-factor 8, prep-packing 12,
+subrecipe-status 16, resolver-graph 8, yield-model 14, packing-units 18, gram-chaining 6,
+topup 35, preview-produced 21, plus `test:produktion`, `test:consume-hardening` og
+`test:deduct-watchdog` uden en eneste FAIL.
+
 ---
 
 ## Næste opgave

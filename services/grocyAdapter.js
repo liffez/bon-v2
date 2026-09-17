@@ -1325,8 +1325,8 @@ async function planConsume(lines, overrides = null, extras = null, recipeFactors
     // kunne vise noget andet end det der så faktisk sker.
     let producerIndex = new Map(), planByPid = new Map(), erHurtig = () => false;
     try {
-        const { buildProducerIndex } = require('./ingredientResolver');
-        const { planAutoBatches, groupOf, HURTIG_GROUP } = require('./autoBatch');
+        const { buildProducerIndex, productionTypeOf } = require('./ingredientResolver');
+        const { planAutoBatches } = require('./autoBatch');
         const [rawRecipeMap, allPos, nestings, quConversions] = await Promise.all([
             getRecipesRawMap(), getAllRecipesPos(), getRecipeNestings(), getQuantityUnitConversions(),
         ]);
@@ -1334,7 +1334,7 @@ async function planConsume(lines, overrides = null, extras = null, recipeFactors
         for (const x of allPos)   (posByRecipe[x.recipe_id] ||= []).push(x);
         for (const n of nestings) (nestingsByRecipe[n.recipe_id] ||= []).push(n);
         producerIndex = buildProducerIndex(rawRecipeMap);
-        erHurtig = (r) => groupOf(r) === HURTIG_GROUP;
+        erHurtig = (r) => productionTypeOf(r) === 'on_demand';
         const plan = planAutoBatches({
             needs: items.map(it => ({ product_id: it.product_id, amount_stock: it.amount_stock })),
             rawRecipeMap, posByRecipe, nestingsByRecipe, productMap,
