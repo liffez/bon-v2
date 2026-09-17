@@ -7838,6 +7838,31 @@ Grocy 20.012, vejet over loggen 24.502, simpelt snit 109.903).
 > 2024, så vinduet ser ingen af dem. Vi renser ikke historikken; vi holder op med at læse
 > så langt tilbage.
 
+**Vinduet er en indstilling, ikke en konstant** (migration 176,
+`settings.recipe_cost_price_window_days`, default 90). #557 er et forsøg: 90 dage er
+valgt fordi giften er fra 2024, men det rigtige tal kendes først når man har set hvor
+mange varer vinduet faktisk fanger — målt 17. sep rammer kun 16 af 156 snittet, mens 56
+af de 127 der falder tilbage ville være fanget af 180 dage.
+
+Feltet ligger i **⚙-popoveren inde i Opskrifter & priser**, ikke i den globale
+settings-liste: en indstilling man ikke kan se virkningen af, bliver glemt, og listen er
+lang nok. Den aktive værdi står skrevet ud i overskriften (*"Kostpriser … · snit over 90
+dage"*), så tallene i tabellen aldrig er regnet på noget man ikke kan se.
+
+To ting gør at skiftet ikke bare bliver gemt:
+- **Cache-nøglen bærer vinduet** (`product_unit_cost_details:<dage>`). Uden det ville et
+  skift servere de gamle tal i op til ti minutter, og indstillingen ligne noget der ikke
+  virkede.
+- **Kostpriserne genberegnes i samme kald** — samme kode som "Opdater priser"-knappen.
+  Fejler Grocy, er indstillingen stadig gemt, og det siges i svaret i stedet for at blive
+  slugt.
+
+`clampWindowDays` (7–1095 dage) bor sammen med reglen, så serveren, helperen og popoveren
+klamper ens. Vrøvl i indstillingen falder tilbage på defaulten frem for at slå kostprisen
+ihjel; et vrøvl-kald til endpointet afvises med 400 i stedet for tavst at blive gemt som
+defaulten. En gemt advarsel bærer `window_days`, så teksten siger det vindue den blev
+regnet under — ellers ville en ændring få gamle advarsler til at lyve.
+
 **Falder tilbage i denne rækkefølge:** snit over vinduet → seneste køb (ingen køb i
 vinduet) → Grocys egne tal: nyeste lagerpost → `last_price` → `avg_price` →
 lagerværdi/mængde → `missing_price`. `source` på hver pris siger hvilket led der blev
@@ -7896,16 +7921,21 @@ kopi af den gamle kode, og ingen omskifter i produktionskoden. Dækket af
 `scripts/audit-grocy-prices.js` (fra #571) er den anden halvdel: den finder de enkelte
 forkerte posteringer og skriver journal-id'et ud, så rækken kan slås op i Lagerjournalen.
 
-**Tests:** `npm run test:kostpris` — 149 asserts (54 + 11 + 73 + 12), plus `G9` i
+**Tests:** `npm run test:kostpris` — 208 asserts (63 + 11 + 73 + 12 + 49), plus `G9` i
 konverterings-gaten (23/0). Kæden er dækket hele vejen: reglerne som rene funktioner,
 det der havner i `recipe_cost_cache`, `/overview`-svaret (routeren mountes in-process med
 Grocy stubbet på `fetch`), og rækken + drill-down-panelet renderet fra den ægte
-`office/views/opskrifter.js` i en vm-sandkasse.
+`office/views/opskrifter.js` i en vm-sandkasse. Indstillingen har sin egen suite
+(`test-kostpris-vindue.js`, 49) der måler at vinduet BESTEMMER prisen og ikke bare
+bliver gemt: fixturen har et køb der ligger inde i 180 dage og ude af 90, så de to
+vinduer giver målbart forskellige tal (40 kr mod 25 kr) hele vejen til `recipe_cost_cache`.
 
-**Mutations-testet: tretten mutationer, alle fanget** af hver sin navngivne assert —
+**Mutations-testet: 24 mutationer, alle fanget** af hver sin navngivne assert —
 heriblandt at fjerne vinduet (6 falder), at regne et simpelt snit i stedet for et vægtet
 (3), at lade drill-downet udlede prisen selv (1) og at glemme vinduets startdato i
-adapteren (1). Mutationerne køres mod hvert testscript **for sig**: `test:kostpris` kæder
+adapteren (1). For indstillingen: at hardkode vinduet igen (4), at droppe det fra
+cache-nøglen (4), at holde op med at klampe (3), aldrig at rydde helper-cachen (13),
+at springe genberegningen over (2) og at tage imod vrøvl (4). Mutationerne køres mod hvert testscript **for sig**: `test:kostpris` kæder
 dem med `&&`, så en fejl i det første ville skjule om de øvrige overhovedet blev kørt —
 og de første par runder så derfor grønnere ud end de var.
 

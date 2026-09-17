@@ -11,6 +11,7 @@
  * PUT    /api/recipes/targets             — bulk-upsert mål
  * PATCH  /api/recipes/targets/:category   — opdater ét mål (inline-edit)
  * DELETE /api/recipes/targets/:category   — fjern mål for kategori
+ * PUT    /api/recipes/price-window        — kostpris-vinduet i dage (#557)
  * GET    /api/grocy/recipe-link/:id       — 302-redirect til Grocy
  *
  * Moms-doktrin: revenue summeres som incl moms i SQL og konverteres via
@@ -40,7 +41,9 @@ function unitCostOf(d) {
 }
 const itemPriceBackfill = require('../services/itemPriceBackfill');
 const { refreshRecipeCosts, classifyCachedCost } = require('../services/recipeCostRefresh');
-const { describeWarning } = require('../services/recipeCost');
+const { describeWarning, clampWindowDays, PRICE_WINDOW_DAYS_DEFAULT,
+        MIN_PRICE_WINDOW_DAYS, MAX_PRICE_WINDOW_DAYS } = require('../services/recipeCost');
+const { getRecipeCostWindowDays, invalidateRecipeCostWindowCache } = require('../db/helpers');
 const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
 
@@ -351,6 +354,7 @@ router.get('/overview', handle(async (req, res) => {
         cost_refreshed_at: _sqliteUtcToIso(oldestRefreshed),
         cost_stale: _staleLevel(oldestRefreshed),
         backfill_ran: !backfillResult.skipped,
+        price_window_days: getRecipeCostWindowDays(),
         summary: {
             active_count: activeCount,
             total_count: recipes.length,
@@ -550,7 +554,61 @@ router.get('/targets', handle(async (req, res) => {
         // Grocy nede — returnér kun targets uden categories-liste
     }
 
-    res.json({ categories, targets });
+    res.json({
+        categories, targets,
+        price_window_days: getRecipeCostWindowDays(),
+        price_window_default: PRICE_WINDOW_DAYS_DEFAULT,
+        price_window_min: MIN_PRICE_WINDOW_DAYS,
+        price_window_max: MAX_PRICE_WINDOW_DAYS,
+    });
+}));
+
+// ─── PUT /api/recipes/price-window ────────────────────────────
+// Kostpris-vinduet (#557). Ligger her og ikke i den globale settings-liste,
+// fordi det er en indstilling for DENNE side — den redigeres hvor dens
+// virkning kan ses, og tallet står skrevet ud i overskriften.
+router.put('/price-window', handle(async (req, res) => {
+    const raw = req.body?.days;
+    if (raw == null || String(raw).trim() === '' || !Number.isFinite(Number(raw))) {
+        return res.status(400).json({ error: 'days skal være et tal' });
+    }
+    const days = clampWindowDays(raw);
+
+    const db = getDb();
+    const foer = getRecipeCostWindowDays();
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('recipe_cost_price_window_days', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                               updated_at = CURRENT_TIMESTAMP`).run(String(days));
+    invalidateRecipeCostWindowCache();
+
+    try {
+        logChange({
+            entity_type: 'settings', entity_id: 0, action: 'update',
+            field_name: 'recipe_cost_price_window_days',
+            old_value: String(foer), new_value: String(days),
+            user_id: req.session?.userId || null,
+            notes: 'Kostpris-vinduet ændret fra Opskrifter & priser',
+        });
+    } catch (err) { /* changelog non-critical */ }
+
+    // Tallene på skærmen er regnet under det GAMLE vindue. Gemte vi bare
+    // indstillingen, ville siden se uændret ud, og skiftet ville ligne noget
+    // der ikke virkede. Derfor genberegnes kostpriserne her — samme kode som
+    // "Opdater priser"-knappen. Fejler Grocy, er indstillingen stadig gemt,
+    // og det siges i svaret frem for at blive slugt.
+    let refreshed = null, refreshError = null;
+    try {
+        const out = await refreshRecipeCosts(db);
+        refreshed = out.refreshed;
+        broadcast('recipe_costs_refreshed', {
+            refreshed: out.refreshed, refreshed_at: new Date().toISOString(),
+        });
+    } catch (err) {
+        refreshError = err.message;
+    }
+
+    res.json({ ok: true, days, clamped: days !== Math.round(Number(raw)),
+               refreshed, refresh_error: refreshError });
 }));
 
 // ─── PUT /api/recipes/targets (bulk-upsert) ───────────────────

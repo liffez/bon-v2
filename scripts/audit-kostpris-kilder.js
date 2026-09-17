@@ -50,11 +50,16 @@ if (fs.existsSync(envPath)) {
 process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 
 const grocy = require('../services/grocyAdapter');
-const { todayISO } = require('../db/helpers');
+const { todayISO, getRecipeCostWindowDays } = require('../db/helpers');
 const {
     computeAll, yieldInStockUnits, buildProducedByIndex,
-    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT, PRICE_WINDOW_DAYS,
+    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT,
 } = require('../services/recipeCost');
+
+// Vinduet er en indstilling (#557) — rapporten skal måle det der FAKTISK
+// gælder, ikke defaulten. Hardkodet ville den sige "90 dage" om tal regnet
+// over 180, og så måler man sin egen antagelse.
+const PRICE_WINDOW_DAYS = getRecipeCostWindowDays();
 
 const C = { dim: '\x1b[2m', red: '\x1b[31m', grn: '\x1b[32m', yel: '\x1b[33m', b: '\x1b[1m', off: '\x1b[0m' };
 

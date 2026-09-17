@@ -12,7 +12,7 @@
  */
 
 const { getDb } = require('../db/database');
-const { getDefaultLocationId, offsetISO } = require('../db/helpers');
+const { getDefaultLocationId, offsetISO, getRecipeCostWindowDays } = require('../db/helpers');
 
 /* ══════════════════════════════════════════════════════════════
    CACHE
@@ -372,7 +372,7 @@ function getRecipesRaw() {
  *
  * PRISEN REGNES AF KØBSHISTORIKKEN, IKKE AF GROCYS TAL (#557)
  * Kostpris-grundlaget er et mængdevægtet snit af købsposteringer de seneste
- * `PRICE_WINDOW_DAYS` dage, læst fra `stock_log`. Reglen selv — og hvorfor
+ * `windowDays` dage (indstillingen, default 90), læst fra `stock_log`. Reglen selv — og hvorfor
  * hverken Grocys `avg_price` eller et snit over al tid duer — står i
  * `services/recipeCost.js` ved `unitCostDetail`.
  *
@@ -402,16 +402,27 @@ function getRecipesRaw() {
  *               SAMME priser som totalen, men må ikke betale for hele kataloget
  *               på en klik-sti. Delmængden hverken læser eller skriver cachen,
  *               fordi den ikke er hele svaret.
+ *   windowDays  vinduet i dage. Udeladt ⇒ indstillingen
+ *               (`settings.recipe_cost_price_window_days`, default 90).
  * @returns {Promise<Map<string, object>>}  product_id → unitCostDetail()
  */
 async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
+    const { unitCostDetail, parentPriceFromChildren, clampWindowDays } = require('./recipeCost');
     const subset = Array.isArray(opts.productIds) ? opts.productIds.map(String) : null;
+
+    // Vinduet er en indstilling (#557). Det står i CACHE-NØGLEN, ikke kun i
+    // beregningen: ellers ville et skift servere de gamle tal i op til ti
+    // minutter, og indstillingen ville se ud som om den ikke virkede.
+    const windowDays = opts.windowDays != null
+        ? clampWindowDays(opts.windowDays)
+        : getRecipeCostWindowDays();
+    const cacheKey = `product_unit_cost_details:${windowDays}`;
+
     if (!subset && !opts.fresh) {
-        const cached = getCached('product_unit_cost_details');
+        const cached = getCached(cacheKey);
         if (cached) return cached;
     }
 
-    const { unitCostDetail, parentPriceFromChildren, PRICE_WINDOW_DAYS } = require('./recipeCost');
     const [products, stockRows] = await Promise.all([
         getProducts(),
         grocyFetch('/objects/stock').catch(() => []),
@@ -441,7 +452,7 @@ async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
     // Vinduets startdato. `offsetISO` er forankret i Europe/Copenhagen —
     // `new Date().toISOString()` ville give gårsdagens dato mellem midnat og
     // kl. 02 dansk sommertid, og vinduet ville rykke sig en dag om natten.
-    const since = offsetISO(-PRICE_WINDOW_DAYS);
+    const since = offsetISO(-windowDays);
 
     const detaljer = new Map();
     let i = 0;
@@ -469,7 +480,7 @@ async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
             }
 
             const det = unitCostDetail(grocyRow, koeb, {
-                since,
+                since, windowDays,
                 stockRowPrice: nyeste.get(pid) ? nyeste.get(pid).price : null,
             });
             if (det) detaljer.set(pid, det);
@@ -485,12 +496,12 @@ async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
             detaljer.set(String(p.id), {
                 cost: snit, source: 'parent_avg',
                 last_price: null, avg_price: null, deviation_pct: null, warn: false,
-                purchases_in_window: 0,
+                purchases_in_window: 0, window_days: windowDays,
             });
         }
     }
 
-    if (!subset) setCached('product_unit_cost_details', detaljer);
+    if (!subset) setCached(cacheKey, detaljer);
     return detaljer;
 }
 

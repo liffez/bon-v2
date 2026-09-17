@@ -98,10 +98,11 @@ function _opsRender() {
                 <span class="ops-vat-pill">ALLE PRISER EX MOMS</span>
                 <div class="ops-refresh-info">
                     <span>Kostpriser ${_opsStaleLabel(d.cost_refreshed_at, d.cost_stale)}</span>
+                    <span class="ops-window-note" title="Kostprisen er et mængdevægtet snit af indkøbene i vinduet. Ændres under ⚙ Indstillinger.">·&nbsp;snit over ${d.price_window_days || 90} dage</span>
                     <button class="ops-btn-secondary" data-act="refresh">↻ Opdater fra Grocy</button>
                 </div>
                 <div class="ops-right-tools">
-                    <button class="ops-btn-secondary" data-act="targets">⚙ DB-mål pr. kategori</button>
+                    <button class="ops-btn-secondary" data-act="targets">⚙ Indstillinger</button>
                 </div>
                 <div class="ops-target-pop" id="ops-target-pop"></div>
             </div>
@@ -543,7 +544,28 @@ function _opsRenderTargetPop(pop) {
         ...td.targets.map(t => t.category),
     ])).sort();
 
+    const vindue = td.price_window_days || 90;
+    const vMin = td.price_window_min || 7;
+    const vMax = td.price_window_max || 1095;
+
     pop.innerHTML = `
+        <h4>Kostpris</h4>
+        <div class="ops-window-row">
+            <label for="ops-window-days">Vægt indkøb de seneste</label>
+            <span>
+                <input type="number" id="ops-window-days" min="${vMin}" max="${vMax}" step="1"
+                       value="${vindue}"> dage
+            </span>
+        </div>
+        <div class="ops-window-hint">
+            Kostprisen er et mængdevægtet snit af indkøbene i vinduet. Et kort vindue holder
+            gamle, forkerte priser ude; et langt fanger flere varer. Varer uden indkøb i vinduet
+            bruger seneste køb.
+        </div>
+        <div style="display:flex;gap:6px;margin:8px 0 14px;">
+            <button class="ops-btn-primary" style="flex:1" data-act="save-window">Gem og genberegn</button>
+        </div>
+
         <h4>Mål for DB% pr. kategori</h4>
         ${allCats.length === 0 ? '<div style="color:#6a6359;font-size:11px">Ingen kategorier fundet i Grocy</div>' : ''}
         ${allCats.map(cat => `
@@ -564,6 +586,37 @@ function _opsRenderTargetPop(pop) {
     `;
 
     pop.querySelector('[data-act="close-targets"]')?.addEventListener('click', () => pop.classList.remove('open'));
+
+    pop.querySelector('[data-act="save-window"]')?.addEventListener('click', async (ev) => {
+        const input = pop.querySelector('#ops-window-days');
+        const v = parseInt(input?.value, 10);
+        if (!Number.isFinite(v)) { _opsToast('Skriv et antal dage', true); return; }
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        const foer = btn.textContent;
+        // Genberegningen taler med Grocy og tager et par sekunder. Uden den
+        // besked ligner knappen noget der ikke skete.
+        btn.textContent = 'Genberegner…';
+        try {
+            const out = await putRecipePriceWindow(v);
+            if (out.refresh_error) {
+                // Indstillingen ER gemt — kun genberegningen fejlede. Sig
+                // præcis dét, så man ikke tror ændringen gik tabt.
+                _opsToast(`Vinduet gemt (${out.days} dage), men kostpriserne kunne ikke `
+                        + `genberegnes: ${out.refresh_error}`, true);
+            } else {
+                _opsToast(`Kostprisen regnes nu over ${out.days} dage`
+                        + (out.refreshed != null ? ` · ${out.refreshed} opskrifter genberegnet` : ''));
+            }
+            pop.classList.remove('open');
+            _opsLoad();
+        } catch (err) {
+            _opsToast('Fejl: ' + err.message, true);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = foer;
+        }
+    });
     pop.querySelector('[data-act="save-targets"]')?.addEventListener('click', async () => {
         const inputs = pop.querySelectorAll('input[data-cat]');
         const targets = [];

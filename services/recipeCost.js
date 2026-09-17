@@ -47,7 +47,32 @@ const WARN_STOCK_VS_RECIPE_PCT  = 20;   // #558
 
 // Vinduet kostprisen vægtes over. Ikke en optimering — det er dét der holder
 // en forkert postering fra 2024 ude af tallet. Se `unitCostDetail`.
-const PRICE_WINDOW_DAYS = 90;           // #557
+//
+// Det er en DEFAULT, ikke en konstant: #557 er et forsøg, og det rigtige tal
+// kendes først når man har set hvor mange varer vinduet faktisk fanger. Den
+// aktive værdi står i `settings.recipe_cost_price_window_days` og redigeres i
+// ⚙-popoveren inde i Opskrifter & priser — dér den bruges, så den hverken
+// forsvinder i den globale settings-liste eller skal huskes udenad.
+const PRICE_WINDOW_DAYS_DEFAULT = 90;   // #557
+const MIN_PRICE_WINDOW_DAYS = 7;        // under en uge er det ikke et snit
+const MAX_PRICE_WINDOW_DAYS = 1095;     // 3 år — derude ligger 2024-posteringerne
+
+/**
+ * Et gyldigt vindue, eller fallback. Bor her, så serveren, helperen og
+ * popoveren klamper ens — to steder med hver sin grænse ville vise ét tal og
+ * regne med et andet.
+ */
+function clampWindowDays(value, fallback = PRICE_WINDOW_DAYS_DEFAULT) {
+    // `Number(null)` er 0, og 0 er et endeligt tal — uden denne linje ville
+    // "ingen værdi" blive klampet til minimum i stedet for at falde tilbage
+    // på defaulten. De to betyder ikke det samme.
+    if (value == null || String(value).trim() === '') return fallback;
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return fallback;
+    if (n < MIN_PRICE_WINDOW_DAYS) return MIN_PRICE_WINDOW_DAYS;
+    if (n > MAX_PRICE_WINDOW_DAYS) return MAX_PRICE_WINDOW_DAYS;
+    return n;
+}
 
 /** Et positivt tal, eller null. 0 er ikke en pris (kål stod til 0). */
 function _pos(v) {
@@ -119,12 +144,16 @@ function _weighted(rows) {
  *   since          ISO-dato (YYYY-MM-DD). Køb PÅ eller EFTER den tæller med.
  *                  Udeladt ⇒ ingen tidsgrænse (bruges af tests og af kaldere
  *                  der selv har skåret listen til).
+ *   windowDays     vinduets længde i dage. Bæres med ud i resultatet, så en
+ *                  advarsel kan sige hvilket vindue den blev regnet under —
+ *                  ændres indstillingen senere, ville en gemt tekst ellers lyve.
  *   stockRowPrice  prisen på nyeste lagerpost — trin 3's første led.
  * @returns {{cost, source, last_price, avg_price, deviation_pct, warn,
  *            purchases_in_window}|null}
  */
 function unitCostDetail(grocyRow, purchases = null, opts = {}) {
-    const { since = null, stockRowPrice = null } = opts;
+    const { since = null, stockRowPrice = null, windowDays = null } = opts;
+    const vindue = Number.isFinite(Number(windowDays)) ? Number(windowDays) : null;
 
     const alle = Array.isArray(purchases) ? purchases : [];
     const koeb = alle.filter(p => _pos(p.price) != null && Number(p.amount) > 0);
@@ -156,6 +185,7 @@ function unitCostDetail(grocyRow, purchases = null, opts = {}) {
             warn: Math.abs(dev) > WARN_LAST_VS_AVG_PCT,
             purchases_in_window: iVindue.length,
             purchases_in_window_unpriced: iVindueAlle.length - iVindue.length,
+            window_days: vindue,
         };
     }
 
@@ -165,13 +195,15 @@ function unitCostDetail(grocyRow, purchases = null, opts = {}) {
         return { cost: last, source: 'last_purchase', last_price: last, avg_price: null,
                  deviation_pct: null, warn: false, purchases_in_window: 0,
                  purchases_in_window_unpriced: iVindueAlle.length,
+                 window_days: vindue,
                  last_purchase_date: _purchaseDate(senest) };
     }
 
     // ── 3) Ingen køb overhovedet → Grocys egne tal ──────────────────────
     const base = { last_price: null, avg_price: null, deviation_pct: null,
                    warn: false, purchases_in_window: 0,
-                   purchases_in_window_unpriced: iVindueAlle.length };
+                   purchases_in_window_unpriced: iVindueAlle.length,
+                   window_days: vindue };
 
     const lagerpost = _pos(stockRowPrice);
     if (lagerpost != null) return { ...base, cost: lagerpost, source: 'stock_row' };
@@ -362,6 +394,7 @@ function compute(recipeId, ctx, memo, stack) {
                     product_id: pid, product: name,
                     last_price: d.last_price, avg_price: d.avg_price,
                     deviation_pct: d.deviation_pct,
+                    window_days: d.window_days || null,
                 });
             }
         }
@@ -450,7 +483,7 @@ function describeWarning(w) {
                  + `så lagerprisen ${kr(w.stock_price)} er brugt.`;
         case 'last_vs_avg':
             return `${w.product}: seneste køb ${kr(w.last_price)} ligger ${pct(w.deviation_pct)} `
-                 + `fra ${PRICE_WINDOW_DAYS}-dages gennemsnittet ${kr(w.avg_price)}. `
+                 + `fra ${w.window_days || PRICE_WINDOW_DAYS_DEFAULT}-dages gennemsnittet ${kr(w.avg_price)}. `
                  + `Gennemsnittet er brugt.`;
         default:
             return `${w.product || 'ukendt vare'}: prisen bør ses efter.`;
@@ -460,5 +493,6 @@ function describeWarning(w) {
 module.exports = {
     computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName,
     parentPriceFromChildren, describeWarning, buildProducedByIndex,
-    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT, PRICE_WINDOW_DAYS,
+    WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT,
+    PRICE_WINDOW_DAYS_DEFAULT, MIN_PRICE_WINDOW_DAYS, MAX_PRICE_WINDOW_DAYS, clampWindowDays,
 };

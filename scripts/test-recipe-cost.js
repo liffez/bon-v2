@@ -17,7 +17,8 @@
 'use strict';
 
 const { computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName,
-        PRICE_WINDOW_DAYS, buildProducedByIndex }
+        PRICE_WINDOW_DAYS_DEFAULT, MIN_PRICE_WINDOW_DAYS, MAX_PRICE_WINDOW_DAYS,
+        clampWindowDays, describeWarning, buildProducedByIndex }
     = require('../services/recipeCost');
 
 /** En købspostering som `stock_log` leverer den. */
@@ -290,8 +291,8 @@ console.log('\nK8 · Uden købshistorik falder prisen tilbage på Grocys egne ta
        'uden købshistorik er der intet snit at advare imod');
 }
 
-// ── K9 · 90-dages mængdevægtet snit (#557) ───────────────────
-console.log(`\nK9 · Kostprisen er et mængdevægtet snit af køb de seneste ${PRICE_WINDOW_DAYS} dage`);
+// ── K9 · Mængdevægtet snit over vinduet (#557) ───────────────
+console.log(`\nK9 · Kostprisen er et mængdevægtet snit af køb de seneste ${PRICE_WINDOW_DAYS_DEFAULT} dage`);
 {
     const SINCE = '2026-06-19';
 

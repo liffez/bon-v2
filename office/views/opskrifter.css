@@ -699,6 +699,34 @@
     border-radius: 4px;
 }
 
+/* Kostpris-vinduet (#557) — indstilling for denne side, redigeret hvor den virker */
+.ops-window-note {
+    white-space: nowrap;
+    cursor: help;
+    border-bottom: 1px dotted var(--color-border, #d7d1ca);
+}
+.ops-window-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 0;
+    font-size: 12px;
+}
+.ops-window-row input {
+    width: 60px;
+    text-align: right;
+    padding: 4px 6px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 4px;
+}
+.ops-window-hint {
+    font-size: 11px;
+    line-height: 1.45;
+    color: #6a6359;
+    margin-top: 4px;
+}
+
 /* Toast (success/error) */
 .ops-toast {
     position: fixed;

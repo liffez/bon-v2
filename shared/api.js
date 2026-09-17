@@ -2393,6 +2393,16 @@ function deleteRecipeTarget(category) {
     });
 }
 
+// Kostpris-vinduet (#557): hvor mange dages indkøb kostprisen vægtes over.
+// Serveren genberegner kostpriserne i samme kald — ellers ville skærmen vise
+// tal regnet under det gamle vindue, og indstillingen ligne noget der ikke virkede.
+function putRecipePriceWindow(days) {
+    return apiFetch('/recipes/price-window', {
+        method: 'PUT',
+        body: JSON.stringify({ days }),
+    });
+}
+
 function grocyRecipeLink(recipeId) {
     return '/api/recipes/grocy-recipe-link/' + recipeId;
 }

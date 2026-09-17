@@ -734,6 +734,36 @@ function invalidateUnitCountCache() {
     _unitExtraCacheUntil = 0;
 }
 
+// ── KOSTPRIS-VINDUET (#557) ───────────────────────────────
+// Hvor mange dages indkøb kostprisen vægtes over. Default og grænser bor i
+// `services/recipeCost.js` sammen med reglen selv; her læses kun den aktive
+// værdi. Indstillingen redigeres i ⚙-popoveren inde i Opskrifter & priser.
+let _costWindowCache = null;
+let _costWindowCacheUntil = 0;
+
+function getRecipeCostWindowDays() {
+    const now = Date.now();
+    if (_costWindowCache != null && now < _costWindowCacheUntil) return _costWindowCache;
+    const { clampWindowDays, PRICE_WINDOW_DAYS_DEFAULT } = require('../services/recipeCost');
+    let dage = PRICE_WINDOW_DAYS_DEFAULT;
+    try {
+        const row = getDb().prepare(
+            `SELECT value FROM settings WHERE key='recipe_cost_price_window_days'`).get();
+        // En tom eller vrøvlet værdi må ikke slå kostprisen ihjel — clampen
+        // falder tilbage på defaulten, og tallet står synligt i overskriften
+        // på Opskrifter & priser, så en fejl kan ses.
+        if (row?.value != null && String(row.value).trim() !== '') dage = clampWindowDays(row.value);
+    } catch { /* DB nede → default */ }
+    _costWindowCache = dage;
+    _costWindowCacheUntil = now + 60_000;
+    return dage;
+}
+
+function invalidateRecipeCostWindowCache() {
+    _costWindowCache = null;
+    _costWindowCacheUntil = 0;
+}
+
 // ── Betalingstyper der ikke er omsætning (Modregning/Sponsorat, migration 129) ──
 // Kilde er payment_types.counts_as_revenue-flaget, ikke hardkodede koder — så
 // den næste "gratis"-type koster én række + et flueben i Settings.
@@ -1160,6 +1190,7 @@ module.exports = {
     todayISO, offsetISO, sqlTime, copenhagenDayStartSql, addDaysISO,
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
+    getRecipeCostWindowDays, invalidateRecipeCostWindowCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
     bonUnitsExpr, unitCountablePredicate,
     recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, insertBonLines, hasDeliveryLine, findDeliveryLine,
