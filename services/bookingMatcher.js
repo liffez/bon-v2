@@ -370,7 +370,7 @@ function buildKontaktMailVars({ customerId, contactReason }) {
  * @param {string} [args.time]           smagning-flow
  * @param {Object} [args.formData]       Rå webhook-data (guest_count, message)
  */
-function buildInternalNotificationVars({ customerId, flow, meetingType, contactReason, date, time, formData }) {
+function buildInternalNotificationVars({ customerId, flow, meetingType, contactReason, date, time, formData, viaToken = false }) {
     const cust = loadCustomerWithCompany(customerId) || {};
     const flowLabel = flow === 'smagning' ? 'Smagsprøve' : (flow === 'kontakt' ? 'Kontakt' : flow);
 
@@ -393,12 +393,19 @@ function buildInternalNotificationVars({ customerId, flow, meetingType, contactR
         tid:                 time || '',
         antalGaester:        guestCount,
         beskedFraKunde:      message,
+        // Hvilken af de to veje bookingen kom ind ad. I en kampagne er det
+        // forskellen på "mit link virkede" og "nogen fandt selv siden".
+        bookingKilde:        viaToken ? 'Dit mail-link' : 'Fandt selv booking-siden',
         crmKundeUrl:         crmKundeUrl
     };
 }
 
 /**
  * Send intern notifikation til sælger ved ny booking.
+ *
+ * Sendes ved ENHVER booking — også når kunden kom via sælgerens eget mail-link.
+ * Token-flow var undtaget indtil september 2026; undtagelsen byggede på at
+ * sælgeren huskede sine egne links, og det holder ikke i en kampagne.
  *
  * Springes over hvis:
  *   - booking_notify_owner_enabled !== '1'
@@ -408,7 +415,7 @@ function buildInternalNotificationVars({ customerId, flow, meetingType, contactR
  *
  * Fire-and-forget — fejl logges men kastes ikke videre.
  */
-async function sendInternalNotification({ ownerId, flow, customerId, meetingType, contactReason, date, time, formData }) {
+async function sendInternalNotification({ ownerId, flow, customerId, meetingType, contactReason, date, time, formData, viaToken = false }) {
     if (getSetting('booking_notify_owner_enabled') !== '1') return;
     if (!ownerId) {
         console.log('[booking] Intern notif sprunget over: ingen owner');
@@ -425,7 +432,7 @@ async function sendInternalNotification({ ownerId, flow, customerId, meetingType
     }
 
     const vars = buildInternalNotificationVars({
-        customerId, flow, meetingType, contactReason, date, time, formData
+        customerId, flow, meetingType, contactReason, date, time, formData, viaToken
     });
 
     try {

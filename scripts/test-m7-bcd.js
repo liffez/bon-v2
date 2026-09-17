@@ -7,7 +7,7 @@
 //   M7c: handleSmagningBooking + handleKontaktBooking sender bekræftelse
 //        til kunden via smtp_kontakt med korrekt skabelon, customerId og context.
 //   M7d: sendInternalNotification sendes til ejer (med email), respekterer
-//        booking_notify_owner_enabled, og springes over ved token-flow.
+//        booking_notify_owner_enabled. Sendes ved ENHVER booking — også token-flow.
 //
 // Strategi: stub sendFromTemplate i mailService og fang alle kald.
 //           Kald handlers direkte (intet HTTP, ingen rigtig SMTP).
@@ -178,8 +178,12 @@ try {
     assert(internalMail.smtpPrefix === 'smtp_kontakt', `Intern smtpPrefix = smtp_kontakt`);
     assert(internalMail.vars.flowType === 'Smagsprøve', `Intern flowType = Smagsprøve`);
 
-    // ─── Token-flow: intern notif sprunget over ──────────
-    console.log('\n[M7d] Token-flow → intern notif sprunget over');
+    // ─── Token-flow: intern notif sendes OGSÅ ───────────
+    //
+    // ÆNDRET ADFÆRD (sep. 2026): token-flow var undtaget ud fra "sælgeren
+    // sendte jo linket, hun ved det". Den holder ikke i en kampagne, hvor
+    // der sendes mange links på få dage. Se scripts/test-booking-notif.js.
+    console.log('\n[M7d] Token-flow → intern notif sendes også');
 
     // Generér token til samme kunde + owner, så booking ankommer "kendt"
     const token = mailService.generateBookingToken({
@@ -210,7 +214,9 @@ try {
     const tokenCustomerMail = captured.find(c => c.templateKey === 'booking_smagning_confirmation');
     const tokenInternalMail = captured.find(c => c.templateKey === 'booking_internal_notification');
     assert(tokenCustomerMail, 'Kunde-bekræftelse sendes også ved token-flow');
-    assert(!tokenInternalMail, 'Ingen intern notif ved token-flow (sælger vidste det)');
+    assert(tokenInternalMail, 'Intern notif sendes OGSÅ ved token-flow');
+    assert(tokenInternalMail?.vars?.bookingKilde === 'Dit mail-link',
+        `bookingKilde siger at den kom fra sælgerens link (fik '${tokenInternalMail?.vars?.bookingKilde}')`);
 
     // ─── Kontakt-flow ────────────────────────────────────
     console.log('\n[M7c+d] handleKontaktBooking');

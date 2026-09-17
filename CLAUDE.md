@@ -6990,6 +6990,104 @@ changelog-linje pr. berørt bon, idempotent (anden kørsel: 0 linjer).
 Målt mod driftskopien 15/9: 54 linjer på 50 bons — **ingen af dem på åbne bons**, så
 i dag blokerer intet. Værdien er at det ikke kan ske igen når en gammel bon åbnes.
 
+### {{booking_link}} gik ud til kunden som rå tekst (17. september 2026)
+
+En skabelon med `{{booking_link}}` sendt fra bon-draweren landede hos kunden med
+**pladsholderen selv** midt i mailen. Ikke et tomt hul — de fjorten tegn.
+
+Årsagen er en arbejdsdeling ingen havde skrevet ned: bon-draweren og bon-kortet
+folder skabelonen ud i **browseren** (`_drawerApplyTemplate` / `_bmApplyTemplate`)
+og sender resultatet til serveren som fritekst. **Ingen frontend har nogensinde
+sendt `templateKey`** til `POST /api/bons/:id/mail` — kun `POST /api/mail/test`
+gør det. Fritekst-grenen kaldte `sendMail` direkte, som ikke renderer noget, så
+serveren så aldrig en skabelon. `{{booking_link}}` er server-side per
+konstruktion (den skal skrive en token-række), og browseren kan derfor ikke
+opløse den.
+
+Og i den ene sti hvor serveren FAKTISK rendrede, var svaret værre: en uopløselig
+pladsholder blev **slettet i stilhed** med en `console.warn`. Mailen gik afsted
+med et hul hvor linket skulle stå, og afsenderen fik intet at vide. Samme
+fejlklasse som #305/#319 (memory `project_silent_sideeffect_failures`).
+
+- **`POST /api/bons/:id/mail` renderer nu fritekst** — emne og brødtekst — med
+  bonens kunde som kontekst, præcis som `POST /api/customers/:id/mail` altid har
+  gjort. Bonens kunde er den eneste kunde en bon-mail kan handle om.
+- **`renderTemplate` sletter aldrig mere.** Uopløseligt link → `BookingLinkError`
+  (`code: 'booking_link_unresolvable'`) med en dansk besked skrevet til
+  afsenderen, ikke til en log. Ruterne oversætter den til **400** — det er
+  brugerens at rette, ikke en serverfejl — og **ingen mail bliver sendt**.
+- **`lenientBookingLink` er KUN til test-mailen**, som pr. definition ingen kunde
+  har. Dér bliver linket til en synlig markering
+  (`[booking-link — laves først når mailen sendes til en rigtig kunde]`).
+  Den ligner bevidst **ikke** en URL, så ingen mailklient kan gøre den klikbar,
+  og "Send test" virker fortsat på skabelonen. Vi opfinder aldrig et token.
+- **`sendFromTemplate` udleder kunden af `bonId`** når `customerId` ikke er givet
+  — ét sted, så hvert kaldested ikke skal huske det hver for sig. Det er dét der
+  gør at web-ordrens bekræftelse (som kun sender `bonId`) ikke pludselig ville
+  fejle på et booking-link. **Kun til rendering:** `customerId` sendes bevidst
+  ikke videre til `sendMail`, for så ville `customer_id` blive skrevet på en
+  bon-tråd og flytte hvilke tråde der slås op som kundens "aktive".
+- **Fejlen når helt ud i UI'et.** Drawer og bon-kort skrev `Fejl — prøv igen` på
+  knappen og kastede serverens besked væk, så afsenderen intet havde at handle
+  på. Begge viser nu beskeden (`.bm-send-error`).
+- **Settings** viser `{{booking_link}}` som chip med stiplet kant + forklaring i
+  tooltip: den fyldes af serveren, ikke af browseren, og er derfor tom i en test.
+
+**Tests:** `npm run test:booking-link` — 36 asserts mod de ægte endpoints over
+HTTP (temp-DB af de rigtige migrations, spawnet server). Regressionen er en
+fritekst-mail med `{{booking_link}}` sendt som draweren sender den, hvor
+`mail_messages.body_text` bagefter skal bære en rigtig kort URL — og det korte
+link følges hele vejen til sin 302. **Mutations-testet:** seks kerneregler rulles
+hver især tilbage og fælder 13/9/1/2/2/4 navngivne asserts.
+
+> ⚠️ To fælder i testen selv, begge fanget undervejs: en assert der **kastede**
+> (`body.match(...)[0]` på null) i stedet for at fejle, så den vigtigste mutation
+> så ud som et brudt testscript frem for en fanget fejl — og en fixture der
+> sendte `key` i stedet for `templateKey` til test-ruten, hvorved den tavst
+> testede `booking_confirmation` i stedet for skabelonen.
+
+`scripts/test-m7a.js` fastholdt den gamle "fjernes uden fejl"-adfærd og er
+opdateret til den nye. (`scripts/test-m11.js` kan ikke køre uden en seedet
+dev-DB — pre-eksisterende, bekræftet mod `HEAD`.)
+
+**Sælgeren får nu besked ved ENHVER booking (samme runde).** Token-flow — altså
+en booking via sælgerens eget `{{booking_link}}` — sprang den interne
+notifikation over, ud fra at "sælgeren sendte jo linket, hun ved det". Den
+antagelse holder ikke i en kampagne: sendes der tyve links på en uge, kan ingen
+huske hvem der har booket, og bookingen kunne derfor kun opdages ved selv at
+kigge på CRM-dashboardet. At huske er præcis dét systemet er bedre til end
+mennesket. Undtagelsen er fjernet begge steder (smagning + kontakt).
+
+Notifikationen går til **tokenets `sales_user_id`** — den der sendte linket —
+ikke til husets standard-ejer. `booking_notify_owner_enabled` slår fortsat det
+hele fra og er urørt.
+
+Med undtagelsen væk ser de to slags booking ens ud i indbakken, så
+**`{{bookingKilde}}`** siger hvilken det var: `Dit mail-link` eller
+`Fandt selv booking-siden`. I en kampagne er det forskellen på "mit link virkede"
+og "nogen fandt selv siden". **Migration 171** sætter linjen ind i skabelonen —
+men KUN hvis den stadig står præcis som seedet i 051. Har nogen skrevet i den, er
+den deres; variablen ligger i stedet som chip i Settings (booking-skabelonerne
+havde ingen chips og faldt tilbage på bon-sættet, som intet af det indeholder).
+
+> ⚠️ **Vagten i migrationen er kun load-bearing hvis fixturen beholder
+> `Flow:`-linjen.** SQL'ens `replace()` er i sig selv et no-op når søgestrengen
+> ikke findes, så en testfixture uden den linje består uanset om `WHERE`-vagten
+> er der — mutationen slap igennem første gang af netop den grund.
+
+**Tests:** `npm run test:booking-notif` — 22 asserts in-process mod de ægte
+handlers med stubbet `sendFromTemplate` (temp-DB af de rigtige migrations).
+Regressionen er en token-booking hvor den interne notifikation SKAL være der.
+**Mutations-testet:** fem regler rulles hver især tilbage og fælder 5/4/3/1/2
+navngivne asserts. `scripts/test-m7-bcd.js` fastholdt den gamle adfærd og er
+opdateret.
+
+> ⚠️ **Notifikationen er fire-and-forget og ligger EFTER kunde-bekræftelsens
+> `await`.** Måler man synkront efter `handleSmagningBooking`, ser man kun
+> bekræftelsen og tror notifikationen mangler. Testen venter en tick.
+
+---
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

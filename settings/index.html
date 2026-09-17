@@ -256,6 +256,9 @@
       cursor: pointer;
     }
     .st-var-tag:hover { background: var(--brand-primary-light); }
+    /* Fyldes af serveren ved afsendelse, ikke af browseren — markeres så den
+       ikke forveksles med en variabel man kan se resultatet af i en test. */
+    .st-var-tag.st-var-server { border: 1px dashed var(--brand-primary); }
 
     /* ─── TEMPLATE CARDS ─────────────────────────── */
     .st-tmpl-card {
@@ -2823,11 +2826,23 @@ var _mailTemplatesCache = [];
 var SYSTEM_KEYS = ['booking_confirmation', 'web_order_confirmation', 'order_email'];
 var TEMPLATE_VARS = {
   'booking_confirmation': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode'],
-  'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag'],
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode','booking_link'],
+  'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag','booking_link'],
   'order_email': ['leverandoer','vareliste','dato','leveringsdato','tag'],
+  // Booking-skabelonerne havde ingen chips og faldt tilbage på bon-sættet, som
+  // intet af det her indeholder.
+  'booking_internal_notification': ['kundeNavn','firmaNavn','kundeEmail','kundeTelefon','flowType',
+      'bookingKilde','moedeTypeLabel','kontaktAarsagLabel','datoFormatteret','tid','antalGaester',
+      'beskedFraKunde','crmKundeUrl'],
   '_default': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode']
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode','booking_link']
+};
+
+// Variabler serveren fylder ud ved afsendelse — ikke browseren. De ser tomme ud
+// i "Send test", og det er meningen: de kræver en rigtig kunde.
+var SERVER_SIDE_VARS = {
+  'bookingKilde': 'Hvor bookingen kom fra: "Dit mail-link" eller "Fandt selv booking-siden". I en kampagne er det forskellen på om dit udsendte link virkede.',
+  'booking_link': 'Personligt booking-link. Serveren laver det ved afsendelse og binder det til kunden — kræver derfor en bon med kunde, eller CRM → Kunde 360°.'
 };
 
 function switchTemplate() {
@@ -2863,7 +2878,10 @@ function switchTemplate() {
     '</label>';
   h += '<div class="st-vars"><span style="font-size:12px;margin-right:4px;color:var(--color-text-dim)">Variabler:</span>';
   vars.forEach(function(v) {
-    h += '<span class="st-var-tag" onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
+    var hint = SERVER_SIDE_VARS[v];
+    h += '<span class="st-var-tag' + (hint ? ' st-var-server' : '') + '"' +
+         (hint ? ' title="' + esc(hint) + '"' : '') +
+         ' onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
   });
   h += '</div></div>';
   ed.innerHTML = h;

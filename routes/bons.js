@@ -1621,6 +1621,11 @@ router.get('/:id/mail', handle(async (req, res) => {
 }));
 
 // POST /api/bons/:id/mail — send udgående mail (med valgfri vedhæftninger)
+//
+// Fritekst-body køres gennem renderTemplate, præcis som POST /api/customers/:id/mail.
+// Uden det gik universelle pladsholdere — i dag {{booking_link}} — afsted til kunden
+// som rå tekst: bon-draweren og bon-kortet folder skabelonen ud i BROWSEREN og sender
+// resultatet som `text`, så serveren så aldrig en skabelon at rendere.
 router.post('/:id/mail', handle(async (req, res) => {
     const bonId = parseInt(req.params.id);
     const { to, subject, text, templateKey, inReplyTo, attachments } = req.body;
@@ -1629,13 +1634,13 @@ router.post('/:id/mail', handle(async (req, res) => {
     }
 
     // Validate attachments
-    const { sendMail, sendFromTemplate, validateAttachments, bonMailContext } = require('../services/mailService');
+    const { sendMail, sendFromTemplate, validateAttachments, bonMailContext, renderTemplate } = require('../services/mailService');
     const att = validateAttachments(attachments);
     if (att.error) return res.status(400).json({ error: att.error });
     const validatedAttachments = att.list;
 
     const db = getDb();
-    const bon = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(bonId);
+    const bon = db.prepare('SELECT bon_number, customer_id FROM bons WHERE id = ?').get(bonId);
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
     // Tilbud sendes gennem denne rute (de ER bons med is_offer = 1), så typen
@@ -1644,12 +1649,32 @@ router.post('/:id/mail', handle(async (req, res) => {
     const context = bonMailContext(db, bonId);
     const userId = req.session?.userId || null;
 
+    // Bonens kunde er den eneste kunde en bon-mail kan handle om — et
+    // {{booking_link}} herfra skal bindes til hende, ikke til nogen anden.
+    // Bons uden kunde (interne, event) har ingen, og så kaster renderTemplate.
+    const renderCtx = { customerId: bon.customer_id || null, userId, bookingFlow: 'smagning' };
+
     let result;
-    if (templateKey) {
-        const vars = req.body.vars || {};
-        result = await sendFromTemplate({ templateKey, to, vars, bonId, context, userId, attachments: validatedAttachments });
-    } else {
-        result = await sendMail({ to, subject: subject || '', text, bonId, context, inReplyTo, smtpPrefix: 'smtp', userId, attachments: validatedAttachments });
+    try {
+        if (templateKey) {
+            const vars = req.body.vars || {};
+            result = await sendFromTemplate({ templateKey, to, vars, bonId, context, userId, attachments: validatedAttachments });
+        } else {
+            result = await sendMail({
+                to,
+                subject: renderTemplate(subject || '', {}, renderCtx),
+                text: renderTemplate(text, {}, renderCtx),
+                bonId, context, inReplyTo, smtpPrefix: 'smtp', userId,
+                attachments: validatedAttachments
+            });
+        }
+    } catch (err) {
+        // Et uopløseligt booking-link er brugerens at rette, ikke en serverfejl.
+        // Beskeden er skrevet til afsenderen og skal helt ud i UI'et.
+        if (err.code === 'booking_link_unresolvable') {
+            return res.status(400).json({ error: err.message, code: err.code });
+        }
+        throw err;
     }
 
     res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });

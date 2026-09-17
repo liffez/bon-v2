@@ -528,7 +528,13 @@ function handleSmagningBooking(data) {
 
     // 7. Mails (fire-and-forget — webhook returnerer altid 200 til kunden).
     //    a) Bekræftelse til kunden via kontakt@
-    //    b) Intern notifikation til sælger (skippes hvis token-flow — sælger vidste det)
+    //    b) Intern notifikation til sælger — ALTID, også ved token-flow.
+    //
+    // Token-flow var tidligere undtaget ud fra "sælgeren sendte jo linket, hun
+    // ved det". Den holder ikke i en kampagne: sendes der tyve links på en uge,
+    // kan ingen huske hvem der har booket. Notifikationen er netop dét systemet
+    // er bedre til end hukommelsen. {{bookingKilde}} fortæller hvilken af delene
+    // det var, så et kampagne-svar kan skelnes fra en der selv fandt siden.
     sendBookingMails({
         flow: 'smagning',
         customerEmail: data.email,
@@ -538,7 +544,7 @@ function handleSmagningBooking(data) {
         date: data.date,
         time: data.time,
         formData: data,
-        skipInternalNotif: !!data.token
+        viaToken: !!data.token
     }).catch(err => console.error('[booking-smagning] Mail-orkestrering:', err.message));
 
     console.log(`[booking-smagning] Booking oprettet: activity #${activityId}, kunde=${customerId}, ejer=${ownerId}`);
@@ -550,7 +556,7 @@ function handleSmagningBooking(data) {
  * Orkestrer kunde-bekræftelse + intern notifikation for en booking.
  * Kaldes fire-and-forget fra webhook-handlers så mail-fejl ikke vælter responset.
  */
-async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meetingType, contactReason, date, time, formData, skipInternalNotif = false }) {
+async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meetingType, contactReason, date, time, formData, viaToken = false }) {
     const {
         buildSmagningMailVars,
         buildKontaktMailVars,
@@ -595,21 +601,18 @@ async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meet
         }
     }
 
-    // b) Intern notifikation til sælger
-    if (!skipInternalNotif) {
-        await sendInternalNotification({
-            ownerId,
-            flow,
-            customerId,
-            meetingType,
-            contactReason,
-            date,
-            time,
-            formData
-        });
-    } else {
-        console.log(`[booking-${flow}] Intern notif sprunget over (token-flow)`);
-    }
+    // b) Intern notifikation til sælger — uanset hvordan bookingen kom ind.
+    await sendInternalNotification({
+        ownerId,
+        flow,
+        customerId,
+        meetingType,
+        contactReason,
+        date,
+        time,
+        formData,
+        viaToken
+    });
 }
 
 // ===========================================================================
@@ -723,7 +726,8 @@ function handleKontaktBooking(data) {
         booked_via: bookedVia
     });
 
-    // 8. Mails (fire-and-forget) — spring intern notif over ved token-flow
+    // 8. Mails (fire-and-forget). Intern notif sendes også ved token-flow — se
+    //    begrundelsen i smagnings-handleren ovenfor.
     sendBookingMails({
         flow: 'kontakt',
         customerEmail: data.email,
@@ -731,7 +735,7 @@ function handleKontaktBooking(data) {
         ownerId: owner,
         contactReason: reason,
         formData: data,
-        skipInternalNotif: !!data.token
+        viaToken: !!data.token
     }).catch(err => console.error('[booking-kontakt] Mail-orkestrering:', err.message));
 
     console.log(`[booking-kontakt] Task oprettet: activity #${activityId}, kunde=${match.customerId}, årsag=${reason.key}, result=${result || '(none)'}`);
