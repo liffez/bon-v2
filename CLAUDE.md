@@ -8196,6 +8196,20 @@ uden varer, og at stole på klientens faktor. Regression grøn: consume-hardenin
 120, leverandorpriser 101, last-checked 57, stock-inactive 40, grocy-hidden 34,
 run-optaelling 112.
 
+> ⚠️ **Fundet i første drifts-test — varekortene var usynlige.** Listen har
+> `display:none` indtil den får klassen `vm-open`, og den blev kun sat af
+> "Juster enkeltvis"-knappen. Uden en bestilling findes den knap ikke, så
+> tilstanden `itemListOpen` stod på true mens skærmen var tom: man kunne lægge
+> en vare på, se tælleren gå til 1, og ikke se hverken varen, mængdefelterne
+> eller prisen. **Klassen følger nu tilstanden ved hver render.** Min
+> klient-test målte tilstand, ikke det man kan se — den har nu en sektion der
+> renderer gennem `_vmRenderLagerContent` og læser klassen.
+>
+> Samme runde: nudge'en forsvandt efter 12 sekunder nede i hjørnet og blev
+> ikke set. Den **bliver nu stående** til man svarer, den navngiver varerne, og
+> den **lægger sammen** — retter man tre varer op, bæres alle tre med
+> (`vm_carry` er en liste). Et tilbud man ikke når at se, er intet tilbud.
+
 > ⚠️ **Én ting overlevede ikke testen første gang:** `_vmSubmitCode` læste
 > kodefeltet fra `_vmDom`. Panelet bygges om ved hver render, så referencen kunne
 > pege på et felt der ikke længere var på skærmen — brugerens tal stod ét sted og
@@ -8207,7 +8221,9 @@ run-optaelling 112.
 > dev-DB kan altså ikke nå grocytest — samme fejlklasse som HQ/grocycafe-fælden
 > fra juli. Hører til sit eget issue.
 
-**Deploy:** migration 178 kører ved genstart. Flowet virker med det samme, men
+**Deploy:** migration 178 kører ved genstart. De ændrede klient-filer bærer
+`?v=2026-09-18`, så en cachet browser ikke kan servere den gamle udgave.
+Flowet virker med det samme, men
 kandidatlisten kræver at leverandøren er koblet til sit Grocy-handelssted
 (Settings → Indkøb → Leverandører). I drift er Hørkram, Inco, RR Produktion,
 Serviwet og Trykkeriet friheden koblet; Metro er ikke.

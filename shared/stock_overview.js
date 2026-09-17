@@ -993,42 +993,77 @@ async function _soAdjustInventory(productId) {
  *
  * Målt i grocy-hq: 379 lagerrettelser mod 120 køb på 90 dage. Varerne kommer
  * ind ad DEN dør. En rettelse er ikke et køb — den fodrer hverken
- * kostprisens snit eller fødevarekontrollen — men den der lige har rettet
- * tallet op er den eneste der ved om der faktisk kom noget.
+ * kostprisens snit (#557) eller fødevarekontrollen — men den der lige har
+ * rettet tallet op er den eneste der ved om der faktisk kom noget.
  *
  * Derfor et tilbud, ikke et spørgsmål: gemme-vejen er uændret, og den der
  * bare retter et tal mærker ingen forskel. Lageroversigten bliver heller
  * ikke et indkøbsværktøj — den peger på det rigtige sted.
+ *
+ * Linjen BLIVER STÅENDE til man svarer. Første udgave forsvandt efter 12
+ * sekunder nede i hjørnet, og i drift blev den ikke set. Et tilbud man ikke
+ * når at se, er det samme som intet tilbud.
  */
+
+var _soNudgeVarer = [];   // det man har rettet OP siden sidst
+
 function _soNudgeModtagelse(item, diff) {
     var area = document.getElementById('soToastArea');
     if (!area) return;
 
+    // Retter man tre varer op, skal alle tre med — ikke kun den sidste.
+    var fundet = false;
+    for (var i = 0; i < _soNudgeVarer.length; i++) {
+        if (_soNudgeVarer[i].pid === item.product_id) {
+            _soNudgeVarer[i].qty = _soRound(_soNudgeVarer[i].qty + diff);
+            fundet = true;
+            break;
+        }
+    }
+    if (!fundet) {
+        _soNudgeVarer.push({
+            pid: item.product_id, name: item.name,
+            qty: diff, qu_id: item.qu_id != null ? item.qu_id : null,
+            qu_name: item.qu_name || '',
+        });
+    }
+
+    var gammel = area.querySelector('.so-nudge');
+    if (gammel) gammel.remove();
+
     var bar = document.createElement('div');
     bar.className = 'so-toast so-nudge';
 
-    var txt = document.createElement('span');
-    txt.textContent = 'Kom der varer? ';
-    bar.appendChild(txt);
+    var titel = document.createElement('div');
+    titel.className = 'so-nudge-titel';
+    titel.textContent = 'Kom der varer?';
+    bar.appendChild(titel);
+
+    var liste = document.createElement('div');
+    liste.className = 'so-nudge-varer';
+    liste.textContent = _soNudgeVarer.map(function(v) {
+        return v.name + ' +' + v.qty + (v.qu_name ? ' ' + v.qu_name : '');
+    }).join(' · ');
+    bar.appendChild(liste);
+
+    var rk = document.createElement('div');
+    rk.className = 'so-nudge-rk';
 
     var link = document.createElement('button');
     link.type = 'button';
     link.className = 'so-nudge-link';
-    link.textContent = 'Registrér som modtagelse';
+    link.textContent = _soNudgeVarer.length === 1
+        ? 'Registrér som modtagelse'
+        : 'Registrér ' + _soNudgeVarer.length + ' som modtagelse';
     link.title = 'Så tæller det som et køb — med pris og fødevarekontrol';
     link.addEventListener('click', function() {
-        // Tallet tages med, så det ikke skal tastes igen. Fødevarekontrollen
-        // udfyldes én gang for hele leverancen ovre i modtagelsen — derfor
-        // oprettes købet ikke herfra.
+        // Tallene er allerede tastet én gang. At taste dem igen ville være
+        // præcis den friktion der fik folk til at blive her.
         try {
             sessionStorage.setItem('vm_carry', JSON.stringify({
-                pid: item.product_id,
-                name: item.name,
-                qty: diff,
-                qu_id: item.qu_id != null ? item.qu_id : null,
-                ts: Date.now(),
+                items: _soNudgeVarer, ts: Date.now(),
             }));
-        } catch (err) { /* privat vindue — så mister vi kun tallet */ }
+        } catch (err) { /* privat vindue — så mister vi kun tallene */ }
 
         if (document.body.classList.contains('zone-mobile') &&
             typeof window._mSwitchView === 'function') {
@@ -1037,25 +1072,21 @@ function _soNudgeModtagelse(item, diff) {
             window.location.href = '/kitchen/purchasing.html#varemodtagelse';
         }
     });
-    bar.appendChild(link);
+    rk.appendChild(link);
 
     var luk = document.createElement('button');
     luk.type = 'button';
     luk.className = 'so-nudge-x';
-    luk.textContent = '\u00d7';
-    luk.title = 'Skjul';
-    luk.addEventListener('click', function() { bar.remove(); });
-    bar.appendChild(luk);
+    luk.textContent = 'Nej';
+    luk.title = 'Skjul — det var bare en rettelse';
+    luk.addEventListener('click', function() {
+        _soNudgeVarer = [];
+        bar.remove();
+    });
+    rk.appendChild(luk);
 
+    bar.appendChild(rk);
     area.appendChild(bar);
-
-    // Lever længere end en kvittering — man skal kunne nå at beslutte sig —
-    // men forsvinder selv, så den ikke bliver stående som en opgave.
-    setTimeout(function() {
-        bar.style.opacity = '0';
-        bar.style.transition = 'opacity 0.4s';
-        setTimeout(function() { bar.remove(); }, 400);
-    }, 12000);
 }
 
 function _soAdjStep(productId, delta) {

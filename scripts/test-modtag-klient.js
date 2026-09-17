@@ -33,7 +33,8 @@ function lavElement(tag) {
             toggle(c, on) { on === undefined ? (this._s.has(c) ? this._s.delete(c) : this._s.add(c)) : (on ? this._s.add(c) : this._s.delete(c)); },
             contains(c) { return this._s.has(c); },
         },
-        appendChild(c) { this.children.push(c); return c; },
+        appendChild(c) { this.children.push(c); c.parentEl = this; return c; },
+        insertBefore(c) { this.children.unshift(c); return c; },
         setAttribute(k, v) { this[k] = v; },
         addEventListener(t, fn) { (this._lyt[t] = this._lyt[t] || []).push(fn); },
         removeEventListener() {},
@@ -42,7 +43,28 @@ function lavElement(tag) {
         focus() {}, select() {}, remove() {},
         /** Skriv i feltet og fyr den lytter browseren ville fyre. */
         skriv(v) { this.value = String(v); (this._lyt.input || []).forEach(fn => fn.call(this, {})); },
+        /** Alle efterkommere med en given klasse — til at læse det brugeren ser. */
+        find(klasse) {
+            var ud = [];
+            (function gå(n) {
+                for (var i = 0; i < n.children.length; i++) {
+                    var c = n.children[i];
+                    if (c.classList && c.classList.contains(klasse)) ud.push(c);
+                    if (String(c.className || '').split(' ').indexOf(klasse) >= 0) {
+                        if (ud.indexOf(c) < 0) ud.push(c);
+                    }
+                    gå(c);
+                }
+            })(this);
+            return ud;
+        },
     };
+    // innerHTML = '' skal rydde børn, ellers hober de sig op ved hver render
+    // og testen måler noget andet end skærmen viser.
+    Object.defineProperty(el, 'innerHTML', {
+        get() { return el._html || ''; },
+        set(v) { el._html = v; if (v === '') el.children = []; },
+    });
     return el;
 }
 
@@ -219,20 +241,26 @@ console.log('\n\x1b[1m6. Linjens tal står i linjens EGEN enhed\x1b[0m');
 console.log('\n\x1b[1m7. Varen båret med fra lageroversigten\x1b[0m');
 {
     sandbox.sessionStorage.setItem('vm_carry', JSON.stringify({
-        pid: 1, name: 'Brød Rug', qty: 3, qu_id: 13, ts: Date.now(),
+        items: [{ pid: 1, name: 'Brød Rug', qty: 3, qu_id: 13 }], ts: Date.now(),
     }));
     const c = sandbox._vmReadCarry();
-    eq(c?.pid, 1, 'overførslen læses');
+    eq(c?.[0]?.pid, 1, 'overførslen læses');
     eq(sandbox.sessionStorage.getItem('vm_carry'), null,
        'og nøglen ryddes straks — et genindlæs må ikke lægge varen på igen');
 
     sandbox.sessionStorage.setItem('vm_carry', JSON.stringify({
-        pid: 1, qty: 3, qu_id: 13, ts: Date.now() - 40 * 60 * 1000,
+        items: [{ pid: 1, qty: 3, qu_id: 13 }], ts: Date.now() - 40 * 60 * 1000,
     }));
     eq(sandbox._vmReadCarry(), null, 'en gammel overførsel dukker ikke op dagen efter');
 
+    // En side der stod åben fra en tidligere version skriver den enkelte form.
+    sandbox.sessionStorage.setItem('vm_carry', JSON.stringify({
+        pid: 1, qty: 3, qu_id: 13, ts: Date.now(),
+    }));
+    eq(sandbox._vmReadCarry()?.length, 1, 'den gamle enkelt-form tabes ikke');
+
     sandbox._vmState.items = [];
-    sandbox._vmCarry = { pid: 1, name: 'Brød Rug', qty: 3, qu_id: 13, ts: Date.now() };
+    sandbox._vmCarry = [{ pid: 1, name: 'Brød Rug', qty: 3, qu_id: 13 }];
     sandbox._vmApplyCarry();
     const it = sandbox._vmState.items[0];
     eq(it?.grocy_product_id, 1, 'varen står på listen');
@@ -245,9 +273,50 @@ console.log('\n\x1b[1m7. Varen båret med fra lageroversigten\x1b[0m');
     eq(sandbox._vmState.items.length, 1, 'ingen dublet');
 
     sandbox._vmState.items = [];
-    sandbox._vmCarry = { pid: 999, qty: 1, qu_id: 4, ts: Date.now() };
+    sandbox._vmCarry = [{ pid: 999, qty: 1, qu_id: 4 }];
     sandbox._vmApplyCarry();
     eq(sandbox._vmState.items.length, 0, 'en vare der ikke findes i Grocy lægges ikke på');
+
+    // Retter man tre varer op, skal alle tre med — ikke kun den sidste.
+    sandbox._vmState.items = [];
+    sandbox._vmCarry = [
+        { pid: 1, name: 'Brød Rug', qty: 3, qu_id: 13 },
+        { pid: 2, name: 'Spidskål', qty: 5, qu_id: 4 },
+        { pid: 999, qty: 1, qu_id: 4 },            // findes ikke — springes over
+    ];
+    sandbox._vmApplyCarry();
+    eq(sandbox._vmState.items.length, 2, 'flere varer bæres med');
+    eq(sandbox._vmState.items[1]?.received, 5, 'hver med sit eget tal');
+}
+
+console.log('\n\x1b[1m8. Varelisten er SYNLIG uden en bestilling\x1b[0m');
+{
+    // Drift 18. september: varekortene blev tegnet, men listen stod
+    // display:none. Uden en bestilling er der ingen "Juster enkeltvis"-knap
+    // til at åbne den, så INTET tilføjede klassen. Man kunne lægge en vare
+    // på, se tælleren gå til 1, og ikke se hverken varen, mængdefelterne
+    // eller prisen. Tilstanden var rigtig — skærmen var tom.
+    sandbox._vmState.items = [];
+    sandbox._vmState.supplierKey = 'Hørkram';
+    sandbox._vmState.supplierName = 'Hørkram';
+    sandbox._vmState.itemListOpen = false;
+    sandbox._vmPicker = null;
+    sandbox._vmAddProduct(1, null);
+
+    const vært = lavElement('div');
+    sandbox._vmDom.lagerContent = vært;
+    sandbox._vmRenderLagerContent();
+
+    const lister = vært.find('vm-item-list');
+    ok(lister.length === 1, 'varelisten bygges');
+    const åben = lister[0] && (lister[0].classList.contains('vm-open') ||
+        String(lister[0].className).indexOf('vm-open') >= 0);
+    ok(åben, 'og den er ÅBEN — ellers er kortene usynlige');
+    ok(sandbox._vmState.itemListOpen === true,
+       'uden bestilling åbnes listen af sig selv — der er intet at "godkende" først');
+
+    const kort = vært.find('vm-item-card');
+    eq(kort.length, 1, 'ét varekort');
 }
 
 console.log('\n' + '─'.repeat(50));

@@ -260,9 +260,14 @@ function _vmReadCarry() {
     if (!raw) return null;
     try {
         var c = JSON.parse(raw);
-        if (!c || !c.pid) return null;
+        if (!c) return null;
         if (c.ts && (Date.now() - c.ts) > 30 * 60 * 1000) return null;
-        return c;
+        // Retter man flere varer op, skal de alle med. Den enkelte form
+        // accepteres stadig, så en side der stod åben fra en tidligere version
+        // ikke taber sin overførsel.
+        var varer = Array.isArray(c.items) ? c.items : (c.pid ? [c] : []);
+        varer = varer.filter(function(v) { return v && v.pid; });
+        return varer.length ? varer : null;
     } catch (err) { return null; }
 }
 
@@ -273,22 +278,26 @@ function _vmReadCarry() {
  * _vmState.items, så en vare lagt på før ville forsvinde igen.
  */
 function _vmApplyCarry() {
-    if (!_vmCarry) return;
-    var pid = _vmCarry.pid;
-    if (!_vmProductById[pid]) return;      // varen findes ikke (længere) i Grocy
-    if (_vmOnList(pid)) return;            // stod allerede på listen fra bestillingen
+    if (!_vmCarry || !_vmCarry.length) return;
 
-    if (!_vmAddProduct(pid, null)) return;
-    var item = _vmState.items[_vmState.items.length - 1];
-    // Tallet er allerede tastet én gang i lageroversigten. At taste det igen
-    // ville være præcis den friktion der fik folk til at blive dér.
-    if (_vmCarry.qty > 0 && _vmCarry.qu_id != null) {
-        item.qu_id = parseInt(_vmCarry.qu_id);
-        item.unit = _vmQuNames[item.qu_id] || item.unit;
-        item.entries = [{ qu_id: item.qu_id, qty: _vmCarry.qty }];
-        item.received = _vmCarry.qty;
+    for (var i = 0; i < _vmCarry.length; i++) {
+        var c = _vmCarry[i];
+        var pid = c.pid;
+        if (!_vmProductById[pid]) continue;   // varen findes ikke (længere) i Grocy
+        if (_vmOnList(pid)) continue;         // stod allerede på listen fra bestillingen
+        if (!_vmAddProduct(pid, null)) continue;
+
+        var item = _vmState.items[_vmState.items.length - 1];
+        // Tallet er allerede tastet én gang i lageroversigten. At taste det igen
+        // ville være præcis den friktion der fik folk til at blive dér.
+        if (c.qty > 0 && c.qu_id != null) {
+            item.qu_id = parseInt(c.qu_id);
+            item.unit = _vmQuNames[item.qu_id] || item.unit;
+            item.entries = [{ qu_id: item.qu_id, qty: c.qty }];
+            item.received = c.qty;
+        }
+        item.fromCarry = true;
     }
-    item.fromCarry = true;
 }
 
 /* ── Skemaet ─────────────────────────────────────────────── */
@@ -1595,9 +1604,16 @@ function _vmRenderLagerContent() {
     var issues = _vmUnitIssueItems();
     if (issues.length > 0) el.appendChild(_vmBuildUnitWarnBanner(issues));
 
-    // Item list (collapsed)
+    // Klassen SKAL følge tilstanden ved hver render.
+    //
+    // Gjorde den ikke det, var listen `display:none` selvom _vmState.itemListOpen
+    // var true — og så blev varekortene tegnet, men var usynlige. Det ramte
+    // præcis den nye vej: uden en bestilling er der ingen "Juster enkeltvis"-knap
+    // til at åbne listen, så INTET tilføjede klassen. Man kunne lægge en vare på,
+    // se tælleren gå til 1, og ikke kunne se hverken varen, mængdefelterne eller
+    // prisen. Fundet i drift 18. september.
     var list = document.createElement('div');
-    list.className = 'vm-item-list';
+    list.className = 'vm-item-list' + (_vmState.itemListOpen ? ' vm-open' : '');
     _vmDom.itemList = list;
 
     for (var i = 0; i < _vmState.items.length; i++) {
@@ -1837,7 +1853,10 @@ function _vmBuildPrisRow(index) {
         row.appendChild(txt);
     } else {
         txt.className = 'vm-pris-txt vm-pris-mangler';
-        txt.textContent = 'Ingen pris' + (pi.reason_text ? ' \u00b7 ' + pi.reason_text : '');
+        // Begrundelsen tilføjes kun når den siger noget nyt: reason_text for
+        // 'missing' ER "ingen pris", og "Ingen pris · ingen pris" ligner en fejl.
+        var grund = pi.reason_text && pi.reason_text !== 'ingen pris' ? pi.reason_text : '';
+        txt.textContent = 'Ingen pris' + (grund ? ' \u00b7 ' + grund : '');
         row.appendChild(txt);
 
         var fix = document.createElement('button');

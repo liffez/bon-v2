@@ -837,19 +837,28 @@
     cursor: pointer;
 }
 
-/* "Kom der varer?" efter en op-rettelse (#658) — et tilbud, ikke et spørgsmål */
+/* "Kom der varer?" efter en op-rettelse (#658).
+   Bliver stående til man svarer — et tilbud man ikke når at se er intet tilbud. */
 .so-nudge {
-    background: rgba(142, 99, 31, 0.10);
-    color: var(--brand-primary, #8e631f);
-    border: 1px solid rgba(142, 99, 31, 0.35);
-    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    background: #fff;
+    color: var(--color-text);
+    border: 2px solid var(--brand-primary, #8e631f);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+    max-width: 320px;
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 6px;
 }
+.so-nudge-titel { font-weight: 700; color: var(--brand-primary, #8e631f); font-size: 15px; }
+.so-nudge-varer { font-size: 13px; color: var(--color-text-dim, #6b6b6b); line-height: 1.35; }
+.so-nudge-rk { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
 .so-nudge-link {
-    border: none; background: none; padding: 0; cursor: pointer;
-    color: inherit; font: inherit; font-weight: 600; text-decoration: underline;
+    flex: 1; border: none; cursor: pointer;
+    background: var(--brand-primary, #8e631f); color: #fff;
+    border-radius: 8px; padding: 9px 12px; font-size: 14px; font-weight: 600;
 }
 .so-nudge-x {
-    border: none; background: none; cursor: pointer; color: inherit;
-    font-size: 17px; line-height: 1; padding: 0 2px; margin-left: auto; opacity: .6;
+    border: 1px solid var(--color-border, #d7d1ca); background: none; cursor: pointer;
+    color: var(--color-text-dim, #6b6b6b); border-radius: 8px;
+    padding: 9px 14px; font-size: 14px;
 }
-.so-nudge-x:hover { opacity: 1; }
+.so-nudge-x:hover { background: #f5f4f2; }
