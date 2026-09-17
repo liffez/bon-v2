@@ -1040,6 +1040,7 @@ router.get('/customer/:id', handle((req, res) => {
     const activities = db.prepare(`
         SELECT a.*, u.name as user_name, u.name as owner_name, b.bon_number,
                mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji,
+               mt.needs_delivery_address AS meeting_needs_delivery,
                cr.label AS contact_reason_label, cr.emoji AS contact_reason_emoji,
                p.label AS purpose_label, p.emoji AS purpose_emoji
         FROM crm_activities a
@@ -1387,6 +1388,62 @@ router.post('/activity', handle((req, res) => {
     });
 
     res.json({ id: activityId, ok: true });
+}));
+
+// ─── POST /activity/:id/create-bon ──────────────────────────
+// Lav smagnings-bonen der ikke blev lavet automatisk.
+//
+// Auto-oprettelsen er best-effort: den må aldrig kunne vælte kundens booking,
+// så en nede Grocy eller en manglende opsætning efterlader aftalen uden bon.
+// Uden en vej tilbage ville det være en stille fejl — bookingen ser fin ud,
+// og køkkenet ser ingenting. Den her knap er vejen tilbage.
+//
+// requireAuth() og ikke admin: den der opdager det, skal kunne rette det.
+router.post('/activity/:id/create-bon', handle(async (req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+
+    const a = db.prepare(`
+        SELECT a.id, a.customer_id, a.bon_id, a.due_at, a.guest_count, a.delivery_address_id,
+               c.company_id, mt.label AS meeting_label, mt.needs_delivery_address
+        FROM crm_activities a
+        LEFT JOIN customers c      ON c.id  = a.customer_id
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        WHERE a.id = ?
+    `).get(id);
+    if (!a) return res.status(404).json({ error: 'Aktivitet ikke fundet' });
+    if (a.bon_id) return res.status(409).json({ error: 'Der er allerede en bon på aftalen', bon_id: a.bon_id });
+    if (!a.customer_id) return res.status(400).json({ error: 'Aftalen har ingen kunde' });
+
+    const dueAt = String(a.due_at || '');
+    const date  = dueAt.slice(0, 10);
+    const time  = dueAt.slice(11, 16) || null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: 'Aftalen har ingen gyldig dato' });
+    }
+
+    const { createSmagningBon } = require('../services/smagningBon');
+    const r = await createSmagningBon({
+        activityId: id,
+        customerId: a.customer_id,
+        companyId:  a.company_id,
+        date, time,
+        addressId:  a.delivery_address_id,
+        guestCount: a.guest_count,
+        meetingTypeLabel: a.meeting_label || 'Smagning',
+        userId: getUserId(req),
+    });
+
+    if (!r.created) {
+        // 'disabled' er et valg i Settings, ikke en fejl — men knappen skal
+        // sige hvorfor der ikke skete noget, ikke bare fejle.
+        const msg = r.reason === 'disabled'
+            ? 'Automatisk bon-oprettelse er slået fra i Settings → Booking — Smagsprøve.'
+            : `Bonen kunne ikke oprettes (${r.reason}).`;
+        return res.status(400).json({ error: msg, reason: r.reason });
+    }
+
+    res.json({ ok: true, bon_id: r.bonId, bon_number: r.bonNumber, warning: r.warning || null, lines: r.lineCount });
 }));
 
 // ─── PATCH /activity/:id/done ───────────────────────────────

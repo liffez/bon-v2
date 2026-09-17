@@ -341,6 +341,7 @@ class BonDrawer {
                                 </div>
                                 <input type="file" id="drawerMailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_drawerOnFileSelected(this)">
                                 <div id="drawerMailAttachments" class="bm-attachments"></div>
+                                <div id="drawerMailError" class="bm-send-error" hidden></div>
                                 <div class="bm-compose-actions">
                                     <button type="button" class="bm-attach" onclick="_drawerAttachFile()">📎 Vedhæft</button>
                                     <button type="button" class="bm-send" id="drawerMailSendBtn" onclick="_drawerSendMail()">${mailIcon(13)} Send</button>
@@ -3250,6 +3251,9 @@ async function _drawerSendMail() {
     if (!to) { document.getElementById('drawerMailTo').focus(); return; }
     if (!text && !subject) { document.getElementById('drawerMailSubject').focus(); return; }
 
+    const errHost = document.getElementById('drawerMailError');
+    if (errHost) errHost.hidden = true;
+
     btn.disabled = true;
     btn.textContent = 'Sender…';
 
@@ -3271,7 +3275,17 @@ async function _drawerSendMail() {
         if (_drawerInstance.data) _drawerInstance._loadMail(_drawerInstance.data);
     } catch (err) {
         console.error('[drawer-mail] Send fejl:', err);
-        btn.textContent = 'Fejl — prøv igen';
+        // Serveren skriver hvorfor (fx at et {{booking_link}} mangler en kunde).
+        // "Prøv igen" alene efterlader afsenderen uden noget at handle på.
+        _drawerShowMailError(err.message);
+        btn.innerHTML = mailIcon(13) + ' Send';
         btn.disabled = false;
     }
+}
+
+function _drawerShowMailError(msg) {
+    const host = document.getElementById('drawerMailError');
+    if (!host) { alert(msg || 'Mailen kunne ikke sendes.'); return; }
+    host.textContent = msg || 'Mailen kunne ikke sendes.';
+    host.hidden = false;
 }

@@ -759,6 +759,20 @@
 
 /* Attachment compose UI */
 .bm-compose-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+/* Fejl fra serveren ved mail-afsendelse. Stod tidligere kun som "Fejl — prøv
+   igen" på knappen, så afsenderen aldrig fik at vide HVAD der var galt. */
+.bm-send-error {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid #e0b4b4;
+    background: #fdf3f3;
+    color: #8a2020;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
 .bm-send, .bm-attach {
     padding: 6px 14px; border: none; border-radius: 6px;
     font-size: 13px; cursor: pointer;

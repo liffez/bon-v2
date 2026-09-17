@@ -112,21 +112,31 @@ try {
     assert(countAfterRender === 1, `Render skaber ikke ny token-række (stadig ${countAfterRender})`);
 
     // ─── 3. Manglende customerId ──────────────────────────
-    console.log('\n[Test 3] Manglende customerId → placeholder fjernes');
-    const noCustOut = renderTemplate('Link: {{booking_link}}', {}, { appendSignature: false });
-    assert(!noCustOut.includes('{{booking_link}}'), 'Placeholder fjernet uden customerId');
-    assert(noCustOut === 'Link: ', `Output er "Link: " (fik "${noCustOut}")`);
+    //
+    // ÆNDRET ADFÆRD: pladsholderen blev tidligere slettet i stilhed, og mailen
+    // gik afsted med et hul hvor linket skulle stå. Nu kastes der, så afsenderen
+    // får noget at handle på. Se scripts/test-booking-link-mail.js.
+    console.log('\n[Test 3] Manglende customerId → kaster, sletter ikke');
+    let threwNoCust = null;
+    try { renderTemplate('Link: {{booking_link}}', {}, {}); } catch (e) { threwNoCust = e; }
+    assert(threwNoCust !== null, 'Kaster uden customerId');
+    assert(threwNoCust.code === 'booking_link_unresolvable', `Fejlkode booking_link_unresolvable (fik ${threwNoCust.code})`);
+
+    // Test-mailen har pr. definition ingen kunde og skal stadig kunne sendes —
+    // dér bliver linket til en synlig markering, ikke til ingenting.
+    const lenientOut = renderTemplate('Link: {{booking_link}}', {}, { lenientBookingLink: true });
+    assert(!lenientOut.includes('{{booking_link}}'), 'Lenient efterlader ikke pladsholderen rå');
+    assert(lenientOut !== 'Link: ', 'Lenient efterlader ikke en tom plads');
 
     // ─── 4. Manglende baseUrl ─────────────────────────────
-    console.log('\n[Test 4] Manglende booking_public_url_base → placeholder fjernes');
+    console.log('\n[Test 4] Manglende booking_public_url_base → kaster');
     setSetting(db, 'booking_public_url_base', '');
-    const noUrlOut = renderTemplate('Link: {{booking_link}}', {}, {
-        customerId,
-        bookingFlow: TEST_FLOW,
-        appendSignature: false
-    });
-    assert(!noUrlOut.includes('{{booking_link}}'), 'Placeholder fjernet uden baseUrl');
-    assert(noUrlOut === 'Link: ', `Output er "Link: " (fik "${noUrlOut}")`);
+    let threwNoUrl = null;
+    try {
+        renderTemplate('Link: {{booking_link}}', {}, { customerId, bookingFlow: TEST_FLOW });
+    } catch (e) { threwNoUrl = e; }
+    assert(threwNoUrl !== null, 'Kaster uden baseUrl');
+    assert(/Settings/.test(threwNoUrl.message), 'Beskeden peger på Settings');
 
     console.log('\n✅ M7a alle tests bestået');
 } finally {

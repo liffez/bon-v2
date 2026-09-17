@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="../shared/density.css">
   <script src="../shared/density.js"></script>
   <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="../shared/vare_picker.css">
   <link rel="stylesheet" href="../shared/bon_kort.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -256,6 +257,9 @@
       cursor: pointer;
     }
     .st-var-tag:hover { background: var(--brand-primary-light); }
+    /* Fyldes af serveren ved afsendelse, ikke af browseren — markeres så den
+       ikke forveksles med en variabel man kan se resultatet af i en test. */
+    .st-var-tag.st-var-server { border: 1px dashed var(--brand-primary); }
 
     /* ─── TEMPLATE CARDS ─────────────────────────── */
     .st-tmpl-card {
@@ -1849,6 +1853,10 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/utils.js"></script>
 <script src="../shared/env_badge.js"></script>
+<!-- Samme vareliste som bon-draweren og event-modalen bruger. Smagsprøvens
+     indhold skal vælges på den måde folk kender — ikke med en vælger der kun
+     findes her. -->
+<script src="../shared/vare_picker.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 // Settings UI — vanilla JS
@@ -2823,11 +2831,35 @@ var _mailTemplatesCache = [];
 var SYSTEM_KEYS = ['booking_confirmation', 'web_order_confirmation', 'order_email'];
 var TEMPLATE_VARS = {
   'booking_confirmation': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode'],
-  'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag'],
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode','booking_link'],
+  'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag','booking_link'],
   'order_email': ['leverandoer','vareliste','dato','leveringsdato','tag'],
+  // Booking-skabelonerne havde ingen chips og faldt tilbage på bon-sættet
+  // (kundeNavn, totalPris, menuMedPriser …), som INTET af dem fyldes med.
+  //
+  // Det er ikke kosmetik: renderTemplate lader en ukendt {{variabel}} stå som
+  // literal tekst, så et klik på en forkert chip sender "{{totalPris}}" ordret
+  // ud til kunden. Samme fejlklasse som {{booking_link}} gjorde fra bon-mailen.
+  'booking_smagning_confirmation': ['kundeFornavn','kundeNavn','kundeEmail','kundeTelefon',
+      'moedeTypeLabel','varighed','datoFormatteret','tid','leveringsAdresse',
+      'firmaNavn','firmaAdresse','firmaTelefon','firmaEmail','tag','booking_link'],
+  'booking_smagning_reminder': ['kundeFornavn','kundeNavn','kundeEmail','kundeTelefon',
+      'moedeTypeLabel','varighed','datoFormatteret','tid',
+      'firmaNavn','firmaAdresse','firmaTelefon','firmaEmail','tag','booking_link'],
+  'booking_kontakt_confirmation': ['kundeFornavn','kundeNavn','kundeEmail','kundeTelefon',
+      'kontaktAarsagLabel','firmaNavn','firmaAdresse','firmaTelefon','firmaEmail','tag','booking_link'],
+  'booking_internal_notification': ['kundeNavn','firmaNavn','kundeEmail','kundeTelefon','flowType',
+      'bookingKilde','moedeTypeLabel','kontaktAarsagLabel','datoFormatteret','tid','antalGaester',
+      'beskedFraKunde','crmKundeUrl'],
   '_default': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode']
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode','booking_link']
+};
+
+// Variabler serveren fylder ud ved afsendelse — ikke browseren. De ser tomme ud
+// i "Send test", og det er meningen: de kræver en rigtig kunde.
+var SERVER_SIDE_VARS = {
+  'bookingKilde': 'Hvor bookingen kom fra: "Dit mail-link" eller "Fandt selv booking-siden". I en kampagne er det forskellen på om dit udsendte link virkede.',
+  'booking_link': 'Personligt booking-link. Serveren laver det ved afsendelse og binder det til kunden — kræver derfor en bon med kunde, eller CRM → Kunde 360°.'
 };
 
 function switchTemplate() {
@@ -2863,7 +2895,10 @@ function switchTemplate() {
     '</label>';
   h += '<div class="st-vars"><span style="font-size:12px;margin-right:4px;color:var(--color-text-dim)">Variabler:</span>';
   vars.forEach(function(v) {
-    h += '<span class="st-var-tag" onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
+    var hint = SERVER_SIDE_VARS[v];
+    h += '<span class="st-var-tag' + (hint ? ' st-var-server' : '') + '"' +
+         (hint ? ' title="' + esc(hint) + '"' : '') +
+         ' onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
   });
   h += '</div></div>';
   ed.innerHTML = h;
@@ -4140,9 +4175,11 @@ async function loadBookingSmagning() {
         '<th style="width:90px">Varighed</th><th style="width:70px">Bookbar</th>' +
         '<th style="width:96px" title="Tomt = spørg kunden. Et tal = feltet skjules og bookingen registreres med tallet">Faste gæster</th>' +
         '<th style="width:80px" title="Slået fra: kunden bliver ikke spurgt om eventtype">Eventtype</th>' +
+        '<th style="width:86px" title="Slået til: mødetypen køres UD til kunden. Formularen kræver en leveringsadresse, og bookingen bliver til en bon køkkenet kan pakke.">Leveres</th>' +
         '<th style="width:60px">Type</th><th style="width:70px">Aktiv</th><th style="width:60px"></th>' +
         '</tr></thead><tbody id="bs-mt-body"></tbody></table>';
     html += '<button class="st-btn st-btn-primary" style="margin-top:8px" onclick="bsMtShowNew()">+ Ny mødetype</button>';
+    html += _smagningBonBlock();
     html += '<div id="bs-mt-new-form" style="display:none;margin-top:12px;padding:14px;background:#faf8f5;border-radius:8px;border:1px solid var(--color-border)"></div>';
 
     // Slot-logik
@@ -4199,6 +4236,9 @@ async function loadBookingSmagning() {
     c.innerHTML = html;
 
     _bookingRenderMtTable();
+    // Fire-and-forget: Grocy og de to lister må ikke kunne forsinke sektionen.
+    // Fejler de, står de gemte retter der stadig (uden navne) og kan fjernes.
+    bsLoadSmagningLists();
     _bookingRenderPageTemplate('intro_smagning',    'bs-pt-intro');
     _bookingRenderPageTemplate('thankyou_smagning', 'bs-pt-thankyou');
 }
@@ -4292,6 +4332,268 @@ function _bookingOwnerField() {
         'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + opts + '</select></div>';
 }
 
+// ─── SMAGSPRØVE-BONEN ────────────────────────────────────
+// En booket smagning køres ud til kunden, så den skal ende i en bon køkkenet
+// kan pakke. Hvad der ligger i kassen er køkkenets valg — derfor står menuen
+// her og ikke i koden.
+let _smagningRecipesCache = null;
+let _smagningPayTypes = null;      // fra /api/payment-types
+let _smagningPriceCats = null;     // fra /api/price-categories
+let _smagningStatuses = null;      // fra /api/statuses
+let _smagningVehicles = null;      // fra /api/delivery/vehicles
+
+function _smagningBonBlock() {
+    const on = String(allSettings.booking_smagning_create_bon || '1') === '1';
+    let h = '<h3 style="font-size:14px;margin:22px 0 8px">Smagsprøve-bonen</h3>';
+    h += '<div style="padding:14px;background:#faf8f5;border:1px solid var(--color-border);border-radius:8px">';
+    h += '<div style="font-size:12px;color:var(--color-text-dim);margin-bottom:10px">'
+       + 'Mødetyper markeret <strong>Leveres</strong> bliver automatisk til en bon med tid, '
+       + 'leveringsadresse og indholdet nedenfor. Bonen dukker op i køkkenet og i Logistik.</div>';
+
+    h += '<label class="st-toggle"><input type="checkbox" ' + (on ? 'checked' : '') +
+         ' onchange="bsSaveSetting(\'booking_smagning_create_bon\', this.checked ? \'1\' : \'0\')">' +
+         '<span class="st-toggle-slider"></span></label>' +
+         '<span style="margin-left:10px;font-weight:600">Opret bon automatisk ved booking</span>';
+    h += '<div style="font-size:12px;color:var(--color-text-dim);margin:6px 0 14px">'
+       + 'Slået fra: bookingen står stadig i CRM, og bonen laves med ét klik på aftalen.</div>';
+
+    // Betalingstype — peges mod den type huset faktisk bruger. Vi opretter
+    // ingen ny: listen kan indeholde en I selv har lavet.
+    const payCur = String(allSettings.booking_smagning_payment_type || 'sponsorship');
+    let payOpts = '';
+    (_smagningPayTypes || []).forEach(pt => {
+        payOpts += '<option value="' + esc(pt.code) + '"' + (pt.code === payCur ? ' selected' : '') + '>' +
+            esc(pt.label) + (pt.counts_as_revenue ? '' : ' — tæller ikke som omsætning') + '</option>';
+    });
+    if (!payOpts) payOpts = '<option value="' + esc(payCur) + '" selected>' + esc(payCur) + '</option>';
+
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">';
+    h += '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Betalingstype</label>' +
+         '<select id="bs-smagning-pay" onchange="bsSaveSetting(\'booking_smagning_payment_type\', this.value)" ' +
+         'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + payOpts + '</select>' +
+         '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Vælg en type der ikke tæller som omsætning — maden tælles stadig i enheder og produktion.</div></div>';
+
+    const catCur = String(allSettings.booking_smagning_price_category || 'catering');
+    let catOpts = '';
+    (_smagningPriceCats || []).forEach(pc => {
+        catOpts += '<option value="' + esc(pc.code) + '"' + (pc.code === catCur ? ' selected' : '') + '>' + esc(pc.label || pc.code) + '</option>';
+    });
+    if (!catOpts) catOpts = '<option value="' + esc(catCur) + '" selected>' + esc(catCur) + '</option>';
+    h += '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Priskategori</label>' +
+         '<select id="bs-smagning-cat" onchange="bsSaveSetting(\'booking_smagning_price_category\', this.value)" ' +
+         'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + catOpts + '</select>' +
+         '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Den ægte pris bliver stående på bonen, så I kan se hvad smagsprøverne koster.</div></div>';
+    h += '</div>';
+
+    // Status + vogn. En booket smagning er afklaret (menu, adresse og tid er
+    // givne), så den skal ikke ligge i NY-bunken — og vi kører den selv ud.
+    const stCur  = String(allSettings.booking_smagning_bon_status || 'GODKENDT');
+    const vehCur = String(allSettings.booking_smagning_vehicle_id || '');
+
+    let stOpts = '';
+    (_smagningStatuses || []).forEach(st => {
+        stOpts += '<option value="' + esc(st.code) + '"' + (st.code === stCur ? ' selected' : '') + '>' +
+            esc(st.label || st.code) + '</option>';
+    });
+    if (!stOpts) stOpts = '<option value="' + esc(stCur) + '" selected>' + esc(stCur) + '</option>';
+
+    let vehOpts = '<option value=""' + (vehCur === '' ? ' selected' : '') + '>Book ikke automatisk</option>';
+    (_smagningVehicles || []).forEach(v => {
+        vehOpts += '<option value="' + esc(String(v.id)) + '"' + (String(v.id) === vehCur ? ' selected' : '') + '>' +
+            esc(v.label) + (v.is_internal ? ' \u2014 egen vogn' : '') + '</option>';
+    });
+    if (vehCur && !(_smagningVehicles || []).some(v => String(v.id) === vehCur)) {
+        vehOpts += '<option value="' + esc(vehCur) + '" selected>Vogn #' + esc(vehCur) + '</option>';
+    }
+
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">';
+    h += '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Bonens status</label>' +
+         '<select id="bs-smagning-status" onchange="bsSaveSetting(\'booking_smagning_bon_status\', this.value)" ' +
+         'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + stOpts + '</select>' +
+         '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Alt er afklaret ved bookingen, så den hører ikke til i NY-bunken. Vælg Venter info hvis I vil se dem igennem først.</div></div>';
+    h += '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Levering</label>' +
+         '<select id="bs-smagning-vehicle" onchange="bsSaveSetting(\'booking_smagning_vehicle_id\', this.value)" ' +
+         'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + vehOpts + '</select>' +
+         '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Vognen sættes på bonen med det samme, så den ikke står som \u201dIkke planlagt endnu\u201d i Logistik.</div></div>';
+    h += '</div>';
+
+    h += '<label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:6px">Indhold</label>';
+    h += '<div id="bs-smagning-menu"></div>';
+    // Samme vareliste som bon-draweren og event-modalen. Detached (bonId: null)
+    // — den POSTer ikke, men leverer linjen hertil, hvor den bliver til en
+    // menu-række i indstillingen.
+    h += '<button class="st-btn" id="bs-smagning-toggle" style="margin-top:8px">+ Tilføj vare</button>';
+    h += '<div id="bs-smagning-picker" style="margin-top:8px"></div>';
+    h += '</div>';
+    return h;
+}
+
+function _smagningMenu() {
+    try {
+        const v = JSON.parse(allSettings.booking_smagning_menu || '[]');
+        return Array.isArray(v) ? v : [];
+    } catch { return []; }
+}
+
+function bsRenderSmagningMenu() {
+    const host = document.getElementById('bs-smagning-menu');
+    if (!host) return;
+    const items = _smagningMenu();
+    if (!items.length) {
+        host.innerHTML = '<div style="font-size:12px;color:#8a6d3b;padding:8px 10px;background:#fdf6e3;border:1px solid #e3d6a8;border-radius:6px">' +
+            '⚠ Ingen retter valgt — bonen bliver oprettet uden linjer, og køkkenet kan ikke se hvad der skal pakkes.</div>';
+        return;
+    }
+    const byId = new Map((_smagningRecipesCache || []).map(r => ['r' + r.id, r]));
+    host.innerHTML = items.map((it, i) => {
+        const r = byId.get(String(it.id));
+        const navn = r ? esc(r.name) : esc(String(it.id));
+        // En ret der er slettet i Grocy skal SES — ellers opdages det først når
+        // kassen skal pakkes.
+        const mangler = (!r && _smagningRecipesCache)
+            ? ' <span style="color:var(--color-red,#c0392b);font-size:11px">findes ikke i Grocy</span>' : '';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0">' +
+            '<input type="number" min="1" max="99" value="' + (Number(it.count) || 1) + '" ' +
+            'onchange="bsSmagningQty(' + i + ', this.value)" style="width:56px;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' +
+            '<span style="flex:1;font-size:13px">' + navn + mangler + '</span>' +
+            '<button class="st-btn" style="font-size:11px;padding:2px 8px" onclick="bsSmagningRemove(' + i + ')">Fjern</button>' +
+            '</div>';
+    }).join('');
+}
+
+// Vognene vælges på id (det er dét indstillingen gemmer), ikke på code —
+// derfor sin egen fill frem for _bsFillSelect.
+function _bsFillVehicleSelect(cur) {
+    const el = document.getElementById('bs-smagning-vehicle');
+    if (!el || !_smagningVehicles) return;
+    let html = '<option value=""' + (cur === '' ? ' selected' : '') + '>Book ikke automatisk</option>';
+    html += _smagningVehicles.map(v => '<option value="' + esc(String(v.id)) + '"' +
+        (String(v.id) === cur ? ' selected' : '') + '>' + esc(v.label) +
+        (v.is_internal ? ' \u2014 egen vogn' : '') + '</option>').join('');
+    // En gemt vogn der siden er deaktiveret skal stadig kunne SES og skiftes.
+    if (cur && !_smagningVehicles.some(v => String(v.id) === cur)) {
+        html += '<option value="' + esc(cur) + '" selected>Vogn #' + esc(cur) + ' (ikke aktiv)</option>';
+    }
+    el.innerHTML = html;
+}
+
+function _bsFillSelect(id, list, cur, labelOf) {
+    const el = document.getElementById(id);
+    if (!el || !list) return;
+    el.innerHTML = list.map(x => '<option value="' + esc(x.code) + '"' +
+        (x.code === cur ? ' selected' : '') + '>' + labelOf(x) + '</option>').join('');
+}
+
+async function bsLoadSmagningLists() {
+    // Betalingstyper og priskategorier hentes hver gang sektionen åbnes: har
+    // nogen netop oprettet "Smagsprøve" under Betalingstyper, skal den kunne
+    // vælges uden en genindlæsning.
+    try {
+        [_smagningPayTypes, _smagningPriceCats, _smagningStatuses, _smagningVehicles] = await Promise.all([
+            fetchPaymentTypes(), fetchPriceCategories(), fetchStatuses(), fetchDeliveryVehicles()
+        ]);
+        _bsFillSelect('bs-smagning-pay', _smagningPayTypes,
+            String(allSettings.booking_smagning_payment_type || 'sponsorship'),
+            pt => esc(pt.label) + (pt.counts_as_revenue ? '' : ' — tæller ikke som omsætning'));
+        _bsFillSelect('bs-smagning-cat', _smagningPriceCats,
+            String(allSettings.booking_smagning_price_category || 'catering'),
+            pc => esc(pc.label || pc.code));
+        // Kun de statusser en bon kan fødes i. En smagning må ikke starte som
+        // faktureret eller aflyst, og TILBUD er ikke en bon-status her.
+        _bsFillSelect('bs-smagning-status',
+            (_smagningStatuses || []).filter(st => st.category === 'normal'),
+            String(allSettings.booking_smagning_bon_status || 'GODKENDT'),
+            st => esc(st.label || st.code));
+        _bsFillVehicleSelect(String(allSettings.booking_smagning_vehicle_id || ''));
+    } catch (err) {
+        console.warn('[settings] kunne ikke hente betalingstyper/priskategorier/statusser/vogne:', err.message);
+    }
+    await bsLoadSmagningRecipes();
+}
+
+// VarePicker henter selv sine retter. Vi henter listen ÉN gang mere her, fordi
+// den gemte menu kun består af id'er — uden navnene ville en allerede valgt ret
+// stå som "r91".
+async function bsLoadSmagningRecipes() {
+    try {
+        if (!_smagningRecipesCache) {
+            const r = await fetch('/api/grocy/recipes');
+            if (!r.ok) throw new Error('Grocy svarede ' + r.status);
+            _smagningRecipesCache = await r.json();
+        }
+    } catch (err) {
+        // Uden Grocy kan vi ikke vise navne — men de gemte retter skal stadig
+        // kunne ses og fjernes, så listen bliver stående med deres id'er.
+        console.warn('[settings] kunne ikke hente retter:', err.message);
+    }
+    bsRenderSmagningMenu();
+    bsInitSmagningPicker();
+}
+
+let _smagningPicker = null;
+
+function bsInitSmagningPicker() {
+    const host   = document.getElementById('bs-smagning-picker');
+    const toggle = document.getElementById('bs-smagning-toggle');
+    if (!host || !toggle) return;
+
+    if (typeof VarePicker === 'undefined') {
+        host.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim)">Varelisten kunne ikke indlæses.</div>';
+        toggle.style.display = 'none';
+        return;
+    }
+    if (toggle.dataset.wired) return;
+    toggle.dataset.wired = '1';
+
+    const setLabel = (open) => { toggle.textContent = open ? 'Luk vareliste' : '+ Tilføj vare'; };
+    const openPicker = () => {
+        _smagningPicker = new VarePicker({
+            bonId: null,   // detached: ingen POST, linjen leveres til onAdded
+            priceCategory: String(allSettings.booking_smagning_price_category || 'catering'),
+            container: host,
+            viewName: 'smagning-menu',
+            onAdded: (line) => {
+                if (!line || !line.grocy_recipe_id) return;
+                const items = _smagningMenu();
+                const id = 'r' + line.grocy_recipe_id;
+                const ex = items.find(i => String(i.id) === id);
+                const n = Math.max(1, parseInt(line.quantity) || 1);
+                if (ex) ex.count = (Number(ex.count) || 0) + n;   // samme ret igen = flere
+                else items.push({ id, count: n });
+                // Navnet caches, så rækken kan vises selv hvis Grocy falder ud
+                // inden næste gang sektionen åbnes.
+                if (_smagningRecipesCache && !_smagningRecipesCache.some(r => r.id === line.grocy_recipe_id)) {
+                    _smagningRecipesCache.push({ id: line.grocy_recipe_id, name: line.product_name });
+                }
+                _bsSaveSmagningMenu(items);
+            },
+            onClose: () => { _smagningPicker = null; setLabel(false); },
+        });
+        _smagningPicker.open();
+        setLabel(true);
+    };
+    toggle.addEventListener('click', () => { _smagningPicker ? _smagningPicker.close() : openPicker(); });
+}
+
+async function _bsSaveSmagningMenu(items) {
+    allSettings.booking_smagning_menu = JSON.stringify(items);
+    await bsSaveSetting('booking_smagning_menu', allSettings.booking_smagning_menu);
+    bsRenderSmagningMenu();
+}
+function bsSmagningQty(i, v) {
+    const items = _smagningMenu();
+    const n = parseInt(v);
+    if (!items[i] || !Number.isFinite(n) || n < 1) return bsRenderSmagningMenu();
+    items[i].count = n;
+    _bsSaveSmagningMenu(items);
+}
+function bsSmagningRemove(i) {
+    const items = _smagningMenu();
+    if (!items[i]) return;
+    items.splice(i, 1);
+    _bsSaveSmagningMenu(items);
+}
+
 // ─── MØDETYPER TABLE ─────────────────────────────────────
 function _bookingRenderMtTable() {
     const tbody = document.getElementById('bs-mt-body');
@@ -4305,6 +4607,7 @@ function _bookingRenderMtTable() {
             <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.is_bookable ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'is_bookable', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
             <td><input type="number" min="1" max="500" placeholder="spørg" value="${mt.fixed_guest_count ?? ''}" onchange="bsMtPatch(${mt.id}, 'fixed_guest_count', this.value)" style="width:64px;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"></td>
             <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.asks_event_type ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'asks_event_type', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
+            <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.needs_delivery_address ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'needs_delivery_address', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
             <td><span style="font-size:11px;padding:2px 6px;border-radius:8px;background:${mt.is_system ? '#f5f0e0' : '#e8f2dc'}">${mt.is_system ? 'System' : 'Bruger'}</span></td>
             <td>${mt.is_system ? '<span style="color:#3d7a0a">✓</span>' :
                 '<label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ' + (mt.is_active ? 'checked' : '') +
@@ -4313,7 +4616,7 @@ function _bookingRenderMtTable() {
         </tr>
         <tr>
             <td></td>
-            <td colspan="9" style="padding-top:0;padding-bottom:10px">
+            <td colspan="10" style="padding-top:0;padding-bottom:10px">
                 <input value="${esc(mt.description || '')}"
                        placeholder="Beskrivelse — vises under navnet på kundens booking-kort"
                        onchange="bsMtPatch(${mt.id}, 'description', this.value)"

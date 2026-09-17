@@ -26,13 +26,30 @@ let _inbUmQ = '';             // søgetekst (ufordelt/arkiv-mode — egen, så d
 let _inbCrossHits = 0;        // træffere i ufordelt/arkiv mens man søger i tråde
 let _inbThreads = [];
 let _inbThreadSel = null;     // åben tråd { thread, messages }
-let _inbCounts = { aabne: 0, udsat: 0, kunde: 0, luk: 0, alle: 0, ufordelt: 0, arkiv: 0 };
+let _inbCounts = { aabne: 0, udsat: 0, kunde: 0, luk: 0, alle: 0, ufordelt: 0, arkiv: 0, sendt_idag: 0 };
+
+// ── Sendt-oversigt ('sent') ──
+// Hvem har vi skrevet til? Simply gemmer ingen sendt-mappe, så dette er stedet.
+// Intervallet er danske kalenderdatoer, begge inklusive. "Kun mine" og
+// "Vis automatiske" huskes pr. browser; intervallet starter altid på i dag.
+let _inbSentFrom = '';
+let _inbSentTo = '';
+let _inbSentQ = '';
+let _inbSentMine = _inbPrefGet('inb_sent_mine') === '1';
+let _inbSentAuto = _inbPrefGet('inb_sent_auto') === '1';
+let _inbSent = { rows: [] };
+let _inbSentSel = null;       // valgt besked-id
+let _inbSentReq = 0;          // sidste request — et langsomt svar må ikke overskrive et nyere
+
+function _inbPrefGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function _inbPrefSet(k, v) { try { localStorage.setItem(k, v); } catch { /* privat vindue */ } }
 
 const _INB_LIFECYCLE = ['aabne', 'udsat', 'kunde', 'luk', 'alle'];
 // 'ufordelt' og 'arkiv' er samme maskineri (mail_unmatched) — kun statusfilteret
 // adskiller dem. Alt andet (liste, preview, handlinger) er fælles.
 const _INB_UNMATCHED_VIEWS = ['ufordelt', 'arkiv'];
-function _inbIsThreadMode() { return !_INB_UNMATCHED_VIEWS.includes(_inbView); }
+function _inbIsThreadMode() { return !_INB_UNMATCHED_VIEWS.includes(_inbView) && _inbView !== 'sent'; }
+function _inbIsSentMode() { return _inbView === 'sent'; }
 
 function initCrmInbox(containerEl, opts) {
     _inbContainer = containerEl;
@@ -57,11 +74,17 @@ function cleanupCrmInbox() {
     _inbQ = '';
     _inbThreads = [];
     _inbThreadSel = null;
+    _inbSentFrom = '';
+    _inbSentTo = '';
+    _inbSentQ = '';
+    _inbSent = { rows: [] };
+    _inbSentSel = null;
 }
 
 // Dispatcher: tråd-mode (livscyklus) vs. ufordelt-mode (legacy triage)
 function _inbLoad() {
-    if (_inbIsThreadMode()) _inbLoadThreads();
+    if (_inbIsSentMode()) _inbLoadSent();
+    else if (_inbIsThreadMode()) _inbLoadThreads();
     else _inbLoadData();
 }
 
@@ -383,9 +406,38 @@ function _inbRenderShell() {
             .inb-composer textarea { width:100%; border:1px solid var(--color-border); border-radius:10px; padding:10px; font-family:inherit; font-size:13.5px; min-height:90px; resize:vertical; }
             .inb-composer .crow { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap; }
             .inb-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--color-text-dim); cursor:pointer; }
+
+            /* ── Sendt-oversigt ── */
+            .inb-sent-bar { gap:6px; align-items:center; flex-wrap:wrap; margin:-4px 0 12px; padding:8px 10px; background:#fff; border:1px solid var(--color-border,#d7d1ca); border-radius:10px; }
+            .inb-sent-bar .nav { border:1px solid var(--color-border,#d7d1ca); background:#fff; border-radius:8px; width:30px; height:30px; cursor:pointer; font-size:14px; color:#6b6258; font-family:inherit; }
+            .inb-sent-bar .nav:hover { border-color: var(--brand-primary); }
+            .inb-sent-bar .pre { border:1px solid transparent; background:#f5f4f2; border-radius:99px; padding:5px 11px; font-size:12.5px; font-weight:600; color:#6b6258; cursor:pointer; font-family:inherit; }
+            .inb-sent-bar .pre:hover { border-color: var(--brand-primary); }
+            .inb-sent-bar .pre.on { background:var(--brand-primary-light,#f1e6b2); border-color:var(--brand-primary,#8e631f); color:#5c3f12; }
+            .inb-sent-bar .dates { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--color-text-dim); }
+            .inb-sent-bar input[type=date] { font-size:12px; padding:4px 6px; border:1px solid var(--color-border); border-radius:6px; font-family:inherit; }
+            .inb-sent-bar .gap { flex:1; }
+            .inb-sent-day { position:sticky; top:0; z-index:1; background:#f5f4f2; padding:6px 16px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:#6b6258; border-bottom:1px solid var(--color-border,#eee); display:flex; justify-content:space-between; }
+            .inb-sent-row { padding:10px 16px; border-bottom:1px solid var(--color-border,#f0eeeb); cursor:pointer; }
+            .inb-sent-row:hover { background:#faf8f5; }
+            .inb-sent-row.sel { background:#f7f0dc; box-shadow: inset 3px 0 0 var(--brand-primary,#8e631f); }
+            .inb-sent-row.failed { background:#fdf1f1; box-shadow: inset 3px 0 0 #b3261e; }
+            .inb-sent-top { display:flex; gap:8px; align-items:baseline; }
+            .inb-sent-time { font-variant-numeric: tabular-nums; font-size:12px; color:var(--color-text-dim); flex-shrink:0; width:38px; }
+            .inb-sent-to { font-weight:700; font-size:13.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .inb-sent-addr { font-size:12px; color:var(--color-text-dim); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .inb-sent-subj { font-size:13px; margin:2px 0 4px 46px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .inb-sent-meta { margin-left:46px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:11.5px; color:var(--color-text-dim); }
+            .inb-sent-err { color:#b3261e; font-weight:700; }
+            .inb-sent-auto { background:#eceae6; color:#6b6258; border-radius:4px; padding:0 5px; font-size:10.5px; font-weight:700; }
+            .inb-sent-foot { padding:10px 16px; font-size:12px; color:var(--color-text-dim); }
+            .inb-sent-foot button { border:none; background:none; color:var(--brand-primary,#8e631f); font-weight:700; cursor:pointer; font-family:inherit; font-size:12px; padding:0; }
+            .inb-sent-solo { padding:18px 20px; }
+            .inb-sent-solo pre { white-space:pre-wrap; font-family:inherit; font-size:13.5px; background:#faf8f5; border-radius:8px; padding:12px; margin-top:12px; }
         </style>
 
         <div class="inb-chips" id="inbChips"></div>
+        <div class="inb-sent-bar" id="inbSentBar" style="display:${_inbIsSentMode() ? 'flex' : 'none'}"></div>
 
         <div id="inbBulkBar" style="display:${_inbBulkMode ? 'flex' : 'none'};gap:8px;align-items:center;margin-bottom:10px;padding:8px 12px;background:#fff8e6;border:1px solid #e8d68a;border-radius:8px;flex-wrap:wrap">
             <span style="font-size:13px;font-weight:600" id="inbBulkCount">0 valgt</span>
@@ -424,12 +476,17 @@ function _inbRenderChips() {
     html += chip('luk', 'Afsluttet', c.luk);
     html += chip('alle', 'Alle', null);
     html += '<span class="inb-sep"></span>';
+    html += chip('sent', '↗ Sendt', c.sendt_idag);
+    html += '<span class="inb-sep"></span>';
     html += chip('ufordelt', '⚠ Ufordelt', c.ufordelt, 'ufordelt');
     html += chip('arkiv', '🗄 Arkiv', c.arkiv);
     html += '<span class="inb-sep"></span>';
     html += `<button class="inb-chip src ${_inbMailbox === 'bon' ? 'on' : ''}" onclick="_inbSetMailbox('${_inbMailbox === 'bon' ? '' : 'bon'}')">bon@</button>`;
     html += `<button class="inb-chip src ${_inbMailbox === 'kontakt' ? 'on' : ''}" onclick="_inbSetMailbox('${_inbMailbox === 'kontakt' ? '' : 'kontakt'}')">kontakt@</button>`;
-    if (_inbIsThreadMode()) {
+    if (_inbIsSentMode()) {
+        html += '<span style="flex:1"></span>';
+        html += `<input class="inb-search2" id="inbSearchSent" placeholder="🔍 Søg modtager, emne, bon…" value="${_inbEscapeAttr(_inbSentQ)}">`;
+    } else if (_inbIsThreadMode()) {
         html += '<span style="flex:1"></span>';
         html += `<input class="inb-search2" id="inbSearch2" placeholder="🔍 Søg al mail (også afsluttet)…" value="${_inbEscapeAttr(_inbQ)}">`;
     } else {
@@ -451,6 +508,14 @@ function _inbRenderChips() {
             deb = setTimeout(() => { _inbQ = s.value.trim(); _inbLoadThreads(); }, 300);
         });
     }
+    const ss = document.getElementById('inbSearchSent');
+    if (ss) {
+        let debS = null;
+        ss.addEventListener('input', () => {
+            clearTimeout(debS);
+            debS = setTimeout(() => { _inbSentQ = ss.value.trim(); _inbLoadSent(); }, 300);
+        });
+    }
     const su = document.getElementById('inbSearchUm');
     if (su) {
         let debU = null;
@@ -468,9 +533,10 @@ function _inbSetView(view) {
     _inbBulkMode = false;
     _inbBulkSelected = new Set();
     _inbComposing = false;
+    _inbSentSel = null;
     _inbRenderShell();
     const prev = document.getElementById('inbPreview');
-    if (prev) prev.innerHTML = `<div class="inb-empty">${_inbIsThreadMode() ? 'Vælg en tråd fra listen' : 'Vælg en mail fra listen'}</div>`;
+    if (prev) prev.innerHTML = `<div class="inb-empty">${_inbIsThreadMode() ? 'Vælg en tråd fra listen' : _inbIsSentMode() ? 'Vælg en sendt mail for at se tråden' : 'Vælg en mail fra listen'}</div>`;
     _inbLoad();
 }
 window._inbSetView = _inbSetView;
@@ -482,7 +548,7 @@ async function _inbLoadCounts() {
         // rå innerHTML-genrendering ville rive fokus og markør ud af hænderne på
         // den der skriver (samme fælde som indkøbslistens søgefelt havde).
         const act = document.activeElement;
-        const keep = act && (act.id === 'inbSearch2' || act.id === 'inbSearchUm')
+        const keep = act && (act.id === 'inbSearch2' || act.id === 'inbSearchUm' || act.id === 'inbSearchSent')
             ? { id: act.id, start: act.selectionStart, end: act.selectionEnd } : null;
         _inbRenderChips();
         if (keep) {
@@ -491,6 +557,282 @@ async function _inbLoadCounts() {
         }
     } catch (e) { /* badge er kosmetisk */ }
 }
+
+/* ── SENDT-MODE (/mail/sent) ──────────────────────────────── */
+
+// Ren kalenderregning på danske datoer (ingen klokkeslæt → ingen tidszone-fælde).
+function _inbAddDays(iso, n) {
+    const p = String(iso).split('-').map(Number);
+    const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);   // utc-ok: kalenderregning på UTC-midnat
+}
+function _inbDaysBetween(a, b) {
+    return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+}
+// Mandag i den uge datoen ligger i.
+function _inbWeekStart(iso) {
+    const p = String(iso).split('-').map(Number);
+    const dow = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay();   // 0 = søndag
+    return _inbAddDays(iso, -((dow + 6) % 7));
+}
+
+const _INB_MONTHS = ['jan.', 'feb.', 'mar.', 'apr.', 'maj', 'jun.', 'jul.', 'aug.', 'sep.', 'okt.', 'nov.', 'dec.'];
+const _INB_WEEKDAYS = ['søndag', 'mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag'];
+function _inbDayLabel(iso) {
+    const today = todayISO();
+    if (iso === today) return 'I dag';
+    if (iso === _inbAddDays(today, -1)) return 'I går';
+    const p = iso.split('-').map(Number);
+    const dow = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay();
+    const year = String(p[0]) === today.slice(0, 4) ? '' : ' ' + p[0];
+    return _INB_WEEKDAYS[dow] + ' ' + p[2] + '. ' + _INB_MONTHS[p[1] - 1] + year;
+}
+function _inbRangeLabel(from, to) {
+    if (from === to) return _inbDayLabel(from);
+    const a = from.split('-').map(Number), b = to.split('-').map(Number);
+    const yr = (x) => String(x[0]) === todayISO().slice(0, 4) ? '' : ' ' + x[0];
+    if (a[0] === b[0] && a[1] === b[1]) return a[2] + '.–' + b[2] + '. ' + _INB_MONTHS[b[1] - 1] + yr(b);
+    return a[2] + '. ' + _INB_MONTHS[a[1] - 1] + yr(a) + ' – ' + b[2] + '. ' + _INB_MONTHS[b[1] - 1] + yr(b);
+}
+
+// Faste intervaller. Hvert returnerer [fra, til] ud fra i dag.
+function _inbSentPresets() {
+    const t = todayISO();
+    const ws = _inbWeekStart(t);
+    return [
+        { key: 'today', label: 'I dag',           range: [t, t] },
+        { key: 'yday',  label: 'I går',           range: [_inbAddDays(t, -1), _inbAddDays(t, -1)] },
+        { key: 'week',  label: 'Denne uge',       range: [ws, t] },
+        { key: 'lweek', label: 'Sidste uge',      range: [_inbAddDays(ws, -7), _inbAddDays(ws, -1)] },
+        { key: '7d',    label: 'Sidste 7 dage',   range: [_inbAddDays(t, -6), t] },
+        { key: 'month', label: 'Denne måned',     range: [t.slice(0, 8) + '01', t] },
+        { key: 'lmonth', label: 'Sidste måned',   range: _inbMonthRange(+t.slice(0, 4), +t.slice(5, 7) - 2) },
+    ];
+}
+
+function _inbSentEnsureRange() {
+    if (!_inbSentFrom || !_inbSentTo) { _inbSentFrom = _inbSentTo = todayISO(); }
+}
+
+function _inbRenderSentBar() {
+    const el = document.getElementById('inbSentBar');
+    if (!el) return;
+    el.style.display = _inbIsSentMode() ? 'flex' : 'none';
+    if (!_inbIsSentMode()) return;
+    _inbSentEnsureRange();
+    const pres = _inbSentPresets().map(p => {
+        const on = p.range[0] === _inbSentFrom && p.range[1] === _inbSentTo;
+        return `<button class="pre ${on ? 'on' : ''}" onclick="_inbSentPreset('${p.key}')">${p.label}</button>`;
+    }).join('');
+    const isFuture = _inbSentTo >= todayISO();
+    el.innerHTML =
+        `<button class="nav" onclick="_inbSentShift(-1)" title="Forrige periode">◀</button>` +
+        `<button class="nav" onclick="_inbSentShift(1)" title="Næste periode" ${isFuture ? 'disabled style="opacity:.35;cursor:default"' : ''}>▶</button>` +
+        pres +
+        `<span class="dates">Fra <input type="date" id="inbSentFrom" value="${_inbSentFrom}" max="${todayISO()}" onchange="_inbSentSetDates()">` +
+        ` til <input type="date" id="inbSentTo" value="${_inbSentTo}" max="${todayISO()}" onchange="_inbSentSetDates()"></span>` +
+        `<span class="gap"></span>` +
+        `<label class="inb-toggle"><input type="checkbox" ${_inbSentMine ? 'checked' : ''} onchange="_inbSentToggle('mine', this.checked)"> Kun mine</label>` +
+        `<label class="inb-toggle" title="Web-ordre- og bookingbekræftelser, påmindelser og andre mails systemet selv sender"><input type="checkbox" ${_inbSentAuto ? 'checked' : ''} onchange="_inbSentToggle('auto', this.checked)"> Vis automatiske</label>`;
+}
+
+// Enheden bestemmer hvad ◀ ▶ flytter med: 'week' og 'month' hopper til den
+// hele forrige/næste uge/måned; 'days' flytter perioden med sin egen længde.
+// Den gættes ikke ud fra datoerne — "I dag" den 1. ligner ellers en måned.
+let _inbSentUnit = 'days';
+
+function _inbSentSetRange(from, to, unit) {
+    if (!from || !to) return;
+    if (to < from) [from, to] = [to, from];
+    _inbSentFrom = from;
+    _inbSentTo = to;
+    _inbSentUnit = unit || 'days';
+    // Markeringen bevares: er rækken med i den nye periode, står den stadig
+    // valgt ud for tråden til højre. Er den ikke, rydder _inbLoadSent begge.
+    _inbRenderSentBar();
+    _inbLoadSent();
+}
+
+function _inbSentPreset(key) {
+    const p = _inbSentPresets().find(x => x.key === key);
+    if (!p) return;
+    const unit = (key === 'week' || key === 'lweek') ? 'week'
+               : (key === 'month' || key === 'lmonth') ? 'month' : 'days';
+    _inbSentSetRange(p.range[0], p.range[1], unit);
+}
+window._inbSentPreset = _inbSentPreset;
+
+function _inbMonthRange(y, m0) {
+    const first = new Date(Date.UTC(y, m0, 1));
+    const next = new Date(Date.UTC(y, m0 + 1, 1));
+    // utc-ok: ren kalenderregning på UTC-midnat
+    return [first.toISOString().slice(0, 10), _inbAddDays(next.toISOString().slice(0, 10), -1)];
+}
+
+function _inbSentShift(dir) {
+    _inbSentEnsureRange();
+    let nf, nt;
+    if (_inbSentUnit === 'month') {
+        const p = _inbSentFrom.split('-').map(Number);
+        [nf, nt] = _inbMonthRange(p[0], p[1] - 1 + dir);
+    } else if (_inbSentUnit === 'week') {
+        nf = _inbAddDays(_inbWeekStart(_inbSentFrom), 7 * dir);
+        nt = _inbAddDays(nf, 6);
+    } else {
+        const len = _inbDaysBetween(_inbSentFrom, _inbSentTo) + 1;
+        nf = _inbAddDays(_inbSentFrom, dir * len);
+        nt = _inbAddDays(_inbSentTo, dir * len);
+    }
+    const today = todayISO();
+    if (nf > today) return;           // intet at se i fremtiden
+    if (nt > today) nt = today;
+    _inbSentSetRange(nf, nt, _inbSentUnit);
+}
+window._inbSentShift = _inbSentShift;
+
+function _inbSentSetDates() {
+    const f = document.getElementById('inbSentFrom');
+    const t = document.getElementById('inbSentTo');
+    if (!f || !t || !f.value || !t.value) return;
+    _inbSentSetRange(f.value, t.value);
+}
+window._inbSentSetDates = _inbSentSetDates;
+
+function _inbSentToggle(which, on) {
+    if (which === 'mine') { _inbSentMine = !!on; _inbPrefSet('inb_sent_mine', on ? '1' : '0'); }
+    else { _inbSentAuto = !!on; _inbPrefSet('inb_sent_auto', on ? '1' : '0'); }
+    _inbLoadSent();
+}
+window._inbSentToggle = _inbSentToggle;
+
+async function _inbLoadSent() {
+    if (!_inbActive || !_inbIsSentMode()) return;
+    _inbSentEnsureRange();
+    _inbRenderSentBar();
+    const head0 = document.getElementById('inbListHead');
+    if (head0) head0.textContent = 'Sendt · ' + _inbRangeLabel(_inbSentFrom, _inbSentTo);
+    const params = { from: _inbSentFrom, to: _inbSentTo };
+    if (_inbSentMine) params.mine = '1';
+    if (_inbSentAuto) params.auto = '1';
+    if (_inbMailbox) params.mailbox = _inbMailbox;
+    if (_inbSentQ) params.q = _inbSentQ;
+    const req = ++_inbSentReq;
+    try {
+        const data = await fetchSentMails(params);
+        if (req !== _inbSentReq || !_inbIsSentMode()) return;
+        _inbSent = data;
+        _inbRenderSentList();
+        const cnt = document.getElementById('inbCount');
+        if (cnt) cnt.textContent = data.total;
+        if (_inbSentSel && !data.rows.find(r => r.id === _inbSentSel) && !_inbComposing) {
+            _inbSentSel = null;
+            const prev = document.getElementById('inbPreview');
+            if (prev) prev.innerHTML = '<div class="inb-empty">Vælg en sendt mail for at se tråden</div>';
+        }
+    } catch (err) {
+        if (req !== _inbSentReq) return;
+        _inbShowLoadError(err, 'sendte mails');
+    }
+}
+
+function _inbSentTime(iso) {
+    const d = parseServerDate(iso);
+    if (!d || isNaN(d.getTime())) return '';
+    const p = new Intl.DateTimeFormat('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+    return p.replace('.', ':');
+}
+
+function _inbSentRowHtml(r) {
+    const who = r.recipient || r.to_email || '(ukendt modtager)';
+    const addr = r.recipient ? r.to_email : '';
+    const meta = [];
+    meta.push(`<span class="inb-tag2 ${r.src}">${r.src}@</span>`);
+    if (r.link) meta.push(`<span class="inb-tag2 lnk">🔗 ${_inbEscape(r.link.label)}</span>`);
+    else meta.push('<span class="inb-tag2 warn">ingen kunde</span>');
+    if (r.company_name) meta.push(`<span class="inb-ent-meta">${_inbEscape(r.company_name)}</span>`);
+    if (r.sent_by) meta.push(`<span>af ${_inbEscape(r.sent_by)}</span>`);
+    if (r.is_auto) meta.push('<span class="inb-sent-auto">AUTO</span>');
+    if (r.has_attachments) meta.push('<span title="Med vedhæftning">📎</span>');
+    if (r.error) meta.push(`<span class="inb-sent-err" title="${_inbEscapeAttr(r.error)}">⚠ Ikke sendt</span>`);
+    return `<div class="inb-sent-row ${r.error ? 'failed' : ''} ${_inbSentSel === r.id ? 'sel' : ''}" data-mid="${r.id}" onclick="_inbOpenSent(${r.id})">
+        <div class="inb-sent-top">
+            <span class="inb-sent-time">${_inbSentTime(r.at)}</span>
+            <span class="inb-sent-to">${_inbEscape(who)}</span>
+            ${addr ? `<span class="inb-sent-addr">${_inbEscape(addr)}</span>` : ''}
+        </div>
+        <div class="inb-sent-subj">${_inbEscape(r.subject)}</div>
+        <div class="inb-sent-meta">${meta.join('')}</div>
+    </div>`;
+}
+
+function _inbRenderSentList() {
+    const el = document.getElementById('inbList');
+    if (!el) return;
+    const d = _inbSent || { rows: [] };
+    const rows = d.rows || [];
+    const head = document.getElementById('inbListHead');
+    if (head) {
+        head.textContent = 'Sendt · ' + _inbRangeLabel(_inbSentFrom, _inbSentTo)
+            + (d.failed ? ' · ' + d.failed + ' fejlet' : '');
+    }
+
+    let html = '';
+    if (!rows.length) {
+        html += `<div class="inb-empty">${_inbSentQ ? 'Ingen sendte mails matcher' : 'Ingen sendte mails i perioden'}</div>`;
+    } else {
+        // Dagsoverskrifter kun når perioden spænder over mere end én dag.
+        const multi = _inbSentFrom !== _inbSentTo;
+        const perDay = {};
+        for (const r of rows) {
+            const day = dateToISO(parseServerDate(r.at));
+            perDay[day] = (perDay[day] || 0) + 1;
+        }
+        let lastDay = null;
+        for (const r of rows) {
+            const day = dateToISO(parseServerDate(r.at));
+            if (multi && day !== lastDay) {
+                html += `<div class="inb-sent-day"><span>${_inbEscape(_inbDayLabel(day))}</span><span>${perDay[day]}</span></div>`;
+                lastDay = day;
+            }
+            html += _inbSentRowHtml(r);
+        }
+    }
+
+    // Sig hvad listen IKKE viser — ellers kan "ingen mails" betyde to ting.
+    const foot = [];
+    if (d.hidden_auto) {
+        foot.push(`${d.hidden_auto} automatisk${d.hidden_auto === 1 ? '' : 'e'} skjult · <button onclick="_inbSentToggle('auto', true)">vis</button>`);
+    }
+    if (d.truncated) foot.push(`Viser de ${d.limit} nyeste — vælg en kortere periode for at se resten`);
+    if (foot.length) html += `<div class="inb-sent-foot">${foot.join('<br>')}</div>`;
+    el.innerHTML = html;
+}
+
+async function _inbOpenSent(mid) {
+    const r = (_inbSent.rows || []).find(x => x.id === mid);
+    if (!r) return;
+    _inbSentSel = mid;
+    _inbComposing = false;
+    document.querySelectorAll('.inb-sent-row').forEach(el => el.classList.toggle('sel', parseInt(el.dataset.mid) === mid));
+    if (!r.openable) {
+        // Tråde uden kunde/bon (fx vagthundens alarm) har ingen plads i indbakken.
+        _inbThreadSel = null;
+        const prev = document.getElementById('inbPreview');
+        if (!prev) return;
+        prev.innerHTML = `<div class="inb-sent-solo">
+            <div class="inb-preview-from">Til ${_inbEscape(r.to_email || '')}</div>
+            <div class="inb-preview-subject">${_inbEscape(r.subject)}</div>
+            <div class="inb-preview-date">${_inbEscape(_inbDayLabel(dateToISO(parseServerDate(r.at))))} kl. ${_inbSentTime(r.at)}${r.sent_by ? ' · af ' + _inbEscape(r.sent_by) : ''}</div>
+            ${r.error ? `<div class="inb-sent-err" style="margin-top:8px">⚠ Ikke sendt: ${_inbEscape(r.error)}</div>` : ''}
+            <div class="inb-move-hint" style="margin-top:10px">Mailen hører ikke til en kunde eller bon, så der er ingen tråd at åbne. Her er starten af den:</div>
+            <pre>${_inbEscape(r.snippet || '')}${(r.snippet || '').length >= 400 ? '…' : ''}</pre>
+        </div>`;
+        return;
+    }
+    await _inbOpenThread(r.thread_id);
+}
+window._inbOpenSent = _inbOpenSent;
 
 /* ── TRÅD-MODE (livscyklus via /mail/threads) ───────────────── */
 
@@ -503,6 +845,9 @@ const _INB_HEAD = {
 
 async function _inbLoadThreads() {
     if (!_inbActive) return;
+    // Tråd-handlingerne (Afslut, Svar, Flyt) genindlæser listen herigennem —
+    // også når tråden er åbnet fra Sendt. Så skal det være DEN liste der tegnes.
+    if (_inbIsSentMode()) return _inbLoadSent();
     const head0 = document.getElementById('inbListHead');
     if (head0) head0.textContent = _INB_HEAD[_inbView] || 'Tråde';
     try {
@@ -1654,7 +1999,8 @@ function _inbHandleSSE(eventType, data) {
     // Genindlæs på enhver mail-bevægelse: ny ufordelt (mail_unmatched), nyt tråd-svar
     // (mail_received), tråd-status ændret (mail_thread_updated), eller markeret læst (mail_read).
     if (eventType === 'mail_unmatched' || eventType === 'mail_received'
-        || eventType === 'mail_read' || eventType === 'mail_thread_updated') {
+        || eventType === 'mail_read' || eventType === 'mail_thread_updated'
+        || eventType === 'mail_sent') {
         _inbLoadCounts();
         // Undgå at klippe brugerens svar-komposer væk midt i skrivning
         if (!_inbComposing) _inbLoad();

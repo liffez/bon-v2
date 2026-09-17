@@ -125,6 +125,18 @@ const msgCount = () => db.prepare(`SELECT COUNT(*) AS n FROM mail_messages`).get
     m = lastMsg();
     ok(!!m.sent_at && m.send_error === null, `sent_at sat, send_error ryddet — fik '${m.sent_at}' / ${JSON.stringify(m.send_error)}`);
 
+    // ── S6: en FEJLET auto-mail er stadig markeret automatisk ──
+    // Sendt-oversigten skjuler automatiske mails. Blev is_system først sat efter
+    // afsendelsen, stod en fejlet booking-bekræftelse (som bærer sælgerens
+    // userId) som en menneske-mail.
+    console.log('\nS6 · Fejlet auto-mail er stadig is_system = 1');
+    mail._setMockTransport({ sendMail: async () => { throw new Error('SMTP 421 try later'); } });
+    try { await mail.sendMail({ to: 'kunde@example.com', subject: 'Booking', text: 'hej', userId: 1, isSystem: true }); }
+    catch { /* forventet */ }
+    const sys = db.prepare(`SELECT is_system, sent_at FROM mail_messages ORDER BY id DESC LIMIT 1`).get();
+    ok(sys.sent_at === null, 'afsendelsen fejlede');
+    ok(sys.is_system === 1, `is_system er sat allerede ved oprettelsen — fik ${sys.is_system}`);
+
     mail._clearMockTransport();
     console.log('\n─────────────────────────────────────────');
     console.log(fail === 0 ? `\x1b[32m${pass} PASS\x1b[0m · 0 FAIL` : `\x1b[32m${pass} PASS\x1b[0m · \x1b[31m${fail} FAIL\x1b[0m`);

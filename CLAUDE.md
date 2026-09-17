@@ -7435,6 +7435,304 @@ subrecipe-status 16, resolver-graph 8, yield-model 14, packing-units 18, gram-ch
 topup 35, preview-produced 21, plus `test:produktion`, `test:consume-hardening` og
 `test:deduct-watchdog` uden en eneste FAIL.
 
+### Indbakke: "↗ Sendt" — hvem har vi skrevet til? (17. september 2026)
+
+Simply gemmer ingen sendt-mappe, og en sendt mail kunne kun findes under den
+enkelte kunde. Bon har dog selv en kopi af alt der går gennem `sendMail()`
+(`mail_messages` med retning `out`), så det var en visning der manglede, ikke data.
+
+- **Ny fane `↗ Sendt`** i CRM → Indbakke med dagens antal. Én række pr. sendt
+  mail: klokkeslæt · modtager (kundens navn, ellers adressen) · emne · bon@/kontakt@
+  · kunde/bon · hvem der sendte. Klik åbner tråden som i de andre faner.
+- **Interval**: I dag · I går · Denne uge · Sidste uge · Sidste 7 dage · Denne
+  måned · Sidste måned + fri fra/til. `◀ ▶` flytter med periodens **enhed**
+  (hel uge/måned), ikke et gæt ud fra datoerne — "I dag" den 1. ligner ellers en
+  måned. Dagsoverskrifter når perioden er mere end én dag. Højst 366 dage og
+  500 rækker (listen siger det, hvis den klipper).
+- **Kun mine** og **Vis automatiske** huskes pr. browser.
+- **Leverandørmails er altid ude** (`supplier_id`/`purchase_order_id`) — de hører til Indkøb.
+- **Automatiske skjules som standard, men tælles** ("2 automatiske skjult · vis").
+  Automatisk = `is_system = 1` **eller** ingen afsender-bruger (påmindelses-cron,
+  vagthundens alarm, testmail). En ordrebekræftelse et menneske sender fra bonen
+  er manuel.
+- **Fejlede afsendelser vises med rødt** (#362's `send_error`) og tæller med i fanens tal.
+- **Dansk døgn**: `copenhagenDayStartSql()` + `addDaysISO()` i `db/helpers.js`
+  regner det UTC-øjeblik en dansk dag begynder. En mail kl. 00:30 dansk tid ligger
+  på gårsdagens UTC-dato og skal alligevel med i "i dag".
+- **`is_system` skrives nu ved INSERT** i `sendMail`, ikke først efter en vellykket
+  afsendelse — ellers stod en fejlet booking-bekræftelse (som bærer sælgerens
+  `userId`) som en menneske-mail.
+- Mails sendt fra Outlook/webmail uden om Bon er ikke med; dem ser Bon aldrig.
+
+**Tests:** `npm run test:mail-sendt` (12, mod de ægte endpoints over HTTP) +
+S6 i `test-mail-send-truth.js`. Mutations-testet: dansk døgn, leverandør- og
+indkøbsfilter, auto-reglen (begge halvdele), kun mine, datobyt, retning og
+fanens tæller fælder hver sine asserts. Browser-verificeret mod syntetiske data.
+
+---
+
+### {{booking_link}} gik ud til kunden som rå tekst (17. september 2026)
+
+En skabelon med `{{booking_link}}` sendt fra bon-draweren landede hos kunden med
+**pladsholderen selv** midt i mailen. Ikke et tomt hul — de fjorten tegn.
+
+Årsagen er en arbejdsdeling ingen havde skrevet ned: bon-draweren og bon-kortet
+folder skabelonen ud i **browseren** (`_drawerApplyTemplate` / `_bmApplyTemplate`)
+og sender resultatet til serveren som fritekst. **Ingen frontend har nogensinde
+sendt `templateKey`** til `POST /api/bons/:id/mail` — kun `POST /api/mail/test`
+gør det. Fritekst-grenen kaldte `sendMail` direkte, som ikke renderer noget, så
+serveren så aldrig en skabelon. `{{booking_link}}` er server-side per
+konstruktion (den skal skrive en token-række), og browseren kan derfor ikke
+opløse den.
+
+Og i den ene sti hvor serveren FAKTISK rendrede, var svaret værre: en uopløselig
+pladsholder blev **slettet i stilhed** med en `console.warn`. Mailen gik afsted
+med et hul hvor linket skulle stå, og afsenderen fik intet at vide. Samme
+fejlklasse som #305/#319 (memory `project_silent_sideeffect_failures`).
+
+- **`POST /api/bons/:id/mail` renderer nu fritekst** — emne og brødtekst — med
+  bonens kunde som kontekst, præcis som `POST /api/customers/:id/mail` altid har
+  gjort. Bonens kunde er den eneste kunde en bon-mail kan handle om.
+- **`renderTemplate` sletter aldrig mere.** Uopløseligt link → `BookingLinkError`
+  (`code: 'booking_link_unresolvable'`) med en dansk besked skrevet til
+  afsenderen, ikke til en log. Ruterne oversætter den til **400** — det er
+  brugerens at rette, ikke en serverfejl — og **ingen mail bliver sendt**.
+- **`lenientBookingLink` er KUN til test-mailen**, som pr. definition ingen kunde
+  har. Dér bliver linket til en synlig markering
+  (`[booking-link — laves først når mailen sendes til en rigtig kunde]`).
+  Den ligner bevidst **ikke** en URL, så ingen mailklient kan gøre den klikbar,
+  og "Send test" virker fortsat på skabelonen. Vi opfinder aldrig et token.
+- **`sendFromTemplate` udleder kunden af `bonId`** når `customerId` ikke er givet
+  — ét sted, så hvert kaldested ikke skal huske det hver for sig. Det er dét der
+  gør at web-ordrens bekræftelse (som kun sender `bonId`) ikke pludselig ville
+  fejle på et booking-link. **Kun til rendering:** `customerId` sendes bevidst
+  ikke videre til `sendMail`, for så ville `customer_id` blive skrevet på en
+  bon-tråd og flytte hvilke tråde der slås op som kundens "aktive".
+- **Fejlen når helt ud i UI'et.** Drawer og bon-kort skrev `Fejl — prøv igen` på
+  knappen og kastede serverens besked væk, så afsenderen intet havde at handle
+  på. Begge viser nu beskeden (`.bm-send-error`).
+- **Settings** viser `{{booking_link}}` som chip med stiplet kant + forklaring i
+  tooltip: den fyldes af serveren, ikke af browseren, og er derfor tom i en test.
+
+**Tests:** `npm run test:booking-link` — 36 asserts mod de ægte endpoints over
+HTTP (temp-DB af de rigtige migrations, spawnet server). Regressionen er en
+fritekst-mail med `{{booking_link}}` sendt som draweren sender den, hvor
+`mail_messages.body_text` bagefter skal bære en rigtig kort URL — og det korte
+link følges hele vejen til sin 302. **Mutations-testet:** seks kerneregler rulles
+hver især tilbage og fælder 13/9/1/2/2/4 navngivne asserts.
+
+> ⚠️ To fælder i testen selv, begge fanget undervejs: en assert der **kastede**
+> (`body.match(...)[0]` på null) i stedet for at fejle, så den vigtigste mutation
+> så ud som et brudt testscript frem for en fanget fejl — og en fixture der
+> sendte `key` i stedet for `templateKey` til test-ruten, hvorved den tavst
+> testede `booking_confirmation` i stedet for skabelonen.
+
+`scripts/test-m7a.js` fastholdt den gamle "fjernes uden fejl"-adfærd og er
+opdateret til den nye. (`scripts/test-m11.js` kan ikke køre uden en seedet
+dev-DB — pre-eksisterende, bekræftet mod `HEAD`.)
+
+**Sælgeren får nu besked ved ENHVER booking (samme runde).** Token-flow — altså
+en booking via sælgerens eget `{{booking_link}}` — sprang den interne
+notifikation over, ud fra at "sælgeren sendte jo linket, hun ved det". Den
+antagelse holder ikke i en kampagne: sendes der tyve links på en uge, kan ingen
+huske hvem der har booket, og bookingen kunne derfor kun opdages ved selv at
+kigge på CRM-dashboardet. At huske er præcis dét systemet er bedre til end
+mennesket. Undtagelsen er fjernet begge steder (smagning + kontakt).
+
+Notifikationen går til **tokenets `sales_user_id`** — den der sendte linket —
+ikke til husets standard-ejer. `booking_notify_owner_enabled` slår fortsat det
+hele fra og er urørt.
+
+Med undtagelsen væk ser de to slags booking ens ud i indbakken, så
+**`{{bookingKilde}}`** siger hvilken det var: `Dit mail-link` eller
+`Fandt selv booking-siden`. I en kampagne er det forskellen på "mit link virkede"
+og "nogen fandt selv siden". **Migration 171** sætter linjen ind i skabelonen —
+men KUN hvis den stadig står præcis som seedet i 051. Har nogen skrevet i den, er
+den deres; variablen ligger i stedet som chip i Settings (booking-skabelonerne
+havde ingen chips og faldt tilbage på bon-sættet, som intet af det indeholder).
+
+> ⚠️ **Vagten i migrationen er kun load-bearing hvis fixturen beholder
+> `Flow:`-linjen.** SQL'ens `replace()` er i sig selv et no-op når søgestrengen
+> ikke findes, så en testfixture uden den linje består uanset om `WHERE`-vagten
+> er der — mutationen slap igennem første gang af netop den grund.
+
+**Tests:** `npm run test:booking-notif` — 22 asserts in-process mod de ægte
+handlers med stubbet `sendFromTemplate` (temp-DB af de rigtige migrations).
+Regressionen er en token-booking hvor den interne notifikation SKAL være der.
+**Mutations-testet:** fem regler rulles hver især tilbage og fælder 5/4/3/1/2
+navngivne asserts. `scripts/test-m7-bcd.js` fastholdt den gamle adfærd og er
+opdateret.
+
+> ⚠️ **Notifikationen er fire-and-forget og ligger EFTER kunde-bekræftelsens
+> `await`.** Måler man synkront efter `handleSmagningBooking`, ser man kun
+> bekræftelsen og tror notifikationen mangler. Testen venter en tick.
+
+---
+
+### En smagning er en levering, ikke et møde hos os (17. september 2026)
+
+Booking-modulet var bygget som "kunden kommer forbi". Bekræftelsen sagde
+`Hos os: {{firmaAdresse}}`, formularen spurgte aldrig hvor kunden var, og
+aftalen endte aldrig i en bon. Virkeligheden er en anden: køkkenet pakker en
+fast smagsprøve — sliderskinne, sandwich i boks, cookieknæk — og vi kører den
+ud på dagen. Linjen var altså ikke bare uinformativ, den var **forkert**: den
+bad kunden møde op hos os.
+
+Tre ting fandtes i forvejen og gjorde arbejdet mindre end det lød:
+`crm_activities.bon_id` (koblingen), `payment_types.counts_as_revenue = 0`
+(Modregning/Sponsorat — så en gratis bon er én indstilling, ikke kode) og
+`resolveMenuItemLines` fra web-bestillingen, der laver linjer med priser
+snapshottet fra Grocy.
+
+**Telefonnummeret var ren data.** `company_phone` stod tom, så bekræftelsen
+sagde bogstaveligt *"ring til os på ."* Sættes i Settings → System.
+
+- **Migration 172**: `meeting_types.needs_delivery_address` (pr. type — "Andet"
+  er en snak der fint kan tages på telefon) + `crm_activities.delivery_address_id`
+  + fire indstillinger (auto-opret, menu, betalingstype, priskategori).
+  **Migration 173** retter bekræftelsens tekst, kun hvis den er urørt.
+- **Formularen** har DAWA-autocomplete, vist ud fra mødetypens flag. Kravet
+  håndhæves på **serveren** ud fra databasen, så en manipuleret POST ikke kan
+  springe det over.
+- **Bonen** får tid, adresse, pax og menuen, og dukker dermed op i køkkenet og
+  i Logistik af sig selv. Den ægte pris bliver stående — `counts_as_revenue = 0`
+  gør den til 0 i omsætning, mens enheder og produktion tæller som de skal.
+  Samme design som Sponsorat, så man kan se hvad smagsprøverne koster.
+- **Menuen er en indstilling**, ikke kode: retterne vælges i Settings fra
+  Grocys liste. Køkkenet skal kunne ændre smagsprøven uden en udrulning.
+
+> ⚠️ **Bon-oprettelsen er best-effort, og det er en beslutning — ikke sjusk.**
+> Kunden må ALDRIG få en fejl på bookingformularen fordi Grocy er nede. Er den
+> det, oprettes bonen **uden linjer** med grunden skrevet i interne noter:
+> adressen og tidspunktet er det køkkenet skal bruge først, og en bon der
+> tydeligt mangler mad er bedre end ingen bon. Ingen af de tre svigtveje er
+> stille — hver efterlader et spor på bonen eller i svaret.
+
+**Og der er en vej tilbage.** Slog auto-oprettelsen fejl, står aftalen uden
+bon — uden en udvej ville det være præcis den stille fejl resten af koden
+værner mod: bookingen ser fin ud, og køkkenet ser ingenting. Mødedetaljen i
+Kunde 360° viser derfor `⚠ Der er ingen bon på aftalen` med en **Opret bon**-knap
+(`POST /api/crm/activity/:id/create-bon`). Adressen ligger på aktiviteten netop
+for at overleve en fejlet bon.
+
+**Drive-by:** `insertBonLines` er trukket ud i `db/helpers.js` og deles nu af
+web-ordren og smagningen. De fire ting der altid hører sammen — INSERT, recalc
+af enheder, recalc af total, changelog — lå hos hver kalder, og en glemt recalc
+er usynlig indtil et tal et helt andet sted er forkert. Og
+`buildInternalNotificationVars` udfylder nu `antalGaester` fra mødetypen: en
+smagning er altid til to, men formularen sender intet, så sælgerens mail sagde
+`Antal:` blankt om noget vi udmærket vidste.
+
+**Tests:** `npm run test:smagning-bon` — 38 asserts in-process mod de ægte
+handlers (temp-DB af de rigtige migrations, Grocy stubbet).
+**Mutations-testet:** otte regler rulles hver især tilbage og fælder
+20/16/6/2/2/2/1/1 navngivne asserts. `tests/dawa_autocomplete.test.js` dækker nu
+den tredje kopi af DAWA-opslaget (bookingsiden kan ikke importere), efterprøvet
+ved at ændre kommunelisten i kopien.
+
+> ⚠️ **To fælder i testen, begge fanget:** en assert med `|| true` der altid
+> bestod, og en fixture-adresse der var husets EGEN — så kunne testen ikke se
+> forskel på "kundens adresse" og "vores", hvilket er præcis den forveksling
+> fejlen bestod i. Dertil fire asserts der **kastede** i stedet for at fejle,
+> så to mutationer så ud som brudte testscripts frem for fangne fejl.
+
+**Deploy:** migrationerne kører ved genstart. Bagefter i Settings →
+Booking — Smagsprøve: vælg retterne til smagsprøven (uden dem oprettes bonen
+uden linjer) og kontrollér betalingstypen — default er `Sponsorat`, og huset
+har måske sin egen. Sæt desuden `company_phone` under System.
+
+---
+
+### Smagsprøve-bonen fødes godkendt og med vores egen vogn (17. september 2026)
+
+Første rigtige booking i drift (B4298) landede som **NY og uden vogn**. Begge dele
+er forkerte for præcis denne bon-type, og ingen af dem er kosmetik.
+
+**Status.** NY betyder "der er landet noget, nogen skal tage stilling". Men en
+smagning er fuldt afklaret i det sekund kunden trykker book: menuen er fast,
+adressen er tastet, tidspunktet er et slot vi selv har åbnet. Der er ingenting at
+afklare — så bonen lægger sig i NY-bunken og stjæler opmærksomhed fra de
+bestillinger der FAKTISK mangler noget. **Migration 175** seeder
+`booking_smagning_bon_status = 'GODKENDT'`. Vil man se dem igennem først, sættes
+`VENTER` (Venter info) i Settings; derfor en indstilling frem for en hårdkodet
+værdi.
+
+> ⚠️ **Koden valideres mod `status_definitions` før den bruges.** `getStatusId()`
+> giver `undefined` for en ukendt kode, og så kaster INSERT'en. En tastefejl i
+> Settings ville altså slå auto-oprettelsen ihjel for **hver eneste** booking —
+> tavst, set udefra. `resolveBonStatus()` falder tilbage til NY og siger det i
+> loggen. Låst af en test der bogstaveligt sætter `VRØVL` i indstillingen.
+
+**Vognen.** Vi kører selv smagsprøven ud. Uden vognen står bonen som "Ikke
+planlagt endnu" i Logistik og på køkkenkortet, og nogen skal huske at vælge den i
+hånden — på hver eneste smagning. `booking_smagning_vehicle_id` sættes af
+migrationen ved at **slå vognen op på `type = 'volvo'` + `is_internal`**, ikke på
+et hårdkodet id: seeden i 057 giver ingen garanti for hvilket id den fik. Tom
+værdi = book ikke automatisk, hvilket er et gyldigt valg.
+
+- `logBookingEvent()` ejer hele koblingen — `delivery_events`, `delivery_method`,
+  `courier_provider`, prisestimat, afhentningstid, changelog og SSE. Vi skriver
+  ikke nogen af dem selv; så ville de to veje ind i en booking kunne skride fra
+  hinanden.
+- **`status: 'booked'` er ærligt for en intern vogn.** Der er ingen leverandør at
+  få en bekræftelse fra — "booket" betyder her at bilen er vores og tildelt.
+  (Migration 148's `booking_confirmed_by` handler om **ruter**, ikke om
+  bon-niveauets events.)
+- `userId` er null: intet menneske trykkede. `booked_by_user_id` står tom frem for
+  at pege på en tilfældig.
+- **Fejler den, koster det ikke bonen** — og det er ikke tavst: grunden skrives i
+  interne noter *med anvisningen* ("Vælg vogn under BESTIL BUD"), ved siden af en
+  eventuel menu-advarsel. Samme doktrin som resten af filen.
+
+**Tests:** `npm run test:smagning-bon` — 74 → **82 asserts**. §11 dækker status
+(standard, indstillingen slår igennem, ukendt kode koster ikke bonen), §12 vognen
+(migrationen slår den op på type, bonen bærer den, `delivery_method` synkroniseret,
+booking-event skrevet, tom = ingen vogn, ukendt vogn → advarsel på bonen).
+Settings-blokken **renderes i en vm-sandkasse** frem for kun at blive grep'et: en
+grep ser ikke en exception, og så ville hele sektionen bare være tom.
+**Mutations-testet: seks mutationer, alle fanget** (2/2/5/5/1/4).
+
+> Testen sætter `process.env.ORS_API_KEY = ''` før require. Uden nøgle kaster
+> routing `no_api_key`, som `computePickupTime` fanger — så en `.env` på maskinen
+> ikke pludselig får testen til at ringe ud til ORS.
+
+**Deploy:** migrationen kører ved genstart og gælder **nye** bons. **B4298 skal
+rettes i hånden**: sæt status til Godkendt og vælg Volvo Duett under BESTIL BUD.
+Kontrollér bagefter i Settings → Booking — Smagsprøve at vognen står på Volvo
+Duett (migrationen har valgt den, men den kan skiftes uden en udrulning).
+
+**Office kunne ikke se at det VAR en smagsprøve.** Køkkeninfo har hele tiden
+båret `"Smagning — standard smagsprøve"` — men bon-listen viser ikke det felt, så
+i office lignede bonen en helt almindelig ordre. `/api/bons` leverer nu
+`booking_meeting_label` + `_emoji` fra den `crm_activities`-række der peger på
+bonen (indekseret på `idx_crm_act_bon`), og listen sætter et creme/brunt mærke i
+Bon#-cellen ved siden af det røde `🌐 ubekræftet`. Farven er bevidst husets egen
+og ikke rød: det er en **oplysning**, ikke noget der kræver en handling — rød er
+reserveret til dét.
+
+> **Mødetypens eget navn, ikke ordet "smagsprøve".** `POST /api/crm/activity/:id/create-bon`
+> gater ikke på `needs_delivery_address`, så en anden mødetype kan i princippet
+> få en bon. Et hårdkodet ord ville lyve den dag; mødetypens label er sand uanset.
+
+> ⚠️ **En grep på en fil kan ikke se forskel på levende og død kode.** Første
+> udgave af testen grep'ede efter `bl-booking-chip` i `bons-list.js` — og en
+> mutation der pakkede hele renderingen i `if (false)` bestod. Chippen bygges
+> derfor af en ren `_blBookingChip(bon)` som testen **kalder** i en vm-sandkasse,
+> plus en assert på at rækken faktisk bruger den.
+
+Testen rammer den **ægte** `/api/bons`-forespørgsel over HTTP (routeren mountet på
+en bar express-app; den globale auth-gate bor i `server.js`) — et spejl af SQL'en
+i testen kunne drive fra routen uden at én eneste assert faldt. Kontrolprøven er
+en almindelig bon på samme dag, der IKKE må mærkes.
+
+**I alt: 82 → 90 asserts, ti mutationer, alle fanget.** Regression grøn:
+booking-link 36, booking-notif 22, forhandler 22, delivery-spor1-unit 105,
+quote_convert + moms + bon_lines 38, migrate 6. T_BONS_LIST er en track-runner
+(kræver `.env.test` + testserver + grocytest) og er ikke kørt her.
+
+**Ikke gjort:** kalenderen og køkken-kortene mærker den ikke — køkkenet har
+allerede køkkeninfo-pillen, og kalenderen blev der ikke spurgt om.
+
 ### Kostprisen på et produceret gode kommer fra opskriften (#558 + #557, 17. september 2026)
 
 Et mellemprodukt vi selv laver — remoulade, syltede rødløg, chili-mayo — har ingen
@@ -7971,6 +8269,7 @@ POST   /api/users/:id/password                          routes/users.js (admin)
 GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 GET    /api/mail/inbox?status=open|archived|all&q=       routes/mail.js (samlet indbakke + arkiv-søgning + suggested_customer)
+GET    /api/mail/sent?from=&to=&mine=&auto=&mailbox=&q=  routes/mail.js (sendt-oversigt: udgående kunde-/bon-mails i dansk datointerval)
 POST   /api/mail/unmatched/:id/restore                   routes/mail.js (fortryd arkivering)
 POST   /api/mail/threads/:id/move  {customer_id|bon_id}  routes/mail.js (flyt fejlkoblet tråd + lærte adresser)
 POST   /api/mail/test                                    routes/mail.js (admin)

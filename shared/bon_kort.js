@@ -830,6 +830,7 @@ function _renderMailModal(bonId, email, templates, vars) {
             </div>
             <input type="file" id="bmFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_bmOnFileSelected(this)">
             <div id="bmAttachments" class="bm-attachments"></div>
+            <div id="bmSendError" class="bm-send-error" hidden></div>
             <div class="bm-compose-actions">
                 <button class="bm-attach" id="bmAttachBtn" onclick="_bmAttachFile()">📎 Vedhæft</button>
                 <button class="bm-cancel" onclick="closeModal()">Annuller</button>
@@ -930,6 +931,9 @@ async function _doSendBonMail(bonId) {
     if (!to) { document.getElementById('bmTo').focus(); return; }
     if (!text && !subject) { document.getElementById('bmSubject').focus(); return; }
 
+    const errHost = document.getElementById('bmSendError');
+    if (errHost) errHost.hidden = true;
+
     btn.disabled = true;
     btn.textContent = 'Sender…';
 
@@ -949,7 +953,11 @@ async function _doSendBonMail(bonId) {
         setTimeout(() => toast.remove(), 4000);
     } catch (err) {
         console.error('[mail] Send fejl:', err);
-        btn.textContent = 'Fejl — prøv igen';
+        // Serverens besked siger hvad der skal rettes — den må ikke tabes.
+        const host = document.getElementById('bmSendError');
+        if (host) { host.textContent = err.message || 'Mailen kunne ikke sendes.'; host.hidden = false; }
+        else alert(err.message || 'Mailen kunne ikke sendes.');
+        btn.innerHTML = mailIcon(13) + ' Send';
         btn.disabled = false;
     }
 }

@@ -20,16 +20,33 @@
 // præcis de tilfælde hvor den gamle regel lod lagerprisen vinde. Ingen kopi af
 // den gamle kode, og ingen omskiftere i produktionskoden.
 //
-// SKRIVER INTET — hverken til Grocy eller til databasen. Alle kald er GET.
+// SKRIVER INTET — hverken til Grocy eller til forretningsdata. Alle Grocy-kald
+// er GET. (At åbne databasen kører ventende migrations, som i ethvert andet
+// script her — det er skema, ikke data.)
 //
-// Kør fra projektroden:
-//   node --env-file=.env scripts/audit-kostpris-kilder.js
-//   node --env-file=.env scripts/audit-kostpris-kilder.js --alle --csv ud.csv
+// Kør fra projektroden (scriptet loader selv .env — Grocy-nøglerne ligger der):
+//   npm run audit:kostpris-kilder
+//   node scripts/audit-kostpris-kilder.js --alle --csv ud.csv
 // ============================================================
 
 'use strict';
 
-const fs = require('fs');
+const fs   = require('fs');
+const path = require('path');
+
+// Samme .env-indlæsning som scripts/check-receipt-unit-conversions.js. Uden den
+// kender adapteren ingen Grocy-nøgle, og scriptet dør på første kald. `--env-file`
+// duer ikke alene: den fejler hårdt hvis filen mangler, med en besked der ikke
+// siger hvad der gik galt.
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+        const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+        if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
+    });
+}
+process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
+
 const grocy = require('../services/grocyAdapter');
 const {
     computeAll, unitCostDetail, yieldInStockUnits,

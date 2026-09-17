@@ -645,6 +645,46 @@ function sqlTime(date = new Date()) {
     return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+// ─── DANSK DØGN → UTC-GRÆNSER ─────────────────────────────
+// "Sendt i dag" betyder dansk døgn, men databasen gemmer UTC. Mellem
+// midnat og kl. 02 (sommertid) ligger en dansk dag derfor på to UTC-datoer,
+// og et filter på `date(sent_at) = ?` ville tabe nattens og få gårsdagens
+// sene mails med. Vi regner i stedet det UTC-øjeblik ud hvor den danske dag
+// begynder, og sammenligner tidsstempler i databasens eget format.
+//
+// Beregningen afhænger ikke af serverens tidszone: den gættes først som
+// UTC-midnat, og forskydningen aflæses med Intl for netop den dato (så
+// sommertid/vintertid håndteres pr. dag). To omgange er nok — skiftet sker
+// kl. 02/03, aldrig ved midnat.
+function copenhagenDayStartSql(isoDate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ''));
+    if (!m) return null;
+    const target = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+    if (Number.isNaN(target)) return null;
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Copenhagen', hourCycle: 'h23',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    let t = target;
+    for (let i = 0; i < 2; i++) {
+        const p = Object.fromEntries(fmt.formatToParts(new Date(t)).map(x => [x.type, x.value]));
+        const wall = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+        t -= (wall - target);
+    }
+    return sqlTime(new Date(t));
+}
+
+// Dansk kalenderdato ± N dage (ren datoregning, ingen tidszone).
+function addDaysISO(isoDate, days) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ''));
+    if (!m) return null;
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    d.setUTCDate(d.getUTCDate() + days);
+    // utc-ok: ren kalenderregning på en UTC-midnat — ingen klokkeslæt involveret
+    return d.toISOString().slice(0, 10);
+}
+
 // ─── ENHEDER-TÆLLING ──────────────────────────────────────
 // Kun kategorier i settings.unit_count_categories tæller med i bons.total_units.
 // Grocy `grupper`-userfield er master for hvilke kategorier der findes;
@@ -812,6 +852,54 @@ function unitCountablePredicate() {
  * Genberegn total_units på en bon — boks-aware (se bonUnitsExpr).
  * Returnerer den nye total.
  */
+/**
+ * insertBonLines — skriv linjer på en bon og få tallene til at passe bagefter.
+ *
+ * Samler de fire ting der ALTID hører sammen når linjer lægges maskinelt på en
+ * bon: INSERT, recalc af enheder, recalc af totalen og et changelog-spor. Lå de
+ * hos hver kalder, ville de drive fra hinanden — og en glemt recalc er usynlig
+ * indtil et tal et helt andet sted er forkert.
+ *
+ * `lines` har formen fra services/menuItemsToLines.js (resolveMenuItemLines).
+ * Linjer uden pris får `line_total = null`, ikke 0: prisen er ukendt, ikke gratis.
+ *
+ * @returns {number} antal indsatte linjer
+ */
+function insertBonLines(db, bonId, lines, opts = {}) {
+    if (!Array.isArray(lines) || !lines.length) return 0;
+
+    const insert = db.prepare(`
+        INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit,
+            cost_price, unit_price, line_total, sort_order, is_accessory, special_request, co2e, notes)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `);
+    let sort = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) AS mx FROM bon_lines WHERE bon_id = ?`).get(bonId).mx;
+    for (const l of lines) {
+        const lineTotal = (l.unit_price != null && l.quantity) ? l.quantity * l.unit_price : null;
+        insert.run(
+            bonId, l.grocy_recipe_id, l.product_name, l.category, l.quantity, l.unit,
+            l.cost_price, l.unit_price, lineTotal, ++sort, 0, null, l.co2e, null
+        );
+    }
+
+    // Server-autoritativ recalc — samme helpers som POST /:id/lines.
+    recalcBonTotalUnits(db, bonId);
+    recalcBonTotal(db, bonId, { logIfChanged: false });
+
+    logChange({
+        entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines',
+        newValue: opts.changelogMessage || `${lines.length} linje(r) auto-genereret`,
+        notes: opts.notes || null,
+        userId: opts.userId ?? null,
+    });
+
+    if (opts.broadcast !== false) {
+        const { broadcast } = require('../shared/sse');
+        broadcast('bon_updated', { id: bonId });
+    }
+    return lines.length;
+}
+
 function recalcBonTotalUnits(db, bonId) {
     const { contrib, join, args } = bonUnitsExpr();
     const total = db.prepare(`
@@ -1069,12 +1157,12 @@ module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, getStatusId, getDefaultLocationId,
     createBon,
-    todayISO, offsetISO, sqlTime,
+    todayISO, offsetISO, sqlTime, copenhagenDayStartSql, addDaysISO,
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
     bonUnitsExpr, unitCountablePredicate,
-    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, hasDeliveryLine, findDeliveryLine,
+    recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, insertBonLines, hasDeliveryLine, findDeliveryLine,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql, bonOwnsStockCostSql,
     driftLocationSql,
     countsAsSale, salesPriceCategorySql,
