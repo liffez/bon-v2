@@ -162,13 +162,15 @@ async function main() {
         prod.push({
             navn: produkt.name, opskriftNavn: r.name, lager, opskrift, udbytte: y,
             afv: (lager != null && opskrift) ? (lager - opskrift) / opskrift * 100 : null,
+            enhed: (produkt.qu_id_stock && (units.find(u => String(u.id) === String(produkt.qu_id_stock)) || {}).name) || '',
             flere: flereProducenter.has(pid),
             vinder: vinderR && String(vinderR.id) === String(r.id),
             vinderNavn: vinderR ? vinderR.name : '',
         });
     }
     prod.sort((a, b) => Math.abs(b.afv ?? -1) - Math.abs(a.afv ?? -1));
-    console.log(`   ${pad('Vare', 26)}${padL('lagerpris', 11)}${padL('opskriften', 12)}${padL('afvigelse', 11)}`);
+    console.log(`   ${pad('Vare', 26)}${padL('lagerpris', 11)}${padL('opskriften', 12)}`
+              + `${padL('afvigelse', 11)}${padL('udbytte', 10)}`);
     for (const p of prod) {
         const mark = p.afv == null ? C.dim
             : Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT ? C.red : C.grn;
@@ -179,8 +181,15 @@ async function main() {
         if (p.flere) note += p.vinder
             ? `  ${C.dim}← denne bestemmer prisen${C.off}`
             : `  ${C.yel}(bruges ikke — "${p.vinderNavn}" vinder)${C.off}`;
+        // Udbyttet står ved siden af, fordi det er dét der som regel er galt når
+        // afvigelsen er stor: kostprisen er opskriftens sum DELT med udbyttet,
+        // så et udbytte der er 28× for højt giver en pris der er 28× for lav.
+        // Løvstikke pakke erklærer 1 kg af 35 g løvstikke (#372).
+        const udb = p.udbytte > 0
+            ? `${Number(p.udbytte).toLocaleString('da-DK', { maximumFractionDigits: 3 })} ${p.enhed}`
+            : '—';
         console.log(`   ${pad(p.navn, 26)}${padL(kr(p.lager), 11)}${padL(kr(p.opskrift), 12)}`
-                  + `${mark}${padL(pct(p.afv), 11)}${C.off}${note}`);
+                  + `${mark}${padL(pct(p.afv), 11)}${C.off}${C.dim}${padL(udb, 10)}${C.off}${note}`);
     }
     const overTaerskel = prod.filter(p => p.afv != null && Math.abs(p.afv) > WARN_STOCK_VS_RECIPE_PCT);
     console.log(`\n   ${prod.length} producerede varer · ${overTaerskel.length} over tærsklen`
