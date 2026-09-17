@@ -237,6 +237,48 @@ async function main() {
     ok([gemt.street_name, gemt.street_nr].join(' ') + ', ' + [gemt.postal_code, gemt.city].join(' ') === KUNDE_ADR,
         'og den stemmer med det der blev gemt ved bookingen');
 
+    // ── 8) Settings må kun tilbyde variabler mailen faktisk fylder ──
+    //
+    // renderTemplate lader en ukendt {{variabel}} stå som LITERAL tekst. En chip
+    // der ikke svarer til noget sender derfor "{{totalPris}}" ordret ud til
+    // kunden — samme fejlklasse som {{booking_link}} gjorde fra bon-mailen.
+    // Booking-skabelonerne faldt tilbage på bon-sættet, som intet af dem fylder.
+    console.log('\n8 · Variabel-chips i Settings passer til skabelonerne');
+    const vm2 = require('vm');
+    const html = fs.readFileSync(path.join(__dirname, '..', 'settings', 'index.html'), 'utf8');
+    const mv = html.match(/var TEMPLATE_VARS = \{[\s\S]*?\n\};/);
+    ok(!!mv, 'TEMPLATE_VARS kunne læses ud af Settings');
+    const TV = mv ? vm2.runInNewContext(mv[0] + '\n;TEMPLATE_VARS') : {};
+
+    // tag injiceres af sendFromTemplate, booking_link af renderTemplate —
+    // ingen af dem kommer fra en vars-builder.
+    const UNIVERSELLE = new Set(['tag', 'booking_link']);
+
+    const faktiske = {
+        booking_smagning_confirmation: bookingMatcher.buildSmagningMailVars({
+            customerId: act.customer_id ?? null, meetingType: { label: 'x', duration_min: 1 },
+            date, time: slot.time, deliveryAddress: 'x'
+        }),
+        booking_smagning_reminder: bookingMatcher.buildReminderVars({
+            due_at: date + ' 09:00:00', duration_min: 10, customer_id: act.customer_id ?? null,
+            first_name: 'x', last_name: 'y', email: 'z@x.invalid', meeting_label: 'Smagning'
+        }),
+        booking_kontakt_confirmation: bookingMatcher.buildKontaktMailVars({
+            customerId: act.customer_id ?? null, contactReason: { label: 'x' }
+        }),
+        booking_internal_notification: bookingMatcher.buildInternalNotificationVars({
+            customerId: act.customer_id ?? null, flow: 'smagning',
+            meetingType: { label: 'x' }, date, time: slot.time, formData: {}, viaToken: true
+        }),
+    };
+
+    for (const [key, vars] of Object.entries(faktiske)) {
+        const chips = TV[key];
+        ok(Array.isArray(chips), `${key} har sit eget chip-sæt (falder ikke tilbage på bon-sættet)`);
+        const ukendte = (chips || []).filter(v => !UNIVERSELLE.has(v) && !(v in vars));
+        ok(ukendte.length === 0, `${key}: ingen chips uden en værdi — ellers sendes de ordret ud (fandt: ${ukendte.join(', ') || 'ingen'})`);
+    }
+
     console.log(`\n${'─'.repeat(52)}`);
     console.log(`  ${pass} PASS · ${fail} FAIL`);
     try { fs.unlinkSync(TEST_DB); } catch {}

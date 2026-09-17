@@ -2829,8 +2829,20 @@ var TEMPLATE_VARS = {
       'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode','booking_link'],
   'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag','booking_link'],
   'order_email': ['leverandoer','vareliste','dato','leveringsdato','tag'],
-  // Booking-skabelonerne havde ingen chips og faldt tilbage på bon-sættet, som
-  // intet af det her indeholder.
+  // Booking-skabelonerne havde ingen chips og faldt tilbage på bon-sættet
+  // (kundeNavn, totalPris, menuMedPriser …), som INTET af dem fyldes med.
+  //
+  // Det er ikke kosmetik: renderTemplate lader en ukendt {{variabel}} stå som
+  // literal tekst, så et klik på en forkert chip sender "{{totalPris}}" ordret
+  // ud til kunden. Samme fejlklasse som {{booking_link}} gjorde fra bon-mailen.
+  'booking_smagning_confirmation': ['kundeFornavn','kundeNavn','kundeEmail','kundeTelefon',
+      'moedeTypeLabel','varighed','datoFormatteret','tid','leveringsAdresse',
+      'firmaNavn','firmaAdresse','firmaTelefon','firmaEmail','tag','booking_link'],
+  'booking_smagning_reminder': ['kundeFornavn','kundeNavn','kundeEmail','kundeTelefon',
+      'moedeTypeLabel','varighed','datoFormatteret','tid',
+      'firmaNavn','firmaAdresse','firmaTelefon','firmaEmail','tag','booking_link'],
+  'booking_kontakt_confirmation': ['kundeFornavn','kundeNavn','kundeEmail','kundeTelefon',
+      'kontaktAarsagLabel','firmaNavn','firmaAdresse','firmaTelefon','firmaEmail','tag','booking_link'],
   'booking_internal_notification': ['kundeNavn','firmaNavn','kundeEmail','kundeTelefon','flowType',
       'bookingKilde','moedeTypeLabel','kontaktAarsagLabel','datoFormatteret','tid','antalGaester',
       'beskedFraKunde','crmKundeUrl'],
