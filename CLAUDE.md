@@ -7734,6 +7734,54 @@ quote_convert + moms + bon_lines 38, migrate 6. T_BONS_LIST er en track-runner
 **Ikke gjort:** kalenderen og køkken-kortene mærker den ikke — køkkenet har
 allerede køkkeninfo-pillen, og kalenderen blev der ikke spurgt om.
 
+### Bookingsiden stiller ikke et valg der allerede er truffet (17. september 2026)
+
+Sælgeren sender et link til en smagsprøve, og kunden lander på en side med et
+gitter af mødetyper. Målt i drift: **8 af 9 udsendte links havde slet ingen
+intent**, så kunden skulle selv gætte hvad hun var blevet inviteret til — og
+den ene der havde intent fik stadig de øvrige kort stående ved siden af.
+
+Beslutningen (Leif) var den simple opdeling frem for flere landingssider: én
+bookbar type på smagsprøve-siden, og kontaktformularen som en **linje**
+nedenunder i stedet for et kort ved siden af. Et ligestillet valg inviterer til
+at vælge.
+
+- **`lockMeetingType(mt)`** ([booking/smagning.html](booking/smagning.html)) er
+  reglen ét sted, kaldt fra tre indgange: ét bookbart valg · `?mt=` i URL'en ·
+  token-intent fra sælgerens link. Skrevet tre gange ville de skride fra
+  hinanden. Gitteret forsvinder, og i stedet står en pille med **hvad** der
+  bookes (`Smagsprøve · ca. 10 min`) — når vælgeren er væk, er den linje det
+  eneste svar på det spørgsmål.
+- **Trinnumrene beregnes** (`renumberSteps`) frem for at stå fast i markup'en.
+  Ellers møder kunden "2 — Vælg dato" som det første på siden. Numrene i HTML
+  er kun et udgangspunkt.
+- **En ukendt `?mt=` er ikke en fejl kunden skal se** — siden falder tilbage til
+  det almindelige valg og logger det. Samme for en token-intent der peger på en
+  type der ikke er bookbar (den findes ikke i listen).
+- **Udvejen vises kun når kontakt-flowet er tændt** (`/contact-reasons`
+  `available`). Ellers sender vi kunden ind i en side der siger "ikke
+  tilgængelig" — et link til en blindgyde er værre end intet link.
+
+**Fluebenet er data, ikke kode.** `Andet møde` sættes til ikke-bookbar i
+Settings → Mødetyper; så er der ét valg tilbage, og låsen fyrer af sig selv.
+
+> ⚠️ **Webhooken afviser en ikke-bookbar type** (`is_bookable = 1` kræves).
+> Et allerede udsendt CRM-link med intent = den type ville fejle med
+> `unknown_meeting_type`. Kontrollér `booking_tokens` før fluebenet sættes —
+> 17. september var ingen af de 9 udsendte links ramt.
+
+**Tests:** `npm run test:booking-valg` — 11 asserts. Den ÆGTE inline-blok fra
+`booking/smagning.html` køres i en vm-sandkasse med en lille DOM, og scriptet
+kalder selv `init()`, så testen **booter siden som browseren gør**; en fejl
+undervejs ville vise "ikke tilgængelig", og dét asserteres der imod.
+Både trin-etiketterne og elementernes start-klasser læses ud af den rigtige
+markup — et håndskrevet spejl ville kunne drive fra siden uden at én eneste
+assert faldt, og så ville "er den skjult?" bestå af den forkerte grund.
+**Mutations-testet: otte mutationer, alle fanget.** Regression grøn:
+dawa 13, booking-link 36, booking-notif 22, cutoff 22, smagning-bon 90.
+Browser-verificeret i tre tilstande (to valg, `?mt=`, token) samt 380 px
+bredde — ingen vandret scroll, og udvejens pil brækker ikke over to linjer.
+
 ---
 
 ## Næste opgave
