@@ -7667,6 +7667,38 @@ rettes i hånden**: sæt status til Godkendt og vælg Volvo Duett under BESTIL B
 Kontrollér bagefter i Settings → Booking — Smagsprøve at vognen står på Volvo
 Duett (migrationen har valgt den, men den kan skiftes uden en udrulning).
 
+**Office kunne ikke se at det VAR en smagsprøve.** Køkkeninfo har hele tiden
+båret `"Smagning — standard smagsprøve"` — men bon-listen viser ikke det felt, så
+i office lignede bonen en helt almindelig ordre. `/api/bons` leverer nu
+`booking_meeting_label` + `_emoji` fra den `crm_activities`-række der peger på
+bonen (indekseret på `idx_crm_act_bon`), og listen sætter et creme/brunt mærke i
+Bon#-cellen ved siden af det røde `🌐 ubekræftet`. Farven er bevidst husets egen
+og ikke rød: det er en **oplysning**, ikke noget der kræver en handling — rød er
+reserveret til dét.
+
+> **Mødetypens eget navn, ikke ordet "smagsprøve".** `POST /api/crm/activity/:id/create-bon`
+> gater ikke på `needs_delivery_address`, så en anden mødetype kan i princippet
+> få en bon. Et hårdkodet ord ville lyve den dag; mødetypens label er sand uanset.
+
+> ⚠️ **En grep på en fil kan ikke se forskel på levende og død kode.** Første
+> udgave af testen grep'ede efter `bl-booking-chip` i `bons-list.js` — og en
+> mutation der pakkede hele renderingen i `if (false)` bestod. Chippen bygges
+> derfor af en ren `_blBookingChip(bon)` som testen **kalder** i en vm-sandkasse,
+> plus en assert på at rækken faktisk bruger den.
+
+Testen rammer den **ægte** `/api/bons`-forespørgsel over HTTP (routeren mountet på
+en bar express-app; den globale auth-gate bor i `server.js`) — et spejl af SQL'en
+i testen kunne drive fra routen uden at én eneste assert faldt. Kontrolprøven er
+en almindelig bon på samme dag, der IKKE må mærkes.
+
+**I alt: 82 → 90 asserts, ti mutationer, alle fanget.** Regression grøn:
+booking-link 36, booking-notif 22, forhandler 22, delivery-spor1-unit 105,
+quote_convert + moms + bon_lines 38, migrate 6. T_BONS_LIST er en track-runner
+(kræver `.env.test` + testserver + grocytest) og er ikke kørt her.
+
+**Ikke gjort:** kalenderen og køkken-kortene mærker den ikke — køkkenet har
+allerede køkkeninfo-pillen, og kalenderen blev der ikke spurgt om.
+
 ---
 
 ## Næste opgave

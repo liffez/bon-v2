@@ -458,6 +458,72 @@ async function main() {
     ok(/egen vogn/.test(blok) && /By-expressen(?! \u2014 egen vogn)/.test(blok),
        'egne vogne er mærket, så man kan se hvad der er vores');
 
+    // ── 13) Office kan SE at det er en smagsprøve ───────────────────
+    //
+    // I bon-listen lignede den en helt almindelig ordre. Forklaringen
+    // ("standard smagsprøve") står i køkkeninfo, men listen viser ikke det
+    // felt — så office havde ingen måde at se det på.
+    //
+    // Rammer den ÆGTE /api/bons-forespørgsel over HTTP. Et spejl af SQL'en
+    // her i testen kunne drive fra routen uden at én eneste assert faldt.
+    console.log('\n13 · Office-listen mærker den som en booket smagsprøve');
+    const express = require('express');
+    const app = express();
+    app.use('/api/bons', require('../routes/bons'));
+    const srv = await new Promise(res => { const x = app.listen(0, () => res(x)); });
+    const port = srv.address().port;
+
+    // Kontrolprøve: en ganske almindelig bon på samme dag må IKKE få mærket.
+    const { createBon } = require('../db/helpers');
+    const almindelig = createBon({
+        customer_id: act.customer_id, delivery_date: date,
+        delivery_type: 'delivery', status_code: 'NY',
+    });
+
+    const listRes = await fetch(`http://127.0.0.1:${port}/api/bons?date=${date}&limit=200`);
+    const listen = listRes.ok ? await listRes.json() : [];
+    srv.close();
+
+    ok(Array.isArray(listen) && listen.length > 0, `listen svarer (${listRes.status}, ${listen.length} rækker)`);
+    const smagsBon = listen.find(r => r.id === act.bon_id) || {};
+    const almBon   = listen.find(r => r.id === almindelig.bonId) || {};
+
+    ok(smagsBon.booking_meeting_label === 'Smagning',
+       `REGRESSIONEN: smagsprøve-bonen bærer mødetypens navn (fik '${smagsBon.booking_meeting_label}')`);
+    ok(!!smagsBon.booking_meeting_emoji, 'og mødetypens emoji, så mærket kan ses på afstand');
+    ok(almBon.id === almindelig.bonId && almBon.booking_meeting_label == null,
+       'mens en almindelig bon på samme dag IKKE mærkes');
+
+    // Mærket er data-drevet, ikke et hårdkodet ord: ellers ville det lyve
+    // den dag en anden mødetype begynder at give en bon.
+    // Chippen bygges af en ren funktion, så den kan KALDES. En grep på filen
+    // kan ikke se forskel på levende og død kode — en `if (false)` omkring
+    // rendering ville bestå en tekst-test og vise ingenting i browseren.
+    const listJs = fs.readFileSync(path.join(__dirname, '..', 'office', 'views', 'bons-list.js'), 'utf8');
+    const chipSrc = (listJs.match(/function _blBookingChip\(bon\)[\s\S]*?\n}/) || [''])[0];
+    const chipBox = {
+        esc: x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])),
+    };
+    let chipOn = '', chipOff = '';
+    try {
+        vm.createContext(chipBox);
+        vm.runInContext(chipSrc, chipBox);
+        chipBox.__b = smagsBon;
+        chipOn  = vm.runInContext('_blBookingChip(__b)', chipBox);
+        chipOff = vm.runInContext('_blBookingChip({ bon_number: "B1" })', chipBox);
+    } catch (err) {
+        chipOn = `RENDER-FEJL: ${err.message}`;
+    }
+    ok(/bl-booking-chip/.test(chipOn) && /Smagning/.test(chipOn),
+       `listen bygger faktisk mærket (fik '${String(chipOn).slice(0, 70)}')`);
+    ok(chipOff === '', 'og en bon uden booking får intet mærke');
+
+    // Rækken rendrer også chippen — funktionen må ikke ligge ubrugt.
+    ok(/\+ _blBookingChip\(bon\)/.test(listJs), 'og rækken bruger den');
+
+    const css = fs.readFileSync(path.join(__dirname, '..', 'office', 'index.html'), 'utf8');
+    ok(/\.bl-booking-chip\s*\{/.test(css), 'der findes en stil til det — ellers er mærket usynligt');
+
     console.log(`\n${'─'.repeat(52)}`);
     console.log(`  ${pass} PASS · ${fail} FAIL`);
     try { fs.unlinkSync(TEST_DB); } catch {}
