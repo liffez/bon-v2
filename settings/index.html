@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="../shared/density.css">
   <script src="../shared/density.js"></script>
   <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="../shared/vare_picker.css">
   <link rel="stylesheet" href="../shared/bon_kort.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1852,6 +1853,10 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/utils.js"></script>
 <script src="../shared/env_badge.js"></script>
+<!-- Samme vareliste som bon-draweren og event-modalen bruger. Smagsprøvens
+     indhold skal vælges på den måde folk kender — ikke med en vælger der kun
+     findes her. -->
+<script src="../shared/vare_picker.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 // Settings UI — vanilla JS
@@ -4380,10 +4385,11 @@ function _smagningBonBlock() {
 
     h += '<label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:6px">Indhold</label>';
     h += '<div id="bs-smagning-menu"></div>';
-    h += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
-         '<select id="bs-smagning-pick" style="flex:1;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' +
-         '<option value="">Henter retter fra Grocy…</option></select>' +
-         '<button class="st-btn" onclick="bsSmagningAdd()">+ Tilføj</button></div>';
+    // Samme vareliste som bon-draweren og event-modalen. Detached (bonId: null)
+    // — den POSTer ikke, men leverer linjen hertil, hvor den bliver til en
+    // menu-række i indstillingen.
+    h += '<button class="st-btn" id="bs-smagning-toggle" style="margin-top:8px">+ Tilføj vare</button>';
+    h += '<div id="bs-smagning-picker" style="margin-top:8px"></div>';
     h += '</div>';
     return h;
 }
@@ -4448,41 +4454,74 @@ async function bsLoadSmagningLists() {
     await bsLoadSmagningRecipes();
 }
 
+// VarePicker henter selv sine retter. Vi henter listen ÉN gang mere her, fordi
+// den gemte menu kun består af id'er — uden navnene ville en allerede valgt ret
+// stå som "r91".
 async function bsLoadSmagningRecipes() {
-    const sel = document.getElementById('bs-smagning-pick');
-    if (!sel) return;
     try {
         if (!_smagningRecipesCache) {
             const r = await fetch('/api/grocy/recipes');
             if (!r.ok) throw new Error('Grocy svarede ' + r.status);
             _smagningRecipesCache = await r.json();
         }
-        sel.innerHTML = '<option value="">Vælg en ret…</option>' +
-            (_smagningRecipesCache || []).slice()
-                .sort((a, b) => String(a.name).localeCompare(String(b.name), 'da'))
-                .map(r => '<option value="r' + r.id + '">' + esc(r.name) + '</option>').join('');
     } catch (err) {
         // Uden Grocy kan vi ikke vise navne — men de gemte retter skal stadig
-        // kunne ses og fjernes, så listen bliver stående.
-        sel.innerHTML = '<option value="">Kunne ikke hente retter (' + esc(err.message) + ')</option>';
+        // kunne ses og fjernes, så listen bliver stående med deres id'er.
+        console.warn('[settings] kunne ikke hente retter:', err.message);
     }
     bsRenderSmagningMenu();
+    bsInitSmagningPicker();
+}
+
+let _smagningPicker = null;
+
+function bsInitSmagningPicker() {
+    const host   = document.getElementById('bs-smagning-picker');
+    const toggle = document.getElementById('bs-smagning-toggle');
+    if (!host || !toggle) return;
+
+    if (typeof VarePicker === 'undefined') {
+        host.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim)">Varelisten kunne ikke indlæses.</div>';
+        toggle.style.display = 'none';
+        return;
+    }
+    if (toggle.dataset.wired) return;
+    toggle.dataset.wired = '1';
+
+    const setLabel = (open) => { toggle.textContent = open ? 'Luk vareliste' : '+ Tilføj vare'; };
+    const openPicker = () => {
+        _smagningPicker = new VarePicker({
+            bonId: null,   // detached: ingen POST, linjen leveres til onAdded
+            priceCategory: String(allSettings.booking_smagning_price_category || 'catering'),
+            container: host,
+            viewName: 'smagning-menu',
+            onAdded: (line) => {
+                if (!line || !line.grocy_recipe_id) return;
+                const items = _smagningMenu();
+                const id = 'r' + line.grocy_recipe_id;
+                const ex = items.find(i => String(i.id) === id);
+                const n = Math.max(1, parseInt(line.quantity) || 1);
+                if (ex) ex.count = (Number(ex.count) || 0) + n;   // samme ret igen = flere
+                else items.push({ id, count: n });
+                // Navnet caches, så rækken kan vises selv hvis Grocy falder ud
+                // inden næste gang sektionen åbnes.
+                if (_smagningRecipesCache && !_smagningRecipesCache.some(r => r.id === line.grocy_recipe_id)) {
+                    _smagningRecipesCache.push({ id: line.grocy_recipe_id, name: line.product_name });
+                }
+                _bsSaveSmagningMenu(items);
+            },
+            onClose: () => { _smagningPicker = null; setLabel(false); },
+        });
+        _smagningPicker.open();
+        setLabel(true);
+    };
+    toggle.addEventListener('click', () => { _smagningPicker ? _smagningPicker.close() : openPicker(); });
 }
 
 async function _bsSaveSmagningMenu(items) {
     allSettings.booking_smagning_menu = JSON.stringify(items);
     await bsSaveSetting('booking_smagning_menu', allSettings.booking_smagning_menu);
     bsRenderSmagningMenu();
-}
-function bsSmagningAdd() {
-    const sel = document.getElementById('bs-smagning-pick');
-    if (!sel || !sel.value) return;
-    const items = _smagningMenu();
-    const ex = items.find(i => String(i.id) === sel.value);
-    if (ex) ex.count = (Number(ex.count) || 1) + 1;   // samme ret igen = ét mere
-    else items.push({ id: sel.value, count: 1 });
-    sel.value = '';
-    _bsSaveSmagningMenu(items);
 }
 function bsSmagningQty(i, v) {
     const items = _smagningMenu();

@@ -279,6 +279,25 @@ async function main() {
         ok(ukendte.length === 0, `${key}: ingen chips uden en værdi — ellers sendes de ordret ud (fandt: ${ukendte.join(', ') || 'ingen'})`);
     }
 
+    // ── 9) Retter vælges med den FÆLLES vareliste ───────────────────
+    //
+    // Smagsprøvens indhold blev først bygget med en hjemmelavet <select> —
+    // en tredje måde at vælge en ret på, ved siden af bon-draweren og
+    // event-modalen. Folk skal møde den samme gestus hvert sted, og en
+    // separat vælger driver fra de andre uden at nogen opdager det.
+    console.log('\n9 · Smagsprøvens menu bruger den fælles VarePicker');
+    ok(/src="\.\.\/shared\/vare_picker\.js"/.test(html), 'Settings loader shared/vare_picker.js');
+    ok(/href="\.\.\/shared\/vare_picker\.css"/.test(html), 'og dens CSS');
+
+    const pickerBlok = (html.match(/function bsInitSmagningPicker\(\)[\s\S]*?\n}/) || [''])[0];
+    ok(/new VarePicker\(/.test(pickerBlok), 'menuen bygges med VarePicker');
+    ok(/bonId:\s*null/.test(pickerBlok), 'i detached mode — den POSTer ikke selv (samme som event-modalen)');
+    ok(/onAdded:/.test(pickerBlok), 'og leverer linjen via onAdded');
+
+    // Den hjemmelavede vælger må ikke ligge tilbage ved siden af.
+    ok(!/id="bs-smagning-pick"/.test(html), 'den gamle <select> er væk');
+    ok(!/function bsSmagningAdd\(/.test(html), 'og dens tilføj-handler ligeså');
+
     console.log(`\n${'─'.repeat(52)}`);
     console.log(`  ${pass} PASS · ${fail} FAIL`);
     try { fs.unlinkSync(TEST_DB); } catch {}
