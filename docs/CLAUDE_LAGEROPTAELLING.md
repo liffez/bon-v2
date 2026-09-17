@@ -1,6 +1,6 @@
 # CLAUDE_LAGEROPTAELLING.md
 
-**Status:** v0.1 — udkast, afventer beslutninger i §11
+**Status:** v0.2 — udkast; beslutning 4 og 5 i §11 taget 17.09.2026, resten afventer B4. Review-krav i §14 SKAL gennemføres.
 **Ejer:** Leif
 **Berører:** `shared/inventory_check.js`, lageroversigten, Grocy-userfields på `products`, nye Bon-tabeller
 **Relaterede specs:** `CLAUDE_INDKOB_ASIS.md`, `CLAUDE_PRODUKTION.md`, Spor B (#272/#270, Grocy-datarunden #372)
@@ -49,7 +49,9 @@ I dag bruges svaret på "skal den tælles nu" til alle tre. Det er kernefejlen.
 - Omdøbes en enhed, falder medlemskabet stille tilbage til `location_id` for alle varer der var rullet derhen.
 - Arkiveres en enhed, forsvinder dens varer helt ud af `_icVisibleInUnit` uden besked.
 
-**Beslut:** gem `physical_unit_id` i stedet for navnet, eller skriv userfeltet om ved rename/arkivering. Migrering: match på navn én gang, log det der ikke matcher.
+**Besluttet 17.09.2026:** gem `physical_unit_id`. Migrering: engangsmatch på navn, log det der ikke matcher. **Der må ikke ende to sandheder** — `LastCheckedUnit` skrives to steder i dag (`shared/inventory_check.js` og varemodtagelsen i `routes/goods-receipts.js`, #336), og begge skal skifte i samme PR, ellers skriver modtagelsen navne mens optællingen læser id'er.
+
+**Ny vare uden fysisk enhed:** Grocys *Forudindstillinger for nye varer* (Beholdningsindstillinger) sætter Placering og Varegruppe, og skal udfyldes med Varegruppe = `Lager varer` (landingspladsen, §13.1). Det giver lokationen, ikke den fysiske enhed. Den sættes af det der først rører varen: varemodtagelsen stempler allerede lokationens første enhed efter `sort_order` (#336), og en optælling stempler den enhed der blev talt i. Indtil da hører varen i oprydningsbakken som *"ikke placeret"* (§6) — aldrig i en tilfældig liste via `location_id`-fallbacket.
 
 ### 4.2 Nye Bon-tabeller
 
@@ -119,8 +121,11 @@ En vare ryger i **"Ryd op"** frem for i tællelisten når:
 - den mangler pris
 - den står på 0 og aldrig har haft en bevægelse (er den overhovedet i brug?)
 - den har ingen varegruppe
+- den har ingen fysisk enhed endnu (*"ikke placeret"*, §4.1)
 
 Bakken viser et tal der bliver mindre. Oprydningen fra Spor B får dermed et sted at bo hvor fremdriften kan ses, og tællelisten bliver troværdig med det samme.
+
+**Reglerne må ikke skrives igen.** `scripts/audit-grocy-live.js`, `check:receipt-units` og #372 kender dem allerede. De lægges i én `services/stockCleanup.js`, som både auditen og bakken læser — ellers får vi to lister der driver fra hinanden.
 
 **Dette er fase 0 og skal bygges først.** Det er det billigste greb med den største effekt, og det kræver ingen ny beregningsmodel.
 
@@ -188,11 +193,11 @@ Fase 0-2 kræver ingen ny beregning og kan køre parallelt med Spor B. Fase 3 fo
 
 ## 11. Åbne beslutninger (Leif)
 
-1. **`typical_qty`** — nuværende lager, beholdning ved sidste optælling, eller glidende gennemsnit? Nuværende lager er billigst, men bliver ustabilt for varer der ofte står på nul.
+1. **`typical_qty`** — nuværende lager, beholdning ved sidste optælling, eller glidende gennemsnit? Nuværende lager er billigst, men bliver ustabilt for varer der ofte står på nul. *Anbefaling (§14.2): beholdning ved sidste optælling med `pack_size_stock_unit` som gulv; batch-udbyttet for mellemprodukter.*
 2. **Tærskler** — 1,0 / 0,7 for forfalden/snart, og 90 dage som loft. Skal kalibreres på rigtige data før de låses.
 3. **`HverDag`** — bevares som manuel undtagelse (anbefalet), eller ryddes helt?
-4. **Nye varegrupper** — 30-serien i §13 skal godkendes, og de fem grænsetilfælde i §13.3 afgøres. Hvem opretter dem, og gøres det før eller efter fase 0.
-5. **`LastCheckedUnit`-migrering** — omskriv userfelt ved rename, eller skift til id med engangsmatch på navn.
+4. **Nye varegrupper** — 30-serien i §13 skal godkendes, og de fem grænsetilfælde i §13.3 afgøres. Hvem opretter dem, og gøres det før eller efter fase 0. *Delvist afgjort 17.09: Grocys forudindstilling for nye varer sættes til `Lager varer`, så nye varer altid lander på landingspladsen (§4.1).*
+5. ~~**`LastCheckedUnit`-migrering**~~ — **Afgjort 17.09: skift til id med engangsmatch på navn, begge skrivesteder i samme PR (§4.1).**
 6. **Blind optælling** — tør vi det fra start, eller først når tallene er til at stole på?
 7. **Spild og produktion** i forbrugsberegningen — tæller de med som drift?
 
@@ -252,3 +257,20 @@ En tidligere omdøbning af en varegruppe i Grocy gik galt. Det peger på kode de
 - At **flytte** en vare til en anden gruppe er ufarligt og er alt dette arbejde kræver.
 - At **omdøbe** en eksisterende gruppe gøres ikke, før de steder er fundet. `Lager varer` beholder derfor sit navn.
 - Det er samtidig et argument for, at kategoritræet på sigt bor i Bon med stabile id'er (§7.1).
+
+---
+
+## 14. Review-krav (17.09.2026) — skal gennemføres, ikke overvejes
+
+Fra gennemgangen af v0.1. Hvert punkt hører til en fase og krydses af dér.
+
+- [ ] **14.1 Fase 0 genbruger reglerne.** Én `services/stockCleanup.js` delt af `audit-grocy-live.js`, `check:receipt-units` og oprydningsbakken. Ingen anden kopi af "mangler konvertering / pris / vej til kilo". (§6)
+- [ ] **14.2 `typical_qty` = beholdning ved sidste optælling**, med `pack_size_stock_unit` fra stregkoden som gulv når den var 0, og batch-udbyttet for producerede mellemprodukter (#270). `value_at_risk` reducerer så til `consumed_since × kostpris` — kroner løbet igennem. (§4.2, §5, §11.1)
+- [ ] **14.3 Forbrugskilden verificeres mod grocytest FØR fase 3.** Kun `consume` er drift. `inventory-correction` tæller aldrig (ellers driver varen af sin egen rettelse). `self-production` er tilført lager, ikke forbrug — men råvarerne bag den ER forbrug. `purchase` og `transfer` tæller ikke. (§4.2)
+- [ ] **14.4 `physical_unit_id` skiftes begge steder i samme PR** — `shared/inventory_check.js` og `routes/goods-receipts.js`. Ny vare uden enhed → "ikke placeret" i bakken. (§4.1)
+- [ ] **14.5 Én sandhed.** Når `stock_count_state` findes, er den master. Grocys `LastCheckedAt`/`LastCheckedUnit` holdes som spejl for Grocy-UI'ets skyld og skrives KUN fra Bon; `HverDag` er manuel undtagelse. Skriv ned hvornår spejlet må slukkes. (§4.2, §5)
+- [ ] **14.6 "Bekræft alle" og 90-dages-loftet hører sammen.** Bekræft-alle stempler uden at nogen kiggede; det er kun forsvarligt fordi loftet tvinger alt frem uanset drift. Fjernes loftet, fjernes bekræft-alle. (§5, §7.2)
+- [ ] **14.7 Grep før 30-serien oprettes.** `services/ingredientResolver.js` springer emballage over ved eksakt navnematch på `'emballage'` (små bogstaver). Efterprøv hvordan `ingredient_group` udledes, og at `10 Emballage` stadig rammer reglen mens `36 Køkkenemballage` ikke gør. Ingen omdøbning af eksisterende grupper. (§13.4)
+- [ ] **14.8 #243 løses i fase 4.** `stock_counts` med `started_at`/`user_id` ER låsen samtidig optælling mangler. Skal ikke genopfindes. (§12)
+- [ ] **14.9 Blind optælling fra fase 5, ikke senere.** Det er den blinde optælling der gør tallene til at stole på, ikke omvendt. Bagatelgrænse + gentælling over 20 % holder risikoen nede. (§8, §11.6)
+- [ ] **14.10 Natjobbet i den eksisterende crontab** sammen med `refresh-recipe-costs.js` (03:00) og `booking-reminders.js`. Samme mønster, samme logfil. (§4.2)
