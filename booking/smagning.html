@@ -66,6 +66,22 @@
       border-bottom: 1px solid var(--brand-light);
     }
     .section-label:first-child { margin-top: 0; }
+    /* Hvad bookes der? Når vælgeren er væk, er denne linje det eneste svar —
+       så den skal kunne ses, uden at overtage siden fra kalenderen. */
+    .mt-locked {
+      display: inline-flex; align-items: center; gap: .45rem;
+      background: var(--brand-light); color: var(--brand);
+      border-radius: 999px; padding: .45rem .9rem;
+      font-size: .95rem; font-weight: 700;
+      margin: 0;
+    }
+    .mt-locked .dur { font-weight: 400; color: var(--brand-dark); opacity: .75; }
+    /* Bundmargen giver luft ned til næste trin: trinnets egen overskrift er
+       :first-child i sin beholder og har derfor margin-top: 0. */
+    .contact-alt {
+      margin: .65rem 0 1.5rem; font-size: .86rem; color: var(--text-muted);
+    }
+    .contact-alt a { color: var(--brand); text-decoration: underline; }
 
     /* Mødetype-kort */
     .mt-grid {
@@ -301,13 +317,24 @@
     <!-- Honeypot -->
     <div class="hp-field"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
 
-    <!-- Step 1: Mødetype -->
-    <div class="section-label">1 — Vælg mødetype</div>
+    <!-- Step 1: Mødetype.
+         Skjules helt når der kun er ét muligt valg — én bookbar type, ?mt= i
+         URL'en, eller et sælger-link med intent. Et gitter med ét kort er
+         ikke et valg, det er en forhindring; så viser vi i stedet hvad der
+         bookes (#mt-locked) og går direkte i kalenderen. -->
+    <div class="section-label" id="lbl-mt" data-step="Vælg mødetype">1 — Vælg mødetype</div>
     <div id="mt-grid" class="mt-grid"></div>
+    <div id="mt-locked" class="mt-locked hidden"></div>
+
+    <!-- Udvejen for den der ikke vil booke en smagsprøve. Bevidst en linje og
+         ikke et kort ved siden af: et ligestillet valg inviterer til at vælge.
+         Vises kun når kontakt-flowet faktisk er tændt — ellers er det en
+         blindgyde. -->
+    <p id="contact-alt" class="contact-alt hidden"></p>
 
     <!-- Step 2: Dato (skjult indtil mødetype valgt) -->
     <div id="step-date" class="hidden">
-      <div class="section-label">2 — Vælg dato</div>
+      <div class="section-label" data-step="Vælg dato">2 — Vælg dato</div>
       <div class="cal-wrap">
         <div class="cal-head">
           <button type="button" id="cal-prev" aria-label="Forrige måned">◀</button>
@@ -320,13 +347,13 @@
 
     <!-- Step 3: Tid (skjult indtil dato valgt) -->
     <div id="step-time" class="hidden">
-      <div class="section-label">3 — Vælg tid</div>
+      <div class="section-label" data-step="Vælg tid">3 — Vælg tid</div>
       <div id="slot-area"></div>
     </div>
 
     <!-- Step 4: Kontakt + besked (skjult indtil tid valgt) -->
     <div id="step-contact" class="hidden">
-      <div class="section-label">4 — Dine oplysninger</div>
+      <div class="section-label" data-step="Dine oplysninger">4 — Dine oplysninger</div>
 
       <div class="field-row">
         <div class="field">
@@ -408,6 +435,7 @@
 
 const CFG = {
   apiBase:    '/api/booking',
+  kontaktUrl: '/book/kontakt',
   webhookUrl: '/webhook/booking-smagning',
   rememberKey: 'rr_booking_smagning_v1'
 };
@@ -455,6 +483,18 @@ async function init() {
     state.meetingTypes = data.meeting_types;
     renderMeetingTypes();
 
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Er valget allerede truffet, skal kunden ikke stilles over for det.
+    // Token-intent kan låse igen længere nede — den er mere specifik og vinder.
+    lockMeetingType(resolveForcedType(urlParams));
+
+    // Numrene i markup'en er kun et udgangspunkt — de beregnes altid, så de
+    // ikke kan stå og lyve hvis et trin senere forsvinder eller kommer til.
+    renumberSteps();
+
+    renderContactAlt();
+
     // Hent intro-tekst
     fetch(CFG.apiBase + '/page-templates/intro_smagning')
       .then(r => r.ok ? r.json() : null)
@@ -475,7 +515,6 @@ async function init() {
     loadSavedFields();
 
     // Token pre-fill (M8) — overskriver localStorage med "rigtige" data fra DB
-    const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('t');
     if (token) {
       await loadTokenInfo(token);
@@ -490,6 +529,64 @@ async function init() {
 // ============================================================
 // MØDETYPER
 // ============================================================
+
+// Trinnumrene står i markup'en, men trin 1 kan forsvinde. Renummerér ud fra
+// hvad der faktisk er tilbage — ellers står der "2 — Vælg dato" som det
+// første kunden ser.
+function renumberSteps() {
+  let n = 0;
+  document.querySelectorAll('.section-label[data-step]').forEach(el => {
+    if (el.classList.contains('hidden')) return;
+    el.textContent = `${++n} — ${el.dataset.step}`;
+  });
+}
+
+// Lås siden til én mødetype: vælg den, fjern gitteret, vis hvad der bookes.
+// Kaldes fra tre steder (ét bookbart valg, ?mt= i URL, token-intent) — reglen
+// må kun stå ét sted, ellers kan de tre skride fra hinanden.
+function lockMeetingType(mt) {
+  if (!mt) return;
+  selectMeetingType(mt.key);
+  document.getElementById('lbl-mt').classList.add('hidden');
+  document.getElementById('mt-grid').classList.add('hidden');
+  const locked = document.getElementById('mt-locked');
+  locked.innerHTML = `<span>${mt.emoji || '📅'}</span>`
+    + `<span>${escapeHtml(mt.label)}</span>`
+    + `<span class="dur">· ca. ${mt.duration_min} min</span>`;
+  locked.classList.remove('hidden');
+  renumberSteps();
+}
+
+// Er valget allerede truffet før kunden åbner siden? To kilder her; den tredje
+// (token-intent) kommer asynkront og låser selv når svaret er hjemme.
+function resolveForcedType(urlParams) {
+  const wanted = (urlParams.get('mt') || '').trim();
+  if (wanted) {
+    const hit = state.meetingTypes.find(m => m.key === wanted);
+    if (hit) return hit;
+    // Ukendt nøgle er ikke en fejl kunden skal se — så falder vi bare tilbage
+    // til det almindelige valg.
+    console.warn('[booking-smagning] ukendt ?mt=', wanted);
+  }
+  return state.meetingTypes.length === 1 ? state.meetingTypes[0] : null;
+}
+
+// Udvejen: vil kunden hellere bare tale med os, skal hun kunne det uden at
+// booke en smagsprøve. Linket vises KUN når kontakt-flowet er tændt — ellers
+// sender vi hende ind i en side der siger "ikke tilgængelig".
+async function renderContactAlt() {
+  try {
+    const r = await fetch(CFG.apiBase + '/contact-reasons');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.available) return;
+    const el = document.getElementById('contact-alt');
+    el.innerHTML = 'Vil du hellere bare tale med os? '
+      + `<a href="${CFG.kontaktUrl}">Skriv til os her&nbsp;→</a>`;
+    el.classList.remove('hidden');
+  } catch { /* udvejen er en hjælp, ikke et krav — tier hvis den ikke kan hentes */ }
+}
+
 function renderMeetingTypes() {
   const grid = document.getElementById('mt-grid');
   grid.innerHTML = state.meetingTypes.map(mt => `
@@ -752,10 +849,11 @@ async function loadTokenInfo(token) {
       set('company',    c.company?.name);
     }
 
-    // Auto-vælg forvalgt mødetype hvis sælger angav intent
+    // Sælgeren har valgt typen — så er der intet at vælge for kunden.
+    // (Peger intent på en type der ikke er bookbar, findes den ikke i listen,
+    // og siden opfører sig som før: kunden vælger selv.)
     if (info.intent_meeting_type?.key) {
-      const mt = state.meetingTypes.find(m => m.key === info.intent_meeting_type.key);
-      if (mt) selectMeetingType(mt.key);
+      lockMeetingType(state.meetingTypes.find(m => m.key === info.intent_meeting_type.key));
     }
 
     // Personlig velkomst — title-case navne så "leif" → "Leif", "anne" → "Anne"
