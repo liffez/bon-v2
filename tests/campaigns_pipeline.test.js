@@ -28,6 +28,9 @@ function createFreshDb() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             cvr TEXT, ean TEXT,
+            -- Cachen fra contact_points (is_primary). Pipelinen læser dem, så et
+            -- firma-medlem UDEN kontaktperson stadig har noget at ringe/maile til.
+            phone TEXT, email TEXT,
             address_id INTEGER REFERENCES addresses(id),
             is_internal INTEGER NOT NULL DEFAULT 0
         );

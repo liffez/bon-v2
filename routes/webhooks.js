@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { createBon } = require('../db/helpers');
+const { createBon, todayISO } = require('../db/helpers');
+const { checkOrderTiming } = require('../services/orderCutoff');
 const { resolveOrderCompany, appendWishesLine } = require('../services/orderCompanyResolver');
 const { broadcast } = require('../shared/sse');
 const { verifyLoboRequest, applyWebhookEvent, calibrateLoboSignature } = require('../services/lobo_webhook');
@@ -98,10 +99,16 @@ const DEFAULT_FIELD_MAP = {
 };
 
 // POST /api/webhooks/bestilling
-// Altid 200 retur — fejl logges, vises ikke til kunden
+// Den GAMLE f-felt-formular. Uventede fejl logges og giver 200 som hidtil, men
+// en bevidst afvisning (deadline passeret) siges højt — ellers ville en
+// afsender tro bestillingen var modtaget.
 router.post('/bestilling', async (req, res) => {
   try {
-    await handleBestilling(req.body);
+    const result = await handleBestilling(req.body);
+    if (result?.rejected) {
+      console.warn(`[webhook/bestilling] Afvist (${result.rejected}): ${result.message}`);
+      return res.status(409).json({ ok: false, code: result.rejected, message: result.message });
+    }
   } catch (err) {
     console.error('[webhook/bestilling]', err);
   }
@@ -123,6 +130,14 @@ async function handleBestilling(data) {
       f2: data.f2, f7_date: data.f7_date, f7_time: data.f7_time
     });
     return;
+  }
+
+  // 2b. Deadline — samme regel som den nuværende formular håndhæves med
+  // (services/orderCutoff). Fejler ÅBENT: kan deadline ikke beregnes, slipper
+  // bestillingen igennem.
+  const timing = checkOrderTiming(db, data.f7_date, { todayIso: todayISO() });
+  if (!timing.ok) {
+    return { rejected: timing.code, message: timing.message };
   }
 
   // 3. Parse navn (f2 = "Fornavn Efternavn")

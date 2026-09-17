@@ -728,6 +728,15 @@
 /* ── Inaktive varer (#615) ──────────────────── */
 .so-pill-inactive { background: rgba(0,0,0,0.06); color: var(--color-text-dim); }
 
+/* Skjulte varer (#616): en note, ikke en pille — der er intet at klikke på. */
+.so-status-note {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    font-style: italic;
+    align-self: center;
+    cursor: help;
+}
+
 .so-card.so-inactive {
     border-left-color: var(--color-border);
     border-left-style: dashed;

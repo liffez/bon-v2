@@ -1327,18 +1327,11 @@ function _k3RenderShell() {
             .k3-tl-sentiment.negative { background: var(--color-sentiment-neg-bg, #FBE9E9); color: var(--color-sentiment-neg, #C94040); }
             .k3-tl-sentiment.neutral { background: var(--color-sentiment-neu-bg, #FBF3E2); color: var(--color-sentiment-neu, #C8962A); }
 
-            /* Mail */
-            .k3-mail-compose { padding: 14px; border-radius: 10px; background: var(--color-background, #f5f4f2); border: 1px solid var(--color-border); margin-bottom: 16px; }
-            .k3-mail-field { margin-bottom: 8px; }
-            .k3-mail-field label { display: block; font-size: 11px; font-weight: 700; color: var(--color-text-dim); text-transform: uppercase; margin-bottom: 3px; }
-            .k3-mail-input { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 13px; font-family: inherit; }
-            .k3-mail-input:focus { border-color: var(--brand-primary); outline: none; }
-            .k3-mail-body { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 13px; resize: vertical; min-height: 100px; font-family: inherit; }
-            .k3-mail-body:focus { border-color: var(--brand-primary); outline: none; }
+            /* Mail — compose-formularen styler sig selv (shared/mail_compose.js).
+               .k3-mail-compose/-field/-input/-body/-send er død og fjernet. */
             .k3-tmpl-warn { margin-top: 6px; padding: 7px 10px; border-radius: 6px; font-size: 12px; line-height: 1.5;
                 background: #fdf6e3; border-left: 3px solid #d9a441; color: #6b5320; }
             .k3-tmpl-warn code { background: rgba(0,0,0,.06); border-radius: 3px; padding: 1px 4px; font-size: 11px; }
-            .k3-mail-send { padding: 8px 20px; border-radius: 6px; border: none; background: var(--brand-primary); color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
         </style>
 
         <div class="k3-layout">
@@ -2523,359 +2516,63 @@ window._k3UpdateConsent = _k3UpdateConsent;
 
 // ─── Mail tab ───────────────────────────────────────────────
 
+let _k3MailCompose = null;   // MailCompose-instans for den åbne Mail-fane
+
 async function _k3RenderMail(el) {
     if (!_k3Data) return;
     const c = _k3Data.customer;
-    const email = c.email || '';
 
-    // Compose form
-    let html = '<div class="k3-mail-compose">' +
-        '<div class="k3-mail-field">' +
-            '<label>Til</label>' +
-            '<input type="email" class="k3-mail-input" id="k3MailTo" value="' + email + '">' +
-        '</div>' +
-        '<div class="k3-mail-field">' +
-            '<label>Skabelon</label>' +
-            '<select class="k3-mail-input" id="k3MailTemplate" onchange="_k3ApplyTemplate()">' +
-                '<option value="">— Ingen skabelon —</option>' +
-            '</select>' +
-            '<div id="k3TmplWarn"></div>' +
-        '</div>' +
-        '<div class="k3-mail-field">' +
-            '<label>Emne</label>' +
-            '<input type="text" class="k3-mail-input" id="k3MailSubject" placeholder="Emne...">' +
-        '</div>' +
-        '<div class="k3-mail-field">' +
-            '<label>Besked</label>' +
-            '<textarea class="k3-mail-body" id="k3MailBody" placeholder="Skriv din besked..."></textarea>' +
-            '<div id="k3MailSigHint"></div>' +
-        '</div>' +
-        '<input type="file" id="k3MailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_k3OnFileSelected(this)">' +
-        '<div id="k3MailAttachments" class="bm-attachments"></div>' +
-        '<div style="display:flex;gap:8px;margin-top:6px;align-items:center;flex-wrap:wrap;position:relative;">' +
-            '<button class="bm-attach" id="k3AttachBtn" onclick="_k3AttachFile()">📎 Vedhæft</button>' +
-            '<button class="bm-attach" id="k3BookingLinkBtn" onclick="_k3ToggleBookingLinkPopover()">📅 Indsæt booking-link</button>' +
-            '<span id="k3BookingLinkInfo" style="font-size:11px;color:var(--color-text-dim);"></span>' +
-            '<button class="k3-mail-send" onclick="_k3SendMail()" style="margin-left:auto;">Send mail</button>' +
-            '<div id="k3BookingLinkPopover" style="display:none;position:absolute;top:38px;left:120px;background:#fff;border:1px solid var(--color-border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);padding:12px;min-width:280px;z-index:50;">' +
-                '<div style="font-size:11px;text-transform:uppercase;color:var(--color-text-dim);margin-bottom:6px;">Booking-link</div>' +
-                '<div style="margin-bottom:8px;">' +
-                    '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-bottom:3px;">' +
-                        '<input type="radio" name="k3BookingFlow" value="smagning" checked> Smagsprøve (kalender-side)' +
-                    '</label>' +
-                    '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">' +
-                        '<input type="radio" name="k3BookingFlow" value="kontakt"> Kontaktformular' +
-                    '</label>' +
-                '</div>' +
-                '<div id="k3IntentRow" style="margin-bottom:8px;">' +
-                    '<label style="font-size:11px;color:var(--color-text-dim);display:block;margin-bottom:3px;">Forvalgt mødetype</label>' +
-                    '<select id="k3BookingIntentSel" style="width:100%;padding:5px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">' +
-                        '<option value="">— ingen forvalgt —</option>' +
-                    '</select>' +
-                '</div>' +
-                '<div style="display:flex;gap:6px;justify-content:flex-end;">' +
-                    '<button onclick="_k3CloseBookingLinkPopover()" style="padding:5px 10px;font-size:12px;background:none;border:1px solid var(--color-border);border-radius:4px;cursor:pointer;">Annuller</button>' +
-                    '<button onclick="_k3InsertBookingLink()" style="padding:5px 10px;font-size:12px;background:var(--brand-primary,#8e631f);color:#fff;border:none;border-radius:4px;cursor:pointer;">Indsæt</button>' +
-                '</div>' +
-            '</div>' +
-        '</div>' +
-    '</div>';
+    // Compose-formularen bor i shared/mail_compose.js. Den lå tidligere her som
+    // ~380 linjer inline markup + handlers og kunne derfor ikke bruges fra
+    // service-kald, ringeliste eller kampagne — de havde kun et mailto:-link,
+    // som pr. konstruktion ikke kan bære et booking-link.
+    el.innerHTML = '<div id="k3MailCompose"></div><div id="k3MailHistWrap"></div>';
 
-    // Load existing mail threads for this customer's bons + direct customer mail
+    if (_k3MailCompose) _k3MailCompose.destroy();
+    if (typeof MailCompose === 'undefined') {
+        document.getElementById('k3MailCompose').innerHTML =
+            '<div class="k3-tmpl-warn">Mail-komponenten er ikke indlæst på denne side.</div>';
+    } else {
+        _k3MailCompose = MailCompose.create({
+            customerId: _k3CustomerId,
+            customer: c,
+            to: c.email || '',
+            onSent: () => { alert('Mail sendt!'); _k3RenderTab(); },
+        });
+        _k3MailCompose.render(document.getElementById('k3MailCompose'));
+    }
+
+    // Mail-historik: kundens egne tråde + de seneste bons tråde, i én liste.
     let allMessages = [];
     try {
         const bonsWithMail = _k3Data.orders.filter(o => o.id);
         for (const o of bonsWithMail.slice(0, 5)) {
             try {
                 const mailData = await fetchBonMail(o.id);
-                if (mailData.threads) {
-                    for (const t of mailData.threads) {
-                        for (const m of (t.messages || [])) {
-                            allMessages.push({ ...m, bon_number: o.bon_number });
-                        }
-                    }
+                for (const t of (mailData.threads || [])) {
+                    for (const m of (t.messages || [])) allMessages.push({ ...m, bon_number: o.bon_number });
                 }
             } catch (e) { /* bon har ingen mail */ }
         }
         try {
             const custMailData = await fetchCustomerMail(_k3CustomerId);
-            if (custMailData.threads) {
-                for (const t of custMailData.threads) {
-                    for (const m of (t.messages || [])) {
-                        allMessages.push({ ...m });
-                    }
-                }
+            for (const t of (custMailData.threads || [])) {
+                for (const m of (t.messages || [])) allMessages.push({ ...m });
             }
         } catch (e) { /* kunde har ingen direkte mail */ }
 
         allMessages.sort((a, b) => (b.received_at || b.sent_at || '').localeCompare(a.received_at || a.sent_at || ''));
-
-        if (allMessages.length) {
-            html += '<h4 style="font-size:11px;text-transform:uppercase;color:var(--color-text-dim);margin:16px 0 8px;">Mail-historik</h4>';
-            html += '<div id="k3MailHost"></div>';
-        }
     } catch (err) {
         console.error('[k3] Mail load error:', err);
     }
 
-    el.innerHTML = html;
-
-    // Mail-historik via fælles MailThread-komponent (klik-for-at-folde-ud).
-    if (typeof MailThread !== 'undefined') {
-        if (allMessages.length) {
-            MailThread.renderHistory(document.getElementById('k3MailHost'), {
-                messages: allMessages.slice(0, 20),
-            });
-        }
-        MailThread.renderSignatureHint(document.getElementById('k3MailSigHint'));
-    }
-
-    _k3LoadMailTemplates();
-}
-
-/* ── Skabeloner i CRM-mail ───────────────────────────────────
-   Skabelonerne er skrevet til en BON ({{bonNummer}}, {{leveringsDato}},
-   menuen …). Herinde findes der ingen bon — kun en kunde. Vi udfylder
-   derfor det vi rent faktisk kan, og siger tydeligt hvad der mangler,
-   frem for at lade som om skabelonen passer. */
-
-let _k3MailTemplates = null;
-
-async function _k3LoadMailTemplates() {
-    const sel = document.getElementById('k3MailTemplate');
-    if (!sel) return;
-    try {
-        if (!_k3MailTemplates) _k3MailTemplates = await fetchMailTemplates();
-        sel.innerHTML = '<option value="">— Ingen skabelon —</option>' +
-            (_k3MailTemplates || []).map(t =>
-                '<option value="' + escapeHtml(t.key) + '">' + escapeHtml(t.label || t.key) + '</option>'
-            ).join('');
-    } catch (err) {
-        console.error('[k3] Kunne ikke hente mail-skabeloner:', err);
-        sel.innerHTML = '<option value="">— skabeloner kunne ikke hentes —</option>';
-    }
-}
-
-// Variabler vi kan besvare uden en bon. {{tag}} fjernes, fordi serveren selv
-// sætter #k-NNN på emnet — står den i teksten, ender den som synlig larm.
-function _k3TemplateVars() {
-    const c = (_k3Data && _k3Data.customer) || {};
-    // Navnefelterne i driften bærer stedvis linjeskift (fx last_name = "\n zeeberg").
-    // Et navn må aldrig brække en hilsen midt over — så mellemrum normaliseres.
-    const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-    const navn = clean((c.first_name || '') + ' ' + (c.last_name || ''));
-    return {
-        kundeNavn: navn || clean(c.company_name) || '',
-        fornavn: clean(c.first_name),
-        firmanavn: clean(c.company_name),
-        telefon: clean(c.phone),
-        tag: '',
-    };
-}
-
-function _k3ApplyTemplate() {
-    const sel = document.getElementById('k3MailTemplate');
-    const warnEl = document.getElementById('k3TmplWarn');
-    const subjEl = document.getElementById('k3MailSubject');
-    const bodyEl = document.getElementById('k3MailBody');
-    if (!sel || !subjEl || !bodyEl) return;
-
-    if (!sel.value) { warnEl.innerHTML = ''; return; }
-
-    const tmpl = (_k3MailTemplates || []).find(t => t.key === sel.value);
-    if (!tmpl) return;
-
-    // Overskriv ikke noget brugeren allerede har skrevet uden at spørge.
-    if ((subjEl.value.trim() || bodyEl.value.trim()) &&
-        !confirm('Erstat det du har skrevet med skabelonen "' + (tmpl.label || tmpl.key) + '"?')) {
-        sel.value = '';
-        return;
-    }
-
-    const vars = _k3TemplateVars();
-    const subst = (str) => {
-        let r = str || '';
-        for (const [k, v] of Object.entries(vars)) {
-            r = r.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), v);
-        }
-        return r;
-    };
-
-    subjEl.value = subst(tmpl.subject).trim();
-    bodyEl.value = subst(tmpl.body_text);
-
-    // Hvad kunne vi ikke udfylde? {{booking_link}} tæller ikke — den løser
-    // serveren ved afsendelse.
-    const rest = _k3UnresolvedVars(subjEl.value + '\n' + bodyEl.value);
-    warnEl.innerHTML = rest.length
-        ? '<div class="k3-tmpl-warn">⚠ ' + rest.length + ' pladsholder' + (rest.length === 1 ? '' : 'e') +
-          ' kunne ikke udfyldes — skabelonen er skrevet til en bon: ' +
-          '<code>' + rest.map(escapeHtml).join('</code> <code>') + '</code>' +
-          '<br>Ret dem i teksten før du sender.</div>'
-        : '';
-}
-
-function _k3UnresolvedVars(text) {
-    const found = (text || '').match(/\{\{[a-zA-Z0-9_]+\}\}/g) || [];
-    return [...new Set(found)].filter(v => v !== '{{booking_link}}');
-}
-
-let _k3Attachments = [];
-let _k3BookingFlow   = 'smagning';   // valgt flow for {{booking_link}}
-let _k3BookingIntent = null;          // valgt intent_meeting_type_key
-let _k3BookingTypesCache = null;      // populeres ved første åbning af popover
-
-// ─── Booking-link popover (M11) ─────────────────────────────
-async function _k3ToggleBookingLinkPopover() {
-    const pop = document.getElementById('k3BookingLinkPopover');
-    if (!pop) return;
-    const isOpen = pop.style.display !== 'none';
-    if (isOpen) { pop.style.display = 'none'; return; }
-
-    // Load mødetyper ved første åbning
-    if (!_k3BookingTypesCache) {
-        try {
-            const r = await fetchBookingMeetingTypesIntent();
-            _k3BookingTypesCache = r.meeting_types || [];
-        } catch (err) {
-            console.error('[k3] kunne ikke hente mødetyper:', err);
-            _k3BookingTypesCache = [];
-        }
-    }
-
-    const sel = document.getElementById('k3BookingIntentSel');
-    if (sel) {
-        sel.innerHTML = '<option value="">— ingen forvalgt —</option>' +
-            _k3BookingTypesCache.map(mt =>
-                '<option value="' + mt.key + '">' + (mt.emoji || '') + ' ' + mt.label +
-                ' (' + mt.duration_min + ' min)' + (mt.is_bookable ? '' : ' — sælger-only') + '</option>'
-            ).join('');
-        sel.value = _k3BookingIntent || '';
-    }
-
-    // Hide intent row hvis flow=kontakt (ingen kalender → ingen mødetype)
-    const updateIntentVisibility = () => {
-        const flow = document.querySelector('input[name="k3BookingFlow"]:checked')?.value || 'smagning';
-        document.getElementById('k3IntentRow').style.display = (flow === 'smagning') ? '' : 'none';
-    };
-    document.querySelectorAll('input[name="k3BookingFlow"]').forEach(r => {
-        r.checked = (r.value === _k3BookingFlow);
-        r.addEventListener('change', updateIntentVisibility);
-    });
-    updateIntentVisibility();
-
-    pop.style.display = 'block';
-}
-
-function _k3CloseBookingLinkPopover() {
-    const pop = document.getElementById('k3BookingLinkPopover');
-    if (pop) pop.style.display = 'none';
-}
-
-function _k3InsertBookingLink() {
-    const flow = document.querySelector('input[name="k3BookingFlow"]:checked')?.value || 'smagning';
-    const intent = document.getElementById('k3BookingIntentSel')?.value || null;
-    _k3BookingFlow = flow;
-    _k3BookingIntent = intent || null;
-
-    const ta = document.getElementById('k3MailBody');
-    if (ta) {
-        const start = ta.selectionStart ?? ta.value.length;
-        const end   = ta.selectionEnd   ?? ta.value.length;
-        const before = ta.value.slice(0, start);
-        const after  = ta.value.slice(end);
-        ta.value = before + '{{booking_link}}' + after;
-        ta.focus();
-        const cursor = start + '{{booking_link}}'.length;
-        ta.setSelectionRange(cursor, cursor);
-    }
-
-    // Vis info-strip ved siden af knappen
-    const info = document.getElementById('k3BookingLinkInfo');
-    if (info) {
-        const flowLabel = flow === 'kontakt' ? 'Kontakt' : 'Smagsprøve';
-        const intentLabel = intent
-            ? (_k3BookingTypesCache?.find(mt => mt.key === intent)?.label || intent)
-            : null;
-        info.textContent = '🔗 ' + flowLabel + (intentLabel ? ' · ' + intentLabel : '');
-    }
-
-    _k3CloseBookingLinkPopover();
-}
-
-
-function _k3AttachFile() {
-    if (_k3Attachments.length >= 5) { alert('Max 5 vedhæftninger per mail'); return; }
-    document.getElementById('k3MailFile').click();
-}
-
-async function _k3OnFileSelected(input) {
-    const file = input.files[0];
-    if (!file) return;
-    input.value = '';
-    if (file.size > 10 * 1024 * 1024) { alert('Fil er for stor (max 10 MB)'); return; }
-    const btn = document.getElementById('k3AttachBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Uploader…'; }
-    try {
-        const result = await uploadAttachment(file, 'customer', _k3CustomerId);
-        _k3Attachments.push(result);
-        _k3RenderAttPills();
-    } catch (err) {
-        alert('Upload fejl: ' + err.message);
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '📎 Vedhæft'; }
-    }
-}
-
-function _k3RenderAttPills() {
-    const el = document.getElementById('k3MailAttachments');
-    if (!el) return;
-    el.innerHTML = _k3Attachments.map((a, i) =>
-        '<span class="bm-att-pill">📎 ' + (a.filename || 'fil') + ' (' + Math.round((a.size_bytes || 0) / 1024) + ' KB)'
-        + '<span class="bm-att-remove" onclick="_k3RemoveAtt(' + i + ')"> ✕</span></span>'
-    ).join('');
-}
-
-function _k3RemoveAtt(index) {
-    _k3Attachments.splice(index, 1);
-    _k3RenderAttPills();
-}
-
-async function _k3SendMail() {
-    const to = document.getElementById('k3MailTo').value.trim();
-    const subject = document.getElementById('k3MailSubject').value.trim();
-    const text = document.getElementById('k3MailBody').value.trim();
-
-    if (!to || !subject || !text) { alert('Udfyld alle felter'); return; }
-
-    if (!_k3CustomerId) { alert('Ingen kunde valgt'); return; }
-
-    // Sidste stop før kunden ser {{leveringsDato}} i sin indbakke.
-    const unresolved = _k3UnresolvedVars(subject + '\n' + text);
-    if (unresolved.length && !confirm(
-        'Mailen indeholder ' + unresolved.length + ' uudfyldt' + (unresolved.length === 1 ? '' : 'e') +
-        ' pladsholder' + (unresolved.length === 1 ? '' : 'e') + ':\n\n' + unresolved.join('  ') +
-        '\n\nKunden vil se dem som de står. Send alligevel?'
-    )) return;
-
-    try {
-        const data = { to, subject, text };
-        if (_k3Attachments.length > 0) {
-            data.attachments = _k3Attachments.map(a => ({ attachment_id: a.attachment_id }));
-        }
-        // Hvis brugeren har indsat {{booking_link}}, send valgt flow + intent
-        if (text.includes('{{booking_link}}') || subject.includes('{{booking_link}}')) {
-            data.booking_flow = _k3BookingFlow;
-            if (_k3BookingIntent) data.booking_intent_meeting_type = _k3BookingIntent;
-        }
-        await sendCustomerMail(_k3CustomerId, data);
-        _k3Attachments = [];
-        _k3BookingFlow = 'smagning';
-        _k3BookingIntent = null;
-        alert('Mail sendt!');
-        _k3RenderTab();
-    } catch (err) {
-        alert('Fejl: ' + err.message);
+    if (allMessages.length && typeof MailThread !== 'undefined') {
+        const wrap = document.getElementById('k3MailHistWrap');
+        wrap.innerHTML = '<h4 style="font-size:11px;text-transform:uppercase;color:var(--color-text-dim);margin:16px 0 8px;">Mail-historik</h4>' +
+            '<div id="k3MailHost"></div>';
+        MailThread.renderHistory(document.getElementById('k3MailHost'), {
+            messages: allMessages.slice(0, 20),
+        });
     }
 }
 

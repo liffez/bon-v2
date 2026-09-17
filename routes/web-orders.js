@@ -8,11 +8,28 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { createBon } = require('../db/helpers');
+const { createBon, todayISO } = require('../db/helpers');
+const { checkOrderTiming } = require('../services/orderCutoff');
 const { resolveOrderCompany, appendWishesLine } = require('../services/orderCompanyResolver');
 
+// En afvisning kunden SKAL have at vide. Webhooken svarede historisk 200 uanset
+// hvad, så en ordre der blev afvist (ferielukket, for sent) gav kunden
+// "tak for din bestilling" mens intet blev oprettet. For en bestilling er det
+// den værste af alle udgange: kunden tror maden kommer.
+//
+// Honeypot og manglende felter afvises fortsat i stilhed — det første bevidst
+// (sig ikke til en bot at den er fanget), det andet fordi formularen har
+// `required` på felterne, så et kald uden dem ikke kan komme fra en kunde.
+class OrderRejected extends Error {
+    constructor(code, message) {
+        super(message);
+        this.name = 'OrderRejected';
+        this.code = code;
+    }
+}
+
 // ─── POST /webhook/bestilling ──────────────────────────────────────────────
-// Offentligt endpoint — ingen auth, altid 200 (fejl logges, vises ikke til kunden)
+// Offentligt endpoint — ingen auth
 
 router.post('/bestilling', async (req, res) => {
   try {
@@ -32,6 +49,12 @@ router.post('/bestilling', async (req, res) => {
     const result = await handleWebOrder(req.body);
     res.json({ ok: true, bon_number: result?.bonNumber || null });
   } catch (err) {
+    if (err instanceof OrderRejected) {
+      console.warn(`[web-order] Afvist (${err.code}): ${err.message}`);
+      // 409 — formularen viser beskeden sammen med mailto-udvejen, så kunden
+      // har en vej videre i stedet for en blindgyde.
+      return res.status(409).json({ ok: false, code: err.code, message: err.message });
+    }
     console.error('[web-order] Fejl:', err);
     res.json({ ok: true }); // Altid 200 til klienten
   }
@@ -175,8 +198,18 @@ async function handleWebOrder(data) {
   // 2b. Ferielukket — server-guard (formen spærrer allerede, men et direkte
   // API-kald skal ikke kunne snige en bestilling ind i en lukket periode).
   if (isClosedDate(db, data.delivery_date)) {
-    console.warn('[web-order] Afvist — leveringsdato i ferielukket periode:', data.delivery_date);
-    return null;
+    throw new OrderRejected('closed_period',
+      'Vi holder lukket på den valgte leveringsdato.');
+  }
+
+  // 2c. Deadline — server-guard. Formularen tjekker i det øjeblik datoen vælges
+  // og aldrig igen, så en side der har stået åben siden formiddagen kunne sende
+  // en bestilling til i morgen om aftenen. Reglen ligger i services/orderCutoff
+  // og fejler ÅBENT: kan deadline ikke beregnes, slipper bestillingen igennem.
+  const timing = checkOrderTiming(db, data.delivery_date, { todayIso: todayISO() });
+  if (!timing.ok) {
+    throw new OrderRejected(timing.code,
+      `${timing.message} Ring til os, så finder vi en løsning.`);
   }
 
   // 3. Parse navn

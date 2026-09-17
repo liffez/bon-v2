@@ -751,7 +751,16 @@ async function _icStartCheck() {
         _ic.conversions = results[2] || [];
 
         // Store all active products for "add unexpected"
+        //
+        // En FORÆLDER uden egen beholdning kan ikke tælles (#616): dens egen
+        // lagerrække står per konstruktion på 0, fordi børnene bærer lageret
+        // (kål → Spidskål, Hvidkål). I tællelisten ligner den derfor en tom
+        // vare — og dét var præcis hvad der fik nogen til at trykke "Varen
+        // findes ikke mere" på kål og sætte den inaktiv. Man tæller børnene.
+        // `hide_on_stock_overview` tages med af samme grund: siger Grocy at
+        // varen aldrig skal ses på lageret, skal den heller ikke tælles.
         _ic.allProducts = allProducts.filter(function(p) {
+            if (grocyHasNoOwnStock(p) || grocyHiddenOnStockOverview(p)) return false;
             return p.active === '1' || p.active === 1 || p.active === true;
         });
 

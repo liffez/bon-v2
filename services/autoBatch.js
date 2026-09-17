@@ -25,6 +25,12 @@
 // Bon regner derfor selv og lader Grocy føre lageret via `self-production` —
 // samme transaktionstype Grocy selv ville have skrevet.
 //
+// Forskellen på det og vores egen andels-regel (#560) er netop den sidste
+// prik: rækker råvarerne kun til 88 % af et batch, laver vi 88 % — ikke et
+// helt. Output er altid dækket af input. Grocys endpoint trak også kun det der
+// var, men lagde det FULDE udbytte på, og det er dét der er lager ud af
+// ingenting.
+//
 // KUN `RR produktion Hurtig`
 // `RR Produktion` (langtidsstegt gris, syltede løg) laver personalet i
 // forvejen efter plan. At auto-producere dem ville trække råvarer for noget
@@ -35,34 +41,62 @@
 
 'use strict';
 
-const { buildProducerIndex, yieldPerBatchStockOf, collectRecipeNeedsFlat } = require('./ingredientResolver');
-
-/** Grocy-gruppen der afgør hvem der laver varen. Sammenlignes normaliseret. */
-const HURTIG_GROUP = 'rr produktion hurtig';
+const { buildProducerIndex, yieldPerBatchStockOf, collectRecipeNeedsFlat,
+        productionTypeOf } = require('./ingredientResolver');
 
 const FLOAT_TOL = 1e-9;
 
-function groupOf(recipeRaw) {
-    return String(recipeRaw?.userfields?.grupper || '').trim().toLowerCase();
-}
-
 /**
- * Hvor mange HELE batches rækker råvarerne til?
+ * Hvor meget rækker råvarerne til?
  *
- * Køkkenet gemmer ikke en halv pose ublandet mayo, så en delmængde er ikke et
- * gyldigt svar. Overskud står til næste bon.
+ * **Hele batches er en størrelse, ikke et veto** (§1b, #560). Reglen afgør hvor
+ * meget der laves når det kan lade sig gøre — ikke OM der blev lavet noget.
+ * Derfor to udfald:
+ *
+ *   · er der råd til mindst ét helt batch → hele batches, som hidtil.
+ *     Køkkenet gemmer ikke en halv pose ublandet mayo, og overskuddet af
+ *     råvarer står på hylden til næste bon.
+ *   · ellers → den ANDEL den bindende råvare rækker til.
+ *
+ * Det andet udfald er det nye. Før returnerede funktionen 0, og så blev der
+ * ikke produceret noget overhovedet: 1,2 gram hvidløg spærrede for en hel
+ * Tahin-dressing, selvom falaflen blev leveret, dressingen blev lavet og
+ * hvidløget blev brugt. Bonen var LEVERET — maden var ude af huset — og
+ * lageret sagde noget andet.
+ *
+ * Hvorfor en ANDEL og ikke bare et helt batch trukket på det der er:
+ * et helt batch ville lægge udbytte på lageret som råvarerne ikke dækker.
+ * Det er præcis dét denne fils hoved afviser Grocys eget
+ * `/recipes/{id}/consume` for ("lager ud af ingenting"). Med en andel er
+ * output altid dækket af input — og i det tilfælde issuet handler om er de to
+ * i praksis ens: hvidløget på hylden ER 88 % af et batch, så alle 0,0088 kg
+ * trækkes, og der laves 0,88 batch dressing.
+ *
+ * Står en råvare på NUL, bliver svaret 0. Det er ikke et veto der er sneget
+ * sig ind igen — det er det sande svar: uden relish blev der ikke lavet
+ * remoulade, og så er der heller ingen mayonnaise at trække for den.
  *
  * @param perBatchNeeds  Map(product_id → mængde til ÉT batch, lager-enhed)
  * @param effectiveStock (pid) → lager, med børnenes lager rullet op på forælderen
+ * @returns {number} antal batches — helt tal ved ≥ 1, ellers en brøkdel
  */
 function affordableBatches(perBatchNeeds, effectiveStock) {
     let n = Infinity;
     for (const [pid, perBatch] of perBatchNeeds) {
         if (!(perBatch > FLOAT_TOL)) continue;
-        n = Math.min(n, Math.floor((effectiveStock(pid) + FLOAT_TOL) / perBatch));
-        if (n <= 0) return 0;
+        const have = effectiveStock(pid);
+        // Råvaren er der slet ikke. Svaret er nul, ikke en uendelig lille andel:
+        // en andel på 2e-9 af et batch er ikke en delvis produktion, det er
+        // afrundingsstøj forklædt som en beslutning.
+        if (!(have > FLOAT_TOL)) return 0;
+        n = Math.min(n, have / perBatch);
     }
-    return Number.isFinite(n) ? Math.max(0, n) : 0;
+    if (!Number.isFinite(n)) return 0;
+    // Tolerancen hører KUN til ved helt-tals-grænsen: 0,49999999 kg til et
+    // 0,5 kg-batch er ét batch, ikke 0,99999998 af et. I andels-grenen ville
+    // den bare puste mængden en anelse op over det der står på hylden.
+    if (n + FLOAT_TOL >= 1) return Math.floor(n + FLOAT_TOL);
+    return Math.max(0, n);
 }
 
 /**
@@ -95,8 +129,10 @@ function planAutoBatches({ needs, rawRecipeMap, posByRecipe, nestingsByRecipe,
         if (!product) continue;
 
         // Gruppen er grænsen. Er varen kun lavet af `RR Produktion`, rører vi
-        // den ALDRIG — personalet laver den efter plan.
-        const hurtig = producers.filter(r => groupOf(r) === HURTIG_GROUP);
+        // den ALDRIG — personalet laver den efter plan. Politikken aflæses via
+        // den DELTE `productionTypeOf` (#329), så auto-batchen og lagertrækket
+        // ikke kan blive uenige om hvem der laver hvad.
+        const hurtig = producers.filter(r => productionTypeOf(r) === 'on_demand');
         if (!hurtig.length) continue;
 
         const stock = effectiveStock(pid);
@@ -167,7 +203,14 @@ function planAutoBatches({ needs, rawRecipeMap, posByRecipe, nestingsByRecipe,
             consume: [...perBatchNeeds.entries()].map(([rawPid, perOne]) => ({
                 productId: rawPid,
                 perBatch: perOne,
-                amount: perOne * affordable,
+                // Klampet til det der FAKTISK står. Ved en andel rammer den
+                // bindende råvare pr. definition sit eget lagertal, og
+                // flydende tal kan lande en brøkdel af en milliardtedel over —
+                // nok til at Grocy svarer 400. Klampen gør det umuligt at
+                // PLANLÆGGE et træk der er større end lageret; genforsøget i
+                // `consumeWithFreshRetry` er værnet mod at lageret ændrer sig
+                // under os, ikke mod vores egen afrunding.
+                amount: Math.min(perOne * affordable, effectiveStock(rawPid)),
                 productName: (productMap.get(rawPid) || {}).name || `Produkt #${rawPid}`,
                 stockUnitName: unitNameOf(productMap.get(rawPid), unitMap),
             })),
@@ -197,14 +240,15 @@ function autoBatchNonce(bonId, recipeId) {
     return `auto:bon:${bonId}:recipe:${recipeId}`;
 }
 
-module.exports = { planAutoBatches, affordableBatches, autoBatchNonce, groupOf, HURTIG_GROUP };
+module.exports = { planAutoBatches, affordableBatches, autoBatchNonce };
 
 /**
  * Udfør planen: producér i Grocy, skriv revisionsspor, læg manglende råvarer
  * på indkøbslisten.
  *
- * Leveringen blokeres ALDRIG. Rækker råvarerne ikke, laves de hele batches der
- * er dækning til (kan være 0), og resten bliver et synligt spor på bonen.
+ * Leveringen blokeres ALDRIG. Rækker råvarerne ikke til et helt batch, laves
+ * den andel der er dækning til, råvarerne trækkes, og resten bliver et synligt
+ * spor på bonen (#560).
  *
  * `deps` gør hele udførelsen testbar uden Grocy og uden en rigtig database.
  *

@@ -87,8 +87,20 @@ Og den ene fælles rettelse der stopper lager-drillet:
 > på 0. Gælder begge kategorier. Så holder Råvarer-/planlægnings-visningen op med at råbe
 > ulven, når et sylt/gris-produkt lige er tomt.
 
-**Batch-reglen (bekræftet):** Hurtig laver hele batches, ikke præcis mængde — I gemmer
-ikke en halv pose ublandet mayo. Restbehov rundes op til hele batches; overskud står.
+**Batch-reglen (bekræftet, præciseret 16.09.2026 — #560):** Hurtig laver hele batches,
+ikke præcis mængde — I gemmer ikke en halv pose ublandet mayo. Restbehov rundes op til
+hele batches; overskud står.
+
+> **Reglen er en størrelse, ikke et veto.** Den afgør *hvor meget* der laves når det kan
+> lade sig gøre — ikke *om* der blev lavet noget. Rækker råvarerne ikke til ét helt batch,
+> laves den **andel** de rækker til, råvarerne trækkes, og manglen ryger på indkøbslisten.
+> 1,2 gram hvidløg må ikke spærre for en dressing der beviseligt blev lavet og leveret.
+>
+> Hvorfor en andel og ikke et helt batch trukket på det der er: et helt batch ville lægge
+> udbytte på lageret som råvarerne ikke dækker — nøjagtig dét Grocys eget
+> `/recipes/{id}/consume` gør, og grunden til at vi ikke bruger den (§4.2). Står en råvare
+> på **nul**, bliver svaret 0: uden relish blev der ikke lavet remoulade, og så er der
+> heller ingen mayonnaise at trække for den.
 
 **Udenfor scope (bevidst parkeret):** prep-tider, kapacitet, holdplanlægning, metode-valg
 (hurtig/langsom løvstikke), sekvens (kog→køl→skær). Køkkenet: *"resten har vi styr på."*
@@ -138,7 +150,7 @@ I `autoConsumeBonInventory` (timing uændret): for hvert **Hurtig-produkt** hvor
 ```
 shortfall = behov − lager
 batches   = ceil(shortfall / batch_udbytte)      ← hele batches
-raw_ok    = min(batches, max hele batches råvarerne rækker til)
+raw_ok    = min(batches, hvad råvarerne rækker til)   ← helt tal ved ≥ 1, ellers en andel
 if raw_ok > 0: produceBatch(consume råvarer × raw_ok  →  add produkt raw_ok × udbytte)
 ```
 Derefter trækkes menu-produktet som i dag. Genbruger `produceBatch` fra
@@ -151,14 +163,67 @@ RR-produkt fra kommende bons, samme beregning som planlægning) → en liste "la
 en simpel prep-ahead-liste). Ingen `produceBatch`.
 
 ### 4.4 Når produktion ikke kan fuldføres (Hurtig, råvarer utilstrækkelige)
-Lav de hele batches råvarerne rækker til (kan være 0), træk hvad der er, læg de manglende
-**RÅVARER** (mayo/relish) på indkøbslisten — **ikke** det uindkøbelige mellemprodukt.
+Lav de hele batches råvarerne rækker til — og rækker de ikke til ét, lav **den andel de
+rækker til** (#560). Træk hvad der er, læg de manglende **RÅVARER** (mayo/relish) på
+indkøbslisten — **ikke** det uindkøbelige mellemprodukt.
 **Advarsel** (hændelse på den bon der leveres, ikke et flag på fremtiden): changelog +
 køkken-notifikation + synlig i bonens Råvarer-visning. Leveringen blokeres aldrig.
 
 ### 4.5 Pris ved produktion
 `produceBatch` tager kostpris ex moms fra råvarerne (som `routes/production.js`), så
 Grocy-fulfillment og margin-analyse (Opskrifter & priser) er upåvirket.
+
+### 4.6 Produktionstypen bor i koden — og styrer hvad trækket må gøre (#329)
+
+Grocy-gruppen ER grænsen mellem de to roller i §2, og siden 16.09.2026 aflæses den
+**ét sted**: `productionTypeOf(recipeRaw)` i `services/ingredientResolver.js` giver
+`'on_demand'` (`RR produktion Hurtig`) eller `'to_stock'` (alt andet der producerer en
+vare). `buildProductionPolicy(rawRecipeMap)` slår det op pr. `product_id`; har en vare
+flere producenter, og bare én af dem er Hurtig, er varen `on_demand` — det er dén
+mulighed der afgør hvad trækket må gøre, og samme valg `planAutoBatches` allerede traf.
+`services/autoBatch.js`, `grocyAdapter.planConsume`, `scripts/tjek-dagen.js` og
+`scripts/audit-blend-batches.js` importerer nu politikken i stedet for at gentage
+gruppenavnet. To kopier der skal blive enige om det samme er præcis sådan #349 og #353
+opstod.
+
+**Vagten:** er en underopskrift i `resolveConsumeItems` `to_stock`, trækkes **varen** —
+aldrig dens råvarer. Råvarerne blev trukket dengang varen blev produceret; trak menuen
+dem igen, ville de være væk to gange i Grocy og kun én gang i virkeligheden, og varen
+ville aldrig blive trukket. Altså både en dobbelt-tælling og en skjult mangel. Er varen
+tom, SKAL det kunne ses (§7.2 — den må gå i shortfall); et fald-igennem til råvarerne
+ville dække over præcis dét signal.
+
+**Hurtig er bevidst undtaget.** Er en `on_demand`-opskrift stadig nestet, trækkes dens
+råvarer som hidtil; først når menuen er rewired til en produktlinje, trækkes produktet —
+og da har auto-batchen (§4.2) allerede lavet det.
+
+> **Vagten er inert i drift i dag.** Målt på grocy-hq-snapshottet i `data/gate-baseline/`:
+> 14 opskrifter producerer en vare, og **nul** af dem er nestet. Den er der for at §5's
+> udrulning ikke kan tabe på rækkefølgen — hvor produktet findes, før menuerne er
+> rewired (`--kun-rewire`). Den aktuelle tilstand måles på serveren med
+> `npm run audit:produktionspolitik` (read-only). Rapportens fjerde liste,
+> **"nestet uden vare"**, er §5.1's resterende arbejde: de blandinger der stadig nestes
+> ind i en menu uden at producere en vare, grupperet efter Grocy-gruppen og med antal
+> menuer. Uden den ville rapporten kun kunne tale om de varer der allerede findes —
+> Senneps Mayo og de øvrige ukonverterede er usynlige for de tre første lister.
+
+⚠️ **`Balsamico + løg` og `Æggesalat` er dem der vækker vagten.** Målt i drift
+16.09.2026 ligger de i **`RR Produktion`**, ikke i Hurtig — altså `to_stock` — og de er
+nestet i 2 menuer hver uden at producere en vare. I det øjeblik de får et
+`Produces product`, er de `to_stock` **og stadig nestet**, og vagten går fra inert til
+aktiv: menuen trækker da varen i stedet for råvarerne. Er varen nyoprettet med 0 på
+lager, går den i shortfall — korrekt efter §7.2, men det vil ligne at blandingen
+pludselig mangler på hver bon mens råvarerne står på hylden. **Konvertér og rewire dem i
+samme ombæring** (`--kun-rewire`). De seks blandinger i `RR produktion Hurtig` har ikke
+problemet: `on_demand` er undtaget og trækker råvarerne uændret indtil menuen er rewired.
+
+**Uden erklæret udbytte** (`recipeunit`/`recipeunitnumber` mangler) kan behovet ikke
+udtrykkes i varens enhed. Vi opfinder ikke et tal — og vi trækker heller ikke nul i
+stilhed, for så ville råvarelageret blive for højt uden at nogen kunne se hvorfor.
+Der falder vi tilbage til råvarerne og siger det højt i driftsloggen. Hullet er et
+manglende felt i Grocy (#372), ikke en beslutning koden skal træffe.
+
+Dækket af `scripts/test-consume-policy.js` (16 asserts, 6 mutationer — alle fanget).
 
 ---
 

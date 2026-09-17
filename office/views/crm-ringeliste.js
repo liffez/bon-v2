@@ -151,6 +151,15 @@ function _ringeBuildLists() {
         getCompanyId: (r) => r.company_id,
         getName: (r) => r.is_personal ? (r.primary_contact_name || r.name) : r.name,
         getPhone: (r) => r.primary_contact_phone,
+        // Sovende-rækken er et FIRMA (rfm_scores) med den primære kontakt hængt på —
+        // ikke en kunde-række som de tre andre lister. Derfor egne mail-adaptere:
+        // adressen er kontaktpersonens, `name` er firmaets.
+        getEmail: (r) => r.primary_contact_email || r.company_email || null,
+        getCustomer: (r) => ({
+            first_name: r.primary_contact_first, last_name: r.primary_contact_last,
+            company_name: r.name, phone: r.primary_contact_phone,
+            email: r.primary_contact_email || r.company_email,
+        }),
         buildMeta: (r) => `${r.branch ? _ringeEsc(r.branch) + ' · ' : ''}${r.order_count} ordrer · sidst ${_ringeDate(r.last_order_date)} (${r.days_since_last} dage siden)`,
         buildOpener: (r) => _sovendeOpener(r),
         buildExtra: (r) => _sovendeExtra(r),

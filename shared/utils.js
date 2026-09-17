@@ -1534,3 +1534,37 @@ async function dawaAutocomplete(q, opts) {
     ]);
     return dawaMergeSuggestions(results[0], results[1], limit);
 }
+
+// ════════════════════════════════════════════════════════════
+// GROCY PRODUKT-FLAG
+// ════════════════════════════════════════════════════════════
+//
+// To flag på et Grocy-produkt som Bon indtil nu ikke læste. De kommer med i
+// `/objects/products` (men IKKE i `/stock`'s indlejrede `product` — se #613),
+// og Grocy sender dem som tal, mens userfields kommer som strenge. Derfor den
+// tolerante sammenligning, magen til `active`.
+//
+//   hide_on_stock_overview  "Vis aldrig på lageroversigten"
+//   no_own_stock            "Deaktiver egen lagerbeholdning" — en FORÆLDER hvis
+//                           beholdning ligger på børnene (kål → Spidskål, Hvidkål).
+//
+// `no_own_stock` er den vigtige i optællingen: forælderens egen lagerrække står
+// per konstruktion på 0, så varen ligner en tom vare i tællelisten. Det var
+// præcis dét der fik nogen til at trykke "Varen findes ikke mere" på kål —
+// varen blev sat inaktiv, og 13 bons fik `partial` 14.–16. september 2026.
+// Consume er upåvirket: `makeEffectiveStock` summerer forælder + børn, og
+// trækket sender `allow_subproduct_substitution: true`.
+
+function grocyFlagOn(v) {
+    return v === 1 || v === '1' || v === true;
+}
+
+/** Skal varen aldrig vises i lageroversigten? */
+function grocyHiddenOnStockOverview(p) {
+    return !!p && grocyFlagOn(p.hide_on_stock_overview);
+}
+
+/** Er varen en forælder uden egen beholdning (børnene bærer lageret)? */
+function grocyHasNoOwnStock(p) {
+    return !!p && grocyFlagOn(p.no_own_stock);
+}

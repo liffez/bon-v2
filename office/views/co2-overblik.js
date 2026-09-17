@@ -909,7 +909,8 @@ function _covPanelIngRow(x) {
         ? `<span class="cov-panel-prodlink" data-prod-recipe="${x.producing_recipe_id}">${_covEsc(x.name)} <span class="cov-tag-arrow">[→]</span></span>`
         : _covEsc(x.name);
     if (x.status === 'ok') {
-        const src = x.source ? `<span class="cov-src" title="Kilde">${_covEsc(x.source)}</span>` : '';
+        // 'opskrift' = regnet fra den opskrift der laver varen · 'arvet' = forælder/barn.
+        const src = x.source ? `<span class="cov-src" title="${_covEsc(x.source_note || 'Kilde')}">${_covEsc(x.source)}</span>` : '';
         return `<tr>
           <td class="cov-panel-ing">${nameHtml}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
           <td class="cov-num">${amt}</td>
@@ -929,6 +930,18 @@ function _covPanelIngRow(x) {
           <td colspan="3"><span class="cov-badge cov-badge-grey">Ikke relevant</span>
             <span class="cov-dim">bevidst udeladt — tæller ikke med</span>
             <button class="cov-fix-btn" data-act="goto-emballage">Vis igen →</button></td>
+        </tr>`;
+    }
+    // Varen laves af en opskrift, men opskriften mangler selv data. Rettelsen
+    // ligger i opskriften — ikke en faktor på varen (den ville skjule hullet).
+    if (x.status === 'sub_incomplete') {
+        const names = (x.missing_names || []).join(', ');
+        return `<tr class="cov-panel-missing">
+          <td class="cov-panel-ing">${nameHtml}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
+          <td class="cov-num">${amt}</td>
+          <td class="cov-num">${x.kg != null ? _covNum(x.kg, 3) : '<span class="cov-dim">—</span>'}</td>
+          <td colspan="3"><span class="cov-badge cov-badge-amber">Opskriften mangler data</span>
+            <span class="cov-dim" title="${_covEsc(names)}">${_covEsc(names)}</span></td>
         </tr>`;
     }
     // Mangler data → status + handling

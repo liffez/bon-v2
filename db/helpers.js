@@ -139,7 +139,12 @@ async function autoBatchForBon(bonId, lines, recipeFactors, packingOverrides = n
     const [rawRecipeMap, allPos, nestings, products, units, quConversions, stock] = await Promise.all([
         grocy.getRecipesRawMap(), grocy.getAllRecipesPos(), grocy.getRecipeNestings(),
         grocy.getProducts(), grocy.getQuantityUnits(), grocy.getQuantityUnitConversions(),
-        grocy.getStock(),
+        // FRISKT lager (#589). Planen herunder afgør hvor meget der trækkes af
+        // hver råvare, og siden #560 gør den det også når råvarerne kun rækker
+        // delvist — altså netop for de varer der ligger tæt på nul, og som er
+        // dem der fejler når tallet er gammelt. Opskrifter, produkter og enheder
+        // er stamdata og bliver ved med at være cachede.
+        grocy.getStockFresh(),
     ]);
 
     const posByRecipe = {}, nestingsByRecipe = {};

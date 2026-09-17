@@ -401,5 +401,120 @@ t('isExcluded: kun præcis "na" (ikke tom/klimadb)', () => {
     assert.strictEqual(E.isExcluded({}), false);
 });
 
+
+/* ── Produceret mellemprodukt + forælder/barn (Remoulade, Tahin, kål) ── */
+console.log('\nArv: producerende opskrift + forælder/barn');
+
+// Remoulade-mønstret: opskrift 50 laver 1 kg af produkt 300 af 0,5 kg ost (5,0)
+// + 0,5 kg brød-kilo (1,0) = 3,0 kg CO₂ pr. kg. Menu 60 bruger 0,2 kg produkt.
+const PROD_PRODUCTS = [
+    { id: 101, name: 'Ost',       qu_id_stock: 4, userfields: { co2e_per_kg: '5.0' } },
+    { id: 103, name: 'Mel',       qu_id_stock: 4, userfields: { co2e_per_kg: '1.0' } },
+    { id: 102, name: 'Salt',      qu_id_stock: 4, userfields: { co2e_per_kg: '' } },
+    { id: 300, name: 'Remoulade', qu_id_stock: 4, userfields: {} },
+    // kål-familien: forælder uden faktor, to børn med
+    { id: 400, name: 'kål',       qu_id_stock: 4, userfields: {} },
+    { id: 401, name: 'Spidskål',  qu_id_stock: 4, parent_product_id: 400, userfields: { co2e_per_kg: '0.2' } },
+    { id: 402, name: 'Hvidkål',   qu_id_stock: 4, parent_product_id: 400, userfields: { co2e_per_kg: '0.4' } },
+    { id: 403, name: 'Rødkål',    qu_id_stock: 4, parent_product_id: 400, userfields: { co2e_per_kg: '9', co2e_source: 'na' } },
+    // Fatdane-mønstret: forælder MED faktor, barn uden
+    { id: 500, name: 'Sodavand',  qu_id_stock: 4, userfields: { co2e_per_kg: '0.5' } },
+    { id: 501, name: 'Sodavand cola', qu_id_stock: 4, parent_product_id: 500, userfields: {} },
+];
+const RAW_RECIPES = [
+    { id: 50, name: 'Remoulade produktion', base_servings: 1, product_id: 300,
+      userfields: { recipeunit: 'kg', recipeunitnumber: '1' } },
+    { id: 60, name: 'Fisken', base_servings: 1, userfields: {} },
+];
+function prodData(pos, over = {}) {
+    return { units: UNITS, conversions: CONV, products: PROD_PRODUCTS, nestings: [],
+             recipes: RAW_RECIPES, pos: [
+                 { recipe_id: 50, product_id: 101, amount: 0.5 },
+                 { recipe_id: 50, product_id: 103, amount: 0.5 },
+                 ...pos,
+             ], ...over };
+}
+
+t('produceret vare uden faktor → rulles ned i opskriften (0,2 kg × 3,0)', () => {
+    const r = E.computeAll(prodData([{ recipe_id: 60, product_id: 300, amount: 0.2 }])).get(60);
+    assert.ok(near(r.total, 0.6), `fik ${r.total}`);
+    assert.strictEqual(r.complete, true, 'Remoulade må ikke stå som manglende faktor');
+    assert.ok(near(r.covered_kg, 0.2));
+});
+
+t('rapportens fælde: strippede opskrifter (uden product_id) kan IKKE se det', () => {
+    const d = prodData([{ recipe_id: 60, product_id: 300, amount: 0.2 }]);
+    const stripped = { ...d, recipes: d.recipes.map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings })) };
+    const r = E.computeAll(stripped).get(60);
+    assert.deepStrictEqual(r.missing_factor, ['Remoulade'], 'kontrolprøve: derfor skal ruterne sende de rå opskrifter');
+});
+
+t('ruterne sender de rå opskrifter til motoren (ingen strip)', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'routes', 'co2.js'), 'utf8');
+    assert.ok(!/map\(r => \(\{ id: r\.id, name: r\.name, base_servings/.test(src),
+        'routes/co2.js stripper product_id/userfields fra opskrifterne igen');
+});
+
+t('udbyttet skalerer: 2 kg pr. batch → halv CO₂ pr. kg', () => {
+    const recipes = [{ ...RAW_RECIPES[0], userfields: { recipeunit: 'kg', recipeunitnumber: '2' } }, RAW_RECIPES[1]];
+    const r = E.computeAll(prodData([{ recipe_id: 60, product_id: 300, amount: 0.2 }], { recipes })).get(60);
+    assert.ok(near(r.total, 0.3), `fik ${r.total}`);
+});
+
+t('egen faktor på produktet vinder over opskriften', () => {
+    const products = PROD_PRODUCTS.map(p => p.id === 300 ? { ...p, userfields: { co2e_per_kg: '1.0' } } : p);
+    const r = E.computeAll(prodData([{ recipe_id: 60, product_id: 300, amount: 0.2 }], { products })).get(60);
+    assert.ok(near(r.total, 0.2), `fik ${r.total} — dobbelt-tælling?`);
+});
+
+t('drill-down viser den producerede vare som ok med kilde "opskrift"', () => {
+    const bd = E.breakdownRecipe(60, prodData([{ recipe_id: 60, product_id: 300, amount: 0.2 }]));
+    const i = bd.ingredients.find(x => x.product_id === 300);
+    assert.strictEqual(i.status, 'ok');
+    assert.strictEqual(i.source, 'opskrift');
+    assert.strictEqual(i.producer_recipe_id, 50);
+    assert.ok(near(i.contribution, 0.6));
+    assert.ok(near(i.factor, 3.0), `effektiv faktor ${i.factor}`);
+    assert.strictEqual(bd.complete, true);
+    assert.ok(near(bd.total_per_serving, 0.6));
+});
+
+t('opskriften bag varen mangler data → sub_incomplete, mangel navngives', () => {
+    const d = prodData([{ recipe_id: 60, product_id: 300, amount: 0.2 }]);
+    d.pos.push({ recipe_id: 50, product_id: 102, amount: 0.1 });   // Salt uden faktor
+    const r = E.computeAll(d).get(60);
+    assert.deepStrictEqual(r.missing_factor, ['Salt'], 'manglen skal pege på Salt, ikke Remoulade');
+    const i = E.breakdownRecipe(60, d).ingredients.find(x => x.product_id === 300);
+    assert.strictEqual(i.status, 'sub_incomplete');
+    assert.deepStrictEqual(i.missing_names, ['Salt']);
+});
+
+t('forælder uden faktor → gennemsnit af børnene (na-barn tæller ikke)', () => {
+    const r = E.computeAll(prodData([{ recipe_id: 60, product_id: 400, amount: 1 }])).get(60);
+    assert.ok(near(r.total, 0.3), `fik ${r.total} (forventet (0,2+0,4)/2)`);
+    assert.strictEqual(r.complete, true);
+    const i = E.breakdownRecipe(60, prodData([{ recipe_id: 60, product_id: 400, amount: 1 }]))
+        .ingredients.find(x => x.product_id === 400);
+    assert.strictEqual(i.source, 'arvet');
+    assert.match(i.source_note, /Spidskål, Hvidkål/);
+});
+
+t('forælder MED egen faktor bruger sin egen (børnene læses ikke)', () => {
+    const products = PROD_PRODUCTS.map(p => p.id === 400 ? { ...p, userfields: { co2e_per_kg: '0.286' } } : p);
+    const r = E.computeAll(prodData([{ recipe_id: 60, product_id: 400, amount: 1 }], { products })).get(60);
+    assert.ok(near(r.total, 0.286));
+});
+
+t('barn uden faktor → forælderens', () => {
+    const r = E.computeAll(prodData([{ recipe_id: 60, product_id: 501, amount: 2 }])).get(60);
+    assert.ok(near(r.total, 1.0), `fik ${r.total}`);
+});
+
+t('ingen i familien har faktor → stadig en mangel (intet gæt)', () => {
+    const products = PROD_PRODUCTS.map(p => [401, 402].includes(p.id) ? { ...p, userfields: {} } : p);
+    const r = E.computeAll(prodData([{ recipe_id: 60, product_id: 400, amount: 1 }], { products })).get(60);
+    assert.deepStrictEqual(r.missing_factor, ['kål']);
+});
+
 console.log(`\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail ? 1 : 0);

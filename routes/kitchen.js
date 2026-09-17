@@ -145,12 +145,15 @@ router.get('/later', handle((req, res) => {
         LEFT JOIN events e             ON b.event_id = e.id
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
-          AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR')
-               -- Tilbud vises uanset bon-status, men KUN så længe de stadig er
-               -- tilbud. Et fler-dags-tilbud beholder is_offer = 1 efter accept
-               -- (bilaget skal kunne slås op), så uden filteret ville køkkenet se
-               -- fire kort for tre dages arbejde: de tre rigtige bons plus bilaget.
-               OR (b.is_offer = 1 AND COALESCE(b.offer_status, 'draft') != 'won'))
+          -- KLAR er bevidst ikke med: en klar bon kræver ikke mere af køkkenet
+          -- og fylder kun på "Senere". Dagens klare bons ses stadig på I dag.
+          AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG')
+               -- Tilbud vises uanset bon-status, men KUN mens de stadig er åbne
+               -- (kladde eller sendt). Et vundet tilbud er blevet til bons — og
+               -- bilaget beholder is_offer = 1, så uden filteret ville køkkenet se
+               -- fire kort for tre dages arbejde. Tabte og udløbne tilbud bliver
+               -- aldrig til noget køkkenet skal lave.
+               OR (b.is_offer = 1 AND COALESCE(b.offer_status, 'draft') IN ('draft', 'sent')))
         ORDER BY b.is_offer ASC, b.delivery_date ASC, COALESCE(b.pickup_time, b.delivery_time) ASC, b.id ASC
     `).all(today, endDate);
 

@@ -28,7 +28,8 @@
 
 const { todayISO } = require('../db/helpers');
 const { buildProducerIndex, collectRecipeNeedsFlat } = require('../services/ingredientResolver');
-const { affordableBatches, groupOf, HURTIG_GROUP } = require('../services/autoBatch');
+const { affordableBatches } = require('../services/autoBatch');
+const { productionTypeOf } = require('../services/ingredientResolver');
 const { makeEffectiveStock } = require('../services/grocyAdapter');
 
 const argOf = (f) => { const i = process.argv.indexOf(f); return i >= 0 ? process.argv[i + 1] : null; };
@@ -124,7 +125,7 @@ let advarsler = 0;
     console.log(B('3 · Mellemprodukter på lager'));
     const rows = [...producerIndex.entries()].map(([pid, prods]) => ({
         pid, navn: P(pid), lager: effectiveStock(pid),
-        hurtig: prods.some(r => groupOf(r) === HURTIG_GROUP),
+        hurtig: prods.some(r => productionTypeOf(r) === 'on_demand'),
     })).sort((a, b) => a.lager - b.lager || a.navn.localeCompare(b.navn, 'da'));
     for (const r of rows) {
         const mærke = r.lager < 0 ? R('NEGATIVT') : r.lager === 0 ? Y('tom') : '';
@@ -141,7 +142,7 @@ let advarsler = 0;
     console.log(B('4 · Kan Bon lave Hurtig-blandingerne lige nu?'));
     let spærret = 0;
     for (const [pid, prods] of producerIndex.entries()) {
-        const hurtig = prods.filter(r => groupOf(r) === HURTIG_GROUP);
+        const hurtig = prods.filter(r => productionTypeOf(r) === 'on_demand');
         if (!hurtig.length) continue;
         const behov = new Map();
         collectRecipeNeedsFlat(hurtig[0].id, 1, posByRecipe, nestingsByRecipe, rawRecipeMap,
