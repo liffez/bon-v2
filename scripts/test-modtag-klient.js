@@ -41,8 +41,40 @@ function lavElement(tag) {
         getAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attr, k) ? this._attr[k] : null; },
         addEventListener(t, fn) { (this._lyt[t] = this._lyt[t] || []).push(fn); },
         removeEventListener() {},
-        querySelector() { return null; },
-        querySelectorAll() { return []; },
+        closest(sel) {
+            // className OG classList: komponenterne sætter klasser begge veje,
+            // og en stub der kun kender den ene lyver om hvad browseren finder.
+            var n = this, k = sel.replace(/^\./, '');
+            while (n) {
+                if (n.classList && n.classList.contains(k)) return n;
+                if (String(n.className || '').split(' ').indexOf(k) >= 0) return n;
+                n = n.parentEl;
+            }
+            return null;
+        },
+        // Nok til ".klasse", ".forfader .barn" og '.k[attr="v"]' — mere har
+        // koden ikke brug for, og en halv CSS-motor i en test er sin egen fejlkilde.
+        _søg(sel) {
+            var dele = String(sel).trim().split(/\s+/).map(function (d) {
+                var m = d.match(/^\.?([\w-]+)?(?:\[([\w-]+)="?([^\]"]*)"?\])?$/);
+                return m ? { klasse: m[1] || null, attr: m[2] || null, værdi: m[3] } : { klasse: d };
+            });
+            var sidste = dele[dele.length - 1];
+            var fundne = (this.find && sidste.klasse ? this.find(sidste.klasse) : []);
+            if (sidste.attr) {
+                fundne = fundne.filter(function (n) { return n.getAttribute(sidste.attr) === sidste.værdi; });
+            }
+            if (dele.length === 1) return fundne;
+            var først = dele[0];
+            return fundne.filter(function (n) {
+                var a = n.parentEl;
+                while (a) { if (a.classList && a.classList.contains(først.klasse)) return true; a = a.parentEl; }
+                return false;
+            });
+        },
+        querySelector(sel) { return this._søg(sel)[0] || null; },
+        querySelectorAll(sel) { return this._søg(sel); },
+        dispatchEvent(ev) { (this._lyt[ev && ev.type] || []).forEach(fn => fn.call(this, ev)); return true; },
         focus() {}, select() {}, remove() {},
         /** Skriv i feltet og fyr den lytter browseren ville fyre. */
         skriv(v) { this.value = String(v); (this._lyt.input || []).forEach(fn => fn.call(this, {})); },
@@ -71,8 +103,10 @@ function lavElement(tag) {
     return el;
 }
 
+function LilleEvent(type) { this.type = type; }
+
 const sandbox = {
-    console,
+    console, Event: LilleEvent,
     document: {
         createElement: lavElement,
         getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
@@ -397,6 +431,7 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
                     querySelectorAll: () => [], createElement: lavElement,
                     addEventListener() {}, body: lavElement('div') },
         localStorage: { getItem: () => null, setItem() {} },
+        Event: LilleEvent,
         confirm: () => true, esc: (x) => String(x),
         parseServerDate: (x) => new Date(x), isOutsideClick: () => false,
     };
@@ -429,7 +464,8 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
     const htmlFlere = soBox._soRenderCard(brød);
     const htmlEn = soBox._soRenderCard(enkelt);
     ok(htmlFlere.indexOf('so-mf-host') >= 0, 'flere enheder → felt-vært i panelet');
-    ok(htmlFlere.indexOf('M\u00e6ngde:') >= 0, 'og etiketten hedder Mængde, ikke Antal');
+    ok(htmlFlere.indexOf('<label>') < 0,
+       'ingen "Mængde:"-etiket — hvert felt har sin egen enhed over sig');
     ok(htmlFlere.indexOf('type="hidden" class="so-adj-input"') >= 0,
        'summen ligger stadig i so-adj-input — gemme-stien er urørt');
     ok(htmlEn.indexOf('so-mf-host') < 0, 'én enhed → panelet er præcis som før');
@@ -489,6 +525,59 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         f2[0].children[0].skriv('');                  // ryd lager-feltet: vi TÆLLER
         f2[2].children[0].skriv('3');                 // 3 × 0,0081
         eq(Number(sumFelt.value), 0.0243, 'en lille faktor afrundes ikke væk');
+    }
+
+    {
+        // Grocy leverer flydende-tal-støj. Æg står som 5,5511151231258e-17 —
+        // altså nul, og kortet viser "0 Kilo". Rå > 0 forudfyldte feltet med
+        // et tal der i et smalt nummerfelt ser ud som "5.55", mens summen
+        // sagde "= 0 Kilo" og delta'en "uændret". Det lignede noget i stykker.
+        const æg = Object.assign({}, brød, { product_id: 3, name: 'Æg', amount: 5.5511151231258e-17 });
+        soBox._soProductsMap[3] = { id: 3, qu_id_stock: 4, qu_id_purchase: 13, qu_id_consume: 7 };
+        const h2 = lavElement('div'); h2.className = 'so-mf-host';
+        const s2 = lavElement('input'); s2.className = 'so-adj-input'; s2.value = '0';
+        const kort2 = lavElement('div'); kort2.appendChild(h2); kort2.appendChild(s2);
+        kort2.querySelector = (sel) => sel.indexOf('mf-host') >= 0 ? h2
+                                     : sel.indexOf('adj-input') >= 0 ? s2 : null;
+        soBox._soContainer = { querySelector: () => kort2 };
+        soBox._soStockData = [æg];
+        delete soBox._soMfPoster[3];
+        soBox._soMountMangde(3);
+        const fÆg = h2.children[0].children[0].children;
+        eq(fÆg[0].children[0].value, '', 'nul-støj forudfylder ikke feltet');
+    }
+
+    {
+        // ± skal ramme det felt man sidst har rørt — ikke altid det første.
+        // Forslag fra drift: "pilene skal justere det felt der er i fokus,
+        // gerne med en kraftigere kant så man kan se hvad der er i fokus".
+        const h3 = lavElement('div'); h3.className = 'so-mf-host';
+        const s3 = lavElement('input'); s3.className = 'so-adj-input'; s3.value = '117.54';
+        const ned = lavElement('button'); ned.className = 'so-adj-btn'; ned.setAttribute('data-delta', '-1');
+        const op  = lavElement('button'); op.className  = 'so-adj-btn'; op.setAttribute('data-delta', '1');
+        const kort3 = lavElement('div');
+        kort3.appendChild(h3); kort3.appendChild(s3); kort3.appendChild(ned); kort3.appendChild(op);
+        soBox._soContainer = { querySelector: () => kort3 };
+        soBox._soStockData = [Object.assign({}, brød)];
+        delete soBox._soMfPoster[1];
+        soBox._soMountMangde(1);
+
+        const rk = h3.find('mf-row')[0];
+        const fl = rk.find('mf-field');
+        ok(fl[0].classList.contains('so-mf-aktiv'), 'lager-feltet er markeret fra start');
+        ok(rk.children.indexOf(ned) === 0, '▼ står forrest i felt-rækken, ikke under den');
+        ok(rk.children[rk.children.length - 1] === op, '▲ står bagerst');
+
+        // Rør Kasse-feltet → markeringen flytter med
+        (rk._lyt.focusin || []).forEach(fn => fn({ target: fl[1].find('mf-input')[0] }));
+        ok(fl[1].classList.contains('so-mf-aktiv'), 'markeringen følger det felt man rører');
+        ok(!fl[0].classList.contains('so-mf-aktiv'), 'og kun ét ad gangen');
+        ok(/Kasse/.test(op.title), 'pilens tekst siger hvilken enhed den flytter');
+
+        // ± rammer nu Kasse
+        soBox._soAdjStep(1, 1);
+        eq(fl[1].find('mf-input')[0].value, 1, '▲ flytter det markerede felt');
+        eq(fl[0].find('mf-input')[0].value, 117.54, 'og lader de andre være');
     }
 
     // Wiring: NÅR posterne frem til serveren?

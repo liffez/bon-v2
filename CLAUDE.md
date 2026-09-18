@@ -8232,9 +8232,27 @@ mere end én brugbar enhed, erstattes `Antal: ▼ 117,54 ▲ Kilo` af
 > mod `−38,12 · nu 62,36`. Ryddes ALLE felter, rører vi ikke lagertallet — et
 > tomt panel er ikke "sæt til 0".
 >
-> **± rammer lager-enheden**, som står først og er den forudfyldte. Uden det
-> ville "+1" være tvetydigt — et kasse-trin og et kilo-trin er ikke samme
-> skridt — så knappernes tooltip siger enheden.
+> **± justerer det felt der er MARKERET**, ikke altid det første. Forslag fra
+> drift, og bedre end mit: bandt jeg dem til lager-feltet, kunne de kun flytte
+> ét af tre tal — og de klemte netop dét felt ned til 20 px. Markeringen
+> (brun kant + fed etiket) siger hvad de rammer, for fokus forsvinder i samme
+> øjeblik man klikker på en pil. Tooltip'en nævner enheden.
+>
+> **Enhedsnavnet står OVER feltet.** Med etiketten ved siden af ombrød de tre
+> felter til tre rækker: panelet var 164 px højt med masser af spildplads.
+> Nu 71 px, kortet 210 mod 303. "Mængde:"-etiketten er droppet ved flere
+> felter — hvert felt har sin egen enhed skrevet over sig.
+>
+> **Summen og forskellen står på ÉN linje** (`= 70,04 Kilo · +23,04 · nu 47`).
+> Det er én oplysning; stod de hver sit sted, skulle man selv samle dem.
+>
+> **Grocy-støj må ikke blive til et forudfyldt tal.** Æg står som
+> `5,5511151231258e-17` — altså nul, og kortet viser "0 Kilo". Rå `> 0`
+> forudfyldte feltet med noget der i et smalt nummerfelt ser ud som **5.55**,
+> mens summen sagde "= 0 Kilo" og delta'en "uændret". Feltet seedes nu med det
+> tal KORTET viser (`_soRound`), som ét-felts-panelet altid har gjort — det
+> fjerner både støjen og `9,268329` i et 70 px felt. Selve **summen** af
+> tastede poster afrundes stadig ikke.
 >
 > **SERVEREN summerer** — `POST /api/grocy/stock/:id/inventory` tager nu også
 > `entries` og regner med `resolveToStockAmount`, samme funktion som

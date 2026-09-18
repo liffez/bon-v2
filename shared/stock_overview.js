@@ -759,7 +759,9 @@ function _soRenderCard(item) {
 
     var expandHtml = '<div class="so-expand-panel">' +
         '<div class="so-expand-row' + (flereEnheder ? ' so-expand-row-mf' : '') + '">' +
-        '  <label>' + (flereEnheder ? 'M\u00e6ngde:' : 'Antal:') + '</label>' +
+        // Etiketten udelades ved flere felter: hvert felt har sin egen enhed
+        // skrevet over sig, og "Mængde:" ville kun stjæle bredde fra dem.
+        (flereEnheder ? '' : '  <label>Antal:</label>') +
         (flereEnheder
             ? '  <button class="so-adj-btn" data-delta="-1" title="Minus 1 ' + esc(item.qu_name) + '">&#x25BC;</button>' +
               '  <div class="so-mf-host" data-pid="' + item.product_id + '"></div>' +
@@ -880,8 +882,22 @@ function _soMountMangde(productId) {
     // Skal man i stedet TÆLLE, rydder man lager-feltet og skriver hvad man
     // ser. Delta-linjen viser forskellen begge veje, så valget er synligt.
     var stockQu = parseInt(prodStockQu(item));
+    // Feltet forudfyldes med det tal KORTET viser — samme _soRound som
+    // ét-felts-panelet altid har brugt. To grunde:
+    //
+    //   · Grocy leverer flydende-tal-støj. Æg står som 5,5511151231258e-17,
+    //     altså nul, men rå > 0 forudfyldte feltet med noget der i et smalt
+    //     nummerfelt ser ud som "5.55" — mens summen sagde "= 0 Kilo" og
+    //     delta'en "uændret". Det lignede noget i stykker.
+    //   · 9,268329 kan ikke læses i et 70 px felt. 9,27 kan.
+    //
+    // Ufarligt: gemmer man det uændret, er forskellen under _soSave's
+    // 0,01-grænse, så det bliver "Ingen ændring" og intet skrives.
+    // Selve SUMMEN af tastede poster afrundes stadig ikke (1e-6) — der
+    // ville en grov afrunding koste mængde på små faktorer.
+    var nu = _soRound(item.amount);
     var start = _soMfPoster[productId] ||
-        (item.amount > 0 ? [{ qu_id: stockQu, qty: item.amount }] : []);
+        (nu > 0 ? [{ qu_id: stockQu, qty: nu }] : []);
 
     var prod = _soProductsMap[productId] || {};
     var felter = MangdeFelter.create({
@@ -931,6 +947,50 @@ function _soMountMangde(productId) {
     });
     host.innerHTML = '';
     host.appendChild(felter.el);
+
+    // ± flyttes op i FELT-rækken og justerer det felt der har fokus.
+    //
+    // Først satte jeg dem fast på lager-feltet, men så kunne de kun flytte
+    // ét af tre tal — og de klemte netop dét felt ned til 20 px. Følger de i
+    // stedet fokus, er der ingen tvivl om hvad de rammer: det felt man lige
+    // har rørt, og som er markeret. Forslag fra drift.
+    var række = felter.el.querySelector('.mf-row');
+    var ned = card.querySelector('.so-adj-btn[data-delta="-1"]');
+    var op  = card.querySelector('.so-adj-btn[data-delta="1"]');
+    if (række) {
+        if (ned) række.insertBefore(ned, række.firstChild);
+        if (op) række.appendChild(op);
+
+        // Det aktive felt markeres, så man kan SE hvad ± rammer. Fokus alene
+        // duer ikke: den forsvinder i samme øjeblik man klikker på en pil.
+        var felterEls = [].slice.call(række.querySelectorAll('.mf-field'));
+        function markér(felt) {
+            for (var i = 0; i < felterEls.length; i++) {
+                felterEls[i].classList.toggle('so-mf-aktiv', felterEls[i] === felt);
+            }
+            var enhed = felt && felt.querySelector('.mf-unit');
+            var navn = enhed ? enhed.textContent : '';
+            if (ned) ned.title = 'Minus 1 ' + navn;
+            if (op) op.title = 'Plus 1 ' + navn;
+        }
+        række.addEventListener('focusin', function (ev) {
+            var felt = ev.target && ev.target.closest && ev.target.closest('.mf-field');
+            if (felt) markér(felt);
+        });
+        markér(felterEls[0]);
+    }
+
+    // Summen og forskellen er ÉN oplysning — "= 62,36 Kilo · +15,36 · nu 47".
+    // Stod de på hver sin linje, skulle man selv samle dem.
+    var sumEl = felter.el.querySelector('.mf-sum');
+    if (sumEl && delta) {
+        var linje = document.createElement('div');
+        linje.className = 'so-mf-facit';
+        sumEl.parentNode.insertBefore(linje, sumEl);
+        linje.appendChild(sumEl);
+        linje.appendChild(delta);
+    }
+
     host.setAttribute('data-mounted', '1');
 }
 
@@ -1208,16 +1268,18 @@ function _soNudgeModtagelse(item, diff) {
 }
 
 /**
- * ± rammer LAGER-enheden — det første felt, og det eneste der er forudfyldt.
+ * ± justerer det felt der er MARKERET — det man sidst har rørt.
  *
  * Med flere felter ville "+1" ellers være tvetydigt: et kasse-trin og et
- * kilo-trin er ikke samme skridt. Knappernes tooltip siger enheden, og
- * .so-adj-input er skjult i det tilfælde, så et step dér ville flytte et tal
- * ingen kan se.
+ * kilo-trin er ikke samme skridt. Markeringen (og knappernes tooltip) siger
+ * hvilket. .so-adj-input er skjult i det tilfælde, så et step dér ville
+ * flytte et tal ingen kan se.
  */
 function _soAdjStep(productId, delta) {
     var card = _soContainer && _soContainer.querySelector('.so-card[data-id="' + productId + '"]');
-    var mf = card && card.querySelector('.mf-input');
+    // Det MARKEREDE felt, ikke bare det første: ± skal ramme det man kigger på.
+    var mf = card && (card.querySelector('.so-mf-aktiv .mf-input') ||
+                      card.querySelector('.mf-input'));
     if (mf) {
         mf.value = Math.max(0, _soRound((parseFloat(mf.value) || 0) + delta));
         mf.dispatchEvent(new Event('input', { bubbles: true }));
