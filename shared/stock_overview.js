@@ -762,6 +762,7 @@ function _soRenderCard(item) {
         '  <label>' + (flereEnheder ? 'M\u00e6ngde:' : 'Antal:') + '</label>' +
         (flereEnheder
             ? '  <div class="so-mf-host" data-pid="' + item.product_id + '"></div>' +
+              '  <span class="so-mf-delta" data-pid="' + item.product_id + '"></span>' +
               '  <input type="hidden" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
               '    value="' + _soRound(item.amount) + '">'
             : '  <button class="so-adj-btn" data-delta="-1" title="Minus 1">&#x25BC;</button>' +
@@ -861,6 +862,7 @@ function _soMountMangde(productId) {
     var item = _soStockData.find(function(i) { return i.product_id === productId; });
     if (!item) return;
     var sum = card.querySelector('.so-adj-input');
+    var delta = card.querySelector('.so-mf-delta');
 
     // Felterne starter TOMME, og det er en bevidst forskel fra ét-felts-panelet.
     //
@@ -901,6 +903,20 @@ function _soMountMangde(productId) {
             // tabe en mærkbar del af sin mængde, tavst. stockSum() afrunder
             // allerede ved 1e-6, som er rigeligt og ikke synligt.
             if (sum) sum.value = poster.length ? total : item.amount;
+
+            // Optælling SÆTTER lageret. Forskellen skal kunne ses FØR man
+            // trykker Gem, ikke først i kvitteringen bagefter.
+            //
+            // Den er ren oplysning, ikke en advarsel: "2 kasser og ingen løse
+            // stykker" er en komplet optælling, og et stort minus kan lige så
+            // godt betyde at der er brugt meget som at nogen har glemt et felt.
+            if (delta) {
+                if (!poster.length) { delta.textContent = ''; return; }
+                var d = Math.round((total - item.amount) * 1e6) / 1e6;
+                delta.textContent = (d === 0 ? 'uændret' :
+                    (d > 0 ? '+' : '\u2212') + _soFmtTal(Math.abs(d))) +
+                    ' \u00b7 nu ' + _soFmtTal(item.amount);
+            }
         },
     });
     host.innerHTML = '';
@@ -1043,7 +1059,14 @@ async function _soAdjustInventory(productId) {
             return;
         }
 
-        var invRes = await postGrocyInventory(productId, newAmount, item.best_before_date || null);
+        // #658: posterne følger med, så serveren kan summere med sine egne
+        // omregninger. Klientens tal bruges kun til tjekkene ovenfor (er nogen
+        // andet nået at rette imens?) — det er serverens der skrives.
+        var invRes = await postGrocyInventory(
+            productId, newAmount, item.best_before_date || null, _soMfPoster[productId]);
+        // Afviger serverens sum fra vores, er det SERVERENS der står i Grocy.
+        // Så skal kvitteringen og kortet vise dét tal, ikke vores gæt.
+        if (invRes && typeof invRes.new_amount === 'number') newAmount = invRes.new_amount;
         // Stemplet skrives EFTER lager-skrivningen og må aldrig vælte den:
         // fejler stemplingen, er tallet stadig gemt, og det siges højt.
         await _soStampChecked(item);
@@ -1643,6 +1666,12 @@ function _soFindFactor(productId, fromQuId, toQuId) {
  * omregnes er en fælde (#358). Har varen kun én, er der intet at vælge og
  * panelet ser ud præcis som før: 112 af 181 varer i drift.
  */
+/** Tal til visning: dansk komma, højst 3 decimaler. Rører aldrig det der gemmes. */
+function _soFmtTal(n) {
+    if (n === null || n === undefined || !isFinite(n)) return '';
+    return String(Math.round(n * 1000) / 1000).replace('.', ',');
+}
+
 function _soMfUnits(item) {
     if (!window.MangdeFelter || !item) return [];
     // Produktet slås op i _soProductsMap frem for at kræve at vare-objektet

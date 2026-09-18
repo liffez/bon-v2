@@ -867,3 +867,10 @@
 .so-expand-row-mf { align-items: flex-start; flex-wrap: wrap; }
 .so-expand-row-mf > label { padding-top: 10px; }
 .so-mf-host { flex: 1; min-width: 0; }
+/* Konsekvensen af optællingen, synlig FØR man gemmer. Oplysning, ikke advarsel. */
+.so-mf-delta {
+    font-size: var(--font-size-xs, 11px);
+    color: var(--color-text-dim, #6b6b6b);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}

@@ -18,6 +18,7 @@ const path = require('path');
 const vm = require('vm');
 
 let pass = 0, fail = 0;
+let _ventPaa = Promise.resolve();
 const ok = (c, m) => { console.log(`  ${c ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m'} ${m}`); c ? pass++ : fail++; };
 const eq = (a, b, m) => ok(a === b, `${m} — fik ${JSON.stringify(a)}`);
 
@@ -479,6 +480,42 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         eq(Number(sumFelt.value), 0.0243, 'en lille faktor afrundes ikke væk');
     }
 
+    // Wiring: NÅR posterne frem til serveren?
+    //
+    // Serverens summering er testet for sig (tests/lager_flere_enheder.test.js),
+    // men den er ligegyldig hvis klienten aldrig sender posterne med. Uden det
+    // her tjek kunne argumentet fjernes uden at én eneste assert faldt, og så
+    // ville browserens tal stille og roligt være det der blev gemt igen.
+    {
+        const kaldt = [];
+        soBox.postGrocyInventory = async (pid, amount, bb, entries) => {
+            kaldt.push({ pid, amount, entries });
+            return { ok: true, new_amount: 15.4005 };
+        };
+        soBox._soFreshAmount = async () => 117.54;
+        soBox._soStampChecked = async () => false;
+        soBox._soCloseExpand = () => {};
+        soBox._soApplyFilters = () => {};
+        soBox._soShowToast = () => {};
+        soBox._soSaving = {};
+        soBox._soStockData = [Object.assign({}, brød)];
+        soBox._soMfPoster[1] = [{ qu_id: 13, qty: 2, factor_used: 7.68 },
+                                { qu_id: 7, qty: 5, factor_used: 0.0081 }];
+        // Feltets tal og serverens svar er MED VILJE forskellige: ellers kan
+        // testen ikke se hvilket af dem der bliver brugt.
+        soBox.document.getElementById = (id) =>
+            id === 'soAdj-1' ? { value: '99' } : null;
+
+        _ventPaa = soBox._soAdjustInventory(1).then(function() {
+            eq(kaldt.length, 1, 'lagerrettelsen sendes');
+            eq(kaldt[0].entries?.length, 2, 'MED posterne — ellers summerer serveren aldrig');
+            eq(soBox._soStockData[0].amount, 15.4005,
+               'og kortet viser det tal SERVEREN gemte, ikke browserens gæt');
+            eq(soBox._soMfPoster[1], undefined,
+               'posterne ryddes efter gem — næste optælling starter forfra');
+        });
+    }
+
     // Wiring: bliver felterne rent faktisk sat i når kortet foldes ud?
     const soKilde = fs.readFileSync(path.join(__dirname, '..', 'shared', 'stock_overview.js'), 'utf8');
     ok(/_soMountMangde\(productId\);/.test(soKilde), 'udfoldning monterer felterne');
@@ -486,6 +523,8 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
        'og en re-render sætter dem i igen — ellers står panelet tomt efter en søgning');
 }
 
-console.log('\n' + '─'.repeat(50));
-console.log(`${pass} PASS · ${fail} FAIL`);
-process.exit(fail ? 1 : 0);
+_ventPaa.then(function() {
+    console.log('\n' + '─'.repeat(50));
+    console.log(`${pass} PASS · ${fail} FAIL`);
+    process.exit(fail ? 1 : 0);
+});

@@ -8227,6 +8227,23 @@ mere end én brugbar enhed, erstattes `Antal: ▼ 117,54 ▲ Kilo` af
 > **± findes kun i ét-felts-panelet.** Med flere enheder er "+1" af HVAD?
 > Et kasse-trin og et kilo-trin er ikke samme skridt.
 >
+> **SERVEREN summerer** — `POST /api/grocy/stock/:id/inventory` tager nu også
+> `entries` og regner med `resolveToStockAmount`, samme funktion som
+> varemodtagelsen (#358). Browseren kan have stået åben siden i går og regne
+> med en forældet omregningstabel, og et færdigt tal kan serveren ikke
+> efterprøve. Klienten sender hvad der blev TASTET; serveren afgør hvad der
+> skrives, og svarets `new_amount` er dét kortet og kvitteringen viser.
+> Uden `entries` er ruten præcis som før.
+>
+> **Afrund ikke summen.** Første udgave kørte den gennem `_soRound` (2
+> decimaler = 10 gram i kilo). En vare med en faktor i gram-størrelsen tabte
+> mærkbart: 3 × 0,0081 kg blev til 0,02 i stedet for 0,0243. Ét-felts-panelet
+> afrunder ikke, så det var en fejl indført sammen med felterne.
+>
+> **Ét udfyldt felt er en komplet optælling** — "2 kasser og ingen løse
+> stykker". Derfor er delta-linjen (`+2,5 · nu 47`) ren oplysning og ikke en
+> advarsel: et stort minus kan lige så godt betyde at der er brugt meget.
+>
 > **Enhederne slås op i `_soProductsMap`, ikke på vare-objektet.** Listen bygges
 > to steder — hovedlisten har sin egen mapping, og `_soItemFromProduct` bruges
 > kun af "Tilføj vare", inaktiv-listen og genaktivering. Første udgave lagde
