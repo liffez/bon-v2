@@ -35,6 +35,7 @@
 
 const fs = require('fs');
 const { openDb } = require('../db/compat');
+const { normalizeName } = require('../services/companyMatcher');
 
 const args = process.argv.slice(2);
 const argVal = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -82,6 +83,18 @@ function kilde(bonId) {
 // ─── Navne-kerne, til at finde stavevarianter ────────────────
 // "Systematic / able" og "Systematic" er samme slutkunde. Formidlerens eget
 // navn hængt bagpå er en konvention hos dem, ikke en del af kundens navn.
+//
+// Derefter køres navnet gennem `normalizeName` fra services/companyMatcher.js
+// — den SAMME normalisering matcheren bruger til at afgøre om to firmanavne
+// er samme firma. Den fjerner parenteser og juridiske endelser (A/S, ApS,
+// I/S, Holding, Group …), så "Systematic A/S" og "Systematic  (Able)" havner
+// hos "Systematic". Uden den stod `Systematic A/S` som en selvstændig
+// slutkunde i drift, og listen sagde 5 hvor den skulle sige 6.
+//
+// En AFDELINGS-tilføjelse er derimod ikke en endelse og grupperes ikke:
+// "Per Aarsleff – Kontor i Lyngby" forbliver adskilt fra "Per Aarsleff",
+// fordi forskellen kan være reel (anden adresse, anden afdeling). Det er et
+// menneskes beslutning, ikke en normalisering.
 function kerne(navn, formidler) {
     let s = String(navn || '').trim();
     const f = String(formidler || '').trim();
@@ -89,7 +102,7 @@ function kerne(navn, formidler) {
         const esc = f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         s = s.replace(new RegExp(`[\\s]*[\\/\\-–—,(]+[\\s]*${esc}[\\s)]*$`, 'i'), '');
     }
-    return s.toLowerCase().replace(/[^a-z0-9æøå]+/gi, ' ').trim();
+    return normalizeName(s);
 }
 
 const csvRows = [['formidler', 'bon', 'leveringsdato', 'status', 'slutkunde', 'kilde', 'formular_skrev']];
