@@ -21,7 +21,7 @@ var _isProducts     = [];
 var _isAllProducts  = [];    // unfiltered
 var _isProdDirty    = {};    // productId → { field: newValue }
 var _isProdCols     = null;  // user column prefs
-var _isProdFilter   = { q: '', supplier: '', group: '' };
+var _isProdFilter   = { q: '', supplier: '', group: '', nopris: false };
 
 // Tab 3 data
 var _isHokaHealth   = null;
@@ -721,6 +721,18 @@ function _isRenderProducts(body) {
         html += '<option value="' + l.grocy_location_id + '"' + sel + '>' + _isEsc(l.grocy_location_name) + '</option>';
     });
     html += '</select>';
+
+    // #658: arbejdslisten. 13 varer i drift har flere varenumre uden et
+    // foretrukket valg og får derfor ingen pris — men de er umulige at finde
+    // i en liste på 181. En liste i et issue ville være forældet i samme
+    // sekund nogen retter en vare; det her er rigtigt hver gang man åbner det.
+    var manglerN = _isAllProducts.filter(_isUdenPris).length;
+    if (manglerN > 0) {
+        html += '<button class="is-prod-nopris' + (_isProdFilter.nopris ? ' on' : '') +
+            '" data-is="prod-filter-nopris" title="Varer uden en pris — s\u00e6t et foretrukket varenummer eller et overslag">' +
+            manglerN + ' uden pris</button>';
+    }
+
     if (dirtyCount > 0) {
         html += '<span style="color:#e8a832;font-size:12px;font-weight:700">' + dirtyCount + ' ændringer</span>';
     }
@@ -786,7 +798,12 @@ function _isRenderProducts(body) {
                 ? _isFmtPrice(po.price, po.stock_unit) + (po.is_estimate
                     ? ' <span title="Manuelt overslag — ikke en leverandørpris" style="color:#6b3f9e;font-size:10px;font-weight:700">overslag</span>'
                     : '')
-                : '<span title="' + _isEsc((po && po.reason_text) || 'ingen pris') + '" style="color:var(--color-text-dim)">—</span>';
+                : (_isProdFilter.nopris
+                    // Når man står PÅ arbejdslisten, er årsagen dét man skal
+                    // handle på — den må ikke ligge gemt i en tooltip.
+                    ? '<span style="color:#6b3f9e;font-size:11px">' +
+                        _isEsc((po && po.reason_text) || 'ingen pris') + '</span>'
+                    : '<span title="' + _isEsc((po && po.reason_text) || 'ingen pris') + '" style="color:var(--color-text-dim)">—</span>');
             html += '<td style="font-size:12px;text-align:right">' + priceCell + '</td>';
         }
 
@@ -812,6 +829,14 @@ function _isRenderProducts(body) {
     body.innerHTML = html;
 
     // Bind supplier filter change (not in delegation because it's a select without data-is on change)
+    var noprisBtn = body.querySelector('[data-is="prod-filter-nopris"]');
+    if (noprisBtn) {
+        noprisBtn.addEventListener('click', function() {
+            _isProdFilter.nopris = !_isProdFilter.nopris;
+            _isProdFilterAndRender();
+        });
+    }
+
     var supFilter = body.querySelector('[data-is="prod-filter-sup"]');
     if (supFilter) {
         supFilter.addEventListener('change', function() {
@@ -842,12 +867,22 @@ function _isProdFieldChange(el) {
     }
 }
 
+/** Mangler varen en pris? Ét sted, så knappens tal og listen ikke kan skride. */
+function _isUdenPris(p) {
+    if (!_isPriceOverview) return false;
+    var o = _isPriceOverview[p.id];
+    return !o || o.price == null;
+}
+
 function _isProdFilterAndRender() {
     _isProducts = _isAllProducts.filter(function(p) {
         if (_isProdFilter.q && p.name.toLowerCase().indexOf(_isProdFilter.q) < 0) return false;
         if (_isProdFilter.supplier === 'none' && p.shopping_location_id) return false;
         if (_isProdFilter.supplier && _isProdFilter.supplier !== 'none' &&
             p.shopping_location_id != _isProdFilter.supplier) return false;
+        // Kunne pris-status ikke hentes, filtrerer vi ikke — en tom liste
+        // ville ellers se ud som "alt er i orden".
+        if (_isProdFilter.nopris && _isPriceOverview && !_isUdenPris(p)) return false;
         return true;
     });
     _isRenderTab(1);

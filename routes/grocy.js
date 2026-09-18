@@ -15,6 +15,8 @@ const { handle } = require('../db/helpers');
 const grocy    = require('../services/grocyAdapter');
 const packSizeGuard = require('../services/packSizeGuard');
 const supplierPrices = require('../services/supplierPrices');
+// #658: samme omregning som varemodtagelsen bruger (#358) — én regel, ét sted.
+const { resolveToStockAmount } = require('../services/quConvert');
 const { getDb } = require('../db/database');
 const { refreshRecipeUnitCountsSafe } = require('../services/recipeUnits');
 
@@ -294,17 +296,64 @@ router.post('/quantity-unit-conversions', handle(async (req, res) => {
 
 router.post('/stock/:id/inventory', handle(async (req, res) => {
     const productId = parseInt(req.params.id);
-    const { amount, best_before_date } = req.body;
-    if (amount == null) return res.status(400).json({ error: 'amount er påkrævet' });
+    const { amount, entries, best_before_date } = req.body;
+
+    // #658: mængden kan være tastet i flere enheder ("2 kasser og 25 stk").
+    //
+    // SERVEREN summerer, med sine egne omregninger — samme regel og samme
+    // funktion som varemodtagelsen (#358). Browseren kan have stået åben
+    // siden i går og regne med en forældet omregningstabel, og et tal der
+    // kommer færdigt udregnet kan serveren ikke efterprøve. Klienten sender
+    // derfor hvad der blev TASTET; serveren afgør hvad der skrives.
+    //
+    // Kan bare én post ikke omregnes, rører vi ikke lageret: en delvis sum
+    // ville være et forkert tal uden en fejl.
+    //
+    // Det er helt i orden kun at udfylde ét felt — "2 kasser og ingen løse
+    // stykker" er en komplet optælling, ikke en halv.
+    let stockAmount = amount;
+    if (Array.isArray(entries) && entries.length) {
+        let produkt, konverteringer;
+        try {
+            const [prods, convs] = await Promise.all([
+                grocy.getProducts(), grocy.getQuantityUnitConversions(),
+            ]);
+            produkt = prods.find(p => parseInt(p.id) === productId);
+            konverteringer = convs;
+        } catch (err) {
+            return res.status(502).json({ error: 'Kunne ikke hente enheds-data fra Grocy: ' + err.message });
+        }
+
+        let sum = 0;
+        for (const e of entries) {
+            const quId = parseInt(e?.qu_id);
+            const qty  = Number(e?.qty);
+            if (!Number.isFinite(quId) || quId <= 0) {
+                return res.status(400).json({ error: 'entries: qu_id mangler' });
+            }
+            if (!Number.isFinite(qty) || qty <= 0) {
+                return res.status(400).json({ error: 'entries: qty skal være > 0' });
+            }
+            const r = resolveToStockAmount({ product: produkt, amount: qty, quId, conversions: konverteringer });
+            if (r.error) return res.status(400).json({ error: r.error });
+            sum += r.amount;
+        }
+        // 1e-6: nok til at fjerne flydende-tal-støj, og langt under det
+        // groveste der kan aflæses. En grovere afrunding ville koste mængde
+        // på varer med en faktor i gram-størrelsen.
+        stockAmount = Math.round(sum * 1e6) / 1e6;
+    }
+
+    if (stockAmount == null) return res.status(400).json({ error: 'amount er påkrævet' });
     // #657: send leverandørprisen fra Grocy med, så en op-rettelse bærer en frisk pris i
     // stedet for den Grocy fører videre. Kendes den ikke, sendes intet — aldrig et
     // gæt — og en fejl i opslaget må ikke vælte lagerrettelsen.
     let priced = { price: null, reason: 'missing' };
     try { priced = await supplierPrices.priceForStock(grocy, productId); }
     catch (err) { console.warn('[grocy] prisopslag fejlede:', err.message); }
-    const r = await grocy.setInventory(productId, amount, best_before_date || null, { price: priced.price });
+    const r = await grocy.setInventory(productId, stockAmount, best_before_date || null, { price: priced.price });
     res.json({
-        ok: true, product_id: productId, new_amount: amount,
+        ok: true, product_id: productId, new_amount: stockAmount,
         unchanged: !!(r && r.unchanged),
         price_sent: priced.price, price_reason: priced.reason,
     });

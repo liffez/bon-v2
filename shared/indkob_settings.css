@@ -446,3 +446,11 @@
 .is-mode-page .is-hdr { display: none; }
 .is-mode-page .is-tabs { padding: 0; }
 .is-mode-page .is-tab { padding: 13px 22px; font-size: 14px; }
+
+/* Arbejdsliste: varer uden en pris (#658) */
+.is-prod-nopris {
+    border: 1px solid #6b3f9e; background: none; color: #6b3f9e;
+    border-radius: 999px; padding: 5px 12px; font-size: 12px;
+    font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.is-prod-nopris.on { background: #6b3f9e; color: #fff; }

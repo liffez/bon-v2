@@ -1,0 +1,78 @@
+/* shared/mangde_felter.css — mængde tastet i flere enheder (§14.6) */
+
+.mf-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.mf-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+}
+
+.mf-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.mf-input {
+    width: 76px;
+    min-width: 0;
+    padding: 10px 8px;
+    font-size: 17px;              /* ≥16px: ellers zoomer iOS ved fokus */
+    font-weight: 600;
+    text-align: center;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    background: #fff;
+    box-sizing: border-box;
+    font-variant-numeric: tabular-nums;
+}
+
+.mf-input:focus {
+    outline: none;
+    border-color: var(--brand-primary, #8e631f);
+    box-shadow: 0 0 0 2px rgba(142, 99, 31, 0.15);
+}
+
+/* Skjul browserens spinner — knapperne er for små til en touchskærm,
+   og de gør feltet smallere end tallet. */
+.mf-input::-webkit-outer-spin-button,
+.mf-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.mf-input { -moz-appearance: textfield; appearance: textfield; }
+
+.mf-unit {
+    font-size: 13px;
+    color: var(--color-text-dim, #6b6b6b);
+    white-space: nowrap;
+}
+
+.mf-sum {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--brand-primary, #8e631f);
+    font-variant-numeric: tabular-nums;
+    min-height: 18px;             /* fast højde: linjen må ikke hoppe når den fyldes */
+}
+
+.mf-sum-empty { color: var(--color-text-dim, #6b6b6b); font-weight: 400; }
+
+.mf-none {
+    font-size: 13px;
+    color: var(--color-text-dim, #6b6b6b);
+    font-style: italic;
+}
+
+/* Tættere på små skærme — tre felter skal kunne stå på én linje på en iPhone */
+@media (max-width: 420px) {
+    .mf-multi .mf-input { width: 58px; padding: 9px 4px; }
+    .mf-multi .mf-unit { font-size: 12px; }
+    .mf-row { gap: 6px; }
+}

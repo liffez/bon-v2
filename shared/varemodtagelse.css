@@ -1222,3 +1222,105 @@
 }
 
 .vm-unit-fix-msg.vm-err { color: #c0392b; }
+
+/* ── Varevælger: få varerne på listen uden en bestilling (#658) ───── */
+
+.vm-picker {
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.vm-picker-head { display: flex; align-items: center; justify-content: space-between; }
+.vm-picker-title { font-weight: 600; font-size: 15px; }
+.vm-picker-x {
+    border: none; background: none; font-size: 22px; line-height: 1;
+    color: var(--color-text-dim, #6b6b6b); cursor: pointer; padding: 0 6px;
+}
+
+.vm-picker-coderow { display: flex; gap: 8px; }
+.vm-picker-code {
+    flex: 1; min-width: 0; padding: 11px 10px; font-size: 17px;
+    border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px;
+    box-sizing: border-box; font-variant-numeric: tabular-nums;
+}
+.vm-picker-codebtn {
+    padding: 11px 16px; border-radius: 8px; border: 1px solid var(--brand-primary, #8e631f);
+    background: var(--brand-primary, #8e631f); color: #fff; font-weight: 600; cursor: pointer;
+}
+.vm-picker-codemsg { font-size: 13px; color: var(--color-text-dim, #6b6b6b); min-height: 0; }
+.vm-picker-codemsg:empty { display: none; }
+.vm-picker-codemsg-warn { color: #8a5a00; }
+
+.vm-picker-search {
+    padding: 11px 10px; font-size: 17px; box-sizing: border-box;
+    border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px;
+}
+
+.vm-picker-list {
+    max-height: 280px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 2px;
+    border-top: 1px solid var(--color-border, #d7d1ca);
+    padding-top: 6px;
+}
+
+.vm-picker-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 12px 10px; border: none; border-radius: 8px;
+    background: none; text-align: left; cursor: pointer;
+    font-size: 15px; min-height: 44px;   /* touch-mål */
+}
+.vm-picker-item:hover, .vm-picker-item:focus { background: #f5f4f2; outline: none; }
+.vm-picker-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-picker-item-tag,
+.vm-picker-item-nopris {
+    flex-shrink: 0; font-size: 11px; padding: 2px 7px; border-radius: 999px;
+}
+.vm-picker-item-tag { background: #eee; color: var(--color-text-dim, #6b6b6b); }
+.vm-picker-item-nopris { background: #f3ecff; color: #6b3fa0; }
+
+.vm-picker-empty { font-size: 13px; color: var(--color-text-dim, #6b6b6b); padding: 10px 4px; }
+
+.vm-picker-foot { display: flex; gap: 14px; flex-wrap: wrap; padding-top: 4px; }
+.vm-picker-link {
+    border: none; background: none; padding: 6px 0; cursor: pointer;
+    font-size: 14px; color: var(--brand-primary, #8e631f); font-weight: 600;
+}
+.vm-picker-link-dim { color: var(--color-text-dim, #6b6b6b); font-weight: 400; }
+
+/* ── Pris-status på varekortet ───────────────────────────────────── */
+
+.vm-pris-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 6px; font-size: 13px;
+}
+.vm-pris-txt { color: var(--color-text-dim, #6b6b6b); }
+.vm-pris-mangler { color: #6b3fa0; }
+.vm-pris-fix {
+    border: 1px solid #6b3fa0; background: none; color: #6b3fa0;
+    border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer;
+}
+
+.vm-pris-fixbox {
+    flex-basis: 100%;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-top: 6px; padding: 10px; border-radius: 8px;
+    background: #faf7ff; border: 1px solid #e3d7f5;
+}
+.vm-pris-fixlab { flex-basis: 100%; font-size: 12px; color: var(--color-text-dim, #6b6b6b); }
+.vm-pris-select, .vm-pris-overslag {
+    padding: 9px 8px; font-size: 16px; border-radius: 8px;
+    border: 1px solid var(--color-border, #d7d1ca); background: #fff;
+    max-width: 100%; box-sizing: border-box;
+}
+.vm-pris-overslag { width: 110px; }
+.vm-pris-gem {
+    padding: 9px 14px; border-radius: 8px; border: none;
+    background: var(--brand-primary, #8e631f); color: #fff; font-weight: 600; cursor: pointer;
+}
+.vm-pris-fejl { flex-basis: 100%; font-size: 12px; color: #c0392b; }

@@ -454,8 +454,14 @@ function fetchGrocyLocations() {
 function fetchGrocyProductGroups() {
     return apiFetch('/grocy/product-groups');
 }
-function postGrocyInventory(productId, amount, bestBeforeDate) {
+/**
+ * Sæt lagertallet. `entries` (#658) er hvad brugeren TASTEDE, i de enheder han
+ * tastede det i — serveren summerer med sine egne omregninger og afgør tallet.
+ * Uden entries opfører den sig som hidtil: `amount` bruges som det er.
+ */
+function postGrocyInventory(productId, amount, bestBeforeDate, entries) {
     var body = { amount: amount };
+    if (entries && entries.length) body.entries = entries;
     if (bestBeforeDate) body.best_before_date = bestBeforeDate;
     return apiFetch('/grocy/stock/' + productId + '/inventory', { method: 'POST', body: JSON.stringify(body) });
 }

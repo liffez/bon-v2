@@ -1,0 +1,27 @@
+-- 178 — Modtaget mængde kan tastes i flere enheder på én gang (#658)
+--
+-- Man modtager "2 kasser brød og 25 ekstra styk". Det er sådan mennesker
+-- tæller, og det er den indtastningsform lageroptællings-specen beskriver
+-- i §14.6. Posteringen til Grocy sker stadig ALTID i lager-enhed —
+-- felterne er udelukkende indtastningsform.
+--
+-- Hvert felt gemmes som sin egen post, ikke som ét tal på linjen:
+--
+--   [{"qu_id": 3, "qty": 2, "factor_used": 11},
+--    {"qu_id": 7, "qty": 25, "factor_used": 0.09}]
+--
+-- factor_used er det vigtigste felt. Ændrer leverandøren kassestørrelsen
+-- senere, må en gammel modtagelse ikke skifte betydning bagudrettet — og
+-- uden den kan faktordiagnosen (§14.9) ikke se forskel på en tæller der
+-- sjusker og en kassefaktor der er forkert. Modtagelsen er netop dét sted
+-- hvor en forkert faktor er lettest at opdage: man står med kassen.
+--
+-- received_quantity + received_qu_id (177 og tidligere) bevares uændret som
+-- det dominerende felt, så alt der læser dem i dag er upåvirket.
+-- received_quantity_stock er fortsat summen — det eneste der posteres.
+--
+-- NULL = tastet i ét felt, som hidtil. Ingen bagudfyldning: vi ved ikke
+-- hvilke enheder de gamle linjer blev talt i, og et gæt ville se ud som
+-- en måling.
+
+ALTER TABLE goods_receipt_items ADD COLUMN received_entries_json TEXT;

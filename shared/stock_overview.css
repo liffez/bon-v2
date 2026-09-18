@@ -836,3 +836,74 @@
     font-weight: 600;
     cursor: pointer;
 }
+
+/* "Kom der varer?" efter en op-rettelse (#658).
+   Bliver stående til man svarer — et tilbud man ikke når at se er intet tilbud. */
+.so-nudge {
+    background: #fff;
+    color: var(--color-text);
+    border: 2px solid var(--brand-primary, #8e631f);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+    max-width: 320px;
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.so-nudge-titel { font-weight: 700; color: var(--brand-primary, #8e631f); font-size: 15px; }
+.so-nudge-varer { font-size: 13px; color: var(--color-text-dim, #6b6b6b); line-height: 1.35; }
+.so-nudge-rk { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+.so-nudge-link {
+    flex: 1; border: none; cursor: pointer;
+    background: var(--brand-primary, #8e631f); color: #fff;
+    border-radius: 8px; padding: 9px 12px; font-size: 14px; font-weight: 600;
+}
+.so-nudge-x {
+    border: 1px solid var(--color-border, #d7d1ca); background: none; cursor: pointer;
+    color: var(--color-text-dim, #6b6b6b); border-radius: 8px;
+    padding: 9px 14px; font-size: 14px;
+}
+.so-nudge-x:hover { background: #f5f4f2; }
+
+/* Mængde tastet i flere enheder i justerings-panelet (#658, §14.6)
+   Enhedsnavnet står OVER feltet, så de tre står på langs i stedet for at
+   ombryde til tre rækker. Panelet var 164 px højt med masser af spildplads. */
+.so-expand-row-mf { align-items: flex-end; flex-wrap: nowrap; }
+.so-expand-row-mf > label { padding-bottom: 10px; }
+.so-mf-host { flex: 1; min-width: 0; }
+
+.so-expand-row-mf .mf-row { flex-wrap: nowrap; gap: 6px; align-items: flex-end; }
+.so-expand-row-mf .mf-field {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column-reverse;   /* etiket over feltet */
+    align-items: stretch;
+    gap: 1px;
+}
+.so-expand-row-mf .mf-input { width: 100%; padding: 8px 4px; font-size: 16px; }
+.so-expand-row-mf .mf-unit {
+    text-align: center;
+    font-size: 10px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* ± står i felt-rækken, i højde med felterne (ikke med etiketterne over dem),
+   og justerer det MARKEREDE felt. Markeringen er nødvendig: fokus forsvinder
+   i samme øjeblik man klikker på en pil. */
+.so-expand-row-mf .so-adj-btn { flex: 0 0 auto; align-self: flex-end; }
+.so-expand-row-mf .mf-field.so-mf-aktiv .mf-input {
+    border-color: var(--brand-primary, #8e631f);
+    box-shadow: 0 0 0 2px rgba(142, 99, 31, 0.22);
+}
+.so-expand-row-mf .mf-field.so-mf-aktiv .mf-unit {
+    color: var(--brand-primary, #8e631f);
+    font-weight: 700;
+}
+
+/* Summen og forskellen er én oplysning og står på én linje */
+.so-mf-facit { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.so-mf-delta {
+    font-size: var(--font-size-xs, 11px);
+    color: var(--color-text-dim, #6b6b6b);
+    font-variant-numeric: tabular-nums;
+}
+.so-mf-facit .mf-sum:not(:empty) + .so-mf-delta::before { content: "\00b7 "; }

@@ -35,6 +35,10 @@ var _soShopLocsMap    = {};   // shopping_location_id -> name
 var _soShopLocsArr    = [];   // raw shopping locations array
 var _soConversions    = [];   // raw quantity_unit_conversions (til salgs-/forbrugsenhed-visning)
 var _soEditIds        = [];   // product_ids under redigering (1 = enkelt, >1 = bulk)
+// #658: hvad der er tastet i mængdefelterne pr. vare. Summen ligger i
+// .so-adj-input (som gemme-stien altid har læst), men de enkelte felter kan
+// ikke udledes af en sum — så de skal huskes for at overleve en re-render.
+var _soMfPoster       = {};   // product_id -> [{qu_id, qty, factor_used}]
 var _soPriceMap       = null; // #657: product_id -> { price, stock_unit, reason_text } — fra Grocy. null = ukendt
 
 var _soFilteredData   = [];   // after filters applied
@@ -632,6 +636,9 @@ function _soCaptureEdit(container) {
 }
 
 function _soRestoreEdit(container, keep) {
+    // Værten bygges som tom HTML ved hver render; felterne skal sættes i igen,
+    // ellers står panelet uden mængdefelter efter en søgning eller et filter.
+    if (_soCurrentExpand !== null) _soMountMangde(_soCurrentExpand);
     if (!keep) return;
     var el = container.querySelector('.so-card[data-id="' + keep.id + '"] .so-adj-input');
     if (!el) return;                       // kortet blev filtreret væk — det kan brugeren se
@@ -744,14 +751,29 @@ function _soRenderCard(item) {
         (isSelected ? '&#x2713;' : '') + '</div>';
 
     // Expand panel
+    // #658: har varen flere enheder, tastes mængden i dem alle — "2 kasser og
+    // 25 stk". Summen skrives i .so-adj-input, som gemme-stien altid har læst,
+    // så intet nedstrøms ændrer sig. Har varen kun én enhed, er panelet uændret.
+    var mfUnits = _soMfUnits(item);
+    var flereEnheder = mfUnits.length > 1;
+
     var expandHtml = '<div class="so-expand-panel">' +
-        '<div class="so-expand-row">' +
-        '  <label>Antal:</label>' +
-        '  <button class="so-adj-btn" data-delta="-1" title="Minus 1">&#x25BC;</button>' +
-        '  <input type="number" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
-        '    value="' + _soRound(item.amount) + '" min="0" step="0.5">' +
-        '  <button class="so-adj-btn" data-delta="1" title="Plus 1">&#x25B2;</button>' +
-        '  <span class="so-adj-unit">' + esc(item.qu_name) + '</span>' +
+        '<div class="so-expand-row' + (flereEnheder ? ' so-expand-row-mf' : '') + '">' +
+        // Etiketten udelades ved flere felter: hvert felt har sin egen enhed
+        // skrevet over sig, og "Mængde:" ville kun stjæle bredde fra dem.
+        (flereEnheder ? '' : '  <label>Antal:</label>') +
+        (flereEnheder
+            ? '  <button class="so-adj-btn" data-delta="-1" title="Minus 1 ' + esc(item.qu_name) + '">&#x25BC;</button>' +
+              '  <div class="so-mf-host" data-pid="' + item.product_id + '"></div>' +
+              '  <button class="so-adj-btn" data-delta="1" title="Plus 1 ' + esc(item.qu_name) + '">&#x25B2;</button>' +
+              '  <span class="so-mf-delta" data-pid="' + item.product_id + '"></span>' +
+              '  <input type="hidden" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
+              '    value="' + _soRound(item.amount) + '">'
+            : '  <button class="so-adj-btn" data-delta="-1" title="Minus 1">&#x25BC;</button>' +
+              '  <input type="number" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
+              '    value="' + _soRound(item.amount) + '" min="0" step="0.5">' +
+              '  <button class="so-adj-btn" data-delta="1" title="Plus 1">&#x25B2;</button>' +
+              '  <span class="so-adj-unit">' + esc(item.qu_name) + '</span>') +
         '</div>' +
         '<div class="so-expand-actions">' +
         '  <button class="so-save-btn">Gem</button>' +
@@ -818,10 +840,158 @@ function _soToggleExpand(productId) {
     } else {
         card.classList.add('so-expanded');
         _soCurrentExpand = productId;
-        // Focus input
-        var input = card.querySelector('.so-adj-input');
-        if (input) input.focus();
+        _soMountMangde(productId);
+        // Fokus: det første synlige felt. Ved flere enheder er .so-adj-input
+        // skjult (den bærer kun summen), og et fokus dér ville ikke ses.
+        var input = card.querySelector('.mf-input') ||
+                    card.querySelector('.so-adj-input');
+        if (input) { input.focus(); if (input.select) input.select(); }
     }
+}
+
+/**
+ * Byg mængdefelterne ind i det udfoldede kort.
+ *
+ * Kaldes ved udfoldning OG efter en re-render, fordi listen bygges som HTML
+ * og værten derfor er tom igen. Posterne huskes i _soMfPoster, for de enkelte
+ * felter kan ikke udledes af summen.
+ */
+function _soMountMangde(productId) {
+    if (!window.MangdeFelter) return;
+    var card = _soContainer.querySelector('.so-card[data-id="' + productId + '"]');
+    if (!card) return;
+    var host = card.querySelector('.so-mf-host');
+    if (!host || host.getAttribute('data-mounted') === '1') return;
+
+    var item = _soStockData.find(function(i) { return i.product_id === productId; });
+    if (!item) return;
+    var sum = card.querySelector('.so-adj-input');
+    var delta = card.querySelector('.so-mf-delta');
+
+    // Lager-enheden er forudfyldt med det der står nu — som ét-felts-panelet
+    // altid har været.
+    //
+    // Jeg gjorde dem først TOMME, af frygt for at "2 kasser" ville blive lagt
+    // TIL de 117,54 kg i stedet for at erstatte dem. Men dét er præcis hvad
+    // man vil: sådan bruges panelet i drift (10 → 11, 117,54 → 118). Der kom
+    // to kasser, og de skal lægges til det der stod. Tomme felter gjorde det
+    // omvendt — man skulle tælle HELE hylden for at få et plus, og ellers gik
+    // lageret ned og "Kom der varer?" fyrede aldrig. Netop for de varer der
+    // kommer i kasser.
+    //
+    // Skal man i stedet TÆLLE, rydder man lager-feltet og skriver hvad man
+    // ser. Delta-linjen viser forskellen begge veje, så valget er synligt.
+    var stockQu = parseInt(prodStockQu(item));
+    // Feltet forudfyldes med det tal KORTET viser — samme _soRound som
+    // ét-felts-panelet altid har brugt. To grunde:
+    //
+    //   · Grocy leverer flydende-tal-støj. Æg står som 5,5511151231258e-17,
+    //     altså nul, men rå > 0 forudfyldte feltet med noget der i et smalt
+    //     nummerfelt ser ud som "5.55" — mens summen sagde "= 0 Kilo" og
+    //     delta'en "uændret". Det lignede noget i stykker.
+    //   · 9,268329 kan ikke læses i et 70 px felt. 9,27 kan.
+    //
+    // Ufarligt: gemmer man det uændret, er forskellen under _soSave's
+    // 0,01-grænse, så det bliver "Ingen ændring" og intet skrives.
+    // Selve SUMMEN af tastede poster afrundes stadig ikke (1e-6) — der
+    // ville en grov afrunding koste mængde på små faktorer.
+    var nu = _soRound(item.amount);
+    var start = _soMfPoster[productId] ||
+        (nu > 0 ? [{ qu_id: stockQu, qty: nu }] : []);
+
+    var prod = _soProductsMap[productId] || {};
+    var felter = MangdeFelter.create({
+        product: {
+            id: item.product_id,
+            qu_id_stock: prod.qu_id_stock != null ? prod.qu_id_stock
+                       : (item.qu_id_stock != null ? item.qu_id_stock : item.qu_id),
+            qu_id_purchase: prod.qu_id_purchase,
+            qu_id_consume: prod.qu_id_consume,
+        },
+        conversions: _soConversions,
+        unitNames: _soQUnitsMap,
+        // Lager-enheden først: det er den der er forudfyldt, og den man retter.
+        focusQuId: stockQu,
+        stockUnitName: item.qu_name,
+        entries: start,
+        onChange: function(poster, total) {
+            _soMfPoster[productId] = poster;
+            // Gemme-stien læser .so-adj-input og er uændret. Er intet tastet,
+            // står varens nuværende tal — så en tom optælling ikke nulstiller
+            // lageret.
+            //
+            // IKKE _soRound: den afrunder til 2 decimaler, altså 10 gram når
+            // lageret er i kilo. Ét-felts-panelet afrunder ikke — dér taster
+            // man kilo-tallet selv — så en afrunding her ville være en fejl
+            // jeg selv indførte. En vare med en faktor i gram-størrelsen ville
+            // tabe en mærkbar del af sin mængde, tavst. stockSum() afrunder
+            // allerede ved 1e-6, som er rigeligt og ikke synligt.
+            // Ryddes ALLE felter, er der ikke tastet en optælling — så rører
+            // vi ikke lagertallet. Ellers ville et tomt panel betyde "sæt til 0".
+            if (sum) sum.value = poster.length ? total : item.amount;
+
+            // Optælling SÆTTER lageret. Forskellen skal kunne ses FØR man
+            // trykker Gem, ikke først i kvitteringen bagefter.
+            //
+            // Den er ren oplysning, ikke en advarsel: "2 kasser og ingen løse
+            // stykker" er en komplet optælling, og et stort minus kan lige så
+            // godt betyde at der er brugt meget som at nogen har glemt et felt.
+            if (delta) {
+                if (!poster.length) { delta.textContent = ''; return; }
+                var d = Math.round((total - item.amount) * 1e6) / 1e6;
+                delta.textContent = (d === 0 ? 'uændret' :
+                    (d > 0 ? '+' : '\u2212') + _soFmtTal(Math.abs(d))) +
+                    ' \u00b7 nu ' + _soFmtTal(item.amount);
+            }
+        },
+    });
+    host.innerHTML = '';
+    host.appendChild(felter.el);
+
+    // ± flyttes op i FELT-rækken og justerer det felt der har fokus.
+    //
+    // Først satte jeg dem fast på lager-feltet, men så kunne de kun flytte
+    // ét af tre tal — og de klemte netop dét felt ned til 20 px. Følger de i
+    // stedet fokus, er der ingen tvivl om hvad de rammer: det felt man lige
+    // har rørt, og som er markeret. Forslag fra drift.
+    var række = felter.el.querySelector('.mf-row');
+    var ned = card.querySelector('.so-adj-btn[data-delta="-1"]');
+    var op  = card.querySelector('.so-adj-btn[data-delta="1"]');
+    if (række) {
+        if (ned) række.insertBefore(ned, række.firstChild);
+        if (op) række.appendChild(op);
+
+        // Det aktive felt markeres, så man kan SE hvad ± rammer. Fokus alene
+        // duer ikke: den forsvinder i samme øjeblik man klikker på en pil.
+        var felterEls = [].slice.call(række.querySelectorAll('.mf-field'));
+        function markér(felt) {
+            for (var i = 0; i < felterEls.length; i++) {
+                felterEls[i].classList.toggle('so-mf-aktiv', felterEls[i] === felt);
+            }
+            var enhed = felt && felt.querySelector('.mf-unit');
+            var navn = enhed ? enhed.textContent : '';
+            if (ned) ned.title = 'Minus 1 ' + navn;
+            if (op) op.title = 'Plus 1 ' + navn;
+        }
+        række.addEventListener('focusin', function (ev) {
+            var felt = ev.target && ev.target.closest && ev.target.closest('.mf-field');
+            if (felt) markér(felt);
+        });
+        markér(felterEls[0]);
+    }
+
+    // Summen og forskellen er ÉN oplysning — "= 62,36 Kilo · +15,36 · nu 47".
+    // Stod de på hver sin linje, skulle man selv samle dem.
+    var sumEl = felter.el.querySelector('.mf-sum');
+    if (sumEl && delta) {
+        var linje = document.createElement('div');
+        linje.className = 'so-mf-facit';
+        sumEl.parentNode.insertBefore(linje, sumEl);
+        linje.appendChild(sumEl);
+        linje.appendChild(delta);
+    }
+
+    host.setAttribute('data-mounted', '1');
 }
 
 function _soCloseExpand(productId) {
@@ -959,7 +1129,14 @@ async function _soAdjustInventory(productId) {
             return;
         }
 
-        var invRes = await postGrocyInventory(productId, newAmount, item.best_before_date || null);
+        // #658: posterne følger med, så serveren kan summere med sine egne
+        // omregninger. Klientens tal bruges kun til tjekkene ovenfor (er nogen
+        // andet nået at rette imens?) — det er serverens der skrives.
+        var invRes = await postGrocyInventory(
+            productId, newAmount, item.best_before_date || null, _soMfPoster[productId]);
+        // Afviger serverens sum fra vores, er det SERVERENS der står i Grocy.
+        // Så skal kvitteringen og kortet vise dét tal, ikke vores gæt.
+        if (invRes && typeof invRes.new_amount === 'number') newAmount = invRes.new_amount;
         // Stemplet skrives EFTER lager-skrivningen og må aldrig vælte den:
         // fejler stemplingen, er tallet stadig gemt, og det siges højt.
         await _soStampChecked(item);
@@ -970,6 +1147,10 @@ async function _soAdjustInventory(productId) {
         var priceNote = (diff > 0 && invRes && invRes.price_sent)
             ? ' · ' + _soFmtPrice(invRes.price_sent, item.qu_name) : '';
         _soShowToast(esc(item.name) + ': ' + sign + diff + ' ' + esc(item.qu_name) + ' (nu ' + _soRound(newAmount) + ')' + priceNote, 'success');
+        // #658: gik lageret OP, kan der være kommet varer. Det spørger vi om
+        // BAGEFTER, aldrig før — en almindelig rettelse må ikke koste et tryk
+        // mere. Linjen kan ignoreres; den forsvinder af sig selv.
+        if (diff > 0) _soNudgeModtagelse(item, diff);
         _soCloseExpand(productId);
 
         // Update local data + re-render
@@ -982,10 +1163,128 @@ async function _soAdjustInventory(productId) {
         _soShowToast('Fejl: ' + esc(err.message), 'error');
     } finally {
         delete _soSaving[productId];
+        delete _soMfPoster[productId];
     }
 }
 
+/* ── "Kom der varer?" (#658) ──────────────────────────────────
+ *
+ * Målt i grocy-hq: 379 lagerrettelser mod 120 køb på 90 dage. Varerne kommer
+ * ind ad DEN dør. En rettelse er ikke et køb — den fodrer hverken
+ * kostprisens snit (#557) eller fødevarekontrollen — men den der lige har
+ * rettet tallet op er den eneste der ved om der faktisk kom noget.
+ *
+ * Derfor et tilbud, ikke et spørgsmål: gemme-vejen er uændret, og den der
+ * bare retter et tal mærker ingen forskel. Lageroversigten bliver heller
+ * ikke et indkøbsværktøj — den peger på det rigtige sted.
+ *
+ * Linjen BLIVER STÅENDE til man svarer. Første udgave forsvandt efter 12
+ * sekunder nede i hjørnet, og i drift blev den ikke set. Et tilbud man ikke
+ * når at se, er det samme som intet tilbud.
+ */
+
+var _soNudgeVarer = [];   // det man har rettet OP siden sidst
+
+function _soNudgeModtagelse(item, diff) {
+    var area = document.getElementById('soToastArea');
+    if (!area) return;
+
+    // Retter man tre varer op, skal alle tre med — ikke kun den sidste.
+    var fundet = false;
+    for (var i = 0; i < _soNudgeVarer.length; i++) {
+        if (_soNudgeVarer[i].pid === item.product_id) {
+            _soNudgeVarer[i].qty = _soRound(_soNudgeVarer[i].qty + diff);
+            fundet = true;
+            break;
+        }
+    }
+    if (!fundet) {
+        _soNudgeVarer.push({
+            pid: item.product_id, name: item.name,
+            qty: diff, qu_id: item.qu_id != null ? item.qu_id : null,
+            qu_name: item.qu_name || '',
+        });
+    }
+
+    var gammel = area.querySelector('.so-nudge');
+    if (gammel) gammel.remove();
+
+    var bar = document.createElement('div');
+    bar.className = 'so-toast so-nudge';
+
+    var titel = document.createElement('div');
+    titel.className = 'so-nudge-titel';
+    titel.textContent = 'Kom der varer?';
+    bar.appendChild(titel);
+
+    var liste = document.createElement('div');
+    liste.className = 'so-nudge-varer';
+    liste.textContent = _soNudgeVarer.map(function(v) {
+        return v.name + ' +' + v.qty + (v.qu_name ? ' ' + v.qu_name : '');
+    }).join(' · ');
+    bar.appendChild(liste);
+
+    var rk = document.createElement('div');
+    rk.className = 'so-nudge-rk';
+
+    var link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'so-nudge-link';
+    link.textContent = _soNudgeVarer.length === 1
+        ? 'Registrér som modtagelse'
+        : 'Registrér ' + _soNudgeVarer.length + ' som modtagelse';
+    link.title = 'Så tæller det som et køb — med pris og fødevarekontrol';
+    link.addEventListener('click', function() {
+        // Tallene er allerede tastet én gang. At taste dem igen ville være
+        // præcis den friktion der fik folk til at blive her.
+        try {
+            sessionStorage.setItem('vm_carry', JSON.stringify({
+                items: _soNudgeVarer, ts: Date.now(),
+            }));
+        } catch (err) { /* privat vindue — så mister vi kun tallene */ }
+
+        if (document.body.classList.contains('zone-mobile') &&
+            typeof window._mSwitchView === 'function') {
+            window._mSwitchView('modtag');
+        } else {
+            window.location.href = '/kitchen/purchasing.html#varemodtagelse';
+        }
+    });
+    rk.appendChild(link);
+
+    var luk = document.createElement('button');
+    luk.type = 'button';
+    luk.className = 'so-nudge-x';
+    luk.textContent = 'Nej';
+    luk.title = 'Skjul — det var bare en rettelse';
+    luk.addEventListener('click', function() {
+        _soNudgeVarer = [];
+        bar.remove();
+    });
+    rk.appendChild(luk);
+
+    bar.appendChild(rk);
+    area.appendChild(bar);
+}
+
+/**
+ * ± justerer det felt der er MARKERET — det man sidst har rørt.
+ *
+ * Med flere felter ville "+1" ellers være tvetydigt: et kasse-trin og et
+ * kilo-trin er ikke samme skridt. Markeringen (og knappernes tooltip) siger
+ * hvilket. .so-adj-input er skjult i det tilfælde, så et step dér ville
+ * flytte et tal ingen kan se.
+ */
 function _soAdjStep(productId, delta) {
+    var card = _soContainer && _soContainer.querySelector('.so-card[data-id="' + productId + '"]');
+    // Det MARKEREDE felt, ikke bare det første: ± skal ramme det man kigger på.
+    var mf = card && (card.querySelector('.so-mf-aktiv .mf-input') ||
+                      card.querySelector('.mf-input'));
+    if (mf) {
+        mf.value = Math.max(0, _soRound((parseFloat(mf.value) || 0) + delta));
+        mf.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
     var input = document.getElementById('soAdj-' + productId);
     if (!input) return;
     var val = parseFloat(input.value) || 0;
@@ -1439,6 +1738,49 @@ function _soFindFactor(productId, fromQuId, toQuId) {
 // Resolvér salgs-/forbrugsenhed for et produkt -> [{ factor, unit }].
 // Faktorer er statiske (afhænger ikke af mængden), så de kan caches på item'et
 // og ganges på den friske amount ved hver render.
+/**
+ * Hvilke enheder kan varen tælles i? (#658, §14.2)
+ *
+ * Kun enheder med en brugbar faktor til lager-enheden — et felt der ikke kan
+ * omregnes er en fælde (#358). Har varen kun én, er der intet at vælge og
+ * panelet ser ud præcis som før: 112 af 181 varer i drift.
+ */
+/** Varens lager-enhed — fra produkt-kartoteket, med vare-objektet som reserve. */
+function prodStockQu(item) {
+    var p = _soProductsMap[item.product_id] || {};
+    return p.qu_id_stock != null ? p.qu_id_stock
+         : (item.qu_id_stock != null ? item.qu_id_stock : item.qu_id);
+}
+
+/** Tal til visning: dansk komma, højst 3 decimaler. Rører aldrig det der gemmes. */
+function _soFmtTal(n) {
+    if (n === null || n === undefined || !isFinite(n)) return '';
+    return String(Math.round(n * 1000) / 1000).replace('.', ',');
+}
+
+function _soMfUnits(item) {
+    if (!window.MangdeFelter || !item) return [];
+    // Produktet slås op i _soProductsMap frem for at kræve at vare-objektet
+    // bærer enhederne. Listen bygges NEMLIG to steder — hovedlisten har sin
+    // egen mapping, og _soItemFromProduct bruges kun af "Tilføj vare",
+    // inaktiv-listen og genaktivering. Lagde jeg felterne på begge, ville de
+    // kunne skride fra hinanden; her er der kun én kilde.
+    var p = _soProductsMap[item.product_id] || {};
+    var stock = p.qu_id_stock != null ? p.qu_id_stock
+              : (item.qu_id_stock != null ? item.qu_id_stock : item.qu_id);
+    if (stock == null) return [];
+    return MangdeFelter.unitsFor({
+        product: {
+            id: item.product_id,
+            qu_id_stock: stock,
+            qu_id_purchase: p.qu_id_purchase,
+            qu_id_consume: p.qu_id_consume,
+        },
+        conversions: _soConversions,
+        unitNames: _soQUnitsMap,
+    });
+}
+
 function _soAltConv(product) {
     if (!product) return [];
     var stockQu = product.qu_id_stock;
@@ -1740,6 +2082,74 @@ function _soRenderEstimateBlock(d, est, unit, editing, isEstimate) {
     return html + '</div>';
 }
 
+/**
+ * Gem en pris der står og venter i ✎-dialogen (#658).
+ *
+ * Pris-sektionen har sin egen "Gem pris"-knap, og dialogen har sin egen "Gem"
+ * nederst. To Gem-knapper i samme boks er en fælde: man retter prisen, trykker
+ * den STORE Gem — og får "Ingen ændringer", hvorefter prisen er væk når
+ * dialogen lukkes. Meldt fra drift.
+ *
+ * Derfor committer den store Gem også en ventende prisændring. Sektionens egen
+ * knap bliver: den er hurtigere når man KUN skal rette prisen.
+ *
+ * @returns {Promise<'gemt'|'uændret'|'fejl'>}
+ */
+async function _soCommitPendingPrice() {
+    var box = document.getElementById('soEditPrice');
+    if (!box || !box._soPriceData) return 'uændret';
+    var d = box._soPriceData;
+    var gemt = false;
+
+    var inp = document.getElementById('soPriceInput');
+    if (inp) {
+        var n = _soParsePrice(inp.value);
+        var bcId = parseInt(inp.getAttribute('data-barcode-id'));
+        var nu = (d.candidates || []).find(function(c) { return c.id === bcId; });
+        var før = nu && nu.stock_price != null ? Number(nu.stock_price) : null;
+        if (String(inp.value).trim() !== '' && !(n > 0)) {
+            _soShowToast('Skriv en pris større end 0', 'warn');
+            return 'fejl';
+        }
+        // Uændret tal skrives ikke til Grocy igen — en pris har en dato på sig.
+        if (n > 0 && (før === null || Math.abs(n - før) > 1e-9)) {
+            await setBarcodeStockPrice(bcId, n);
+            gemt = true;
+        }
+    }
+
+    var ei = document.getElementById('soEstimateInput');
+    if (ei) {
+        var en = _soParsePrice(ei.value);
+        var estNu = (d.candidates || []).find(function(c) { return c.is_estimate; });
+        var estFør = estNu && estNu.stock_price != null ? Number(estNu.stock_price) : null;
+        if (String(ei.value).trim() !== '' && !(en > 0)) {
+            _soShowToast('Skriv et overslag større end 0', 'warn');
+            return 'fejl';
+        }
+        if (en > 0 && (estFør === null || Math.abs(en - estFør) > 1e-9)) {
+            await setEstimatePrice(d.product_id, en);
+            gemt = true;
+        }
+    }
+
+    if (!gemt) return 'uændret';
+
+    // Kortet skal vise den nye pris med det samme.
+    try {
+        var fresh = await fetchSupplierPrice(d.product_id);
+        box._soPriceData = fresh;
+        if (_soPriceMap) {
+            _soPriceMap[d.product_id] = {
+                price: fresh.price, stock_unit: fresh.stock_unit, reason_text: fresh.reason_text,
+            };
+        }
+    } catch (err) {
+        console.warn('[lager] kunne ikke genlæse prisen:', err.message);
+    }
+    return 'gemt';
+}
+
 async function _soHandlePriceAction(el) {
     var box = document.getElementById('soEditPrice');
     if (!box || !box._soPriceData) return;
@@ -1834,10 +2244,29 @@ async function _soSaveEdit() {
     readNum('soEdit_dbb', master, 'default_best_before_days', p ? p.default_best_before_days : null);
     readNum('soEdit_hverdag', user, 'HverDag', uf.HverDag);
 
+    // En ventende prisændring hører med til "Gem". Uden det fik man
+    // "Ingen ændringer" og mistede prisen når dialogen lukkede.
+    var prisStatus = 'uændret';
+    if (!bulk) {
+        try {
+            prisStatus = await _soCommitPendingPrice();
+        } catch (err) {
+            _soShowToast('Prisen blev ikke gemt: ' + esc(err.message), 'error');
+            return;
+        }
+        if (prisStatus === 'fejl') return;   // beskeden er allerede givet
+    }
+
     var mKeys = Object.keys(master);
     var uKeys = Object.keys(user);
     if (mKeys.length === 0 && uKeys.length === 0) {
-        _soShowToast('Ingen ændringer', 'info');
+        if (prisStatus === 'gemt') {
+            _soShowToast('Pris gemt', 'success');
+            _soCloseEdit();
+            _soApplyFilters();
+        } else {
+            _soShowToast('Ingen ændringer', 'info');
+        }
         return;
     }
 
