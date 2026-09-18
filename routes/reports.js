@@ -19,6 +19,7 @@ const router        = express.Router();
 const { getDb }     = require('../db/database');
 const { handle, inclToExcl, momsOfIncl, getUnitCountCategories, salesPriceCategorySql, revenueFactorSQL, getNonRevenuePaymentCodes } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+const { lineNetSQL } = require('../services/bonDiscount');
 
 // ─── Auth on all routes ──────────────────────────────────────
 router.use(requireAuth());
@@ -223,7 +224,7 @@ router.get('/summary', handle(async (req, res) => {
     // Revenue + orders for perioden
     const ytd = db.prepare(`
         SELECT
-            COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
+            COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue,
             COUNT(DISTINCT b.id) AS orders
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -237,7 +238,7 @@ router.get('/summary', handle(async (req, res) => {
     // Revenue + orders samme periode året før (æbler-mod-æbler)
     const ytdPrev = db.prepare(`
         SELECT
-            COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
+            COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue,
             COUNT(DISTINCT b.id) AS orders
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -330,7 +331,7 @@ router.get('/monthly', handle(async (req, res) => {
     const thisYearRows = db.prepare(`
         SELECT
             strftime('%Y-%m', b.delivery_date) AS month,
-            COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
+            COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue,
             COALESCE(SUM(${unit.sql}), 0) AS units,
             COUNT(DISTINCT b.id) AS orders
         FROM bons b
@@ -349,7 +350,7 @@ router.get('/monthly', handle(async (req, res) => {
     const prevYearRows = db.prepare(`
         SELECT
             strftime('%Y-%m', b.delivery_date) AS month,
-            COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
+            COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue,
             COALESCE(SUM(${unit.sql}), 0) AS units,
             COUNT(DISTINCT b.id) AS orders
         FROM bons b
@@ -402,7 +403,7 @@ router.get('/top-customers', handle(async (req, res) => {
                 MAX(CASE WHEN b.company_id IS NOT NULL THEN co.name END),
                 MAX(c.first_name || ' ' || COALESCE(c.last_name, ''))
             ) AS display_name,
-            COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
+            COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue,
             COUNT(DISTINCT b.id) AS orders
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -421,7 +422,7 @@ router.get('/top-customers', handle(async (req, res) => {
 
     // Compute total for pct
     const total = db.prepare(`
-        SELECT COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS total_revenue,
+        SELECT COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS total_revenue,
                COUNT(DISTINCT b.id) AS total_orders
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -467,7 +468,7 @@ router.get('/categories', handle(async (req, res) => {
                 pc.code,
                 pc.label,
                 COALESCE(SUM(${unit.sql}), 0) AS units,
-                COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue
+                COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
             JOIN bon_lines bl ON bl.bon_id = b.id
@@ -527,7 +528,7 @@ router.get('/monthly-table', handle(async (req, res) => {
         return db.prepare(`
             SELECT
                 CAST(strftime('%m', b.delivery_date) AS INTEGER) AS month_nr,
-                COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
+                COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue,
                 COUNT(DISTINCT b.id) AS orders,
                 COALESCE(SUM(${unit.sql}), 0) AS units
             FROM bons b
@@ -585,7 +586,7 @@ router.get('/monthly-table', handle(async (req, res) => {
     const clampEndDate = new Date(prevYear, currentMonth - 1, todayDay + 1); // Date håndterer overflow
     const prevClampEnd = `${clampEndDate.getFullYear()}-${String(clampEndDate.getMonth() + 1).padStart(2, '0')}-${String(clampEndDate.getDate()).padStart(2, '0')}`;
     const prevClampRow = db.prepare(`
-        SELECT COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue
+        SELECT COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         JOIN bon_lines bl ON bl.bon_id = b.id
@@ -732,7 +733,7 @@ router.get('/lego', handle(async (req, res) => {
         return db.prepare(`
             SELECT
                 b.id, b.pax, b.price_category,
-                COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue
+                COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
             LEFT JOIN bon_lines bl ON bl.bon_id = b.id
@@ -805,7 +806,7 @@ router.get('/cumulative', handle(async (req, res) => {
             FROM (
                 SELECT
                     CAST(strftime('%W', b.delivery_date) AS INTEGER) AS week_nr,
-                    COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue
+                    COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}${revenueFactorSQL('b')}), 0) AS revenue
                 FROM bons b
                 JOIN status_definitions sd ON b.status_id = sd.id
                 JOIN bon_lines bl ON bl.bon_id = b.id
@@ -908,7 +909,7 @@ router.get('/giveaways', handle(async (req, res) => {
         SELECT b.payment_type AS code,
                COALESCE(pt.label, b.payment_type) AS label,
                COUNT(DISTINCT b.id) AS orders,
-               COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS total_incl
+               COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}), 0) AS total_incl
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         JOIN bon_lines bl ON bl.bon_id = b.id

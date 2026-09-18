@@ -33,6 +33,7 @@ const { broadcast } = require('../shared/sse');
 const { transaction } = require('../db/compat');
 const { notInvoicedSQL } = require('../services/invoiceGuard');
 const paymentRhythm = require('../services/paymentRhythm');
+const { lineNetSQL } = require('../services/bonDiscount');
 
 // "Kunden har aldrig fået en regning" — ét udtryk, så tab-filter, tællere og
 // forfaldne-eksklusionen ikke kan komme til at måle hver sin ting (#319).
@@ -1901,7 +1902,7 @@ router.get('/analyse', handle(async (req, res) => {
         const monthly = db.prepare(`
             SELECT
                 CAST(strftime('%m', b.delivery_date) AS INTEGER) AS month,
-                COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue
+                COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}), 0) AS revenue
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
             JOIN bon_lines bl ON bl.bon_id = b.id
@@ -1939,7 +1940,7 @@ router.get('/analyse', handle(async (req, res) => {
         const monthly = db.prepare(`
             SELECT
                 CAST(strftime('%m', b.delivery_date) AS INTEGER) AS month,
-                COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue
+                COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}), 0) AS revenue
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
             JOIN bon_lines bl ON bl.bon_id = b.id
@@ -1979,7 +1980,7 @@ router.get('/analyse', handle(async (req, res) => {
                     WHEN COALESCE(b.pax, 0) >= 20 THEN 'md'
                     ELSE 'sm'
                 END AS seg,
-                COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+                COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}), 0) AS revenue,
                 COUNT(DISTINCT b.id) AS orders
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
@@ -2021,7 +2022,7 @@ router.get('/analyse', handle(async (req, res) => {
                     WHEN COALESCE(b.pax, 0) >= 20 THEN 'md'
                     ELSE 'sm'
                 END AS seg,
-                COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+                COALESCE(SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}), 0) AS revenue,
                 COUNT(DISTINCT b.id) AS orders
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id

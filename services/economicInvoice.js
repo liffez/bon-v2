@@ -50,47 +50,9 @@ function parseIdList(raw) {
     }
 }
 
-/**
- * Kategorinavne fra Grocys `grupper` → Set af NORMALISEREDE navne.
- * Normalisering (trim, ét mellemrum, små bogstaver) er ikke pynt: kategorien
- * hedder `x- Service` med mellemrum efter bindestregen, og `x-Service` ville
- * ellers ryge lydløst forbi reglen — præcis den slags tastefejl der først opdages
- * på en faktura hos kunden.
- */
-function parseCategoryList(raw) {
-    try {
-        const arr = JSON.parse(raw || '[]');
-        return new Set((Array.isArray(arr) ? arr : [])
-            .filter(v => typeof v === 'string')
-            .map(normalizeCategory)
-            .filter(Boolean));
-    } catch {
-        return new Set();
-    }
-}
-
-function normalizeCategory(s) {
-    return String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-/**
- * Rabatsats for ÉN fakturalinje. Den stående kunderabat gælder varerne — ikke
- * levering og ikke gebyrer. Et gebyr er et gebyr; det rabatteres ikke.
- *
- * ÉN kilde, som alle tre linje-veje (vare, bundt, leverings-synteselinje) kalder,
- * så de ikke kan blive uenige. Netop håndkraft-synkronisering mellem parallelle
- * grene producerede #444.
- *
- * `category` er Grocys `grupper` som den står på bonlinjen. Er den tom, gælder
- * rabatten — vi udelader kun det vi positivt kan genkende, så en linje uden
- * kategori mister ikke stille en rabat kunden har krav på.
- */
-function discountForLine(category, basePercent, settings = {}) {
-    if (!basePercent) return 0;
-    const excluded = settings.noDiscountCategories;
-    if (!excluded) return basePercent;
-    return excluded.has(normalizeCategory(category)) ? 0 : basePercent;
-}
+// Rabatreglen (kategori-undtagelser, normalisering) bor i services/bonDiscount.js,
+// så bonens total, rapporterne og e-conomic-udkastet regner rabatten ens.
+const { parseCategoryList, normalizeCategory, discountForLine } = require('./bonDiscount');
 
 /* ══════════════════════════════════════════════════════════════
    KUNDE-RESOLVER + REFERENCE
@@ -153,7 +115,7 @@ function recipientName(bon) {
 const EMPTY_SET = new Set();
 
 /** Grocy-kategorien leverings-opskrifterne bærer. Synteselinjen låner den. */
-const DELIVERY_CATEGORY = 'x-Levering';
+const { DELIVERY_CATEGORY } = require('./bonDiscount');
 
 /** Linjens værdi INCL moms. `line_total` er sandheden; ellers antal × stk-pris. */
 function lineAmount(line) {
