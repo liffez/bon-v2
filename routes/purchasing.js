@@ -643,6 +643,34 @@ router.patch('/suppliers/:id/mail/read', handle((req, res) => {
    ══════════════════════════════════════════════════════════════ */
 
 const supplierPrices = require('../services/supplierPrices');
+const stamdataLog = require('../services/stamdataLog');
+
+/**
+ * Spor en prisændring (#666). Prisen er stamdata på linje med placering og
+ * varegruppe: den styrer kostprisen på hver ret der bruger varen. Den skal
+ * kunne ses bagefter hvem der satte den.
+ *
+ * Kaldes EFTER den vellykkede skrivning, og fejler aldrig kalderen — men
+ * returnerer fejlen, så svaret kan sige den i stedet for at tie.
+ */
+function sporPris(req, productId, felt, fra, til, notat) {
+    const norm = (v) => (v === null || v === undefined) ? null : String(v);
+    if (norm(fra) === norm(til)) return { logget: 0 };
+    try {
+        const kilde = stamdataLog.kildeFra(req);
+        return stamdataLog.skriv({
+            productId,
+            ændret: [{ felt, fra: norm(fra), til: norm(til), fraUkendt: false }],
+            userId: req.session ? req.session.userId : null,
+            kilde,
+            navne: null,
+            notat: notat || null,
+        });
+    } catch (err) {
+        console.error(`[stamdata] PRISEN ER GEMT, men sporet fejlede for produkt ${productId}:`, err.message);
+        return { logget: 0, log_error: err.message };
+    }
+}
 
 /* POST /prices/refresh-horkram  { barcodes? } — friske Hørkram-priser på stregkoderne */
 router.post('/prices/refresh-horkram', handle(async (req, res) => {
@@ -688,6 +716,16 @@ router.put('/prices/product/:id/estimate', handle(async (req, res) => {
     const pid = parseInt(req.params.id);
     if (!pid) return res.status(400).json({ error: 'Ugyldigt produkt-id' });
     const raw = req.body ? req.body.stock_price : null;
+
+    // #666: overslaget før — et overslag er et gæt nogen har skrevet, og det
+    // indgår i kostprisen. Det skal kunne ses hvem der gættede.
+    let førOverslag = null;
+    try {
+        const før = await supplierPrices.priceForStock(grocy, pid);
+        const est = (før.candidates || []).find(c => c.is_estimate);
+        førOverslag = est ? est.stock_price : null;
+    } catch (err) { console.warn('[stamdata] kunne ikke læse før-overslag:', err.message); }
+
     let set, r;
     try {
         set = await supplierPrices.setEstimatePrice(grocy, pid, raw);
@@ -696,6 +734,7 @@ router.put('/prices/product/:id/estimate', handle(async (req, res) => {
         if (err.status) return res.status(err.status).json({ error: err.message });
         throw err;
     }
+    const spor = sporPris(req, pid, 'overslag', førOverslag, set.removed ? null : set.price, null);
 
     // Overslaget ER gemt nu. Slår genberegningen fejl, siges det i svaret frem
     // for at blive slugt — og frem for at vælte en handling der lykkedes.
@@ -711,7 +750,7 @@ router.put('/prices/product/:id/estimate', handle(async (req, res) => {
     res.json({
         ok: true, estimate_price: set.price, removed: set.removed,
         price: r.price, reason: r.reason, reason_text: r.reason_text,
-        refreshed, refresh_error: refreshError,
+        refreshed, refresh_error: refreshError, ...spor,
     });
 }));
 
@@ -721,6 +760,16 @@ router.put('/prices/product/:id/preferred', handle(async (req, res) => {
     if (!pid) return res.status(400).json({ error: 'Ugyldigt produkt-id' });
     const raw = req.body ? req.body.barcode_id : undefined;
     const barcodeId = raw === null || raw === undefined || raw === '' ? null : parseInt(raw);
+
+    // #666: hvilket varenummer gjaldt før? Det afgør prisen på varen, så et
+    // skift er en beslutning der skal kunne ses bagefter.
+    let førVarenr = null;
+    try {
+        const før = await supplierPrices.priceForStock(grocy, pid);
+        const pref = (før.candidates || []).find(c => c.is_preferred);
+        førVarenr = pref ? pref.barcode : null;
+    } catch (err) { console.warn('[stamdata] kunne ikke læse foretrukket varenummer:', err.message); }
+
     try {
         await supplierPrices.setPreferredBarcode(grocy, pid, barcodeId);
     } catch (err) {
@@ -728,16 +777,33 @@ router.put('/prices/product/:id/preferred', handle(async (req, res) => {
         throw err;
     }
     const r = await supplierPrices.priceForStock(grocy, pid);
-    res.json({ ok: true, price: r.price, reason: r.reason, reason_text: r.reason_text });
+    const nu = (r.candidates || []).find(c => c.is_preferred);
+    const spor = sporPris(req, pid, 'foretrukket varenummer', førVarenr, nu ? nu.barcode : null, null);
+    res.json({ ok: true, price: r.price, reason: r.reason, reason_text: r.reason_text, ...spor });
 }));
 
 /* PUT /prices/barcode/:id  { stock_price } — ret et varenummers pris (kr pr. lager-enhed, ex moms) */
 router.put('/prices/barcode/:id', handle(async (req, res) => {
     const id = parseInt(req.params.id);
     if (!id) return res.status(400).json({ error: 'Ugyldigt varenummer-id' });
+
+    // #666: før-prisen og hvilket produkt varenummeret hører til.
+    let pid = null, varenr = null, før = null;
+    try {
+        const b = (await grocy.getProductBarcodes()).find(x => Number(x.id) === id);
+        if (b) {
+            pid = Number(b.product_id); varenr = String(b.barcode);
+            const cur = (await supplierPrices.priceForStock(grocy, pid)).candidates
+                .find(c => Number(c.id) === id);
+            før = cur ? cur.stock_price : null;
+        }
+    } catch (err) { console.warn('[stamdata] kunne ikke læse før-pris:', err.message); }
+
     try {
         const r = await supplierPrices.setBarcodeStockPrice(grocy, id, req.body ? req.body.stock_price : null);
-        res.json({ ok: true, ...r });
+        const spor = pid ? sporPris(req, pid, 'pris', før, r.stock_price, varenr ? `varenr ${varenr}` : null)
+                         : { logget: 0 };
+        res.json({ ok: true, ...r, ...spor });
     } catch (err) {
         if (err.status) return res.status(err.status).json({ error: err.message });
         throw err;

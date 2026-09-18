@@ -164,6 +164,7 @@ bon-v2/
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
 │   ├── bonDiscount.js        ← Rabatreglen ét sted: varer ja, levering/gebyrer/emballage nej (bonens total, rapporter, drift, e-conomic)
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
+│   ├── stamdataLog.js        ← Spor på stamdata-ændringer i Grocy: hvem ændrede hvad fra hvilken skærm (#666) — kun beslutninger, navne frem for id'er
 │   ├── supplierPrices.js     ← Leverandørpriser pr. varenummer — læst/skrevet i Grocy (stregkodens last_price), pris pr. lager-enhed + manuelt overslag som internt varenummer (#657)
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
@@ -8336,6 +8337,70 @@ kandidatlisten kræver at leverandøren er koblet til sit Grocy-handelssted
 (Settings → Indkøb → Leverandører). I drift er Hørkram, Inco, RR Produktion,
 Serviwet og Trykkeriet friheden koblet; Metro er ikke.
 
+### Stamdata-ændringer efterlader et spor i Bon (#666, 18. september 2026)
+
+Lageroversigtens ✎, optællingens ⋯-menu, prisfelterne og "Opret produkt" skrev
+direkte til Grocy uden en linje i Bon. Da «kål» blev sat inaktiv med
+*"Varen findes ikke mere"*, fik 13 bons `partial` — og intet i Bon sagde hvem
+eller hvornår (#645). Grocy har sin egen log, men dér kigger ingen, og den kender
+kun API-nøglen, ikke personen ved skærmen. Det er også forudsætningen for #667
+(ret enheder fra Bon): at skifte en vares lager-enhed ændrer betydningen af al
+eksisterende beholdning, og sådan en ændring skal kunne ses bagefter.
+
+**Sporet skrives i de to flaskehalse**, ikke i hver skærm: `PUT /api/grocy/products/:id`
+og `/products/:id/userfields` (`sporetSkrivning` i `routes/grocy.js`) plus de tre
+prisruter (`sporPris` i `routes/purchasing.js`: pris på et varenummer, overslag,
+foretrukket varenummer). Så er alle menneskelige redigeringer dækket, også dem der
+kommer senere, uden at hver skærm skal huske det. Reglerne bor i
+`services/stamdataLog.js`, og linjerne ligger i `changelog` med
+`entity_type = 'grocy_product'`, `entity_id` = Grocys produkt-id. **Ingen migration.**
+
+Rækkefølgen er det der gør det troværdigt:
+
+1. **"Før" læses friskt** (`getProductFresh` / `getProductUserfieldsFresh`, uden om
+   den 10 minutter gamle cache). Fejler læsningen, skrives ændringen alligevel, og
+   linjen siger *"før-værdien kunne ikke hentes"*.
+2. **Grocy skrives.** Fejler det, logges intet — en ændring der ikke skete, må ikke
+   stå i sporet.
+3. **Sporet skrives.** Fejler DET, er ændringen stadig gemt (et spor må aldrig vælte
+   det det sporer), men svaret bærer `log_error`, og skærmen siger *"— men ændringen
+   blev ikke skrevet i historikken"* (✎ Gem, "↺ Aktivér", optællingens kvittering).
+   Ellers var det #305/#319-fejlklassen igen.
+
+- **Brugeren kommer fra sessionen**, aldrig fra body (Patch D, #316): sporet er det
+  eneste der peger på et menneske.
+- **Kun beslutninger, ikke observationer.** `LastCheckedAt`/`LastCheckedUnit` skrives
+  ved hvert tjek (#613), og `hk_*`/`price_updated_at`/`supplier_price_per_kg` af
+  maskiner. Logges de, drukner sporet i støj og er lige så ulæst som Grocys eget.
+- **Kun felter der FAKTISK ændrer sig.** Grocy svarer `'1'`, klienten sender `1`;
+  uden normalisering ville hvert Gem logge "Aktiv: 1 → 1".
+- **Navne, ikke id'er**: `Standardplacering: Fryser → Hylder`, ikke `4 → 5`. Findes
+  navnet ikke, står `#id` — aldrig et gæt.
+- **Hvilken skærm** sendes som header `X-Bon-Kilde` (ASCII-nøgler — `optaelling`,
+  `lageroversigt`, `indkob`, `opret-produkt`, `varemodtagelse`, `opskrifter`,
+  `opskrift-editor`, `co2`) og står i linjens noter som *"fra optællingen"*. Kun en
+  etiket: den autoriserer intet, og ukendte værdier kasseres. `_kildeHeaders()` i
+  `shared/api.js` bærer Content-Type med, fordi `apiFetch` spreder options OVER sine
+  standard-headers.
+
+**Synligt:** ✎-dialogen for én vare har en foldet **Historik** (hentes først når den
+åbnes) via `GET /api/grocy/products/:id/historik` — felt, før → efter, tid i dansk
+tid, bruger og kilde. Ikke ved flere varer på én gang.
+
+**Ser ikke:** ændringer lavet direkte i Grocys UI, og maskinernes egne skrivninger
+(CO₂-motoren, varemodtagelsens stempling), som går uden om ruterne. De er ikke
+beslutninger et menneske har truffet.
+
+**Tests:** `npm run test:stamdata` — 13 over HTTP mod de ægte ruter (`:memory:` af de
+rigtige migrations, Grocy og prismodulet stubbet) + 21 klient-asserts (api.js'
+header, historik-rendering, den ægte ✎-gem-sti og "↺ Aktivér") + 4 nye i
+`test:run-optaelling` (116/0). **Mutations-testet: 21 mutationer, alle fanget** —
+heriblandt bruger fra body, log før skrivning, observationer logget, et fejlet spor
+der vælter gemmet, headers uden Content-Type og en historik der ikke filtrerer på
+varen (den sidste slap igennem første gang: fixturen havde kun én vare).
+Browser-verificeret mod grocytest med rigtige klik: Fryser → Hylder og tjek-interval
+7 → 14 lander i Grocy og i historikken, rullet tilbage bagefter.
+
 ---
 
 ## Næste opgave
@@ -8744,6 +8809,7 @@ GET    /api/grocy/stock                                  routes/grocy.js → gro
 GET    /api/grocy/recipes-nestings                       routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes-pos/all                        routes/grocy.js → grocyAdapter
 GET    /api/grocy/userfields                             routes/grocy.js (alle entiteters userfield-meta)
+GET    /api/grocy/products/:id/historik?limit=           routes/grocy.js (stamdata-spor pr. vare — #666)
 POST   /api/grocy/products                                routes/grocy.js (opret produkt)
 POST   /api/grocy/quantity-unit-conversions               routes/grocy.js (opret QU-konvertering)
 POST   /api/grocy/stock/:id/add                           routes/grocy.js (initial lagerbeholdning + pris)

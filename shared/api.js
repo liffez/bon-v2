@@ -468,8 +468,21 @@ function postGrocyInventory(productId, amount, bestBeforeDate, entries) {
 function postGrocyStockAdd(productId, body) {
     return apiFetch('/grocy/stock/' + productId + '/add', { method: 'POST', body: JSON.stringify(body) });
 }
-function putGrocyProductUserfields(productId, fields) {
-    return apiFetch('/grocy/products/' + productId + '/userfields', { method: 'PUT', body: JSON.stringify(fields) });
+/**
+ * Headers der fortæller serveren hvilken skærm en stamdata-ændring kom fra
+ * (#666). Kun en etiket i sporet — den autoriserer intet. Skal bære
+ * Content-Type med, for apiFetch spreder options OVER sine standard-headers.
+ */
+function _kildeHeaders(kilde) {
+    const h = { 'Content-Type': 'application/json' };
+    if (kilde) h['X-Bon-Kilde'] = kilde;
+    return h;
+}
+
+function putGrocyProductUserfields(productId, fields, kilde) {
+    return apiFetch('/grocy/products/' + productId + '/userfields', {
+        method: 'PUT', headers: _kildeHeaders(kilde), body: JSON.stringify(fields),
+    });
 }
 
 // Opret produkt + QU-konvertering + userfield-meta
@@ -1390,8 +1403,15 @@ function deleteProductBarcode(id) {
     return apiFetch('/grocy/product-barcodes/' + id, { method: 'DELETE' });
 }
 
-function putGrocyProduct(id, body) {
-    return apiFetch('/grocy/products/' + id, { method: 'PUT', body: JSON.stringify(body) });
+function putGrocyProduct(id, body, kilde) {
+    return apiFetch('/grocy/products/' + id, {
+        method: 'PUT', headers: _kildeHeaders(kilde), body: JSON.stringify(body),
+    });
+}
+
+/** Hvem ændrede hvad på varen, fra Bon (#666). Nyeste først. */
+function fetchGrocyProductHistorik(id, limit) {
+    return apiFetch('/grocy/products/' + id + '/historik' + (limit ? '?limit=' + limit : ''));
 }
 
 /* ── HOKA (Hørkram via /api/horkram — parsed data) ───── */
@@ -1442,9 +1462,9 @@ function fetchSupplierPriceOverview() { return apiFetch('/purchasing/prices/over
 function fetchSupplierPrice(productId) { return apiFetch('/purchasing/prices/product/' + productId); }
 
 /** Ret et varenummers pris — tastes pr. lager-enhed, ex moms. */
-function setBarcodeStockPrice(barcodeId, stockPrice) {
+function setBarcodeStockPrice(barcodeId, stockPrice, kilde) {
     return apiFetch('/purchasing/prices/barcode/' + barcodeId, {
-        method: 'PUT', body: JSON.stringify({ stock_price: stockPrice }),
+        method: 'PUT', headers: _kildeHeaders(kilde), body: JSON.stringify({ stock_price: stockPrice }),
     });
 }
 
@@ -1453,16 +1473,16 @@ function setBarcodeStockPrice(barcodeId, stockPrice) {
  * `recompute` genberegner kostpriserne bagefter (tager et par sekunder) —
  * bruges dér hvor man sætter overslaget FOR at få en kostpris.
  */
-function setEstimatePrice(productId, stockPrice, recompute) {
+function setEstimatePrice(productId, stockPrice, recompute, kilde) {
     return apiFetch('/purchasing/prices/product/' + productId + '/estimate', {
-        method: 'PUT', body: JSON.stringify({ stock_price: stockPrice, recompute: !!recompute }),
+        method: 'PUT', headers: _kildeHeaders(kilde), body: JSON.stringify({ stock_price: stockPrice, recompute: !!recompute }),
     });
 }
 
 /** Markér ét varenummer som foretrukket (barcodeId = null rydder). */
-function setPreferredBarcode(productId, barcodeId) {
+function setPreferredBarcode(productId, barcodeId, kilde) {
     return apiFetch('/purchasing/prices/product/' + productId + '/preferred', {
-        method: 'PUT', body: JSON.stringify({ barcode_id: barcodeId }),
+        method: 'PUT', headers: _kildeHeaders(kilde), body: JSON.stringify({ barcode_id: barcodeId }),
     });
 }
 

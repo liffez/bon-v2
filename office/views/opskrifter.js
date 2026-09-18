@@ -1004,7 +1004,7 @@ function _opsOpenEstimateEditor(td, pid, unit) {
         try {
             // Kostpriserne genberegnes i samme kald — ellers ville rækken vise
             // det nye tal mens totalen under den stod på det gamle.
-            const out = await setEstimatePrice(pid, n, true);
+            const out = await setEstimatePrice(pid, n, true, 'opskrifter');
             _opsToast(out.refresh_error
                 ? 'Overslag gemt, men kostpriserne kunne ikke genberegnes: ' + out.refresh_error
                 : 'Overslag gemt — kostpriserne er regnet om');

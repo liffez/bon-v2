@@ -2013,7 +2013,7 @@ async function _vmOpenPrisFix(index, row) {
             if (!sel.value) return;
             gem.disabled = true;
             try {
-                await setPreferredBarcode(pid, parseInt(sel.value));
+                await setPreferredBarcode(pid, parseInt(sel.value), 'varemodtagelse');
                 await _vmRefreshPris(pid);
                 _vmRenderLagerContent();
             } catch (err) {
@@ -2051,7 +2051,7 @@ async function _vmOpenPrisFix(index, row) {
         if (!isFinite(v) || v <= 0) return;
         oGem.disabled = true;
         try {
-            await setEstimatePrice(pid, v, false);
+            await setEstimatePrice(pid, v, false, 'varemodtagelse');
             await _vmRefreshPris(pid);
             _vmRenderLagerContent();
         } catch (err) {

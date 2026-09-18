@@ -906,7 +906,7 @@ async function _isProdBulkSave() {
     for (var i = 0; i < ids.length; i += CONCURRENT) {
         var chunk = ids.slice(i, i + CONCURRENT);
         var promises = chunk.map(function(pid) {
-            return putGrocyProduct(parseInt(pid), _isProdDirty[pid])
+            return putGrocyProduct(parseInt(pid), _isProdDirty[pid], 'indkob')
                 .then(function() { done++; })
                 .catch(function(err) { done++; errors.push(pid); });
         });
@@ -1666,7 +1666,7 @@ async function _isHkBcTogglePref(bcId) {
 
     try {
         // Kun ét foretrukket varenummer pr. vare — det er dét prisen tages fra (#657).
-        await setPreferredBarcode(bc.product_id, newPref ? bcId : null);
+        await setPreferredBarcode(bc.product_id, newPref ? bcId : null, 'indkob');
         _isAllBarcodes.forEach(function(b) {
             if (b.product_id !== bc.product_id) return;
             if (!b.userfields) b.userfields = {};

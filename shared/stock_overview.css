@@ -907,3 +907,21 @@
     font-variant-numeric: tabular-nums;
 }
 .so-mf-facit .mf-sum:not(:empty) + .so-mf-delta::before { content: "\00b7 "; }
+
+/* ── Historik i ✎ (#666) ─────────────────────────────────── */
+.so-edit-historik {
+    margin-top: 10px;
+    border-top: 1px solid var(--color-border, #d7d1ca);
+    padding-top: 8px;
+}
+.so-edit-historik > summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--brand-primary, #8e631f);
+    padding: 4px 0;
+}
+.so-historik-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.so-historik-row { padding: 6px 0; border-bottom: 1px dotted var(--color-border, #d7d1ca); font-size: 13px; }
+.so-historik-row:last-child { border-bottom: 0; }
+.so-historik-what { overflow-wrap: anywhere; }

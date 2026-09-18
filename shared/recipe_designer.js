@@ -1233,7 +1233,7 @@ function _rdOpenEstimate(btn) {
         var btn = box.querySelector('.rd-ing-est-save');
         if (btn) { btn.disabled = true; btn.textContent = 'Regner…'; }
         try {
-            var out = await setEstimatePrice(pid, n, true);
+            var out = await setEstimatePrice(pid, n, true, 'opskrift-editor');
             _rdShowAlert(out && out.refresh_error
                 ? 'Overslag gemt, men kostpriserne kunne ikke genberegnes'
                 : 'Overslag gemt', out && out.refresh_error ? 'error' : 'success');
