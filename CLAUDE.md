@@ -8196,6 +8196,15 @@ uden varer, og at stole på klientens faktor. Regression grøn: consume-hardenin
 120, leverandorpriser 101, last-checked 57, stock-inactive 40, grocy-hidden 34,
 run-optaelling 112.
 
+> ⚠️ **✎-dialogens Gem gemmer nu også prisen.** Pris-sektionen har sin egen
+> "Gem pris", og dialogen sin egen "Gem" nederst. Trykkede man den store,
+> svarede den **"Ingen ændringer"** — og prisen var væk når dialogen lukkede.
+> To Gem-knapper i samme boks er en fælde, og fejlen var tavs.
+> `_soCommitPendingPrice()` committer nu en ventende pris før felt-tjekket, og
+> "Ingen ændringer" gives kun når der virkelig ikke er noget. Sektionens egen
+> knap bliver: den er hurtigere når man KUN skal rette prisen. En uændret pris
+> skrives ikke til Grocy igen — en pris har en dato på sig.
+
 > ⚠️ **Fundet i første drifts-test — varekortene var usynlige.** Listen har
 > `display:none` indtil den får klassen `vm-open`, og den blev kun sat af
 > "Juster enkeltvis"-knappen. Uden en bestilling findes den knap ikke, så

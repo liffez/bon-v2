@@ -580,6 +580,104 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         eq(fl[0].find('mf-input')[0].value, 117.54, 'og lader de andre være');
     }
 
+    {
+        // ✎-dialogen har to Gem-knapper: prissektionens egen og dialogens
+        // nederst. Trykkede man den STORE, fik man "Ingen ændringer" og
+        // mistede prisen når dialogen lukkede. Meldt fra drift.
+        const gemte = [];
+        const toasts = [];
+        let lukket = false;
+        soBox._soShowToast = (m) => toasts.push(String(m));
+        soBox.setBarcodeStockPrice = async (id, n) => { gemte.push(['varenr', id, n]); sidstGemt = n; };
+        soBox.setEstimatePrice = async (pid, n) => { gemte.push(['overslag', pid, n]); };
+        // Stubben skal svare som Grocy ville EFTER en skrivning — ellers kan
+        // "uændret" aldrig indtræffe, og testen måler sin egen attrap.
+        let sidstGemt = 199.2;
+        soBox.fetchSupplierPrice = async () => ({ product_id: 9, price: sidstGemt, stock_unit: 'Kilo',
+            reason_text: 'foretrukket varenummer',
+            candidates: [{ id: 77, stock_price: sidstGemt }] });
+        soBox._soPriceMap = {};
+
+        const prisInput = lavElement('input');
+        prisInput.id = 'soPriceInput'; prisInput.setAttribute('data-barcode-id', '77');
+        const boks = lavElement('div'); boks.id = 'soEditPrice';
+        boks._soPriceData = { product_id: 9, candidates: [{ id: 77, stock_price: 199.2 }] };
+        // Sættes inde i hvert trin: en senere blok i testen overskriver
+        // getElementById, og promise-kæden kører EFTER den. Uden det målte
+        // testen en DOM der ikke længere var der, og "uændret" så ud som et
+        // svar frem for en manglende opsætning.
+        const prisDom = () => {
+            soBox.document.getElementById = (id) =>
+                id === 'soEditPrice' ? boks : (id === 'soPriceInput' ? prisInput : null);
+            soBox._soShowToast = (m) => toasts.push(String(m));
+        };
+
+        // Uændret tal skrives ikke igen — en pris har en dato på sig.
+        prisInput.value = '199,20';
+        _ventPaa = _ventPaa
+            .then(() => { prisDom(); return soBox._soCommitPendingPrice(); })
+            .then(r => {
+                eq(r, 'uændret', 'samme pris skrives ikke til Grocy igen');
+                eq(gemte.length, 0, 'og der sendes intet');
+                prisInput.value = '210,50';
+                prisDom();
+                return soBox._soCommitPendingPrice();
+            })
+            .then(r => {
+                eq(r, 'gemt', 'en RETTET pris gemmes af dialogens Gem');
+                eq(gemte[0]?.[2], 210.5, 'med det tastede tal');
+                eq(soBox._soPriceMap[9]?.price, 210.5, 'og kortet får den nye pris med det samme');
+                prisInput.value = '0';
+                prisDom();
+                return soBox._soCommitPendingPrice();
+            })
+            .then(r => {
+                eq(r, 'fejl', 'en ugyldig pris siges fra — den gemmes ikke i stilhed');
+                eq(gemte.length, 1, 'og intet nåede Grocy');
+
+                // Og så gennem den RIGTIGE Gem-knap. At hjælperen virker
+                // beviser ikke at dialogen bruger den — det var præcis fejlen:
+                // prisen blev rettet, Gem sagde "Ingen ændringer", og prisen
+                // var væk når dialogen lukkede.
+                soBox._soEditIds = [9];
+                soBox._soProductsMap[9] = { id: 9, name: 'Lufttørret Skinke', qu_id_stock: 4, userfields: {} };
+                soBox._soContainer = { querySelector: () => null };
+                soBox._soApplyFilters = () => {};
+                soBox._soCloseEdit = () => { lukket = true; };
+                toasts.length = 0; gemte.length = 0; lukket = false;
+                prisInput.value = '225,00';
+                prisDom();
+                return soBox._soSaveEdit();
+            })
+            .then(() => {
+                eq(gemte[0]?.[2], 225, 'dialogens Gem gemmer prisen');
+                ok(toasts.some(t => /Pris gemt/.test(t)), 'og siger det');
+                ok(!toasts.some(t => /Ingen ændringer/.test(t)),
+                   'den siger IKKE "Ingen ændringer" når prisen er rettet');
+                ok(lukket, 'og dialogen lukker, så man kan se kortet');
+
+                // Uden nogen ændring skal den stadig sige fra.
+                toasts.length = 0; gemte.length = 0; lukket = false;
+                prisDom();
+                return soBox._soSaveEdit();
+            })
+            .then(() => {
+                eq(gemte.length, 0, 'uden ændring skrives intet');
+                ok(toasts.some(t => /Ingen ændringer/.test(t)), 'og det siges');
+
+                // Ugyldig pris må ikke lukke dialogen med et falsk "gemt".
+                toasts.length = 0; gemte.length = 0; lukket = false;
+                prisInput.value = '-5';
+                prisDom();
+                return soBox._soSaveEdit();
+            })
+            .then(() => {
+                eq(gemte.length, 0, 'ugyldig pris skrives ikke');
+                ok(!lukket, 'og dialogen bliver åben, så man kan rette den');
+                ok(toasts.some(t => /større end 0/.test(t)), 'med en besked om hvad der er galt');
+            });
+    }
+
     // Wiring: NÅR posterne frem til serveren?
     //
     // Serverens summering er testet for sig (tests/lager_flere_enheder.test.js),
@@ -606,7 +704,21 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         soBox.document.getElementById = (id) =>
             id === 'soAdj-1' ? { value: '99' } : null;
 
-        _ventPaa = soBox._soAdjustInventory(1).then(function() {
+        // KÆDES på — ikke tildeles. Erstattede den _ventPaa, blev de tidligere
+        // asynkrone kontroller aldrig ventet på: process.exit() i
+        // opsummeringen dræbte dem, og de forsvandt UDEN at fejle.
+        const wiringDom = () => {
+            soBox.document.getElementById = (id) =>
+                id === 'soAdj-1' ? { value: '99' } : null;
+        };
+        _ventPaa = _ventPaa.then(function() {
+            wiringDom();
+            soBox._soContainer = { querySelector: () => kort };
+            soBox._soStockData = [Object.assign({}, brød)];
+            soBox._soMfPoster[1] = [{ qu_id: 13, qty: 2, factor_used: 7.68 },
+                                    { qu_id: 7, qty: 5, factor_used: 0.0081 }];
+            return soBox._soAdjustInventory(1);
+        }).then(function() {
             eq(kaldt.length, 1, 'lagerrettelsen sendes');
             eq(kaldt[0].entries?.length, 2, 'MED posterne — ellers summerer serveren aldrig');
             eq(soBox._soStockData[0].amount, 15.4005,

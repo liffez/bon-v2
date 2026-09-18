@@ -2082,6 +2082,74 @@ function _soRenderEstimateBlock(d, est, unit, editing, isEstimate) {
     return html + '</div>';
 }
 
+/**
+ * Gem en pris der står og venter i ✎-dialogen (#658).
+ *
+ * Pris-sektionen har sin egen "Gem pris"-knap, og dialogen har sin egen "Gem"
+ * nederst. To Gem-knapper i samme boks er en fælde: man retter prisen, trykker
+ * den STORE Gem — og får "Ingen ændringer", hvorefter prisen er væk når
+ * dialogen lukkes. Meldt fra drift.
+ *
+ * Derfor committer den store Gem også en ventende prisændring. Sektionens egen
+ * knap bliver: den er hurtigere når man KUN skal rette prisen.
+ *
+ * @returns {Promise<'gemt'|'uændret'|'fejl'>}
+ */
+async function _soCommitPendingPrice() {
+    var box = document.getElementById('soEditPrice');
+    if (!box || !box._soPriceData) return 'uændret';
+    var d = box._soPriceData;
+    var gemt = false;
+
+    var inp = document.getElementById('soPriceInput');
+    if (inp) {
+        var n = _soParsePrice(inp.value);
+        var bcId = parseInt(inp.getAttribute('data-barcode-id'));
+        var nu = (d.candidates || []).find(function(c) { return c.id === bcId; });
+        var før = nu && nu.stock_price != null ? Number(nu.stock_price) : null;
+        if (String(inp.value).trim() !== '' && !(n > 0)) {
+            _soShowToast('Skriv en pris større end 0', 'warn');
+            return 'fejl';
+        }
+        // Uændret tal skrives ikke til Grocy igen — en pris har en dato på sig.
+        if (n > 0 && (før === null || Math.abs(n - før) > 1e-9)) {
+            await setBarcodeStockPrice(bcId, n);
+            gemt = true;
+        }
+    }
+
+    var ei = document.getElementById('soEstimateInput');
+    if (ei) {
+        var en = _soParsePrice(ei.value);
+        var estNu = (d.candidates || []).find(function(c) { return c.is_estimate; });
+        var estFør = estNu && estNu.stock_price != null ? Number(estNu.stock_price) : null;
+        if (String(ei.value).trim() !== '' && !(en > 0)) {
+            _soShowToast('Skriv et overslag større end 0', 'warn');
+            return 'fejl';
+        }
+        if (en > 0 && (estFør === null || Math.abs(en - estFør) > 1e-9)) {
+            await setEstimatePrice(d.product_id, en);
+            gemt = true;
+        }
+    }
+
+    if (!gemt) return 'uændret';
+
+    // Kortet skal vise den nye pris med det samme.
+    try {
+        var fresh = await fetchSupplierPrice(d.product_id);
+        box._soPriceData = fresh;
+        if (_soPriceMap) {
+            _soPriceMap[d.product_id] = {
+                price: fresh.price, stock_unit: fresh.stock_unit, reason_text: fresh.reason_text,
+            };
+        }
+    } catch (err) {
+        console.warn('[lager] kunne ikke genlæse prisen:', err.message);
+    }
+    return 'gemt';
+}
+
 async function _soHandlePriceAction(el) {
     var box = document.getElementById('soEditPrice');
     if (!box || !box._soPriceData) return;
@@ -2176,10 +2244,29 @@ async function _soSaveEdit() {
     readNum('soEdit_dbb', master, 'default_best_before_days', p ? p.default_best_before_days : null);
     readNum('soEdit_hverdag', user, 'HverDag', uf.HverDag);
 
+    // En ventende prisændring hører med til "Gem". Uden det fik man
+    // "Ingen ændringer" og mistede prisen når dialogen lukkede.
+    var prisStatus = 'uændret';
+    if (!bulk) {
+        try {
+            prisStatus = await _soCommitPendingPrice();
+        } catch (err) {
+            _soShowToast('Prisen blev ikke gemt: ' + esc(err.message), 'error');
+            return;
+        }
+        if (prisStatus === 'fejl') return;   // beskeden er allerede givet
+    }
+
     var mKeys = Object.keys(master);
     var uKeys = Object.keys(user);
     if (mKeys.length === 0 && uKeys.length === 0) {
-        _soShowToast('Ingen ændringer', 'info');
+        if (prisStatus === 'gemt') {
+            _soShowToast('Pris gemt', 'success');
+            _soCloseEdit();
+            _soApplyFilters();
+        } else {
+            _soShowToast('Ingen ændringer', 'info');
+        }
         return;
     }
 
