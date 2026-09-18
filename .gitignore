@@ -21,9 +21,20 @@ playwright-report/
 
 # DB-backups + fix-logs (lokal historik — ikke kode)
 # NB: både .backup- og .bak- forekommer i praksis på serveren.
+#
+# ⚠ Mønstrene nedenfor er forankret til data/ og rammer KUN filer der ligger
+# direkte dér. En tidsstemplet undermappe — data/backup-20260820-210130/ —
+# slap igennem, og et `git add -A` på serveren pushede 16 driftsdatabaser
+# (8,75 MiB kunde-, mail- og adressedata) til GitHub 18. september 2026.
+# Derfor står de samme mønstre også UDEN sti-præfiks: et mønster uden
+# skråstreg matcher i enhver mappe, uanset hvor backup'en lander.
 data/*.backup-*
 data/*.bak-*
 data/*.pre-*
+*.db.backup-*
+*.db.bak-*
+*.db.pre-*
+data/backup-*/
 data/*-fix-log-*.json
 # scripts/merge-duplicate-bon-lines.js --apply lægger sin VACUUM INTO-backup her.
 # Utracket + uignoreret = git clean kan slette den. Det må ikke kunne ske.

@@ -108,7 +108,8 @@ for (const r of resellers) {
     `).all(...(SINCE ? [r.id, SINCE] : [r.id]));
 
     const medNavn = bons.filter(b => (b.end_customer_name || '').trim());
-    udenNavn += bons.length - medNavn.length;
+    const uden    = bons.filter(b => !(b.end_customer_name || '').trim());
+    udenNavn += uden.length;
     iAlt += medNavn.length;
 
     console.log(`\n${'═'.repeat(78)}`);
@@ -116,7 +117,13 @@ for (const r of resellers) {
     console.log(`  ${bons.length} bons · ${medNavn.length} med slutkunde · ${bons.length - medNavn.length} uden`);
     console.log('═'.repeat(78));
 
-    if (!medNavn.length) { console.log('  (ingen bons med slutkunde)'); continue; }
+    if (!medNavn.length) {
+        console.log('  (ingen bons med slutkunde)');
+        for (const b of uden)
+            console.log('     ' + String(b.bon_number).padEnd(12) +
+                        String(b.delivery_date || '—').padEnd(12) + (b.status || ''));
+        continue;
+    }
 
     console.log(`  ${'BON'.padEnd(11)}${'DATO'.padEnd(12)}${'STATUS'.padEnd(11)}${'SLUTKUNDE'.padEnd(27)}KILDE`);
     console.log('  ' + '─'.repeat(74));
@@ -152,6 +159,17 @@ for (const r of resellers) {
             const dele = [...navne.entries()].map(([n, c]) => `"${n}" ×${c}`).join('  ·  ');
             console.log(`     ${dele}`);
         }
+    }
+
+    // Bons uden slutkunde. IKKE en mangelliste: nogle formidlere oplyser aldrig
+    // hvem maden er til, og et tomt felt er da det rigtige. Listen er her fordi
+    // oplysningen typisk kommer i en mail EFTER bestillingen, og så skal man
+    // kunne se hvilke bons der stadig kan udfyldes.
+    if (uden.length) {
+        console.log(`\n  ${uden.length} uden slutkunde:`);
+        for (const b of uden)
+            console.log('     ' + String(b.bon_number).padEnd(12) +
+                        String(b.delivery_date || '—').padEnd(12) + (b.status || ''));
     }
 
     // Hvem er de, og hvor meget fylder de?

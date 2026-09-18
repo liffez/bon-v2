@@ -1568,3 +1568,22 @@ function grocyHiddenOnStockOverview(p) {
 function grocyHasNoOwnStock(p) {
     return !!p && grocyFlagOn(p.no_own_stock);
 }
+
+// ─── Formidler-mærke ─────────────────────────────────────────
+// Et firma markeret som formidler (companies.is_reseller) bestiller for andre.
+// Ligger bonen på et sådant firma UDEN at vi ved hvem maden er til, kan mærket
+// fortælle det — men det er bevidst en OPLYSNING, ikke en opgave: nogle
+// formidlere oplyser aldrig slutkunden, så feltet må gerne stå tomt for evigt.
+// Derfor ét dæmpet ord uden farve eller ikon; rød og amber er reserveret til
+// noget der skal handles på.
+//
+// Reglen bor her, fordi bon-listen og bon-draweren begge viser mærket. Skrevet
+// to steder ville de kunne skride fra hinanden, og så ville de to flader være
+// uenige om hvornår en bon mangler en slutkunde.
+//
+// Er slutkunden kendt, er mærket overflødigt: listen viser "Able → Systematic",
+// og i draweren står navnet i feltet.
+function formidlerMark(bon) {
+    if (!bon || !bon.company_is_reseller) return false;
+    return !String(bon.end_customer_name || '').trim();
+}

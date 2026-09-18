@@ -421,6 +421,7 @@ function getBon(id) {
             -- forskellen og tilbyder at hente den igen — uden de to felter
             -- side om side er den forskel usynlig.
             co.discount_percent AS company_discount_percent,
+            co.is_reseller      AS company_is_reseller,
             c.discount_percent  AS customer_discount_percent,
             pc.code   AS price_category_code,
             ev.name   AS event_name,

@@ -180,6 +180,17 @@
     opacity: .75;
 }
 
+/* Formidler-mærke ved Slutkunde. Bevidst så lille og tavst som muligt: det er
+   en oplysning om firmaet, ikke noget der kræver en handling. */
+.drawer-mark-formidler {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--color-text-dim, #888);
+    opacity: .7;
+    margin-left: 6px;
+    cursor: help;
+}
+
 .drawer-sublabel-toggleable {
     cursor: pointer;
     user-select: none;
