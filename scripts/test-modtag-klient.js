@@ -35,7 +35,9 @@ function lavElement(tag) {
         },
         appendChild(c) { this.children.push(c); c.parentEl = this; return c; },
         insertBefore(c) { this.children.unshift(c); return c; },
-        setAttribute(k, v) { this[k] = v; },
+        _attr: {},
+        setAttribute(k, v) { this._attr[k] = String(v); this[k] = v; },
+        getAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attr, k) ? this._attr[k] : null; },
         addEventListener(t, fn) { (this._lyt[t] = this._lyt[t] || []).push(fn); },
         removeEventListener() {},
         querySelector() { return null; },
@@ -317,6 +319,159 @@ console.log('\n\x1b[1m8. Varelisten er SYNLIG uden en bestilling\x1b[0m');
 
     const kort = vært.find('vm-item-card');
     eq(kort.length, 1, 'ét varekort');
+}
+
+console.log('\n\x1b[1m9. Leverandøren udledes af de medbragte varer\x1b[0m');
+{
+    // Drift 18. september: man klikkede "registrér som modtagelse" og landede
+    // på en TOM skærm — varerne vises først når en leverandør er valgt. Men vi
+    // kender dataene: varen har et varenummer, varenummeret et handelssted, og
+    // handelsstedet en leverandør.
+    eq(sandbox._vmSupplierForProducts([1]), 'Hørkram', 'ét varenummer peger på sin leverandør');
+    eq(sandbox._vmSupplierForProducts([2]), 'Inco', 'og en anden vare på sin');
+    eq(sandbox._vmSupplierForProducts([1, 2]), null,
+       'peger varerne på hver sin leverandør, gætter vi ikke');
+    eq(sandbox._vmSupplierForProducts([]), null, 'ingen varer, intet svar');
+    eq(sandbox._vmSupplierForProducts([999]), null, 'ukendt vare giver intet svar');
+
+    // Hele vejen: bar man en vare med, skal skærmen være udfyldt.
+    sandbox._vmState.items = [];
+    sandbox._vmState.supplierKey = '';
+    sandbox._vmState.supplierName = '';
+    sandbox._vmPicker = null;
+    sandbox._vmCarry = [{ pid: 1, name: 'Brød Rug', qty: 3, qu_id: 13 }];
+    sandbox._vmDom.lagerContent = lavElement('div');
+    sandbox._vmDom.noSupplierMsg = lavElement('div');
+    sandbox._vmDom.supplierSelect = lavElement('select');
+    sandbox._vmOpenWithCarry();
+
+    eq(sandbox._vmState.supplierKey, 'Hørkram', 'leverandøren vælges af sig selv');
+    eq(sandbox._vmState.items.length, 1, 'og varen står på listen');
+    eq(sandbox._vmState.items[0]?.received, 3, 'med tallet fra lageroversigten');
+    eq(sandbox._vmDom.lagerContent.style.display, 'flex', 'lager-sektionen er åben');
+}
+
+{
+    // Kan leverandøren ikke udledes, skal varerne vises ALLIGEVEL — de kom jo
+    // uanset hvad. Ellers står man med en tom skærm og aner ikke hvorfor.
+    sandbox._vmState.items = [];
+    sandbox._vmState.supplierKey = '';
+    sandbox._vmPicker = null;
+    sandbox._vmCarry = [
+        { pid: 1, name: 'Brød Rug', qty: 3, qu_id: 13 },
+        { pid: 2, name: 'Spidskål', qty: 5, qu_id: 4 },
+    ];
+    sandbox._vmDom.lagerContent = lavElement('div');
+    sandbox._vmDom.noSupplierMsg = lavElement('div');
+    sandbox._vmDom.supplierSelect = lavElement('select');
+    sandbox._vmOpenWithCarry();
+
+    eq(sandbox._vmState.supplierKey, '', 'to leverandører → ingen vælges');
+    eq(sandbox._vmState.items.length, 2, 'men begge varer vises');
+    eq(sandbox._vmDom.lagerContent.style.display, 'flex', 'lager-sektionen er åben alligevel');
+    ok(sandbox._vmDom.noSupplierMsg.textContent.indexOf('klar') >= 0,
+       'og der står hvad der mangler, ikke "vælg leverandør for at se varer"');
+}
+
+console.log('\n\x1b[1m10. Kaldes _vmOpenWithCarry overhovedet?\x1b[0m');
+{
+    // En test der kalder funktionen direkte beviser at den VIRKER, ikke at
+    // den bliver BRUGT. Uden dette tjek kunne kaldet fjernes fra init uden at
+    // én eneste assert faldt — og så lander man på en tom skærm igen.
+    const kilde = fs.readFileSync(path.join(__dirname, '..', 'shared', 'varemodtagelse.js'), 'utf8');
+    const fra = kilde.indexOf('async function initVaremodtagelse');
+    const til = kilde.indexOf('/* ── Skemaet');
+    const krop = kilde.slice(fra, til);
+    ok(fra >= 0 && til > fra, 'init-funktionen findes');
+    ok(/^\s*_vmOpenWithCarry\(\);/m.test(krop),
+       'init kalder _vmOpenWithCarry — ellers er den død kode');
+}
+
+console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
+{
+    // Egen sandkasse — stock_overview.js er en anden fil med andre globals.
+    const soBox = {
+        console, setTimeout, clearTimeout,
+        document: { getElementById: () => null, querySelector: () => null,
+                    querySelectorAll: () => [], createElement: lavElement,
+                    addEventListener() {}, body: lavElement('div') },
+        localStorage: { getItem: () => null, setItem() {} },
+        confirm: () => true, esc: (x) => String(x),
+        parseServerDate: (x) => new Date(x), isOutsideClick: () => false,
+    };
+    soBox.window = soBox; soBox.globalThis = soBox;
+    vm.createContext(soBox);
+    // De RIGTIGE filer, i samme rækkefølge som browseren loader dem.
+    vm.runInContext(læs('utils.js'), soBox, { filename: 'utils.js' });
+    vm.runInContext(læs('mangde_felter.js'), soBox, { filename: 'mangde_felter.js' });
+    vm.runInContext(læs('stock_overview.js'), soBox, { filename: 'stock_overview.js' });
+
+    soBox._soConversions = KONV;
+    soBox._soQUnitsMap = NAVNE;
+    // Enhederne slås op i produkt-kortoteket, ikke på vare-objektet: listen
+    // bygges to steder, og felterne ville kunne skride fra hinanden.
+    soBox._soProductsMap = {
+        1: { id: 1, qu_id_stock: 4, qu_id_purchase: 13, qu_id_consume: 7 },
+        2: { id: 2, qu_id_stock: 4, qu_id_purchase: 4, qu_id_consume: 4 },
+    };
+
+    const brød = { product_id: 1, name: 'Brød Rug', amount: 117.54, qu_id: 4, qu_name: 'Kilo',
+        amount_opened: 0, best_before_date: null, daysUntilExpiry: Infinity, status: 'ok',
+        min_stock_amount: 0, alt_conv: [], location_id: 1, product_group_id: 1,
+        last_checked: null, last_checked_unit: null, check_interval: null, check: null };
+    const enkelt = Object.assign({}, brød, { product_id: 2, name: 'Agurk' });
+
+    eq(soBox._soMfUnits(brød).map(u => u.name).join('/'), 'Kasse/Kilo/stk',
+       'Brød Rug kan tælles i tre enheder');
+    eq(soBox._soMfUnits(enkelt).length, 1, 'en vare med kun én enhed har kun ét felt');
+
+    const htmlFlere = soBox._soRenderCard(brød);
+    const htmlEn = soBox._soRenderCard(enkelt);
+    ok(htmlFlere.indexOf('so-mf-host') >= 0, 'flere enheder → felt-vært i panelet');
+    ok(htmlFlere.indexOf('M\u00e6ngde:') >= 0, 'og etiketten hedder Mængde, ikke Antal');
+    ok(htmlFlere.indexOf('type="hidden" class="so-adj-input"') >= 0,
+       'summen ligger stadig i so-adj-input — gemme-stien er urørt');
+    ok(htmlEn.indexOf('so-mf-host') < 0, 'én enhed → panelet er præcis som før');
+    ok(htmlEn.indexOf('Antal:') >= 0, 'med sin gamle etiket');
+    ok(htmlEn.indexOf('so-adj-btn') >= 0, 'og sine ± knapper');
+
+    // Det tastede SKAL nå gemme-stien. Sker det ikke, gemmer man det gamle
+    // tal uden at noget siger fra — man taster 2 kasser og lageret rører sig
+    // ikke. Derfor monteres felterne rigtigt her og tallet aflæses bagefter.
+    {
+        const host = lavElement('div'); host.className = 'so-mf-host';
+        const sumFelt = lavElement('input'); sumFelt.className = 'so-adj-input'; sumFelt.value = '117.54';
+        const kort = lavElement('div');
+        kort.appendChild(host); kort.appendChild(sumFelt);
+        kort.querySelector = (sel) => sel.indexOf('mf-host') >= 0 ? host
+                                   : sel.indexOf('adj-input') >= 0 ? sumFelt : null;
+        soBox._soContainer = { querySelector: () => kort };
+        soBox._soStockData = [brød];
+
+        soBox._soMountMangde(1);
+        const felter = host.children[0].children[0].children;   // .mf-wrap > .mf-row > felter
+        eq(felter.length, 3, 'tre felter monteret i panelet');
+        eq(Number(sumFelt.value), 117.54,
+           'intet tastet → varens nuværende tal står — Gem bliver "ingen ændring", ikke nulstil');
+
+        felter[0].children[0].skriv('2');    // 2 Kasse
+        felter[2].children[0].skriv('25');   // 25 stk
+        // 2 × 11 + 25 × 0,09 = 24,25. Felterne er TOMME fra start: var
+        // lager-enheden forudfyldt med 117,54, ville de to tal blive lagt TIL
+        // den i stedet for at erstatte den — og man ville gemme 141,79 kg.
+        eq(Number(sumFelt.value), 24.25, 'det tastede når gemme-stien som ÉN sum');
+        eq(soBox._soMfPoster[1]?.length, 2, 'og posterne huskes, så en re-render ikke taber dem');
+
+        felter[0].children[0].skriv('');
+        felter[2].children[0].skriv('');
+        eq(Number(sumFelt.value), 117.54, 'ryddes felterne igen, er vi tilbage ved "ingen ændring"');
+    }
+
+    // Wiring: bliver felterne rent faktisk sat i når kortet foldes ud?
+    const soKilde = fs.readFileSync(path.join(__dirname, '..', 'shared', 'stock_overview.js'), 'utf8');
+    ok(/_soMountMangde\(productId\);/.test(soKilde), 'udfoldning monterer felterne');
+    ok(/_soMountMangde\(_soCurrentExpand\)/.test(soKilde),
+       'og en re-render sætter dem i igen — ellers står panelet tomt efter en søgning');
 }
 
 console.log('\n' + '─'.repeat(50));

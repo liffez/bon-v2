@@ -35,6 +35,10 @@ var _soShopLocsMap    = {};   // shopping_location_id -> name
 var _soShopLocsArr    = [];   // raw shopping locations array
 var _soConversions    = [];   // raw quantity_unit_conversions (til salgs-/forbrugsenhed-visning)
 var _soEditIds        = [];   // product_ids under redigering (1 = enkelt, >1 = bulk)
+// #658: hvad der er tastet i mængdefelterne pr. vare. Summen ligger i
+// .so-adj-input (som gemme-stien altid har læst), men de enkelte felter kan
+// ikke udledes af en sum — så de skal huskes for at overleve en re-render.
+var _soMfPoster       = {};   // product_id -> [{qu_id, qty, factor_used}]
 var _soPriceMap       = null; // #657: product_id -> { price, stock_unit, reason_text } — fra Grocy. null = ukendt
 
 var _soFilteredData   = [];   // after filters applied
@@ -632,6 +636,9 @@ function _soCaptureEdit(container) {
 }
 
 function _soRestoreEdit(container, keep) {
+    // Værten bygges som tom HTML ved hver render; felterne skal sættes i igen,
+    // ellers står panelet uden mængdefelter efter en søgning eller et filter.
+    if (_soCurrentExpand !== null) _soMountMangde(_soCurrentExpand);
     if (!keep) return;
     var el = container.querySelector('.so-card[data-id="' + keep.id + '"] .so-adj-input');
     if (!el) return;                       // kortet blev filtreret væk — det kan brugeren se
@@ -744,14 +751,24 @@ function _soRenderCard(item) {
         (isSelected ? '&#x2713;' : '') + '</div>';
 
     // Expand panel
+    // #658: har varen flere enheder, tastes mængden i dem alle — "2 kasser og
+    // 25 stk". Summen skrives i .so-adj-input, som gemme-stien altid har læst,
+    // så intet nedstrøms ændrer sig. Har varen kun én enhed, er panelet uændret.
+    var mfUnits = _soMfUnits(item);
+    var flereEnheder = mfUnits.length > 1;
+
     var expandHtml = '<div class="so-expand-panel">' +
-        '<div class="so-expand-row">' +
-        '  <label>Antal:</label>' +
-        '  <button class="so-adj-btn" data-delta="-1" title="Minus 1">&#x25BC;</button>' +
-        '  <input type="number" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
-        '    value="' + _soRound(item.amount) + '" min="0" step="0.5">' +
-        '  <button class="so-adj-btn" data-delta="1" title="Plus 1">&#x25B2;</button>' +
-        '  <span class="so-adj-unit">' + esc(item.qu_name) + '</span>' +
+        '<div class="so-expand-row' + (flereEnheder ? ' so-expand-row-mf' : '') + '">' +
+        '  <label>' + (flereEnheder ? 'M\u00e6ngde:' : 'Antal:') + '</label>' +
+        (flereEnheder
+            ? '  <div class="so-mf-host" data-pid="' + item.product_id + '"></div>' +
+              '  <input type="hidden" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
+              '    value="' + _soRound(item.amount) + '">'
+            : '  <button class="so-adj-btn" data-delta="-1" title="Minus 1">&#x25BC;</button>' +
+              '  <input type="number" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
+              '    value="' + _soRound(item.amount) + '" min="0" step="0.5">' +
+              '  <button class="so-adj-btn" data-delta="1" title="Plus 1">&#x25B2;</button>' +
+              '  <span class="so-adj-unit">' + esc(item.qu_name) + '</span>') +
         '</div>' +
         '<div class="so-expand-actions">' +
         '  <button class="so-save-btn">Gem</button>' +
@@ -818,10 +835,70 @@ function _soToggleExpand(productId) {
     } else {
         card.classList.add('so-expanded');
         _soCurrentExpand = productId;
-        // Focus input
-        var input = card.querySelector('.so-adj-input');
-        if (input) input.focus();
+        _soMountMangde(productId);
+        // Fokus: det første synlige felt. Ved flere enheder er .so-adj-input
+        // skjult (den bærer kun summen), og et fokus dér ville ikke ses.
+        var input = card.querySelector('.mf-input') ||
+                    card.querySelector('.so-adj-input');
+        if (input) { input.focus(); if (input.select) input.select(); }
     }
+}
+
+/**
+ * Byg mængdefelterne ind i det udfoldede kort.
+ *
+ * Kaldes ved udfoldning OG efter en re-render, fordi listen bygges som HTML
+ * og værten derfor er tom igen. Posterne huskes i _soMfPoster, for de enkelte
+ * felter kan ikke udledes af summen.
+ */
+function _soMountMangde(productId) {
+    if (!window.MangdeFelter) return;
+    var card = _soContainer.querySelector('.so-card[data-id="' + productId + '"]');
+    if (!card) return;
+    var host = card.querySelector('.so-mf-host');
+    if (!host || host.getAttribute('data-mounted') === '1') return;
+
+    var item = _soStockData.find(function(i) { return i.product_id === productId; });
+    if (!item) return;
+    var sum = card.querySelector('.so-adj-input');
+
+    // Felterne starter TOMME, og det er en bevidst forskel fra ét-felts-panelet.
+    //
+    // Forudfyldte vi lager-enheden med de 117,54 kg der står nu, ville "2
+    // kasser" blive lagt TIL i stedet for at erstatte — 141,79 kg. De to tal
+    // er ikke supplerende observationer, de er konkurrerende: enten retter man
+    // tallet, eller også tæller man hvad der står. Med flere enheder er det
+    // sidste det eneste der giver mening.
+    //
+    // Tomme felter er ufarlige: så rører vi ikke summen, og .so-adj-input
+    // beholder varens nuværende beholdning. Et tryk på Gem uden at taste
+    // noget bliver derfor "Ingen ændring" — ikke "sæt lageret til 0".
+    var start = _soMfPoster[productId] || [];
+
+    var prod = _soProductsMap[productId] || {};
+    var felter = MangdeFelter.create({
+        product: {
+            id: item.product_id,
+            qu_id_stock: prod.qu_id_stock != null ? prod.qu_id_stock
+                       : (item.qu_id_stock != null ? item.qu_id_stock : item.qu_id),
+            qu_id_purchase: prod.qu_id_purchase,
+            qu_id_consume: prod.qu_id_consume,
+        },
+        conversions: _soConversions,
+        unitNames: _soQUnitsMap,
+        stockUnitName: item.qu_name,
+        entries: start,
+        onChange: function(poster, total) {
+            _soMfPoster[productId] = poster;
+            // Gemme-stien læser .so-adj-input og er uændret. Er intet tastet,
+            // står varens nuværende tal — så en tom optælling ikke nulstiller
+            // lageret.
+            if (sum) sum.value = _soRound(poster.length ? total : item.amount);
+        },
+    });
+    host.innerHTML = '';
+    host.appendChild(felter.el);
+    host.setAttribute('data-mounted', '1');
 }
 
 function _soCloseExpand(productId) {
@@ -986,6 +1063,7 @@ async function _soAdjustInventory(productId) {
         _soShowToast('Fejl: ' + esc(err.message), 'error');
     } finally {
         delete _soSaving[productId];
+        delete _soMfPoster[productId];
     }
 }
 
@@ -1089,6 +1167,14 @@ function _soNudgeModtagelse(item, diff) {
     area.appendChild(bar);
 }
 
+/**
+ * ± findes kun i ét-felts-panelet.
+ *
+ * Med flere enheder giver knapperne ikke mening: "+1" af HVAD? Et kasse-trin
+ * og et kilo-trin er ikke det samme skridt, og en knap der rammer det første
+ * felt ville flytte 7,68 kg når man troede den flyttede ét. Varens nuværende
+ * tal står på kortet lige ovenover, så man taster hvad man tæller.
+ */
 function _soAdjStep(productId, delta) {
     var input = document.getElementById('soAdj-' + productId);
     if (!input) return;
@@ -1543,6 +1629,36 @@ function _soFindFactor(productId, fromQuId, toQuId) {
 // Resolvér salgs-/forbrugsenhed for et produkt -> [{ factor, unit }].
 // Faktorer er statiske (afhænger ikke af mængden), så de kan caches på item'et
 // og ganges på den friske amount ved hver render.
+/**
+ * Hvilke enheder kan varen tælles i? (#658, §14.2)
+ *
+ * Kun enheder med en brugbar faktor til lager-enheden — et felt der ikke kan
+ * omregnes er en fælde (#358). Har varen kun én, er der intet at vælge og
+ * panelet ser ud præcis som før: 112 af 181 varer i drift.
+ */
+function _soMfUnits(item) {
+    if (!window.MangdeFelter || !item) return [];
+    // Produktet slås op i _soProductsMap frem for at kræve at vare-objektet
+    // bærer enhederne. Listen bygges NEMLIG to steder — hovedlisten har sin
+    // egen mapping, og _soItemFromProduct bruges kun af "Tilføj vare",
+    // inaktiv-listen og genaktivering. Lagde jeg felterne på begge, ville de
+    // kunne skride fra hinanden; her er der kun én kilde.
+    var p = _soProductsMap[item.product_id] || {};
+    var stock = p.qu_id_stock != null ? p.qu_id_stock
+              : (item.qu_id_stock != null ? item.qu_id_stock : item.qu_id);
+    if (stock == null) return [];
+    return MangdeFelter.unitsFor({
+        product: {
+            id: item.product_id,
+            qu_id_stock: stock,
+            qu_id_purchase: p.qu_id_purchase,
+            qu_id_consume: p.qu_id_consume,
+        },
+        conversions: _soConversions,
+        unitNames: _soQUnitsMap,
+    });
+}
+
 function _soAltConv(product) {
     if (!product) return [];
     var stockQu = product.qu_id_stock;

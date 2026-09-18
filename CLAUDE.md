@@ -8210,6 +8210,28 @@ run-optaelling 112.
 > den **lægger sammen** — retter man tre varer op, bæres alle tre med
 > (`vm_carry` er en liste). Et tilbud man ikke når at se, er intet tilbud.
 
+**Lageroversigtens justerings-panel tæller nu også i flere enheder.** Har varen
+mere end én brugbar enhed, erstattes `Antal: ▼ 117,54 ▲ Kilo` af
+`Mængde: [ ] Kasse [ ] Kilo [ ] Antal` med summen under. 112 af 181 varer har kun
+én enhed — for dem ser panelet ud præcis som før, med ± og det hele.
+
+> **Felterne starter TOMME, og det er forskellen fra ét-felts-panelet.**
+> Forudfyldte vi lager-enheden med de 117,54 kg der står nu, ville "2 kasser"
+> blive lagt TIL i stedet for at erstatte — 141,79 kg gemt i stilhed. De to tal
+> er ikke supplerende observationer, de er konkurrerende: enten retter man
+> tallet, eller også tæller man hvad der står. Tomme felter er ufarlige, for så
+> rører vi ikke summen, og `.so-adj-input` beholder varens nuværende tal — et
+> tryk på Gem uden at taste bliver "Ingen ændring", ikke "sæt lageret til 0".
+> Fanget af testen, ikke af øjet.
+>
+> **± findes kun i ét-felts-panelet.** Med flere enheder er "+1" af HVAD?
+> Et kasse-trin og et kilo-trin er ikke samme skridt.
+>
+> **Enhederne slås op i `_soProductsMap`, ikke på vare-objektet.** Listen bygges
+> to steder — hovedlisten har sin egen mapping, og `_soItemFromProduct` bruges
+> kun af "Tilføj vare", inaktiv-listen og genaktivering. Første udgave lagde
+> felterne på det ene sted og virkede derfor ikke i lageroversigten overhovedet.
+
 > ⚠️ **Én ting overlevede ikke testen første gang:** `_vmSubmitCode` læste
 > kodefeltet fra `_vmDom`. Panelet bygges om ved hver render, så referencen kunne
 > pege på et felt der ikke længere var på skærmen — brugerens tal stod ét sted og

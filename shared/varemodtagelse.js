@@ -214,6 +214,11 @@ async function initVaremodtagelse(el) {
         _vmBuildSupplierOptions(allSuppliers, _vmShoppingList);
 
         _vmBuildPage();
+
+        // #658: kom man hertil fra lageroversigten, er varerne allerede kendt.
+        // Så skal skærmen være udfyldt, ikke tom — leverandøren udledes af
+        // varernes varenumre, og varelisten bygges som ved et almindeligt valg.
+        _vmOpenWithCarry();
     } catch (err) {
         console.error('[varemodtagelse] Init fejl:', err);
 
@@ -277,6 +282,51 @@ function _vmReadCarry() {
  * Kaldes EFTER varelisten er bygget fra indkøbslisten — den erstatter
  * _vmState.items, så en vare lagt på før ville forsvinde igen.
  */
+/**
+ * Hvilken leverandør hører de medbragte varer til? (#658)
+ *
+ * Vi KENDER dataene: varen har et varenummer, varenummeret et handelssted, og
+ * handelsstedet en leverandør. At lade brugeren vælge den selv — efter at have
+ * trykket "registrér som modtagelse" på en vare vi lige har slået op — er at
+ * spørge om noget vi allerede ved.
+ *
+ * Kun når svaret er entydigt. Peger varerne på hver sin leverandør, gætter vi
+ * ikke: så er det et menneske der skal afgøre hvilken leverance det var.
+ *
+ * @returns {string|null} leverandør-nøglen, eller null
+ */
+function _vmSupplierForProducts(pids) {
+    if (!pids || !pids.length) return null;
+
+    // handelssted → leverandør-nøgle (omvendt af _vmSupplierShopLoc)
+    var afLok = {};
+    for (var navn in _vmSupplierShopLoc) {
+        if (!Object.prototype.hasOwnProperty.call(_vmSupplierShopLoc, navn)) continue;
+        var loks = _vmSupplierShopLoc[navn] || [];
+        for (var l = 0; l < loks.length; l++) {
+            // Findes handelsstedet under to navne (leverandørnavn og
+            // Grocy-navn), vinder det der står i dropdownen.
+            if (!afLok[loks[l]] || _vmSuppliers.some(function(sup) { return sup.key === navn; })) {
+                afLok[loks[l]] = navn;
+            }
+        }
+    }
+
+    var fundne = {};
+    for (var i = 0; i < pids.length; i++) {
+        for (var b = 0; b < _vmBarcodes.length; b++) {
+            var bc = _vmBarcodes[b];
+            if (String(bc.product_id) !== String(pids[i])) continue;
+            if (bc.shopping_location_id == null) continue;
+            var key = afLok[parseInt(bc.shopping_location_id)];
+            if (key) fundne[key] = true;
+        }
+    }
+
+    var navne = Object.keys(fundne);
+    return navne.length === 1 ? navne[0] : null;
+}
+
 function _vmApplyCarry() {
     if (!_vmCarry || !_vmCarry.length) return;
 
@@ -298,6 +348,39 @@ function _vmApplyCarry() {
         }
         item.fromCarry = true;
     }
+}
+
+/**
+ * Åbn skærmen med det man bar med fra lageroversigten.
+ *
+ * Kan leverandøren udledes, vælges den — og så bygges varelisten af sig selv
+ * gennem den almindelige vej. Kan den ikke, vises varerne ALLIGEVEL: de kom
+ * jo uanset hvad, og de skal ikke være usynlige fordi et felt mangler. Så
+ * står leverandør-feltet bare tilbage at udfylde.
+ */
+function _vmOpenWithCarry() {
+    if (!_vmCarry || !_vmCarry.length) return;
+
+    var pids = _vmCarry.map(function(c) { return c.pid; });
+    var key = _vmSupplierForProducts(pids);
+
+    if (key) {
+        if (_vmDom.supplierSelect) _vmDom.supplierSelect.value = key;
+        _vmOnSupplierChange(key);
+        return;
+    }
+
+    // Ingen entydig leverandør — vis varerne og sig hvad der mangler.
+    _vmApplyCarry();
+    if (!_vmState.items.length) return;
+    if (_vmDom.noSupplierMsg) {
+        _vmDom.noSupplierMsg.textContent =
+            'V\u00e6lg leverand\u00f8r ovenfor \u2014 varerne nedenfor er klar.';
+        _vmDom.noSupplierMsg.style.display = 'block';
+    }
+    if (_vmDom.lagerContent) _vmDom.lagerContent.style.display = 'flex';
+    _vmRenderLagerContent();
+    _vmUpdateBtn();
 }
 
 /* ── Skemaet ─────────────────────────────────────────────── */

@@ -862,3 +862,8 @@
     padding: 9px 14px; font-size: 14px;
 }
 .so-nudge-x:hover { background: #f5f4f2; }
+
+/* Mængde tastet i flere enheder i justerings-panelet (#658, §14.6) */
+.so-expand-row-mf { align-items: flex-start; flex-wrap: wrap; }
+.so-expand-row-mf > label { padding-top: 10px; }
+.so-mf-host { flex: 1; min-width: 0; }
