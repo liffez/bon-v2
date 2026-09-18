@@ -13,7 +13,7 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }    = require('../db/database');
-const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits, todayISO, createBon, hasDeliveryLine } = require('../db/helpers');
+const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits, todayISO, createBon, hasDeliveryLine, recalcBonTotal } = require('../db/helpers');
 const { transaction } = require('../db/compat');
 const { broadcast } = require('../shared/sse');
 
@@ -316,7 +316,9 @@ function convertToBons(req, res, q, days) {
             });
 
             recalcBonTotalUnits(db, bonId);
-            recalcTotal(db, bonId);
+            // Den nye bon er en rigtig ordre — dens total følger bonens rabatregel
+            // (varer, ikke levering/gebyrer), ikke tilbuddets.
+            recalcBonTotal(db, bonId);
             out.push({ bon_id: bonId, bon_number: bonNumber, delivery_date: day.delivery_date ?? q.delivery_date, lines: lines.length });
         }
 

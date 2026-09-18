@@ -162,6 +162,7 @@ bon-v2/
 │   ├── companyMatcher.js     ← matchCompany (CVR → EAN → e-mail → navnelighed), similarity, normalizeName
 │   ├── crmActivity.js        ← logActivity/validateActivity — ÉN kilde til at skrive en crm_activities-række
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
+│   ├── bonDiscount.js        ← Rabatreglen ét sted: varer ja, levering/gebyrer/emballage nej (bonens total, rapporter, drift, e-conomic)
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
 │   ├── supplierPrices.js     ← Leverandørpriser pr. varenummer — læst/skrevet i Grocy (stregkodens last_price), pris pr. lager-enhed + manuelt overslag som internt varenummer (#657)
 │   └── quConvert.js          ← Grocy quantity unit conversions
@@ -2529,6 +2530,38 @@ af `--familie`.
 automatiske match), læg så dubletterne sammen, sæt kundenummeret på den overlevende,
 og del til sidst paraplyen op. Gør man det omvendt, flyttes bons ind i nye rækker ved
 siden af dem der allerede findes.
+
+### Rabat: én regel for bonens total, rapporter, drift og e-conomic (18. september 2026)
+
+Ables 12,5 % kom med på e-conomic-fakturaen, men ikke i Bons egne tal. Tre
+steder regnede rabatten hver for sig:
+
+| Forbruger | Før | Nu |
+|---|---|---|
+| e-conomic-udkastet | rabat på varer, ikke levering/gebyrer/emballage | uændret |
+| `bons.total_price` (dashboard, CRM, Firma 360°, RFM) | rabat på **alt** | som e-conomic |
+| Driftsregnskab, Rapporter, Top produkter, margin, pengestrøms-analyse | **ingen rabat** (summerer varelinjer) | som e-conomic |
+
+- **`services/bonDiscount.js`** er reglen: `discountForLine` (JS, pr. linje),
+  `bonDiscountAmount` (JS, hel bon), `lineNetSQL(db, beløb)` (SQL, en linjes beløb
+  efter rabat). Undtagne kategorier = `settings.economic_no_discount_categories`
+  (migration 168). `economicInvoice.js` importerer herfra.
+- `recalcBonTotal` findes nu ét sted (`db/helpers.js`); kopien i `routes/bons.js`
+  er væk, og tilbud→bon-konverteringen bruger den i stedet for tilbuddets egen.
+  **Tilbuddets egen total (`recalcTotal` i quotes.js) er bevidst urørt** — wizarden
+  og PDF'en viser rabat på hele subtotalen, og de to må ikke skilles ad.
+- Faktureringen får `discount_amount` fra serveren i stedet for at regne
+  `line_total × pct` i browseren.
+
+**Gamle bons:** rabatten kopieres kun ved oprettelse, så bons fra før firmaet fik
+sin rabat står med 0 %. `npm run fix:staaende-rabat -- --company <id>` (dry-run;
+`--apply` tager backup) sætter satsen og regner totalen om; bons der allerede har
+en sats regnes kun om. Linjer, e-conomic og pengestrømmens beløb røres ikke.
+Idempotent. Mod driftskopien (Able): 62 bons får rabat, 3 regnes om,
+187.353 → 166.871 kr.
+
+**Tests:** `npm run test:rabat`. Mutations-testet: rabat på alt i recalc (3 fejler),
+kategori-undtagelsen fjernet i SQL (2 fejler).
 
 ### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
 

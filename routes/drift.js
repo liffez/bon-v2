@@ -28,6 +28,7 @@ const { handle, logChange, getDefaultLocationId, todayISO, bonUnitsExpr, revenue
 const { requireAuth } = require('../shared/auth');
 const { inclToExcl }  = require('../shared/moms');
 const labor           = require('../services/laborAdapter');
+const { lineNetSQL } = require('../services/bonDiscount');
 
 const ALL   = requireAuth('admin', 'office');
 
@@ -62,7 +63,7 @@ function computeDayBons(db, date, mode, location) {
                COALESCE(b.delivery_cost, 0) AS delivery_ex,
                COALESCE((SELECT SUM(${unitsExpr.contrib}) FROM bon_lines bl ${unitsExpr.join}
                           WHERE bl.bon_id = b.id AND (bl.is_accessory = 0 OR bl.is_accessory IS NULL)), 0) AS units,
-               COALESCE((SELECT SUM(bl.line_total${revenueFactorSQL('b')}) FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS revenue_incl,
+               COALESCE((SELECT SUM(${lineNetSQL(db, 'bl.line_total')}${revenueFactorSQL('b')}) FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS revenue_incl,
                CASE WHEN ${bonOwnsStockCostSql('b')} THEN
                     COALESCE((SELECT SUM(bl.quantity * bl.cost_price) FROM bon_lines bl WHERE bl.bon_id = b.id), 0)
                ELSE 0 END AS cost_ex
@@ -185,7 +186,7 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons, location = 
     const statusArgs = mode === 'realiseret' ? REALISERET_STATUS : [];
 
     const lineAgg = db.prepare(`
-        SELECT COALESCE(SUM(bl.line_total${revenueFactorSQL('b')}), 0) AS revenue_incl,
+        SELECT COALESCE(SUM(${lineNetSQL(db, 'bl.line_total')}${revenueFactorSQL('b')}), 0) AS revenue_incl,
                COALESCE(SUM(CASE WHEN ${bonOwnsStockCostSql('b')}
                                  THEN bl.quantity * bl.cost_price ELSE 0 END), 0) AS cost_ex,
                -- Det vi IKKE tæller. Et vareforbrug der bare bliver mindre uden

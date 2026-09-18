@@ -31,6 +31,7 @@ const grocyAdapter = require('../services/grocyAdapter');
 const eco = require('../services/economicAdapter');
 const economicInvoice = require('../services/economicInvoice');
 const autoFees = require('../services/autoFees');
+const { bonDiscountAmount, getNoDiscountCategories, lineNetSQL } = require('../services/bonDiscount');
 
 // ─── GET /api/invoices/queue ────────────────────────────────────────────────
 router.get('/queue', handle((req, res) => {
@@ -109,9 +110,10 @@ router.get('/queue', handle((req, res) => {
     // Lines for each pending bon
     const lineStmt = db.prepare(`
         SELECT id, product_name, quantity, unit, unit_price, line_total,
-               special_request, co2e, notes, is_accessory
+               special_request, co2e, notes, is_accessory, category
         FROM bon_lines WHERE bon_id = ? ORDER BY sort_order, id
     `);
+    const noDiscountCategories = getNoDiscountCategories(db);
 
     for (const bon of pending) {
         bon.lines = lineStmt.all(bon.id);
@@ -121,6 +123,12 @@ router.get('/queue', handle((req, res) => {
         bon.line_total = bon.lines
             .filter(l => !l.is_accessory)
             .reduce((sum, l) => sum + (l.line_total || 0), 0);
+        // Rabatbeløbet efter den fælles regel (services/bonDiscount.js): varerne,
+        // ikke levering/gebyrer/emballage — det samme e-conomic trækker.
+        bon.discount_amount = bonDiscountAmount({
+            lines: bon.lines.filter(l => !l.is_accessory),
+            percent: bon.offer_discount_percent, noDiscountCategories,
+        });
     }
 
     // Done: FAKTURERET/AFSLUTTET (optional)
@@ -141,6 +149,10 @@ router.get('/queue', handle((req, res) => {
                  WHERE bl3.bon_id = b.id
                    AND (bl3.is_accessory = 0 OR bl3.is_accessory IS NULL)
                 ) AS line_total,
+                (SELECT SUM(bl3.line_total) - SUM(${lineNetSQL(db, 'bl3.line_total', 'bl3', 'b')}) FROM bon_lines bl3
+                 WHERE bl3.bon_id = b.id
+                   AND (bl3.is_accessory = 0 OR bl3.is_accessory IS NULL)
+                ) AS discount_amount,
                 (SELECT MAX(ch.created_at) FROM changelog ch
                  WHERE ch.entity_type = 'bon' AND ch.entity_id = b.id
                    AND ch.action = 'status_change' AND ch.new_value = (SELECT CAST(sd2.id AS TEXT) FROM status_definitions sd2 WHERE sd2.code = 'FAKTURERET')
@@ -165,7 +177,7 @@ router.get('/queue', handle((req, res) => {
     // 455 kr, er ikke et afrundingsspørgsmål — det er to forskellige påstande om
     // det samme beløb.
     const invoiceableTotal = (b) =>
-        (b.line_total || 0) * (1 - (Number(b.offer_discount_percent) || 0) / 100);
+        (b.line_total || 0) - (b.discount_amount || 0);
     const pendingAmount = pending.reduce((sum, b) => sum + invoiceableTotal(b), 0);
     const eanCount = pending.filter(b => b.company_ean).length;
     // Kladder sendt til e-conomic men endnu ikke faktureret (vises overstreget i køen).
@@ -253,6 +265,7 @@ function formatBon(row) {
         } : null,
         lines:      row.lines,
         line_total: row.line_total,
+        discount_amount: row.discount_amount ?? 0,
     };
 }
 
