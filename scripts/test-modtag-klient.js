@@ -465,6 +465,18 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         felter[0].children[0].skriv('');
         felter[2].children[0].skriv('');
         eq(Number(sumFelt.value), 117.54, 'ryddes felterne igen, er vi tilbage ved "ingen ændring"');
+
+        // Små faktorer må ikke tabe mængde på vejen. _soRound afrunder til 2
+        // decimaler = 10 gram når lageret er i kilo; ét-felts-panelet afrunder
+        // ikke, så en afrunding her ville være en fejl indført med felterne.
+        soBox._soConversions = KONV.concat([{ product_id: 1, from_qu_id: 5, to_qu_id: 4, factor: 0.0081 }]);
+        soBox._soProductsMap[1].qu_id_consume = 5;   // Gram
+        delete soBox._soMfPoster[1];
+        host._attr = {}; host.children = [];          // monter forfra
+        soBox._soMountMangde(1);
+        const f2 = host.children[0].children[0].children;
+        f2[2].children[0].skriv('3');                 // 3 × 0,0081
+        eq(Number(sumFelt.value), 0.0243, 'en lille faktor afrundes ikke væk');
     }
 
     // Wiring: bliver felterne rent faktisk sat i når kortet foldes ud?

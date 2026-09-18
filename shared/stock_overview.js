@@ -893,7 +893,14 @@ function _soMountMangde(productId) {
             // Gemme-stien læser .so-adj-input og er uændret. Er intet tastet,
             // står varens nuværende tal — så en tom optælling ikke nulstiller
             // lageret.
-            if (sum) sum.value = _soRound(poster.length ? total : item.amount);
+            //
+            // IKKE _soRound: den afrunder til 2 decimaler, altså 10 gram når
+            // lageret er i kilo. Ét-felts-panelet afrunder ikke — dér taster
+            // man kilo-tallet selv — så en afrunding her ville være en fejl
+            // jeg selv indførte. En vare med en faktor i gram-størrelsen ville
+            // tabe en mærkbar del af sin mængde, tavst. stockSum() afrunder
+            // allerede ved 1e-6, som er rigeligt og ikke synligt.
+            if (sum) sum.value = poster.length ? total : item.amount;
         },
     });
     host.innerHTML = '';
