@@ -15,6 +15,7 @@ const { getDb }     = require('../db/database');
 const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql, salesPriceCategorySql, revenueFactorSQL, getNonRevenuePaymentCodes, unitCountablePredicate } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
+const { lineNetSQL } = require('../services/bonDiscount');
 
 /** Round to 2 decimals */
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
@@ -563,7 +564,7 @@ router.get('/top-products', handle(async (req, res) => {
             bl.product_name,
             MAX(COALESCE(bl.category, '')) AS category,
             SUM(bl.quantity)               AS total_enh,
-            SUM(bl.quantity * bl.unit_price) AS total_kr
+            SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}) AS total_kr
         FROM bon_lines bl
         JOIN bons b ON bl.bon_id = b.id
         JOIN status_definitions sd ON b.status_id = sd.id

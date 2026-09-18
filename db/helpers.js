@@ -985,13 +985,15 @@ function recalcBonTotalCo2e(db, bonId) {
  * Kræver at linjerne har `grocy_recipe_id` med — ellers kan et gebyr ikke skelnes
  * fra en levering, og vi falder (sikkert) tilbage til den gamle adfærd.
  */
-function findDeliveryLine(lines) {
+function findDeliveryLine(lines, db) {
     let feeIds = null;   // slås først op hvis der faktisk ER en x-Levering-linje
     return (lines || []).find(l => {
         if (l.category !== 'x-Levering') return false;
         if (l.grocy_recipe_id == null) return true;
         if (feeIds === null) {
-            try { feeIds = require('../services/autoFees').getFeeRecipeIds(); }
+            // db videregives hvis kalderen har én (standalone scripts via openDb) —
+            // ellers ville opslaget åbne app-databasen via getDb().
+            try { feeIds = require('../services/autoFees').getFeeRecipeIds(db || undefined); }
             catch { feeIds = new Set(); }
         }
         return !feeIds.has(Number(l.grocy_recipe_id));
@@ -999,19 +1001,25 @@ function findDeliveryLine(lines) {
 }
 
 /** Som findDeliveryLine, men kun ja/nej. Samme regel — ét sted. */
-function hasDeliveryLine(lines) {
-    return findDeliveryLine(lines) !== null;
+function hasDeliveryLine(lines, db) {
+    return findDeliveryLine(lines, db) !== null;
 }
 
 function recalcBonTotal(db, bonId, opts = {}) {
     const bon = db.prepare('SELECT total_price, total_with_delivery, delivery_price, offer_discount_percent FROM bons WHERE id = ?').get(bonId);
     if (!bon) return null;
     const lines = db.prepare('SELECT line_total, category, grocy_recipe_id FROM bon_lines WHERE bon_id = ?').all(bonId);
-    const hasLeveringLine = hasDeliveryLine(lines);
+    const hasLeveringLine = hasDeliveryLine(lines, db);
     const linesSum = lines.reduce((s, l) => s + (l.line_total ?? 0), 0);
     const deliveryAdd = hasLeveringLine ? 0 : (bon.delivery_price ?? 0);
     const subtotal = linesSum + deliveryAdd;
-    const discount = bon.offer_discount_percent ? subtotal * (bon.offer_discount_percent / 100) : 0;
+    // Rabatten gælder varerne, ikke levering/gebyrer/emballage — samme regel
+    // som e-conomic-udkastet (services/bonDiscount.js).
+    const { bonDiscountAmount, getNoDiscountCategories } = require('../services/bonDiscount');
+    const discount = bonDiscountAmount({
+        lines, deliveryAdd, percent: bon.offer_discount_percent,
+        noDiscountCategories: getNoDiscountCategories(db),
+    });
     const total = Math.round((subtotal - discount) * 100) / 100;
 
     db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')

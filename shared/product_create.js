@@ -146,8 +146,19 @@ function _pcProductGroupOptions() {
         }).join('');
 }
 
+function _pcConsumeUnitOptions() {
+    return '<option value="">— samme som lager —</option>' +
+        _pc.master.units.map(function(u) {
+            return '<option value="' + u.id + '">' + _pcEsc(u.name) + '</option>';
+        }).join('');
+}
+
 function _pcShoppingLocationOptions() {
-    return '<option value="">— ingen —</option>' +
+    // #658: man opretter tit en vare til en ny opskrift uden at vide hvor den
+    // skal købes. Det må aldrig blokere — men det skal være et valg man har
+    // truffet, ikke et felt man overså. Varen står bagefter på arbejdslisten
+    // "uden pris" i Indkøb → Produkter.
+    return '<option value="">— ved ikke endnu —</option>' +
         _pc.master.shoppingLocations.map(function(s) {
             return '<option value="' + s.id + '">' + _pcEsc(s.name) + '</option>';
         }).join('');
@@ -191,7 +202,15 @@ function _pcRenderForm() {
                     '</div>' +
                 '</div>' +
                 '<div class="pc-hint">Kilo for vægt-baserede varer, Stk for tællelige (fx løg, æg, hvidløg).</div>' +
+                '<div class="pc-field">' +
+                    '<label>Forbrugs-QU <span class="pc-hintspan">(valgfri)</span></label>' +
+                    '<select id="pcQuConsume">' + _pcConsumeUnitOptions() + '</select>' +
+                    '<div class="pc-hint">Enheden man tæller i til daglig — fx stk, når varen ' +
+                        'lagerf\u00f8res i kilo. Giver et ekstra felt ved optælling og varemodtagelse ' +
+                        '("2 kasser og 25 stk").</div>' +
+                '</div>' +
                 '<div id="pcQuConversion"></div>' +
+                '<div id="pcConsumeConversion"></div>' +
                 '<div id="pcWeightField"></div>' +
                 '<div class="pc-row">' +
                     '<div class="pc-field">' +
@@ -210,6 +229,8 @@ function _pcRenderForm() {
                 '<div class="pc-field">' +
                     '<label>Primær leverandør</label>' +
                     '<select id="pcShoppingLocation">' + _pcShoppingLocationOptions() + '</select>' +
+                    '<div class="pc-hint">Uden leverandør dukker varen ikke op under leverandøren ' +
+                        'ved varemodtagelse, og den får ingen pris. Kan sættes senere.</div>' +
                 '</div>' +
                 '<div class="pc-row">' +
                     '<div class="pc-field">' +
@@ -296,6 +317,7 @@ function _pcRenderForm() {
 function _pcWireEvents() {
     document.getElementById('pcQuPurchase').addEventListener('change', _pcCheckQuConversion);
     document.getElementById('pcQuStock').addEventListener('change', _pcOnStockQuChange);
+    document.getElementById('pcQuConsume').addEventListener('change', _pcCheckConsumeConversion);
     document.getElementById('pcInitialAmount').addEventListener('input', _pcUpdateAmountHint);
     document.getElementById('pcSubmitBtn').addEventListener('click', _pcSubmit);
     document.getElementById('pcName').addEventListener('input', _pcOnNameInput);
@@ -322,6 +344,7 @@ function _pcWireEvents() {
 
 function _pcOnStockQuChange() {
     _pcCheckQuConversion();
+    _pcCheckConsumeConversion();
     _pcCheckWeightField();
     _pcUpdateAmountHint();
     var sel = document.getElementById('pcQuStock');
@@ -354,6 +377,28 @@ function _pcCheckQuConversion() {
         '</div>';
     var fac = document.getElementById('pcQuFactor');
     if (fac) fac.addEventListener('input', _pcUpdateAmountHint);
+}
+
+/**
+ * Forbrugs-enheden skal have en vej til lager-enheden, ellers kan der ikke
+ * tælles i den — og så ville feltet være en fælde (#358) frem for en hjælp.
+ */
+function _pcCheckConsumeConversion() {
+    var box = document.getElementById('pcConsumeConversion');
+    if (!box) return;
+    var consumeId = _pcVal('pcQuConsume');
+    var stockId   = _pcVal('pcQuStock');
+    if (!consumeId || !stockId || consumeId === stockId) { box.innerHTML = ''; return; }
+    var cu = _pc.master.units.find(function(u) { return u.id == consumeId; });
+    var su = _pc.master.units.find(function(u) { return u.id == stockId; });
+    box.innerHTML =
+        '<div class="pc-qu-conversion">' +
+            '<strong>Forbrugs-enhed:</strong> 1 ' + _pcEsc((cu && cu.name) || '?') + ' = ' +
+            '<input type="number" id="pcConsumeFactor" min="0" step="any" placeholder="?"> ' +
+            _pcEsc((su && su.name) || '?') +
+            '<div class="pc-qu-helper">Fx hvis 1 stk frikadelle vejer 65 g og lageret er i kilo, ' +
+                'skriv <strong>0,065</strong>. Uden faktor gemmes forbrugs-enheden ikke.</div>' +
+        '</div>';
 }
 
 function _pcUpdateAmountHint() {
@@ -667,6 +712,14 @@ function _pcSubmit() {
         qu_id_stock: parseInt(quStock),
         location_id: parseInt(locationId)
     };
+    // Kun når der ER en faktor: en forbrugs-enhed uden vej til lageret ville
+    // lave et tællefelt der ikke kan omregnes.
+    var quConsume       = _pcVal('pcQuConsume');
+    var consumeFactor   = parseFloat(_pcVal('pcConsumeFactor'));
+    var brugConsume     = quConsume && quConsume !== quStock &&
+                          isFinite(consumeFactor) && consumeFactor > 0;
+    if (brugConsume) productPayload.qu_id_consume = parseInt(quConsume);
+
     if (productGroupId)     productPayload.product_group_id     = parseInt(productGroupId);
     if (shoppingLocationId) productPayload.shopping_location_id = parseInt(shoppingLocationId);
     if (minStock)           productPayload.min_stock_amount     = parseFloat(minStock);
@@ -678,6 +731,19 @@ function _pcSubmit() {
         .then(function(res) {
             productId = res && res.created_object_id;
             if (!productId) throw new Error('Produkt ikke oprettet — manglende id i svar');
+        })
+        .then(function() {
+            if (!brugConsume) return;
+            return postGrocyQuConversion({
+                product_id: productId,
+                from_qu_id: parseInt(quConsume),
+                to_qu_id: parseInt(quStock),
+                factor: consumeFactor
+            }).catch(function(e) {
+                // Samme princip som købs-konverteringen: produktet beholdes,
+                // og manglen siges højt frem for at rulle alt tilbage.
+                warnings.push('Forbrugs-enhedens omregning blev ikke oprettet: ' + e.message);
+            });
         })
         .then(function() {
             if (quPurchase === quStock) return;

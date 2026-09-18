@@ -54,6 +54,23 @@ var _vmProductStockQu = {};  // grocy product_id → qu_id_stock
 var _vmQuNames = {};         // grocy qu_id → name
 var _vmConversions = [];     // grocy quantity_unit_conversions — til forhåndstjek (#358)
 var _vmConversionsLoaded = false;  // nåede de frem? Uden dem advarer vi ikke — se _vmUnitIssue
+
+// ── Uden en bestilling (#658) ──
+//
+// Køkkenet bestiller ikke gennem Bon, så varelisten er tom langt de fleste
+// gange: 24 af 33 modtagelser havde nul varer. Det der manglede var ikke
+// et nyt flow, men en måde at få varerne PÅ listen når intet var bestilt.
+//
+// Leverandøren udpeger selv sine varer: varenumrene i Grocy bærer et
+// handelssted, og handelsstedet er koblet til leverandøren. Derfor er der
+// ingen tom søgeboks — man vælger Hørkram og ser sine 87 varer.
+var _vmProductById = {};     // grocy product_id → hele produktet (enhedsfelterne bruger det)
+var _vmBarcodes = [];        // leverandørernes varenumre
+var _vmSupplierShopLoc = {}; // leverandør-nøgle → Grocy shopping_location_id
+var _vmPrices = {};          // grocy product_id → { price, reason, reason_text, stock_unit }
+var _vmPricesLoaded = false; // kunne pris-status hentes? Ellers påstår vi intet
+var _vmPicker = null;        // åben varevælger: { query, onlySupplier }
+var _vmCarry = null;         // vare båret med fra lageroversigten (#658)
 var _vmDom = {};             // cached DOM refs
 
 // ── FVST-skemaet ──
@@ -93,6 +110,7 @@ async function initVaremodtagelse(el) {
     };
     _vmDom = {};
     _vmExtra = {};
+    _vmCarry = _vmReadCarry();
 
     try {
         // Hent current user, users, suppliers, shopping list i parallel
@@ -120,6 +138,11 @@ async function initVaremodtagelse(el) {
             // Bon v2's egen route er utilgængelig — og selv da skal formularen
             // kunne bruges. Fødevarekontrol er lovpligtig.
             fetchGoodsReceiptSchema().catch(function() { return null; }),
+            // #658: varenumrene driver kandidatlisten pr. leverandør, og
+            // pris-status siger hvilke varer der mangler et valg. Begge er
+            // pynt på en lovpligtig registrering — fejler de, fortsætter vi.
+            fetchProductBarcodes().catch(function() { return null; }),
+            fetchSupplierPriceOverview().catch(function() { return null; }),
         ]);
 
         var localStaff = results[0] || [];
@@ -135,6 +158,9 @@ async function initVaremodtagelse(el) {
         // enhed — 22 falske alarmer ved et Grocy-hik.
         _vmConversionsLoaded = Array.isArray(results[6]);
         _vmConversions = _vmConversionsLoaded ? results[6] : [];
+        _vmBarcodes = Array.isArray(results[8]) ? results[8] : [];
+        _vmPrices = (results[9] && typeof results[9] === 'object') ? results[9] : {};
+        _vmPricesLoaded = !!results[9];
 
         // Merge: lokale staff + Smartplan (filtrér duplikater på navn)
         var localNames = {};
@@ -153,9 +179,13 @@ async function initVaremodtagelse(el) {
         // Build product name + stock unit lookup
         _vmProductNames = {};
         _vmProductStockQu = {};
+        _vmProductById = {};
         for (var p = 0; p < products.length; p++) {
             _vmProductNames[products[p].id] = products[p].name;
             _vmProductStockQu[products[p].id] = products[p].qu_id_stock;
+            // Enhedsfelterne (§14.6) skal bruge qu_id_purchase og qu_id_consume,
+            // ikke kun lager-enheden.
+            if (String(products[p].active) === '1') _vmProductById[products[p].id] = products[p];
         }
 
         // Build QU name lookup
@@ -184,6 +214,11 @@ async function initVaremodtagelse(el) {
         _vmBuildSupplierOptions(allSuppliers, _vmShoppingList);
 
         _vmBuildPage();
+
+        // #658: kom man hertil fra lageroversigten, er varerne allerede kendt.
+        // Så skal skærmen være udfyldt, ikke tom — leverandøren udledes af
+        // varernes varenumre, og varelisten bygges som ved et almindeligt valg.
+        _vmOpenWithCarry();
     } catch (err) {
         console.error('[varemodtagelse] Init fejl:', err);
 
@@ -212,6 +247,140 @@ async function initVaremodtagelse(el) {
         _vmContainer.innerHTML = '';
         _vmContainer.appendChild(app);
     }
+}
+
+/**
+ * Vare båret med fra lageroversigtens "Kom der varer?" (#658).
+ *
+ * Nøglen ryddes ved læsning: en genindlæsning må ikke lægge varen på igen,
+ * og en gammel overførsel må ikke dukke op dagen efter. 30 minutter er
+ * rigeligt til at gå fra hylden til skærmen.
+ */
+function _vmReadCarry() {
+    var raw = null;
+    try {
+        raw = sessionStorage.getItem('vm_carry');
+        sessionStorage.removeItem('vm_carry');
+    } catch (err) { return null; }
+    if (!raw) return null;
+    try {
+        var c = JSON.parse(raw);
+        if (!c) return null;
+        if (c.ts && (Date.now() - c.ts) > 30 * 60 * 1000) return null;
+        // Retter man flere varer op, skal de alle med. Den enkelte form
+        // accepteres stadig, så en side der stod åben fra en tidligere version
+        // ikke taber sin overførsel.
+        var varer = Array.isArray(c.items) ? c.items : (c.pid ? [c] : []);
+        varer = varer.filter(function(v) { return v && v.pid; });
+        return varer.length ? varer : null;
+    } catch (err) { return null; }
+}
+
+/**
+ * Læg den medbragte vare på listen.
+ *
+ * Kaldes EFTER varelisten er bygget fra indkøbslisten — den erstatter
+ * _vmState.items, så en vare lagt på før ville forsvinde igen.
+ */
+/**
+ * Hvilken leverandør hører de medbragte varer til? (#658)
+ *
+ * Vi KENDER dataene: varen har et varenummer, varenummeret et handelssted, og
+ * handelsstedet en leverandør. At lade brugeren vælge den selv — efter at have
+ * trykket "registrér som modtagelse" på en vare vi lige har slået op — er at
+ * spørge om noget vi allerede ved.
+ *
+ * Kun når svaret er entydigt. Peger varerne på hver sin leverandør, gætter vi
+ * ikke: så er det et menneske der skal afgøre hvilken leverance det var.
+ *
+ * @returns {string|null} leverandør-nøglen, eller null
+ */
+function _vmSupplierForProducts(pids) {
+    if (!pids || !pids.length) return null;
+
+    // handelssted → leverandør-nøgle (omvendt af _vmSupplierShopLoc)
+    var afLok = {};
+    for (var navn in _vmSupplierShopLoc) {
+        if (!Object.prototype.hasOwnProperty.call(_vmSupplierShopLoc, navn)) continue;
+        var loks = _vmSupplierShopLoc[navn] || [];
+        for (var l = 0; l < loks.length; l++) {
+            // Findes handelsstedet under to navne (leverandørnavn og
+            // Grocy-navn), vinder det der står i dropdownen.
+            if (!afLok[loks[l]] || _vmSuppliers.some(function(sup) { return sup.key === navn; })) {
+                afLok[loks[l]] = navn;
+            }
+        }
+    }
+
+    var fundne = {};
+    for (var i = 0; i < pids.length; i++) {
+        for (var b = 0; b < _vmBarcodes.length; b++) {
+            var bc = _vmBarcodes[b];
+            if (String(bc.product_id) !== String(pids[i])) continue;
+            if (bc.shopping_location_id == null) continue;
+            var key = afLok[parseInt(bc.shopping_location_id)];
+            if (key) fundne[key] = true;
+        }
+    }
+
+    var navne = Object.keys(fundne);
+    return navne.length === 1 ? navne[0] : null;
+}
+
+function _vmApplyCarry() {
+    if (!_vmCarry || !_vmCarry.length) return;
+
+    for (var i = 0; i < _vmCarry.length; i++) {
+        var c = _vmCarry[i];
+        var pid = c.pid;
+        if (!_vmProductById[pid]) continue;   // varen findes ikke (længere) i Grocy
+        if (_vmOnList(pid)) continue;         // stod allerede på listen fra bestillingen
+        if (!_vmAddProduct(pid, null)) continue;
+
+        var item = _vmState.items[_vmState.items.length - 1];
+        // Tallet er allerede tastet én gang i lageroversigten. At taste det igen
+        // ville være præcis den friktion der fik folk til at blive dér.
+        if (c.qty > 0 && c.qu_id != null) {
+            item.qu_id = parseInt(c.qu_id);
+            item.unit = _vmQuNames[item.qu_id] || item.unit;
+            item.entries = [{ qu_id: item.qu_id, qty: c.qty }];
+            item.received = c.qty;
+        }
+        item.fromCarry = true;
+    }
+}
+
+/**
+ * Åbn skærmen med det man bar med fra lageroversigten.
+ *
+ * Kan leverandøren udledes, vælges den — og så bygges varelisten af sig selv
+ * gennem den almindelige vej. Kan den ikke, vises varerne ALLIGEVEL: de kom
+ * jo uanset hvad, og de skal ikke være usynlige fordi et felt mangler. Så
+ * står leverandør-feltet bare tilbage at udfylde.
+ */
+function _vmOpenWithCarry() {
+    if (!_vmCarry || !_vmCarry.length) return;
+
+    var pids = _vmCarry.map(function(c) { return c.pid; });
+    var key = _vmSupplierForProducts(pids);
+
+    if (key) {
+        if (_vmDom.supplierSelect) _vmDom.supplierSelect.value = key;
+        _vmOnSupplierChange(key);
+        return;
+    }
+
+    // Ingen entydig leverandør — vis varerne og sig hvad der mangler.
+    _vmApplyCarry();
+    if (!_vmState.items.length) return;
+    if (_vmDom.noSupplierMsg) {
+        _vmDom.noSupplierMsg.textContent =
+            'V\u00e6lg leverand\u00f8r ovenfor \u2014 varerne nedenfor er klar.';
+        _vmDom.noSupplierMsg.style.display = 'block';
+    }
+    if (_vmDom.lagerContent) _vmDom.lagerContent.style.display = 'flex';
+    _vmRenderLagerContent();
+    _vmUpdateBtn();
 }
 
 /* ── Skemaet ─────────────────────────────────────────────── */
@@ -310,9 +479,24 @@ function _vmBuildSupplierOptions(suppliers, shoppingList) {
     // Vis ALLE leverandører — med "N varer klar" når der er noget bestilt,
     // ellers bare navnet. På den måde kan man også modtage ad-hoc leverancer.
     _vmSuppliers = [];
+    _vmSupplierShopLoc = {};
     var seen = {};
     var withItems = [];
     var withoutItems = [];
+
+    // Et handelssted i Grocy hører til én leverandør, men en leverandør kan
+    // have flere (Inco har to handelssteder). Derfor en liste pr. navn — og
+    // den samles FØR dedupliceringen nedenfor, som ellers ville smide de
+    // ekstra rækker væk sammen med deres handelssted.
+    for (var g = 0; g < suppliers.length; g++) {
+        var gName = suppliers[g].supplier_name || '';
+        var gLoc = suppliers[g].grocy_location_id;
+        if (!gName || gLoc == null) continue;
+        if (!_vmSupplierShopLoc[gName]) _vmSupplierShopLoc[gName] = [];
+        if (_vmSupplierShopLoc[gName].indexOf(parseInt(gLoc)) < 0) {
+            _vmSupplierShopLoc[gName].push(parseInt(gLoc));
+        }
+    }
 
     for (var j = 0; j < suppliers.length; j++) {
         var s = suppliers[j];
@@ -331,6 +515,12 @@ function _vmBuildSupplierOptions(suppliers, shoppingList) {
             supplierName: name,
             grocyName: grocyName,
         };
+        // Kandidatlisten slås op på nøglen, ikke på leverandørnavnet — de er
+        // ikke altid de samme (matchKey kan være Grocy-lokationsnavnet).
+        if (matchKey !== name && _vmSupplierShopLoc[name]) {
+            _vmSupplierShopLoc[matchKey] = _vmSupplierShopLoc[name];
+        }
+
         if (count > 0) withItems.push(entry);
         else withoutItems.push(entry);
     }
@@ -624,6 +814,7 @@ function _vmOnSupplierChange(key) {
         } else {
             _vmBuildItemsFromShoppingList(key);
         }
+        _vmApplyCarry();
         _vmRenderLagerContent();
     }
 
@@ -1414,7 +1605,10 @@ function _vmRenderLagerContent() {
     // Header
     var header = document.createElement('div');
     header.className = 'vm-lager-header';
-    var metaText = _vmState.items.length > 0 ? 'Fra indk\u00f8b' : 'Ad-hoc \u2014 tilf\u00f8j varer manuelt';
+    var bestilte = _vmState.items.filter(function(it) { return (it.expected || 0) > 0; }).length;
+    var metaText = bestilte > 0
+        ? (bestilte === _vmState.items.length ? 'Fra indk\u00f8b' : 'Fra indk\u00f8b + tilf\u00f8jet')
+        : (_vmState.items.length ? 'Tilf\u00f8jet \u2014 ikke bestilt i Bon' : 'Ingen varer endnu');
     var headerName = _vmState.supplierName || 'Ny leverand\u00f8r';
     header.innerHTML = '<div><div class="vm-lager-title">' + _vmEsc(headerName) +
         ' \u2014 ' + _vmState.items.length + ' varer</div>' +
@@ -1427,15 +1621,19 @@ function _vmRenderLagerContent() {
         empty.style.cssText = 'color:#8a5a00;background:#fff6e0;border:1px solid #f0d48a;' +
             'border-radius:8px;padding:10px 12px;';
         empty.textContent = '\u26a0 Ingen varer l\u00e6gges p\u00e5 lager. Du registrerer kun ' +
-            'f\u00f8devarekontrol \u2014 husk s\u00e5 at l\u00e6gge varerne ind via lageropt\u00e6lling.';
+            'f\u00f8devarekontrollen.';
         el.appendChild(empty);
 
-        var addBtn0 = document.createElement('button');
-        addBtn0.className = 'vm-add-item-btn';
-        addBtn0.type = 'button';
-        addBtn0.textContent = '\uff0b Tilf\u00f8j vare manuelt';
-        addBtn0.addEventListener('click', _vmAddManualItem);
-        el.appendChild(addBtn0);
+        if (_vmPicker) {
+            el.appendChild(_vmBuildPicker());
+        } else {
+            var addBtn0 = document.createElement('button');
+            addBtn0.className = 'vm-add-item-btn';
+            addBtn0.type = 'button';
+            addBtn0.textContent = '\uff0b Tilf\u00f8j varer';
+            addBtn0.addEventListener('click', _vmOpenPicker);
+            el.appendChild(addBtn0);
+        }
 
         _vmDom.summaryCard = _vmBuildSummaryCard();
         el.appendChild(_vmDom.summaryCard);
@@ -1450,22 +1648,35 @@ function _vmRenderLagerContent() {
 
     var top = document.createElement('div');
     top.className = 'vm-godkend-alt-top';
-    top.innerHTML = '<div><div class="vm-godkend-alt-text">\u2713 Alt modtaget som bestilt</div>' +
-        '<div class="vm-godkend-alt-sub">Alle varer l\u00e6gges p\u00e5 lager med forventet m\u00e6ngde</div></div>';
+    // Er intet bestilt, er der ikke noget at godkende "som bestilt" — tallene
+    // er tastet i hånden, og knappen ville love noget den ikke gør.
+    top.innerHTML = bestilte > 0
+        ? '<div><div class="vm-godkend-alt-text">\u2713 Alt modtaget som bestilt</div>' +
+          '<div class="vm-godkend-alt-sub">Alle varer l\u00e6gges p\u00e5 lager med forventet m\u00e6ngde</div></div>'
+        : '<div><div class="vm-godkend-alt-text">' + _vmState.items.length + ' varer tilf\u00f8jet</div>' +
+          '<div class="vm-godkend-alt-sub">Tast m\u00e6ngderne nedenfor \u2014 der er ikke bestilt noget at holde dem op mod</div></div>';
 
-    var godkendBtn = document.createElement('button');
-    godkendBtn.className = 'vm-btn-godkend-alt';
-    godkendBtn.textContent = 'Godkend alt';
-    godkendBtn.addEventListener('click', _vmGodkendAlt);
-    top.appendChild(godkendBtn);
+    if (bestilte > 0) {
+        var godkendBtn = document.createElement('button');
+        godkendBtn.className = 'vm-btn-godkend-alt';
+        godkendBtn.textContent = 'Godkend alt';
+        godkendBtn.addEventListener('click', _vmGodkendAlt);
+        top.appendChild(godkendBtn);
+    }
     banner.appendChild(top);
 
-    var detailBtn = document.createElement('button');
-    detailBtn.className = 'vm-detail-toggle';
-    _vmDom.detailToggleBtn = detailBtn;
-    detailBtn.textContent = '\u25b8 Juster enkeltvis hvis noget afviger';
-    detailBtn.addEventListener('click', _vmToggleItemList);
-    banner.appendChild(detailBtn);
+    if (bestilte > 0) {
+        var detailBtn = document.createElement('button');
+        detailBtn.className = 'vm-detail-toggle';
+        _vmDom.detailToggleBtn = detailBtn;
+        detailBtn.textContent = _vmState.itemListOpen
+            ? '\u25be Skjul vareliste'
+            : '\u25b8 Juster enkeltvis hvis noget afviger';
+        detailBtn.addEventListener('click', _vmToggleItemList);
+        banner.appendChild(detailBtn);
+    } else {
+        _vmState.itemListOpen = true;
+    }
 
     el.appendChild(banner);
 
@@ -1476,32 +1687,34 @@ function _vmRenderLagerContent() {
     var issues = _vmUnitIssueItems();
     if (issues.length > 0) el.appendChild(_vmBuildUnitWarnBanner(issues));
 
-    // Item list (collapsed)
+    // Klassen SKAL følge tilstanden ved hver render.
+    //
+    // Gjorde den ikke det, var listen `display:none` selvom _vmState.itemListOpen
+    // var true — og så blev varekortene tegnet, men var usynlige. Det ramte
+    // præcis den nye vej: uden en bestilling er der ingen "Juster enkeltvis"-knap
+    // til at åbne listen, så INTET tilføjede klassen. Man kunne lægge en vare på,
+    // se tælleren gå til 1, og ikke kunne se hverken varen, mængdefelterne eller
+    // prisen. Fundet i drift 18. september.
     var list = document.createElement('div');
-    list.className = 'vm-item-list';
+    list.className = 'vm-item-list' + (_vmState.itemListOpen ? ' vm-open' : '');
     _vmDom.itemList = list;
 
     for (var i = 0; i < _vmState.items.length; i++) {
         list.appendChild(_vmBuildItemCard(i));
     }
 
-    // Add manual item button
-    var addBtn = document.createElement('button');
-    addBtn.className = 'vm-add-item-btn';
-    addBtn.type = 'button';
-    addBtn.textContent = '\uff0b Tilf\u00f8j vare manuelt';
-    addBtn.addEventListener('click', _vmAddManualItem);
-    list.appendChild(addBtn);
-
-    // Open "Opret produkt" in new tab \u2014 for varer der ikke findes i Grocy endnu
-    var createBtn = document.createElement('button');
-    createBtn.className = 'vm-add-item-btn vm-create-product-btn';
-    createBtn.type = 'button';
-    createBtn.textContent = '\uff0b Opret nyt produkt i Grocy';
-    createBtn.addEventListener('click', function() {
-        window.open('/kitchen/stock.html?tab=create', '_blank', 'noopener');
-    });
-    list.appendChild(createBtn);
+    // Én vej ind: vælgeren rummer både leverandørens varer, søgning,
+    // kodefeltet, "opret ny vare" og "notér uden lager".
+    if (_vmPicker) {
+        list.appendChild(_vmBuildPicker());
+    } else {
+        var addBtn = document.createElement('button');
+        addBtn.className = 'vm-add-item-btn';
+        addBtn.type = 'button';
+        addBtn.textContent = '\uff0b Tilf\u00f8j varer';
+        addBtn.addEventListener('click', _vmOpenPicker);
+        list.appendChild(addBtn);
+    }
 
     // Summary
     _vmDom.summaryCard = _vmBuildSummaryCard();
@@ -1644,14 +1857,247 @@ function _vmBuildUnitFix(index, issue) {
     return box;
 }
 
+/* ── Mængde ↔ poster ──────────────────────────────────────────
+ *
+ * Linjen bærer to ting der skal blive ved med at passe sammen: posterne
+ * (hvad brugeren tastede, i hvilke enheder) og `received` (ét tal i linjens
+ * egen enhed). Det sidste er dét indkøbslisten og de eksisterende tests
+ * regner med, så det må ikke skifte betydning fordi der nu kan tastes i
+ * flere felter. */
+
+/** Startværdier til felterne: gemte poster, ellers linjens eget tal. */
+function _vmItemEntries(item) {
+    if (Array.isArray(item.entries) && item.entries.length) return item.entries;
+    if ((item.received || 0) > 0 && item.qu_id != null) {
+        return [{ qu_id: parseInt(item.qu_id), qty: item.received }];
+    }
+    return [];
+}
+
+/**
+ * Skriv posterne tilbage på linjen.
+ *
+ * `received` udtrykkes i linjens EGEN enhed, ikke i lager-enhed. Ellers
+ * ville "modtaget 2 af 3 bestilte kasser" blive sammenlignet med et kilotal,
+ * og indkøbslistens rest-beregning ville skride. Ved ét felt i linjens egen
+ * enhed er tallet præcis det brugeren tastede.
+ */
+function _vmApplyEntries(item, entries, stockAmount) {
+    item.entries = entries;
+    item.stockAmount = stockAmount;
+
+    var f = null;
+    if (item.grocy_product_id != null && item.qu_id != null && window.MangdeFelter) {
+        f = MangdeFelter.factorTo(
+            _vmConversions,
+            item.grocy_product_id,
+            item.qu_id,
+            _vmProductStockQu[item.grocy_product_id]
+        );
+    }
+    var v = (f && f > 0) ? (stockAmount / f) : stockAmount;
+    item.received = Math.round(v * 1e6) / 1e6;
+}
+
+/* ── Pris-status på linjen (#658) ─────────────────────────────
+ *
+ * 13 varer i drift har flere varenumre uden et foretrukket valg, og de får
+ * derfor ingen pris. Valget er ét klik — men kun hvis nogen bliver spurgt.
+ * Her bliver de spurgt, dér hvor svaret findes: ved kassen.
+ *
+ * Linjen er aldrig et krav. Fødevarekontrollen er lovpligtig, prisen er ikke,
+ * og en manglende pris må hverken blokere eller larme. */
+
+function _vmBuildPrisRow(index) {
+    var item = _vmState.items[index];
+    if (!item || !item.grocy_product_id) return null;
+    // Kunne pris-status ikke hentes, påstår vi intet — samme regel som
+    // enheds-advarslen (#358).
+    if (!_vmPricesLoaded) return null;
+
+    var pid = item.grocy_product_id;
+    var pi = _vmPriceInfo(pid) || {};
+    var row = document.createElement('div');
+    row.className = 'vm-pris-row';
+
+    var txt = document.createElement('span');
+    txt.className = 'vm-pris-txt';
+
+    // Kom varen fra en kode, VED vi hvilket varenummer der blev leveret, og
+    // så er prisen entydig — også for en vare med flere numre.
+    var leveret = item.varenrs && item.varenrs.length === 1 ? item.varenrs[0] : null;
+
+    if (pi.price != null) {
+        txt.textContent = 'Pris ' + _vmPris(pi.price) + ' kr/' + (pi.stock_unit || '') +
+            (leveret ? ' \u00b7 varenr ' + leveret : '');
+        row.appendChild(txt);
+    } else if (leveret) {
+        txt.textContent = 'Varenr ' + leveret + ' \u2014 prisen sl\u00e5s op ved registrering';
+        row.appendChild(txt);
+    } else {
+        txt.className = 'vm-pris-txt vm-pris-mangler';
+        // Begrundelsen tilføjes kun når den siger noget nyt: reason_text for
+        // 'missing' ER "ingen pris", og "Ingen pris · ingen pris" ligner en fejl.
+        var grund = pi.reason_text && pi.reason_text !== 'ingen pris' ? pi.reason_text : '';
+        txt.textContent = 'Ingen pris' + (grund ? ' \u00b7 ' + grund : '');
+        row.appendChild(txt);
+
+        var fix = document.createElement('button');
+        fix.type = 'button';
+        fix.className = 'vm-pris-fix';
+        fix.textContent = 'S\u00e6t pris';
+        fix.addEventListener('click', function() { _vmOpenPrisFix(index, row); });
+        row.appendChild(fix);
+    }
+
+    return row;
+}
+
+function _vmPris(n) {
+    if (n == null) return '';
+    return (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
+}
+
+/** Foldes ud ved klik: vælg varenummer, eller sæt et overslag. */
+async function _vmOpenPrisFix(index, row) {
+    var item = _vmState.items[index];
+    var pid = item.grocy_product_id;
+    if (row.querySelector('.vm-pris-fixbox')) return;
+
+    var box = document.createElement('div');
+    box.className = 'vm-pris-fixbox';
+    box.textContent = 'Henter varenumre\u2026';
+    row.appendChild(box);
+
+    var data;
+    try {
+        data = await fetchSupplierPrice(pid);
+    } catch (err) {
+        box.className = 'vm-pris-fixbox vm-pris-fejl';
+        box.textContent = 'Kunne ikke hente varenumre: ' + err.message;
+        return;
+    }
+
+    box.innerHTML = '';
+    var kandidater = (data.candidates || []).filter(function(c) { return !c.is_estimate; });
+
+    if (kandidater.length > 1) {
+        var lab = document.createElement('div');
+        lab.className = 'vm-pris-fixlab';
+        lab.textContent = 'Hvilket varenummer gælder for denne vare?';
+        box.appendChild(lab);
+
+        var sel = document.createElement('select');
+        sel.className = 'vm-pris-select';
+        var tom = document.createElement('option');
+        tom.value = '';
+        tom.textContent = 'V\u00e6lg\u2026';
+        sel.appendChild(tom);
+        for (var i = 0; i < kandidater.length; i++) {
+            var c = kandidater[i];
+            var o = document.createElement('option');
+            o.value = c.id;
+            o.textContent = c.barcode + (c.stock_price != null
+                ? ' \u2014 ' + _vmPris(c.stock_price) + ' kr/' + (data.stock_unit || '')
+                : ' \u2014 ingen pris');
+            if (c.is_preferred) o.selected = true;
+            sel.appendChild(o);
+        }
+        box.appendChild(sel);
+
+        var gem = document.createElement('button');
+        gem.type = 'button';
+        gem.className = 'vm-pris-gem';
+        gem.textContent = 'Gem';
+        gem.addEventListener('click', async function() {
+            if (!sel.value) return;
+            gem.disabled = true;
+            try {
+                await setPreferredBarcode(pid, parseInt(sel.value));
+                await _vmRefreshPris(pid);
+                _vmRenderLagerContent();
+            } catch (err) {
+                gem.disabled = false;
+                box.appendChild(_vmFejlLinje(err.message));
+            }
+        });
+        box.appendChild(gem);
+    }
+
+    // Overslag: sidste udvej når varen slet ikke har et prissat varenummer.
+    // Det taber altid til en leverandørpris, så det kan ikke skygge for noget.
+    var oLab = document.createElement('div');
+    oLab.className = 'vm-pris-fixlab';
+    oLab.textContent = kandidater.length > 1
+        ? 'Eller s\u00e6t et overslag (bruges kun hvis der ikke er en leverand\u00f8rpris):'
+        : 'S\u00e6t et overslag \u2014 kr pr. ' + (data.stock_unit || 'enhed') + ', ex moms:';
+    box.appendChild(oLab);
+
+    var oInp = document.createElement('input');
+    oInp.type = 'number';
+    oInp.step = 'any';
+    oInp.min = '0';
+    oInp.className = 'vm-pris-overslag';
+    oInp.setAttribute('inputmode', 'decimal');
+    if (data.estimate_price != null) oInp.value = data.estimate_price;
+    box.appendChild(oInp);
+
+    var oGem = document.createElement('button');
+    oGem.type = 'button';
+    oGem.className = 'vm-pris-gem';
+    oGem.textContent = 'Gem overslag';
+    oGem.addEventListener('click', async function() {
+        var v = parseFloat(String(oInp.value).replace(',', '.'));
+        if (!isFinite(v) || v <= 0) return;
+        oGem.disabled = true;
+        try {
+            await setEstimatePrice(pid, v, false);
+            await _vmRefreshPris(pid);
+            _vmRenderLagerContent();
+        } catch (err) {
+            oGem.disabled = false;
+            box.appendChild(_vmFejlLinje(err.message));
+        }
+    });
+    box.appendChild(oGem);
+}
+
+function _vmFejlLinje(msg) {
+    var e = document.createElement('div');
+    e.className = 'vm-pris-fejl';
+    e.textContent = msg;
+    return e;
+}
+
+/** Hent status for ÉN vare igen — hele oversigten er for tung her. */
+async function _vmRefreshPris(pid) {
+    try {
+        var d = await fetchSupplierPrice(pid);
+        _vmPrices[pid] = {
+            price: d.price, reason: d.reason,
+            reason_text: d.reason_text, stock_unit: d.stock_unit,
+        };
+    } catch (err) {
+        console.warn('[varemodtagelse] Kunne ikke opdatere pris-status:', err.message);
+    }
+}
+
 function _vmBuildItemCard(index) {
     var item = _vmState.items[index];
     var card = document.createElement('div');
     card.className = 'vm-item-card vm-s-' + item.status;
     card.dataset.index = index;
 
+    // "Forventet" giver kun mening når noget ER bestilt. Står der 0, er
+    // linjen tastet i hånden, og en linje der siger "Forventet: 0" ligner en
+    // fejl frem for en tilføjelse.
+    var sub = (item.expected || 0) > 0
+        ? 'Forventet: ' + item.expected + ' ' + _vmEsc(item.unit)
+        : (item.fromCarry
+            ? 'Fra lageroversigten — ikke bestilt i Bon'
+            : 'Ikke bestilt i Bon');
     card.innerHTML = '<div class="vm-item-name">' + _vmEsc(item.product_name) + '</div>' +
-        '<div class="vm-item-expected">Forventet: ' + item.expected + ' ' + _vmEsc(item.unit) + '</div>';
+        '<div class="vm-item-expected">' + sub + '</div>';
 
     // #358: mangler omregningen til lager-enhed, så siges det HER — øverst på
     // kortet, før mængden tastes — med feltet der lukker hullet.
@@ -1661,80 +2107,71 @@ function _vmBuildItemCard(index) {
         card.appendChild(_vmBuildUnitFix(index, unitIssue));
     }
 
-    // Qty row
+    // ── Mængde: tastes i de enheder varen findes i (§14.6) ──────────
+    //
+    // "2 kasser brød og 25 ekstra styk" er sådan mennesker tæller. Det gamle
+    // ±-felt tvang alt ned i én enhed, og så skulle man regne i hovedet.
+    // Posteringen sker stadig altid i lager-enhed — felterne er kun form.
     var qtyRow = document.createElement('div');
     qtyRow.className = 'vm-qty-row';
 
-    qtyRow.innerHTML = '<span class="vm-qty-label">Modtaget</span>';
-
-    var ctrl = document.createElement('div');
-    ctrl.className = 'vm-qty-ctrl';
-
-    var minusBtn = document.createElement('button');
-    minusBtn.className = 'vm-qty-btn';
-    minusBtn.textContent = '\u2212';
-    minusBtn.type = 'button';
-
-    var input = document.createElement('input');
-    input.className = 'vm-qty-input';
-    input.type = 'number';
-    input.value = item.received;
-    input.min = '0';
-    input.step = 'any';
-
-    var plusBtn = document.createElement('button');
-    plusBtn.className = 'vm-qty-btn';
-    plusBtn.textContent = '+';
-    plusBtn.type = 'button';
-
-    var stepSize = item.unit === 'kg' ? 0.5 : 1;
-
-    minusBtn.addEventListener('click', (function(idx, inp, s) {
-        return function() {
-            var v = Math.max(0, Math.round((parseFloat(inp.value) || 0) - s) * 10 / 10);
-            inp.value = v;
-            _vmState.items[idx].received = v;
-            _vmUpdateSummary();
-        };
-    })(index, input, stepSize));
-
-    plusBtn.addEventListener('click', (function(idx, inp, s) {
-        return function() {
-            var v = Math.round(((parseFloat(inp.value) || 0) + s) * 10) / 10;
-            inp.value = v;
-            _vmState.items[idx].received = v;
-            _vmUpdateSummary();
-        };
-    })(index, input, stepSize));
-
-    input.addEventListener('change', (function(idx) {
-        return function() {
-            _vmState.items[idx].received = parseFloat(this.value) || 0;
-            _vmUpdateSummary();
-        };
-    })(index));
-
-    ctrl.appendChild(minusBtn);
-    ctrl.appendChild(input);
-    ctrl.appendChild(plusBtn);
-    qtyRow.appendChild(ctrl);
-
-    qtyRow.innerHTML += '<span class="vm-qty-unit">' + _vmEsc(item.unit) + '</span>';
-    // Replace last span with proper one since innerHTML clobbered it
-    var unitSpan = document.createElement('span');
-    unitSpan.className = 'vm-qty-unit';
-    unitSpan.textContent = item.unit;
-
-    // Rebuild properly
-    qtyRow.innerHTML = '';
     var ql = document.createElement('span');
     ql.className = 'vm-qty-label';
     ql.textContent = 'Modtaget';
     qtyRow.appendChild(ql);
-    qtyRow.appendChild(ctrl);
-    qtyRow.appendChild(unitSpan);
+
+    var prod = item.grocy_product_id ? _vmProductById[item.grocy_product_id] : null;
+
+    if (prod && window.MangdeFelter) {
+        var felter = MangdeFelter.create({
+            product: prod,
+            conversions: _vmConversions,
+            unitNames: _vmQuNames,
+            // Bestillingens egen enhed skal ALTID kunne tastes, også når den
+            // ikke er varens indkøbs-enhed — ellers mister en bestilt linje
+            // sit eget tal.
+            extraQuIds: item.qu_id != null ? [item.qu_id] : [],
+            focusQuId: item.qu_id,
+            stockUnitName: _vmQuNames[_vmProductStockQu[item.grocy_product_id]] || '',
+            entries: _vmItemEntries(item),
+            onChange: (function(idx) {
+                return function(entries, stockAmount) {
+                    _vmApplyEntries(_vmState.items[idx], entries, stockAmount);
+                    _vmUpdateSummary();
+                };
+            })(index),
+        });
+        qtyRow.appendChild(felter.el);
+    } else {
+        // Vare uden Grocy-produkt (noteret, lægges ikke på lager) — ét felt,
+        // fri enhed. Der er intet at omregne.
+        var plain = document.createElement('input');
+        plain.className = 'mf-input';
+        plain.type = 'number';
+        plain.min = '0';
+        plain.step = 'any';
+        plain.setAttribute('inputmode', 'decimal');
+        plain.value = item.received || '';
+        plain.addEventListener('input', (function(idx) {
+            return function() {
+                _vmState.items[idx].received = parseFloat(this.value) || 0;
+                _vmUpdateSummary();
+            };
+        })(index));
+        qtyRow.appendChild(plain);
+        var pu = document.createElement('span');
+        pu.className = 'vm-qty-unit';
+        pu.textContent = item.unit || '';
+        qtyRow.appendChild(pu);
+    }
 
     card.appendChild(qtyRow);
+
+    // Pris-status (#658 + #657). Vises hvor varen står, så et manglende valg
+    // kan tages mens man har kassen i hånden — ikke opdages i en rapport
+    // en uge senere.
+    var prisRow = _vmBuildPrisRow(index);
+    if (prisRow) card.appendChild(prisRow);
 
     // Status buttons
     var statusBtns = document.createElement('div');
@@ -1845,6 +2282,10 @@ function _vmGodkendAlt() {
     for (var i = 0; i < _vmState.items.length; i++) {
         _vmState.items[i].status = 'ok';
         _vmState.items[i].received = _vmState.items[i].expected;
+        // Posterne skal følge tallet. Lod vi dem stå, ville felterne vise
+        // det gamle og linjen bære det nye — to tal om samme mængde.
+        _vmState.items[i].entries = [];
+        _vmState.items[i].stockAmount = null;
     }
 
     // Update banner
@@ -1875,30 +2316,356 @@ function _vmToggleItemList() {
     _vmUpdateSummary();
 }
 
-/* ── Add manual item ─────────────────────────────────────── */
+/* ── Varevælger: få varerne på listen uden en bestilling (#658) ──────
+ *
+ * Man står med kasserne. Man leder ikke efter varer — man bekræfter tal.
+ * Derfor er der ingen tom søgeboks: leverandøren udpeger selv sine varer,
+ * fordi varenumrene i Grocy bærer et handelssted. Søgning er nødudgangen.
+ *
+ * Det gamle flow var tre prompt()-bokse. Det blev brugt tre gange i hele
+ * systemets levetid og gav hver gang en linje der ALDRIG nåede lageret
+ * (grocy_product_id = NULL): "Kartoffel 7 Kg", "Brød 4 enhed=7",
+ * "spidskål 2 stk" — hvor Spidskål findes i Grocy som produkt 27. Personen
+ * kunne ikke vælge den. */
 
-function _vmAddManualItem() {
-    var name = prompt('Varenavn:');
-    if (!name) return;
-    var qty = parseFloat(prompt('Antal:') || '1') || 1;
-    var unit = prompt('Enhed (fx kg, stk):') || '';
+/** Pris-status for en vare — eller null når vi ikke kunne hente den. */
+function _vmPriceInfo(pid) {
+    if (!_vmPricesLoaded) return null;
+    return _vmPrices[pid] || _vmPrices[String(pid)] || null;
+}
 
+/** Varer koblet til leverandørens handelssted(er). */
+function _vmCandidateIds(supplierKey) {
+    var locs = _vmSupplierShopLoc[supplierKey] ||
+               _vmSupplierShopLoc[_vmState.supplierName] || [];
+    if (!locs.length) return [];
+    var ids = {};
+    for (var i = 0; i < _vmBarcodes.length; i++) {
+        var b = _vmBarcodes[i];
+        if (b.shopping_location_id == null) continue;
+        if (locs.indexOf(parseInt(b.shopping_location_id)) < 0) continue;
+        if (_vmProductById[b.product_id]) ids[b.product_id] = true;
+    }
+    return Object.keys(ids);
+}
+
+function _vmOnList(pid) {
+    for (var i = 0; i < _vmState.items.length; i++) {
+        if (String(_vmState.items[i].grocy_product_id) === String(pid)) return true;
+    }
+    return false;
+}
+
+/**
+ * Slå en indtastet kode op.
+ *
+ * Vi gemmer LEVERANDØR-varenumre i Grocys stregkodefelt, men nogle varer har
+ * også en rigtig stregkode liggende som userfield. Begge prøves, så feltet
+ * virker uanset om nummeret er tastet, læst med tastaturets "Scan tekst"
+ * eller en dag scannet med kameraet (#662).
+ */
+function _vmLookupCode(code) {
+    var q = String(code == null ? '' : code).trim();
+    if (!q) return null;
+    var i, b;
+    for (i = 0; i < _vmBarcodes.length; i++) {
+        b = _vmBarcodes[i];
+        if (String(b.barcode || '').trim() === q && _vmProductById[b.product_id]) {
+            return { pid: b.product_id, varenr: String(b.barcode).trim() };
+        }
+    }
+    for (i = 0; i < _vmBarcodes.length; i++) {
+        b = _vmBarcodes[i];
+        var gtin = (b.userfields || {}).hk_gtin;
+        if (gtin && String(gtin).trim() === q && _vmProductById[b.product_id]) {
+            return { pid: b.product_id, varenr: String(b.barcode).trim() };
+        }
+    }
+    return null;
+}
+
+/** Enheden en ny linje starter i: indkøbs-enheden, ellers lager-enheden. */
+function _vmStartUnit(pid) {
+    var p = _vmProductById[pid];
+    if (!p) return null;
+    var units = window.MangdeFelter
+        ? MangdeFelter.unitsFor({ product: p, conversions: _vmConversions, unitNames: _vmQuNames })
+        : [];
+    if (units.length) return units[0].qu_id;
+    return p.qu_id_stock != null ? parseInt(p.qu_id_stock) : null;
+}
+
+/** Læg en Grocy-vare på listen. varenr = det nummer koden blev slået op på. */
+function _vmAddProduct(pid, varenr) {
+    if (!pid || _vmOnList(pid)) return false;
+    var qu = _vmStartUnit(pid);
     _vmState.items.push({
-        grocy_product_id: null,
-        product_name: name,
-        expected: qty,
-        received: qty,
-        unit: unit,
+        grocy_product_id: pid,
+        product_name: _vmProductNames[pid] || ('Produkt #' + pid),
+        expected: 0,              // intet bestilt — der er ikke noget at holde det op mod
+        received: 0,
+        entries: [],
+        unit: qu != null ? (_vmQuNames[qu] || '') : '',
+        qu_id: qu,
         status: 'ok',
         notes: '',
         slIds: [],
+        // Kom varen fra en kode, VED vi hvilket varenummer der blev leveret —
+        // og så er prisen entydig, også for varer med flere numre.
+        varenrs: varenr ? [varenr] : [],
+        adhoc: true,
+    });
+    return true;
+}
+
+function _vmOpenPicker() {
+    _vmPicker = { query: '' };
+    _vmRenderLagerContent();
+    setTimeout(function() {
+        if (_vmDom.pickerCode) _vmDom.pickerCode.focus();
+    }, 50);
+}
+
+function _vmClosePicker() {
+    _vmPicker = null;
+    _vmRenderLagerContent();
+}
+
+/** Kun til varer der ikke findes i Grocy — noteres, lægges ikke på lager. */
+function _vmAddNoteItem() {
+    var name = prompt('Varenavn (noteres kun \u2014 l\u00e6gges IKKE p\u00e5 lager):');
+    if (!name) return;
+    _vmState.items.push({
+        grocy_product_id: null,
+        product_name: name,
+        expected: 0, received: 0, entries: [],
+        unit: '', qu_id: null, status: 'ok', notes: '', slIds: [],
+        varenrs: [], adhoc: true, noteOnly: true,
+    });
+    _vmPicker = null;
+    _vmRenderLagerContent();
+    _vmUpdateSummary();
+    _vmUpdateBtn();
+}
+
+function _vmBuildPicker() {
+    var box = document.createElement('div');
+    box.className = 'vm-picker';
+
+    var head = document.createElement('div');
+    head.className = 'vm-picker-head';
+    head.innerHTML = '<span class="vm-picker-title">Tilf\u00f8j varer</span>';
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'vm-picker-x';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.title = 'Luk';
+    closeBtn.addEventListener('click', _vmClosePicker);
+    head.appendChild(closeBtn);
+    box.appendChild(head);
+
+    // Kodefelt. inputmode=numeric giver taltastatur på iPad/iPhone — og
+    // tastaturets "Scan tekst" kan læse varenummeret direkte fra følgesedlen
+    // uden at vi skal afkode noget selv. Kameraet er #662.
+    var codeRow = document.createElement('div');
+    codeRow.className = 'vm-picker-coderow';
+    var code = document.createElement('input');
+    code.type = 'text';
+    code.className = 'vm-picker-code';
+    code.setAttribute('inputmode', 'numeric');
+    code.placeholder = 'Varenummer \u2014 tast eller scan tekst';
+    code.addEventListener('keydown', function(ev) {
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        _vmSubmitCode();
+    });
+    _vmDom.pickerCode = code;
+    codeRow.appendChild(code);
+    var codeBtn = document.createElement('button');
+    codeBtn.type = 'button';
+    codeBtn.className = 'vm-picker-codebtn';
+    codeBtn.textContent = 'Find';
+    codeBtn.addEventListener('click', _vmSubmitCode);
+    codeRow.appendChild(codeBtn);
+    box.appendChild(codeRow);
+
+    var codeMsg = document.createElement('div');
+    codeMsg.className = 'vm-picker-codemsg';
+    _vmDom.pickerCodeMsg = codeMsg;
+    box.appendChild(codeMsg);
+
+    // Søgning
+    var search = document.createElement('input');
+    search.type = 'text';
+    search.className = 'vm-picker-search';
+    search.placeholder = 'S\u00f8g vare...';
+    search.value = _vmPicker.query;
+    search.addEventListener('input', function() {
+        _vmPicker.query = this.value;
+        _vmRenderPickerList();
+    });
+    _vmDom.pickerSearch = search;
+    box.appendChild(search);
+
+    var list = document.createElement('div');
+    list.className = 'vm-picker-list';
+    _vmDom.pickerList = list;
+    box.appendChild(list);
+
+    var foot = document.createElement('div');
+    foot.className = 'vm-picker-foot';
+
+    var createBtn = document.createElement('button');
+    createBtn.type = 'button';
+    createBtn.className = 'vm-picker-link';
+    createBtn.textContent = '\uff0b Opret ny vare i Grocy';
+    createBtn.addEventListener('click', function() {
+        window.open('/kitchen/stock.html?tab=create', '_blank', 'noopener');
+    });
+    foot.appendChild(createBtn);
+
+    var noteBtn = document.createElement('button');
+    noteBtn.type = 'button';
+    noteBtn.className = 'vm-picker-link vm-picker-link-dim';
+    noteBtn.textContent = 'Not\u00e9r vare uden lager';
+    noteBtn.title = 'Til varer der ikke findes i Grocy. Registreres p\u00e5 modtagelsen, men l\u00e6gges ikke p\u00e5 lager.';
+    noteBtn.addEventListener('click', _vmAddNoteItem);
+    foot.appendChild(noteBtn);
+
+    box.appendChild(foot);
+
+    _vmRenderPickerListInto(list);
+    return box;
+}
+
+function _vmSubmitCode() {
+    // Elementet slås op i DOM'en frem for i _vmDom: panelet bygges om ved hver
+    // render, og en gemt reference kan pege på et felt der ikke længere er på
+    // skærmen. Så ville brugerens tal stå ét sted og handleren læse et andet
+    // — tavst, som om intet var tastet.
+    var el = _vmContainer
+        ? _vmContainer.querySelector('.vm-picker-code')
+        : document.querySelector('.vm-picker-code');
+    var msg = _vmContainer
+        ? _vmContainer.querySelector('.vm-picker-codemsg')
+        : document.querySelector('.vm-picker-codemsg');
+    if (!el) return;
+    var q = el.value.trim();
+    if (!q) return;
+
+    var hit = _vmLookupCode(q);
+    if (!hit) {
+        // Vi gætter ALDRIG på en vare ud fra en ukendt kode, og vi skriver
+        // ikke koden ind i Grocy: stregkodefeltet bruges til varenumre, og
+        // en fremmed kode derinde ville forurene leverandør-listerne.
+        if (msg) {
+            msg.className = 'vm-picker-codemsg vm-picker-codemsg-warn';
+            msg.textContent = '\u26a0 Ukendt nummer \u2014 s\u00f8g varen frem nedenfor.';
+        }
+        if (_vmDom.pickerSearch) _vmDom.pickerSearch.focus();
+        return;
+    }
+    if (_vmOnList(hit.pid)) {
+        if (msg) {
+            msg.className = 'vm-picker-codemsg';
+            msg.textContent = (_vmProductNames[hit.pid] || '') + ' st\u00e5r allerede p\u00e5 listen.';
+        }
+        el.value = '';
+        return;
+    }
+    _vmAddProduct(hit.pid, hit.varenr);
+    el.value = '';
+    _vmRenderLagerContent();
+    _vmUpdateSummary();
+    _vmUpdateBtn();
+}
+
+function _vmRenderPickerList() {
+    if (_vmDom.pickerList) _vmRenderPickerListInto(_vmDom.pickerList);
+}
+
+function _vmRenderPickerListInto(list) {
+    list.innerHTML = '';
+    var q = (_vmPicker && _vmPicker.query ? _vmPicker.query : '').trim().toLowerCase();
+
+    var cands = _vmCandidateIds(_vmState.supplierKey);
+    var candSet = {};
+    for (var c = 0; c < cands.length; c++) candSet[cands[c]] = true;
+
+    // Leverandørens egne varer først. Uden søgning vises KUN dem — det er
+    // dem der plejer at komme, og en liste over alle 181 varer er ikke et
+    // svar på "hvad kom der i dag".
+    var ids = Object.keys(_vmProductById).filter(function(pid) {
+        if (_vmOnList(pid)) return false;
+        var navn = (_vmProductNames[pid] || '').toLowerCase();
+        if (q) return navn.indexOf(q) >= 0;
+        return !!candSet[pid];
     });
 
-    _vmRenderLagerContent();
-    _vmDom.itemList.classList.add('vm-open');
-    _vmState.itemListOpen = true;
-    if (_vmDom.detailToggleBtn) _vmDom.detailToggleBtn.textContent = '\u25be Skjul vareliste';
-    _vmUpdateSummary();
+    ids.sort(function(a, b) {
+        var ca = candSet[a] ? 0 : 1, cb = candSet[b] ? 0 : 1;
+        if (ca !== cb) return ca - cb;
+        return (_vmProductNames[a] || '').localeCompare(_vmProductNames[b] || '', 'da');
+    });
+
+    if (!ids.length) {
+        var empty = document.createElement('div');
+        empty.className = 'vm-picker-empty';
+        empty.textContent = q
+            ? 'Ingen varer matcher \u201c' + q + '\u201d.'
+            : (cands.length
+                ? 'Alle leverand\u00f8rens varer er allerede p\u00e5 listen.'
+                : 'Denne leverand\u00f8r har ingen koblede varenumre endnu \u2014 s\u00f8g varen frem.');
+        list.appendChild(empty);
+        return;
+    }
+
+    var vist = ids.slice(0, 80);
+    for (var i = 0; i < vist.length; i++) {
+        (function(pid) {
+            var row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'vm-picker-item';
+
+            var name = document.createElement('span');
+            name.className = 'vm-picker-item-name';
+            name.textContent = _vmProductNames[pid] || ('#' + pid);
+            row.appendChild(name);
+
+            if (!candSet[pid]) {
+                var tag = document.createElement('span');
+                tag.className = 'vm-picker-item-tag';
+                tag.textContent = 'anden leverand\u00f8r';
+                row.appendChild(tag);
+            }
+
+            // Mangler varen en pris, siges det HER — så man kan tage stilling
+            // mens man står med kassen, i stedet for at opdage det i en rapport.
+            var pi = _vmPriceInfo(pid);
+            if (pi && pi.price == null) {
+                var warn = document.createElement('span');
+                warn.className = 'vm-picker-item-nopris';
+                warn.textContent = 'ingen pris';
+                warn.title = pi.reason_text || '';
+                row.appendChild(warn);
+            }
+
+            row.addEventListener('click', function() {
+                _vmAddProduct(pid, null);
+                _vmRenderLagerContent();
+                _vmUpdateSummary();
+                _vmUpdateBtn();
+            });
+            list.appendChild(row);
+        })(vist[i]);
+    }
+
+    if (ids.length > vist.length) {
+        var more = document.createElement('div');
+        more.className = 'vm-picker-empty';
+        more.textContent = '\u2026 og ' + (ids.length - vist.length) + ' mere \u2014 skriv mere i s\u00f8gefeltet.';
+        list.appendChild(more);
+    }
 }
 
 /* ── Bottom bar ──────────────────────────────────────────── */
@@ -1977,6 +2744,10 @@ async function _vmSubmit() {
                 received_quantity: item.received,
                 unit: item.unit,
                 qu_id: item.qu_id != null ? item.qu_id : null,   // #358 — enheden tallet står i
+                // §14.4: hvert felt som sin egen post. Serveren summerer med
+                // SINE egne omregninger — factor_used følger med som det der
+                // gjaldt på tastetidspunktet, ikke som noget serveren stoler på.
+                entries: (item.entries && item.entries.length) ? item.entries : null,
                 status: item.status,
                 notes: item.notes || null,
                 shopping_list_id: item.slIds && item.slIds.length > 0 ? item.slIds[0] : null,

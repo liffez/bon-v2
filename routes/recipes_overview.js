@@ -46,6 +46,7 @@ const { describeWarning, clampWindowDays, PRICE_WINDOW_DAYS_DEFAULT,
 const { getRecipeCostWindowDays, invalidateRecipeCostWindowCache } = require('../db/helpers');
 const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
+const { lineNetSQL } = require('../services/bonDiscount');
 
 // Alle endpoints kræver auth
 router.use(requireAuth());
@@ -173,7 +174,7 @@ router.get('/overview', handle(async (req, res) => {
     const soldRaw = db.prepare(`
         SELECT bl.grocy_recipe_id,
                SUM(bl.quantity) AS units,
-               SUM(bl.quantity * bl.unit_price) AS revenue_incl_moms
+               SUM(${lineNetSQL(db, 'bl.quantity * bl.unit_price')}) AS revenue_incl_moms
         FROM bon_lines bl
         JOIN bons b ON b.id = bl.bon_id
         JOIN status_definitions s ON s.id = b.status_id

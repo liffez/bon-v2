@@ -429,6 +429,10 @@ function _faktSelectBon(bon) {
                         // discountPercentage). Leveringen ligger ikke i
                         // `line_total`, så der er intet at forveksle.
                         const pct = Number(bon.offer_discount_percent) || 0;
+                        // Beløbet regnes af serveren efter den fælles regel:
+                        // levering, gebyrer og emballage rabatteres ikke.
+                        const discAmt = bon.discount_amount != null
+                            ? Number(bon.discount_amount) : m.total_incl_moms * pct / 100;
                         return `
                             <div class="fakt-sum-row">
                                 <span>Subtotal (ekskl. moms)</span>
@@ -440,8 +444,8 @@ function _faktSelectBon(bon) {
                             </div>
                             ${pct > 0 ? `
                             <div class="fakt-sum-row fakt-sum-row-discount">
-                                <span>Rabat ${pct.toLocaleString('da-DK', { maximumFractionDigits: 2 })} % &middot; trækkes på hver linje i e-conomic</span>
-                                <span>&minus;${_faktFmt(m.total_incl_moms * pct / 100)} kr</span>
+                                <span>Rabat ${pct.toLocaleString('da-DK', { maximumFractionDigits: 2 })} % &middot; på varerne (ikke levering/gebyrer/emballage)</span>
+                                <span>&minus;${_faktFmt(discAmt)} kr</span>
                             </div>
                             <div class="fakt-sum-row fakt-sum-row-total">
                                 <span><strong>Efter rabat (inkl. moms)</strong></span>
@@ -1183,6 +1187,7 @@ function _faktOpenBon(bonId) {
  * mens detaljepanelet ved siden af siger 455 kr — to påstande om samme beløb.
  */
 function _faktInvoiceTotal(bon) {
+    if (bon.discount_amount != null) return (bon.line_total || 0) - Number(bon.discount_amount);
     const pct = Number(bon.offer_discount_percent) || 0;
     return (bon.line_total || 0) * (1 - pct / 100);
 }
