@@ -452,20 +452,30 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         soBox._soMountMangde(1);
         const felter = host.children[0].children[0].children;   // .mf-wrap > .mf-row > felter
         eq(felter.length, 3, 'tre felter monteret i panelet');
-        eq(Number(sumFelt.value), 117.54,
-           'intet tastet → varens nuværende tal står — Gem bliver "ingen ændring", ikke nulstil');
+        eq(felter[0].children[1].textContent, 'Kilo',
+           'lager-enheden står FØRST — det er den der er forudfyldt, og den man retter');
+        eq(felter[0].children[0].value, 117.54,
+           'og den er forudfyldt med det der står nu, som ét-felts-panelet altid har været');
+        eq(Number(sumFelt.value), 117.54, 'intet tastet endnu → uændret');
 
-        felter[0].children[0].skriv('2');    // 2 Kasse
-        felter[2].children[0].skriv('25');   // 25 stk
-        // 2 × 11 + 25 × 0,09 = 24,25. Felterne er TOMME fra start: var
-        // lager-enheden forudfyldt med 117,54, ville de to tal blive lagt TIL
-        // den i stedet for at erstatte den — og man ville gemme 141,79 kg.
-        eq(Number(sumFelt.value), 24.25, 'det tastede når gemme-stien som ÉN sum');
-        eq(soBox._soMfPoster[1]?.length, 2, 'og posterne huskes, så en re-render ikke taber dem');
+        // Der kom to kasser. De LÆGGES TIL det der stod — det er sådan panelet
+        // bruges i drift (10 → 11, 117,54 → 118). Var felterne tomme, skulle
+        // man tælle hele hylden for at få et plus, og "Kom der varer?" ville
+        // aldrig fyre for netop de varer der kommer i kasser.
+        felter[1].children[0].skriv('2');
+        eq(Number(sumFelt.value), 139.54, '117,54 + 2 × 11 — leverancen lægges til');
 
+        // Skal man i stedet TÆLLE, rydder man lager-feltet.
         felter[0].children[0].skriv('');
+        eq(Number(sumFelt.value), 22, 'ryddet lager-felt → kun det talte');
+        felter[2].children[0].skriv('25');
+        eq(Number(sumFelt.value), 24.25, '2 kasser og 25 stk, talt på hylden');
+        eq(soBox._soMfPoster[1]?.length, 2, 'posterne huskes, så en re-render ikke taber dem');
+
+        felter[1].children[0].skriv('');
         felter[2].children[0].skriv('');
-        eq(Number(sumFelt.value), 117.54, 'ryddes felterne igen, er vi tilbage ved "ingen ændring"');
+        eq(Number(sumFelt.value), 117.54,
+           'ryddes ALLE felter, rører vi ikke lagertallet — et tomt panel er ikke "sæt til 0"');
 
         // Små faktorer må ikke tabe mængde på vejen. _soRound afrunder til 2
         // decimaler = 10 gram når lageret er i kilo; ét-felts-panelet afrunder
@@ -476,6 +486,7 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         host._attr = {}; host.children = [];          // monter forfra
         soBox._soMountMangde(1);
         const f2 = host.children[0].children[0].children;
+        f2[0].children[0].skriv('');                  // ryd lager-feltet: vi TÆLLER
         f2[2].children[0].skriv('3');                 // 3 × 0,0081
         eq(Number(sumFelt.value), 0.0243, 'en lille faktor afrundes ikke væk');
     }

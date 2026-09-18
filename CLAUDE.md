@@ -8215,17 +8215,26 @@ mere end én brugbar enhed, erstattes `Antal: ▼ 117,54 ▲ Kilo` af
 `Mængde: [ ] Kasse [ ] Kilo [ ] Antal` med summen under. 112 af 181 varer har kun
 én enhed — for dem ser panelet ud præcis som før, med ± og det hele.
 
-> **Felterne starter TOMME, og det er forskellen fra ét-felts-panelet.**
-> Forudfyldte vi lager-enheden med de 117,54 kg der står nu, ville "2 kasser"
-> blive lagt TIL i stedet for at erstatte — 141,79 kg gemt i stilhed. De to tal
-> er ikke supplerende observationer, de er konkurrerende: enten retter man
-> tallet, eller også tæller man hvad der står. Tomme felter er ufarlige, for så
-> rører vi ikke summen, og `.so-adj-input` beholder varens nuværende tal — et
-> tryk på Gem uden at taste bliver "Ingen ændring", ikke "sæt lageret til 0".
-> Fanget af testen, ikke af øjet.
+> **Lager-enheden er forudfyldt — og det var en omvej at nå frem til.**
+> Jeg gjorde felterne tomme først, af frygt for at "2 kasser" ville blive lagt
+> TIL de 117,54 kg i stedet for at erstatte dem. Men dét er præcis hvad man
+> vil: sådan bruges panelet i drift (`10 → 11`, `117,54 → 118`). Der kom to
+> kasser, og de skal lægges til det der stod.
 >
-> **± findes kun i ét-felts-panelet.** Med flere enheder er "+1" af HVAD?
-> Et kasse-trin og et kilo-trin er ikke samme skridt.
+> Tomme felter gjorde det omvendt: man skulle tælle HELE hylden for at få et
+> plus, og ellers gik lageret ned — så **"Kom der varer?" fyrede aldrig**,
+> netop for de varer der kommer i kasser. Meldt fra drift: *"nu er indkøbs-
+> nudgen blevet væk"*, og bekræftet med *"den kom frem ved en større ændring"*.
+> Reglen var ikke i stykker; jeg havde gjort den næsten uopnåelig.
+>
+> Skal man i stedet **tælle**, rydder man lager-feltet og skriver hvad man ser.
+> Delta-linjen viser forskellen begge veje, så valget er synligt: `+15,36 · nu 47`
+> mod `−38,12 · nu 62,36`. Ryddes ALLE felter, rører vi ikke lagertallet — et
+> tomt panel er ikke "sæt til 0".
+>
+> **± rammer lager-enheden**, som står først og er den forudfyldte. Uden det
+> ville "+1" være tvetydigt — et kasse-trin og et kilo-trin er ikke samme
+> skridt — så knappernes tooltip siger enheden.
 >
 > **SERVEREN summerer** — `POST /api/grocy/stock/:id/inventory` tager nu også
 > `entries` og regner med `resolveToStockAmount`, samme funktion som

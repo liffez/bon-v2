@@ -761,7 +761,9 @@ function _soRenderCard(item) {
         '<div class="so-expand-row' + (flereEnheder ? ' so-expand-row-mf' : '') + '">' +
         '  <label>' + (flereEnheder ? 'M\u00e6ngde:' : 'Antal:') + '</label>' +
         (flereEnheder
-            ? '  <div class="so-mf-host" data-pid="' + item.product_id + '"></div>' +
+            ? '  <button class="so-adj-btn" data-delta="-1" title="Minus 1 ' + esc(item.qu_name) + '">&#x25BC;</button>' +
+              '  <div class="so-mf-host" data-pid="' + item.product_id + '"></div>' +
+              '  <button class="so-adj-btn" data-delta="1" title="Plus 1 ' + esc(item.qu_name) + '">&#x25B2;</button>' +
               '  <span class="so-mf-delta" data-pid="' + item.product_id + '"></span>' +
               '  <input type="hidden" class="so-adj-input" id="soAdj-' + item.product_id + '"' +
               '    value="' + _soRound(item.amount) + '">'
@@ -864,18 +866,22 @@ function _soMountMangde(productId) {
     var sum = card.querySelector('.so-adj-input');
     var delta = card.querySelector('.so-mf-delta');
 
-    // Felterne starter TOMME, og det er en bevidst forskel fra ét-felts-panelet.
+    // Lager-enheden er forudfyldt med det der står nu — som ét-felts-panelet
+    // altid har været.
     //
-    // Forudfyldte vi lager-enheden med de 117,54 kg der står nu, ville "2
-    // kasser" blive lagt TIL i stedet for at erstatte — 141,79 kg. De to tal
-    // er ikke supplerende observationer, de er konkurrerende: enten retter man
-    // tallet, eller også tæller man hvad der står. Med flere enheder er det
-    // sidste det eneste der giver mening.
+    // Jeg gjorde dem først TOMME, af frygt for at "2 kasser" ville blive lagt
+    // TIL de 117,54 kg i stedet for at erstatte dem. Men dét er præcis hvad
+    // man vil: sådan bruges panelet i drift (10 → 11, 117,54 → 118). Der kom
+    // to kasser, og de skal lægges til det der stod. Tomme felter gjorde det
+    // omvendt — man skulle tælle HELE hylden for at få et plus, og ellers gik
+    // lageret ned og "Kom der varer?" fyrede aldrig. Netop for de varer der
+    // kommer i kasser.
     //
-    // Tomme felter er ufarlige: så rører vi ikke summen, og .so-adj-input
-    // beholder varens nuværende beholdning. Et tryk på Gem uden at taste
-    // noget bliver derfor "Ingen ændring" — ikke "sæt lageret til 0".
-    var start = _soMfPoster[productId] || [];
+    // Skal man i stedet TÆLLE, rydder man lager-feltet og skriver hvad man
+    // ser. Delta-linjen viser forskellen begge veje, så valget er synligt.
+    var stockQu = parseInt(prodStockQu(item));
+    var start = _soMfPoster[productId] ||
+        (item.amount > 0 ? [{ qu_id: stockQu, qty: item.amount }] : []);
 
     var prod = _soProductsMap[productId] || {};
     var felter = MangdeFelter.create({
@@ -888,6 +894,8 @@ function _soMountMangde(productId) {
         },
         conversions: _soConversions,
         unitNames: _soQUnitsMap,
+        // Lager-enheden først: det er den der er forudfyldt, og den man retter.
+        focusQuId: stockQu,
         stockUnitName: item.qu_name,
         entries: start,
         onChange: function(poster, total) {
@@ -902,6 +910,8 @@ function _soMountMangde(productId) {
             // jeg selv indførte. En vare med en faktor i gram-størrelsen ville
             // tabe en mærkbar del af sin mængde, tavst. stockSum() afrunder
             // allerede ved 1e-6, som er rigeligt og ikke synligt.
+            // Ryddes ALLE felter, er der ikke tastet en optælling — så rører
+            // vi ikke lagertallet. Ellers ville et tomt panel betyde "sæt til 0".
             if (sum) sum.value = poster.length ? total : item.amount;
 
             // Optælling SÆTTER lageret. Forskellen skal kunne ses FØR man
@@ -1198,14 +1208,21 @@ function _soNudgeModtagelse(item, diff) {
 }
 
 /**
- * ± findes kun i ét-felts-panelet.
+ * ± rammer LAGER-enheden — det første felt, og det eneste der er forudfyldt.
  *
- * Med flere enheder giver knapperne ikke mening: "+1" af HVAD? Et kasse-trin
- * og et kilo-trin er ikke det samme skridt, og en knap der rammer det første
- * felt ville flytte 7,68 kg når man troede den flyttede ét. Varens nuværende
- * tal står på kortet lige ovenover, så man taster hvad man tæller.
+ * Med flere felter ville "+1" ellers være tvetydigt: et kasse-trin og et
+ * kilo-trin er ikke samme skridt. Knappernes tooltip siger enheden, og
+ * .so-adj-input er skjult i det tilfælde, så et step dér ville flytte et tal
+ * ingen kan se.
  */
 function _soAdjStep(productId, delta) {
+    var card = _soContainer && _soContainer.querySelector('.so-card[data-id="' + productId + '"]');
+    var mf = card && card.querySelector('.mf-input');
+    if (mf) {
+        mf.value = Math.max(0, _soRound((parseFloat(mf.value) || 0) + delta));
+        mf.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
     var input = document.getElementById('soAdj-' + productId);
     if (!input) return;
     var val = parseFloat(input.value) || 0;
@@ -1666,6 +1683,13 @@ function _soFindFactor(productId, fromQuId, toQuId) {
  * omregnes er en fælde (#358). Har varen kun én, er der intet at vælge og
  * panelet ser ud præcis som før: 112 af 181 varer i drift.
  */
+/** Varens lager-enhed — fra produkt-kartoteket, med vare-objektet som reserve. */
+function prodStockQu(item) {
+    var p = _soProductsMap[item.product_id] || {};
+    return p.qu_id_stock != null ? p.qu_id_stock
+         : (item.qu_id_stock != null ? item.qu_id_stock : item.qu_id);
+}
+
 /** Tal til visning: dansk komma, højst 3 decimaler. Rører aldrig det der gemmes. */
 function _soFmtTal(n) {
     if (n === null || n === undefined || !isFinite(n)) return '';
