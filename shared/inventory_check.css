@@ -523,23 +523,80 @@
 
 .ic-qty-row {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 10px;
     flex-wrap: wrap;
-    justify-content: center;
 }
 
-.ic-qty-main {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+/* Mængdefelterne (§14.6) — ét felt pr. enhed varen kan tælles i. Enhedsnavnet
+   står OVER feltet, så tre felter står på langs i stedet for at ombryde.
+   ± er flyttet ind i felt-rækken af _icMountCount og rammer det MARKEREDE felt. */
+.ic-mf-host { flex: 1 1 260px; min-width: 0; }
+.ic-mf-host .mf-row { flex-wrap: nowrap; gap: 8px; align-items: flex-end; }
+.ic-mf-host .mf-field {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column-reverse;   /* etiket over feltet */
+    align-items: stretch;
+    gap: 2px;
+}
+.ic-mf-host .mf-input {
+    width: 100%;
+    height: 56px;
+    font-size: 22px;
+    font-weight: 700;
+    border-radius: 10px;
+}
+.ic-mf-host .mf-unit {
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ic-mf-host .mf-sum { display: none; }   /* summen står i facit-linjen */
+.ic-mf-host .ic-qty-btn { flex: 0 0 auto; }
+.ic-mf-host .mf-field.ic-mf-aktiv .mf-input {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgba(142, 99, 31, 0.22);
+}
+.ic-mf-host .mf-field.ic-mf-aktiv .mf-unit {
+    color: var(--brand-primary);
+    font-weight: 700;
 }
 
-.ic-qty-fractions {
+.ic-qty-actions {
     display: flex;
-    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.ic-qty-undo {
+    width: 56px;
+    height: 56px;
+    border: 1px solid var(--color-red);
+    background: rgba(188, 24, 27, 0.08);
+    color: var(--color-red);
+    border-radius: 10px;
+    font-size: 20px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Summen og forskellen til det forventede — én oplysning, én linje */
+.ic-mf-facit {
+    display: flex;
+    align-items: baseline;
     gap: 6px;
+    flex-wrap: wrap;
+    min-height: 18px;
+    margin-top: 6px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
 }
+.ic-mf-sum { font-weight: 700; color: var(--brand-primary); }
+.ic-mf-delta { color: var(--color-text-dim); }
+.ic-mf-sum:not(:empty) + .ic-mf-delta::before { content: "\00b7 "; }
 
 .ic-qty-btn {
     width: 56px;
@@ -556,53 +613,6 @@
 .ic-qty-btn:hover {
     border-color: var(--brand-primary);
     color: var(--brand-primary);
-}
-
-.ic-qty-input {
-    width: 90px;
-    height: 56px;
-    text-align: center;
-    font-size: 22px;
-    font-weight: 700;
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    background: var(--color-surface);
-    color: var(--color-text);
-}
-
-.ic-qty-input:focus {
-    outline: none;
-    border-color: var(--brand-primary);
-}
-
-.ic-qty-unit {
-    font-size: 14px;
-    color: var(--color-text-dim);
-    margin-right: 10px;
-}
-
-.ic-fraction-btn {
-    width: 56px;
-    height: 56px;
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
-    border-radius: 10px;
-    font-size: 18px;
-    font-weight: 600;
-    cursor: pointer;
-    color: var(--color-text);
-    -webkit-tap-highlight-color: transparent;
-}
-
-.ic-fraction-btn:hover {
-    border-color: var(--brand-primary);
-    color: var(--brand-primary);
-}
-
-.ic-fraction-btn.ic-undo {
-    background: rgba(188, 24, 27, 0.08);
-    border-color: var(--color-red);
-    color: var(--color-red);
 }
 
 .ic-qty-confirm {
@@ -1070,37 +1080,6 @@
     color: #fff;
 }
 
-/* ── Tælleenheder ─────────────────────────────
-   Tæl i "bøtter", skriv i kg. Togglen står altid synlig — enheden
-   varierer fra gang til gang, så den må aldrig være skjult state. */
-.ic-count-units {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-}
-.ic-count-unit {
-    min-height: 34px;
-    padding: 6px 13px;
-    border: 1px solid var(--color-border);
-    border-radius: 9px;
-    background: var(--color-background);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-}
-.ic-count-unit.ic-active {
-    background: var(--brand-primary);
-    border-color: var(--brand-primary);
-    color: #fff;
-}
-.ic-conv-line {
-    min-height: 16px;
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--color-green-dark, #7a9c54);
-}
-
 /* ── Kortmenu (⋯) ─────────────────────────────
    2 tryk. Kun beslutninger der ændrer varens opsætning — her ER
    friktionen pointen (spec §7). */
@@ -1176,6 +1155,5 @@
 
 @media (max-width: 600px) {
     .ic-unit-chip { min-height: 44px; }
-    .ic-count-unit { min-height: 40px; }
     .ic-resume-actions { margin-left: 0; width: 100%; }
 }
