@@ -370,7 +370,8 @@ function _icSavePriorities() {
 // ════════════════════════════════════════════════════════════
 // Samme vare tælles ofte i forskellige enheder alt efter hvor den står (bøtter i
 // kølerummet, kasser på tørlageret). Konteksten er derfor vare+enhed, ikke vare.
-// Det er et forslag, ikke en låsning — togglen står altid synlig på kortet.
+// Den styrer kun hvilket felt der står først og er forudfyldt (§14.3) — alle
+// varens enheder står åbne på kortet, så intet er låst.
 
 function _icPrefKey(productId, physicalUnit) {
     return productId + '|' + (physicalUnit || _ic.physicalUnit);
@@ -1353,27 +1354,6 @@ function _icCreateCard(product, isChecked) {
             '<button data-action="undecide">Fortryd</button></div>';
     }
 
-    // Tælleenheder: lagerenhed + evt. købs-/forbrugsenhed. Vises kun når
-    // der faktisk er noget at vælge imellem.
-    var cuOpts   = _icCountUnitOptions(fullProduct);
-    var cuActive = _icPickCountUnit(fullProduct, cuOpts);
-    var cuHtml   = '';
-    if (cuOpts.length > 1 && cuActive) {
-        cuHtml = '<div class="ic-count-units">';
-        cuOpts.forEach(function(o) {
-            cuHtml += '<button class="ic-count-unit' + (String(o.quId) === String(cuActive.quId) ? ' ic-active' : '') +
-                '" data-action="countunit" data-qu="' + esc(String(o.quId)) + '" data-tostock="' + o.toStock + '">' +
-                esc(o.name) + '</button>';
-        });
-        cuHtml += '</div>';
-    }
-
-    // Indtastningen står i den valgte tælleenhed; data-tostock oversætter
-    // til lagerenhed ved gem. Default-tallet omregnes derfor til samme enhed.
-    var activeToStock = cuActive ? cuActive.toStock : 1;
-    var activeCuName  = cuActive ? cuActive.name : unitName;
-    var inputVal      = _icRound(defaultVal / activeToStock);
-
     card.innerHTML =
         '<div class="ic-card-main">' +
             '<div class="ic-card-info" data-action="expand">' +
@@ -1389,29 +1369,21 @@ function _icCreateCard(product, isChecked) {
         '</div>' +
         menuHtml +
         noteHtml +
+        // Mængdefelterne (§14.6) monteres af _icMountCount lige nedenfor —
+        // ét felt pr. enhed varen kan tælles i. ± flyttes ind i felt-rækken
+        // og rammer det MARKEREDE felt. Brøkknapperne (¼ ½ ¾) er væk: man
+        // tæller det åbnede i den fine enhed i stedet for at gætte på en brøk.
         '<div class="ic-expanded">' +
-            cuHtml +
             '<div class="ic-qty-row">' +
-                '<div class="ic-qty-main">' +
-                    '<button class="ic-qty-btn" data-action="minus">\u2212</button>' +
-                    // type="text" + inputmode: et type="number"-felt afviser komma (value bliver
-                    // tom), og danskere taster komma. data-grocy forbliver rå (punktum) — maskinværdi.
-                    // data-tostock ganges på det indtastede tal før skrivning, så
-                    // Grocy altid får lagerenheden. data-grocy/-tostock er rå
-                    // maskinværdier (punktum) - aldrig _icFmt på dem.
-                    '<input type="text" inputmode="decimal" class="ic-qty-input" value="' + _icFmt(inputVal) + '" data-grocy="' + _icRound(grocyAmount) + '" data-tostock="' + activeToStock + '">' +
-                    '<button class="ic-qty-btn" data-action="plus">+</button>' +
-                    '<span class="ic-qty-unit">' + esc(activeCuName) + '</span>' +
+                '<button class="ic-qty-btn" data-action="minus" type="button">\u2212</button>' +
+                '<button class="ic-qty-btn" data-action="plus" type="button">+</button>' +
+                '<div class="ic-mf-host"></div>' +
+                '<div class="ic-qty-actions">' +
+                    '<button class="ic-qty-undo" data-action="cancel" type="button" title="Fortryd">\u21A9</button>' +
+                    '<button class="ic-qty-confirm" data-action="confirm" type="button">Gem</button>' +
                 '</div>' +
-                '<div class="ic-qty-fractions">' +
-                    '<button class="ic-fraction-btn" data-action="frac" data-frac="0.25">&frac14;</button>' +
-                    '<button class="ic-fraction-btn" data-action="frac" data-frac="0.5">&frac12;</button>' +
-                    '<button class="ic-fraction-btn" data-action="frac" data-frac="0.75">&frac34;</button>' +
-                    '<button class="ic-fraction-btn ic-undo" data-action="cancel" title="Fortryd">\u21A9</button>' +
-                '</div>' +
-                '<button class="ic-qty-confirm" data-action="confirm">Gem</button>' +
             '</div>' +
-            '<div class="ic-conv-line"></div>' +
+            '<div class="ic-mf-facit"><span class="ic-mf-sum"></span><span class="ic-mf-delta"></span></div>' +
         '</div>';
 
     // Delegate events from card
@@ -1428,23 +1400,15 @@ function _icCreateCard(product, isChecked) {
         else if (action === 'priority') { e.stopPropagation(); _icTogglePriority(pid); }
         else if (action === 'minus')    _icAdjustQty(pid, -1);
         else if (action === 'plus')     _icAdjustQty(pid, 1);
-        else if (action === 'frac')     _icSetFraction(pid, parseFloat(btn.dataset.frac));
         else if (action === 'cancel')   _icCancelExpand(pid);
         else if (action === 'confirm')  _icConfirmCount(pid);
         else if (action === 'more')     { e.stopPropagation(); _icToggleCardMenu(card); }
-        else if (action === 'countunit'){ e.stopPropagation(); _icSetCountUnit(card, btn); }
         else if (action === 'notrack')  { e.stopPropagation(); _icDecide(pid, 'notrack'); }
         else if (action === 'discontinued') { e.stopPropagation(); _icDecide(pid, 'discontinued'); }
         else if (action === 'undecide') { e.stopPropagation(); _icDecide(pid, null); }
     });
 
-    // Live-konvertering: "3 bøtter er 4,5 kg" mens man taster.
-    var qtyInput = card.querySelector('.ic-qty-input');
-    if (qtyInput) {
-        qtyInput.addEventListener('input', function() { _icUpdateConvLine(card); });
-        _icRefreshFractionLabels(card);
-        _icUpdateConvLine(card);
-    }
+    _icMountCount(card, fullProduct, defaultVal);
 
     return card;
 }
@@ -1522,48 +1486,111 @@ function _icDecide(productId, kind) {
     _icUpdateProgress();
 }
 
-// Skift tælleenhed på et åbent kort. Tallet i feltet bevares som MÆNGDE i
-// den nye enhed konverteret fra den gamle, så "1 kasse" ikke pludselig bliver
-// "1 kg". Valget huskes til næste gang (vare + fysisk enhed).
-function _icSetCountUnit(card, btn) {
-    var input = card.querySelector('.ic-qty-input');
-    if (!input) return;
+// ════════════════════════════════════════════════════════════
+// MÆNGDEFELTER (§14.6) — tæl i flere enheder på én gang
+//
+// "3 kasser, en åbnet kasse og nogle løse stykker" tastes som tre tal, ikke
+// som 3,06 kasser. Komponenten er den samme som varemodtagelsen og
+// lageroversigten bruger (shared/mangde_felter.js), så de tre skærme ikke
+// kan blive uenige om hvilke enheder en vare kan tælles i.
+//
+// Brøkknapperne (¼ ½ ¾) er væk. Deres betydning skiftede med enheden
+// (en kvart kasse eller en kvart af hele lageret?), og det spørgsmål
+// forsvinder når det åbnede bare tælles i den fine enhed.
+// ════════════════════════════════════════════════════════════
 
-    var oldToStock = _icParseNum(input.dataset.tostock) || 1;
-    var newToStock = _icParseNum(btn.dataset.tostock) || 1;
-    var stockVal   = _icParseNum(input.value) * oldToStock;      // -> lagerenhed
-    input.value = _icFmt(_icRound(stockVal / newToStock));       // -> ny tælleenhed
-    input.dataset.tostock = newToStock;
+// Byg felterne ind i et kort. Kaldes ved oprettelse og ved "Fortryd" — kortet
+// bygges forfra ved hver render, så der er ingen tilstand at bære over.
+function _icMountCount(card, product, defaultVal) {
+    var host = card && card.querySelector('.ic-mf-host');
+    if (!host || typeof window === 'undefined' || !window.MangdeFelter) return;
 
-    var sibs = card.querySelectorAll('.ic-count-unit');
-    for (var i = 0; i < sibs.length; i++) sibs[i].classList.remove('ic-active');
-    btn.classList.add('ic-active');
+    var opts = _icCountUnitOptions(product);
+    var pick = _icPickCountUnit(product, opts);
+    var stockNm = (_ic.grocyStock[product.id] && _ic.grocyStock[product.id].unit) ||
+                  _ic.quantityUnits[product.qu_id_stock] || '';
 
-    var unitLabel = card.querySelector('.ic-qty-unit');
-    if (unitLabel) unitLabel.textContent = btn.textContent;
+    // Forudfyldt med det forventede tal i den enhed man plejer at tælle i —
+    // som det ene felt altid har været. "Gem" uden at røre noget er derfor
+    // stadig "tallet passer".
+    var start = [];
+    if (pick && defaultVal > 0) {
+        start.push({ qu_id: pick.quId, qty: _icRound(defaultVal / (pick.toStock || 1)) });
+    }
 
-    _icRememberCountUnit(parseInt(card.dataset.productId), btn.dataset.qu);
-    _icRefreshFractionLabels(card);
-    _icUpdateConvLine(card);
-}
+    var sumEl   = card.querySelector('.ic-mf-sum');
+    var deltaEl = card.querySelector('.ic-mf-delta');
+    var expected = _icRound(defaultVal || 0);
 
-// "3 bøtter er 4,5 kg" - står altid under feltet i pakke-mode, så man kan se
-// hvad der faktisk bliver skrevet på lageret.
-function _icUpdateConvLine(card) {
-    var line  = card.querySelector('.ic-conv-line');
-    var input = card.querySelector('.ic-qty-input');
-    if (!line || !input) return;
+    var felter = window.MangdeFelter.create({
+        product: {
+            id: product.id,
+            qu_id_stock: product.qu_id_stock,
+            qu_id_purchase: product.qu_id_purchase,
+            qu_id_consume: product.qu_id_consume
+        },
+        conversions: _ic.conversions || [],
+        unitNames: _ic.quantityUnits || {},
+        focusQuId: pick ? pick.quId : product.qu_id_stock,
+        stockUnitName: stockNm,
+        entries: start,
+        compact: true,
+        onChange: function(poster, total) {
+            // Summen i lager-enhed: det er dét der skrives. Ved ét felt er
+            // tallet og summen det samme, og så gentages det ikke.
+            if (sumEl) {
+                sumEl.textContent = (poster.length > 1 || (poster[0] && poster[0].factor_used !== 1))
+                    ? '= ' + _icFmt(total, 3) + ' ' + stockNm : '';
+            }
+            // Forskellen til det forventede kan SES før man trykker Gem. Ren
+            // oplysning, ikke en advarsel: et stort minus kan lige så godt
+            // betyde at der er brugt meget.
+            if (deltaEl) {
+                var d = Math.round((total - expected) * 1e6) / 1e6;
+                deltaEl.textContent = !poster.length
+                    ? 'tomt · forventet ' + _icFmt(expected) + ' ' + stockNm
+                    : (d === 0 ? 'som forventet'
+                       : (d > 0 ? '+' : '−') + _icFmt(Math.abs(d), 3) + ' ' + stockNm +
+                         ' i forhold til forventet ' + _icFmt(expected));
+            }
+        }
+    });
+    host.innerHTML = '';
+    host.appendChild(felter.el);
+    card._icMf = felter;
 
-    var toStock = _icParseNum(input.dataset.tostock) || 1;
-    if (toStock === 1) { line.textContent = ''; return; }
+    // ± ind i felt-rækken, og de rammer det MARKEREDE felt. Fokus alene duer
+    // ikke: den forsvinder i samme øjeblik man trykker på en pil. Samme
+    // greb som lageroversigten.
+    var raekke = felter.el.querySelector('.mf-row');
+    var ned = card.querySelector('.ic-qty-btn[data-action="minus"]');
+    var op  = card.querySelector('.ic-qty-btn[data-action="plus"]');
+    if (!raekke) return;
+    if (ned) raekke.insertBefore(ned, raekke.firstChild);
+    if (op) raekke.appendChild(op);
 
-    var qty      = _icParseNum(input.value);
-    var cuName   = (card.querySelector('.ic-qty-unit') || {}).textContent || '';
-    var pid      = parseInt(card.dataset.productId);
-    var full     = (_ic.productsById && _ic.productsById[pid]) || {};
-    var stockNm  = (_ic.grocyStock[pid] && _ic.grocyStock[pid].unit) ||
-                   _ic.quantityUnits[full.qu_id_stock] || '';
-    line.textContent = _icFmt(qty) + ' ' + cuName + ' er ' + _icFmt(_icRound(qty * toStock)) + ' ' + stockNm;
+    var feltEls = [].slice.call(raekke.querySelectorAll('.mf-field'));
+    function markér(felt) {
+        for (var i = 0; i < feltEls.length; i++) {
+            feltEls[i].classList.toggle('ic-mf-aktiv', feltEls[i] === felt);
+        }
+        var enhed = felt && felt.querySelector('.mf-unit');
+        var navn = enhed ? enhed.textContent : '';
+        if (ned) ned.title = 'Minus 1 ' + navn;
+        if (op) op.title = 'Plus 1 ' + navn;
+    }
+    raekke.addEventListener('focusin', function(ev) {
+        var felt = ev.target && ev.target.closest && ev.target.closest('.mf-field');
+        if (felt) markér(felt);
+    });
+    // Enter i et felt = Gem, som det ene felt altid har gjort.
+    raekke.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') {
+            ev.preventDefault();
+            _icConfirmCount(parseInt(card.dataset.productId));
+        }
+    });
+    markér(feltEls[0]);
 }
 
 function _icToggleExpand(productId) {
@@ -1591,94 +1618,64 @@ function _icTogglePriority(productId) {
     _icRenderProducts();
 }
 
+// ± rammer det markerede felt — ikke altid det første.
 function _icAdjustQty(productId, delta) {
-    var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
+    var card = _icContainer && _icContainer.querySelector('[data-product-id="' + productId + '"]');
+    var input = card && (card.querySelector('.ic-mf-aktiv .mf-input') ||
+                         card.querySelector('.mf-input'));
     if (!input) return;
-    var val = _icParseNum(input.value);
-    val = _icRound(Math.max(0, val + delta));
-    input.value = _icFmt(val);
-}
-
-// Er tælleenheden en STYKVARE man kan tage en halv af (bøtte, kasse, hovedkål),
-// eller en ren MÅLENHED (gram af kilo)?
-//
-// Grocy skelner ikke, så vi bruger størrelsesforholdet: en stykvare vejer en
-// mærkbar del af lagerenheden (1 kålhoved = 0,8 kg · 1 bøtte = 0,25 kg), mens en
-// målenhed er en lillebitte brøkdel (1 gram = 0,001 kg). Tærsklen er et skøn —
-// den skal valideres i køkkenet, ikke udledes af mere kode.
-var _IC_PACK_MIN_SHARE = 0.05;   // 1 tælleenhed skal være ≥ 5 % af en lagerenhed
-
-function _icIsPackUnit(toStock) {
-    return toStock !== 1 && toStock >= _IC_PACK_MIN_SHARE;
-}
-
-function _icSetFraction(productId, fraction) {
-    var card = _icContainer.querySelector('[data-product-id="' + productId + '"]');
-    var input = card && card.querySelector('.ic-qty-input');
-    if (!input) return;
-    var toStock = _icParseNum(input.dataset.tostock) || 1;
-
-    if (_icIsPackUnit(toStock)) {
-        // Stykvare (bøtte, kasse, hovedkål): brøken er en del af ÉN af dem —
-        // den halvtomme bøtte, det halve kålhoved.
-        input.value = _icFmt(_icRound(fraction));
-    } else {
-        // Lagerenhed eller ren målenhed (gram af kilo): "¼ gram" ville være
-        // meningsløst, så brøken beholder sin oprindelige betydning — så stor en
-        // del af det forventede lager, vist i den enhed man tæller i.
-        var grocy = _icParseNum(input.dataset.grocy);
-        input.value = _icFmt(_icRound((grocy * fraction) / toStock));
-    }
-    _icRefreshFractionLabels(card);
-    _icUpdateConvLine(card);
-}
-
-// Brøkerne skifter betydning med tælleenheden. Gør det synligt i tooltip'en, så
-// samme knap ikke betyder to ting i tavshed.
-function _icRefreshFractionLabels(card) {
-    if (!card) return;
-    var input = card.querySelector('.ic-qty-input');
-    if (!input) return;
-    var toStock = _icParseNum(input.dataset.tostock) || 1;
-    var cuName  = (card.querySelector('.ic-qty-unit') || {}).textContent || '';
-    var btns    = card.querySelectorAll('.ic-fraction-btn[data-frac]');
-    for (var i = 0; i < btns.length; i++) {
-        var f = btns[i].dataset.frac;
-        var ord = f === '0.25' ? 'En kvart' : f === '0.5' ? 'En halv' : 'Trekvart';
-        btns[i].title = _icIsPackUnit(toStock)
-            ? ord + ' ' + cuName
-            : ord + ' af det der burde stå på lageret';
-    }
+    window.MangdeFelter.step(input, delta);
 }
 
 function _icCancelExpand(productId) {
     var card = _icContainer.querySelector('[data-product-id="' + productId + '"]');
-    if (card) {
-        card.classList.remove('ic-open');
-        var input = card.querySelector('.ic-qty-input');
-        if (input) {
-            var toStock = _icParseNum(input.dataset.tostock) || 1;
-            input.value = _icFmt(_icRound(_icParseNum(input.dataset.grocy) / toStock));
-            _icUpdateConvLine(card);
-        }
-    }
+    if (!card) return;
+    card.classList.remove('ic-open');
+    // Tilbage til det forventede tal — kortet er bygget til at kunne
+    // monteres forfra.
+    var full = (_ic.productsById && _ic.productsById[productId]) ||
+               _ic.products.find(function(p) { return String(p.id) === String(productId); }) || { id: productId };
+    _icMountCount(card, full, _icDefaultCount(productId));
+}
+
+// Det tal kortet forventer i DENNE fysiske enhed: resten hvis varen er talt
+// andre steder, ellers hele lageret.
+function _icDefaultCount(productId) {
+    var grocyAmount  = _icRound(_ic.grocyStock[productId] ? _ic.grocyStock[productId].amount : 0);
+    var countData    = _ic.counts[productId];
+    var totalCounted = _icRound(countData ? (countData.total || 0) : 0);
+    var remaining    = _icRound(grocyAmount - totalCounted);
+    return remaining > 0 ? remaining : grocyAmount;
 }
 
 function _icConfirmCount(productId) {
-    var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
-    if (!input) {
+    var card = _icContainer.querySelector('[data-product-id="' + productId + '"]');
+    var mf = card && card._icMf;
+    if (!mf) {
         // Tidligere kastede dette en tavs TypeError → optællingen "gemte ikke".
         _icAlert('Kunne ikke gemme — prøv at klikke varen op igen', 'error');
         return;
     }
-    // Grocy får ALTID lagerenheden (spec 5): det indtastede tal ganges med
-    // data-tostock (1 når man tæller i lagerenheden).
-    var toStock = _icParseNum(input.dataset.tostock) || 1;
-    var amount = _icRound(_icParseNum(input.value) * toStock);
-    _icSaveCount(productId, amount);
+    // Grocy får ALTID lagerenheden (§14.4): hvert felt bærer sin faktor, og
+    // summen af qty × factor_used er det eneste tal der skrives.
+    var entries = mf.entries();
+    var amount  = window.MangdeFelter.stockSum(entries);
+
+    // Den enhed der bar mest af tællingen huskes til næste gang, i netop
+    // denne fysiske enhed (§14.3) — det uåbnede i kasser, ikke de løse stk.
+    if (entries.length) {
+        var bedst = entries.slice().sort(function(a, b) {
+            return (b.qty * b.factor_used) - (a.qty * a.factor_used);
+        })[0];
+        _icRememberCountUnit(productId, bedst.qu_id);
+    }
+    _icSaveCount(productId, amount, entries);
 }
 
-function _icSaveCount(productId, amount) {
+// entries: [{qu_id, qty, factor_used}] — HVAD der blev tastet (§14.4).
+// Udelades de (✔ "tallet passer"), gemmes tallet som én post i lager-enheden
+// med faktor 1 — det er sandt, og §15.11 kræver faktoren også dér.
+function _icSaveCount(productId, amount, entries) {
     amount = _icRound(amount);
 
     if (!_ic.counts[productId]) {
@@ -1687,6 +1684,8 @@ function _icSaveCount(productId, amount) {
 
     var c = _ic.counts[productId];
     c.units[_ic.physicalUnit] = amount;
+    if (!c.entries) c.entries = {};
+    c.entries[_ic.physicalUnit] = Array.isArray(entries) ? entries : _icStockEntries(productId, amount);
     // Hvilken fysisk enhed varen sidst blev talt i → bliver LastCheckedUnit ved commit (Bug 1).
     c.lastUnit = _ic.physicalUnit;
     // Concurrency-baseline (§6): Grocy-mængden brugeren SÅ da hun talte. Fanges én gang
@@ -1722,6 +1721,34 @@ function _icSaveCount(productId, amount) {
         _icRenderProducts();
         _icUpdateProgress();
     }, 300);
+}
+
+function _icStockEntries(productId, amount) {
+    if (!(amount > 0)) return [];
+    var p = (_ic.productsById && _ic.productsById[productId]) ||
+            (_ic.products || []).find(function(x) { return String(x.id) === String(productId); });
+    var qu = p && p.qu_id_stock;
+    if (qu === undefined || qu === null) return null;   // ukendt lager-enhed → ingen poster
+    return [{ qu_id: parseInt(qu), qty: amount, factor_used: 1 }];
+}
+
+// Alle poster for en vare på tværs af de fysiske enheder den er talt i.
+// Serveren summerer dem med SINE egne omregninger (#658), så et tal regnet
+// med en forældet faktor i browseren ikke kan skrives.
+//
+// Mangler én enhed sine poster — en session fra før felterne kom — sendes
+// ingen: en delvis liste ville give serveren et for lille tal, uden en fejl.
+function _icCommitEntries(productId) {
+    var c = _ic.counts[productId];
+    if (!c || !c.units) return null;
+    var out = [];
+    for (var u in c.units) {
+        if (!c.units.hasOwnProperty(u)) continue;
+        var e = c.entries && c.entries[u];
+        if (!Array.isArray(e)) return null;
+        for (var i = 0; i < e.length; i++) out.push(e[i]);
+    }
+    return out;
 }
 
 // Skrives KUN ved commit (Bug 1), pr. talt vare, med den enhed varen blev talt i.
@@ -2089,7 +2116,9 @@ async function _icExecuteCommit(plan) {
         // daterer surplus via default_best_before_days).
         if (it.cls.needsWrite) {
             try {
-                await postGrocyInventory(it.id, it.cls.total);
+                var poster = _icCommitEntries(it.id);
+                if (poster && poster.length) await postGrocyInventory(it.id, it.cls.total, undefined, poster);
+                else await postGrocyInventory(it.id, it.cls.total);
                 invWritten++;
             } catch (err) {
                 console.error('Failed to update ' + it.id + ':', err);
@@ -2409,20 +2438,23 @@ function _icAltConv(product) {
 // Grocy modtager ALTID lagerenheden (spec §5).
 function _icCountUnitOptions(product) {
     if (!product || !product.qu_id_stock) return [];
-    var stockQu = product.qu_id_stock;
-    var out = [{
-        quId:    stockQu,
-        name:    _ic.quantityUnits[stockQu] || '',
-        toStock: 1,
-        isStock: true
-    }];
-    _icAltConv(product).forEach(function(a) {
-        // _icAltConv giver faktoren lager → alt (1 kg = 4 bøtter), så vejen
-        // tilbage er 1/faktor (1 bøtte = 0,25 kg).
-        if (!a.factor || !isFinite(a.factor) || a.factor === 0) return;
-        out.push({ quId: a.quId, name: a.unit, toStock: 1 / a.factor, isStock: false });
+    // Samme regel som varemodtagelsen og lageroversigten — én kilde, så de
+    // tre skærme ikke kan blive uenige om hvad en vare kan tælles i.
+    // unitsFor tilbyder KUN enheder med en faktor til lager-enheden (#358).
+    var MF = (typeof window !== 'undefined' && window.MangdeFelter) || null;
+    if (!MF) {
+        return [{ quId: product.qu_id_stock, name: _ic.quantityUnits[product.qu_id_stock] || '',
+                  toStock: 1, isStock: true }];
+    }
+    var units = MF.unitsFor({
+        product: product,
+        conversions: _ic.conversions || [],
+        unitNames: _ic.quantityUnits || {},
+        focusQuId: product.qu_id_stock   // lager-enheden først, når intet er husket
     });
-    return out;
+    return units.map(function(u) {
+        return { quId: u.qu_id, name: u.name, toStock: u.factor, isStock: u.role === 'stock' };
+    });
 }
 
 // Hvilken tælleenhed skal kortet åbne i? Sidst brugte i netop denne
@@ -2466,7 +2498,13 @@ if (typeof module !== 'undefined' && module.exports) {
         // PR 2 — tælleenheder, session-nøgle og beslutninger
         _icCountUnitOptions: _icCountUnitOptions,
         _icPickCountUnit: _icPickCountUnit,
-        _icIsPackUnit: _icIsPackUnit,
+        _icCommitEntries: _icCommitEntries,
+        _icDefaultCount: _icDefaultCount,
+        _icMountCount: _icMountCount,
+        _icConfirmCount: _icConfirmCount,
+        _icCancelExpand: _icCancelExpand,
+        _icAdjustQty: _icAdjustQty,
+        _icSetContainer: function(el) { _icContainer = el; },
         _icLocalDate: _icLocalDate,
         _icSessionKey: _icSessionKey,
         _icSessionIsOld: _icSessionIsOld,

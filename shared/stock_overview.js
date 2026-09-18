@@ -1286,8 +1286,8 @@ function _soAdjStep(productId, delta) {
     var mf = card && (card.querySelector('.so-mf-aktiv .mf-input') ||
                       card.querySelector('.mf-input'));
     if (mf) {
-        mf.value = Math.max(0, _soRound((parseFloat(mf.value) || 0) + delta));
-        mf.dispatchEvent(new Event('input', { bubbles: true }));
+        // Komponentens egen step: den læser dansk komma. parseFloat("2,5") er 2.
+        MangdeFelter.step(mf, delta);
         return;
     }
     var input = document.getElementById('soAdj-' + productId);

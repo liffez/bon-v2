@@ -23,8 +23,8 @@
  *   #inventoryCheckContainer, #icLocSelect, #icUnitSelect, #icStartBtn,
  *   .ic-unit-chip(.ic-active), .ic-unit-chip-count, .ic-card,
  *   .ic-card-info, .ic-card-name, [data-action="more"|"skip"|"unskip"],
- *   [data-menu].ic-visible, .ic-card-note, .ic-count-unit,
- *   .ic-qty-input[data-tostock], .ic-qty-unit, .ic-conv-line,
+ *   [data-menu].ic-visible, .ic-card-note, .mf-input, .mf-field,
+ *   .mf-multi, .ic-mf-sum, .ic-qty-confirm  (mængdefelterne, #665),
  *   .ic-search-empty, #icSearch, #icReceipt, #icProgText
  *
  * Usage:
@@ -255,7 +255,8 @@ test.describe('T_OPTAELLING_UI — Optælling frontend', () => {
         const pid  = await card.getAttribute('data-product-id');
 
         await card.locator('.ic-card-info').click();
-        await card.locator('.ic-qty-input').fill('3');
+        // Første felt er lager-enheden når intet er husket (§14.3)
+        await card.locator('.mf-input').first().fill('3');
         await card.locator('.ic-qty-confirm').click();
 
         // Chippen for den aktive enhed får en tæller
@@ -334,36 +335,49 @@ test.describe('T_OPTAELLING_UI — Optælling frontend', () => {
         await expect(page.locator('.ic-card')).toHaveCount(0);
     });
 
-    // ── 07: tælleenheder omregner og viser hvad der skrives ──
-    test('T_OPT_UI_07: skift af tælleenhed omregner tallet og viser konverteringen', async ({ page }) => {
+    // ── 07: flere enheder på én gang (§14.6, #665) ──────────
+    // Det logik-testene ikke kan se: at felterne faktisk står på ÉN linje, at
+    // summen vises i lager-enhed, og at det tastede gemmes som poster.
+    test('T_OPT_UI_07: tæl i flere enheder — summen i lager-enhed, poster gemt', async ({ page }) => {
         await startCount(page);
 
-        // Find et kort der HAR en alternativ tælleenhed (ikke alle har)
-        const card = page.locator('.ic-card').filter({ has: page.locator('.ic-count-unit') }).first();
+        const card = page.locator('.ic-card').filter({ has: page.locator('.mf-multi') }).first();
         if (await card.count() === 0) {
-            test.skip(true, 'ingen produkter med enheds-konvertering i grocytest');
+            test.skip(true, 'ingen produkter med mere end én tællbar enhed i grocytest');
         }
+        const pid = await card.getAttribute('data-product-id');
 
         await card.locator('.ic-card-info').click();
-        const enheder = card.locator('.ic-count-unit');
-        expect(await enheder.count()).toBeGreaterThan(1);
+        const felter = card.locator('.mf-field');
+        expect(await felter.count()).toBeGreaterThan(1);
 
-        const input = card.locator('.ic-qty-input');
-        const foerTal    = parseFloat((await input.inputValue()).replace(',', '.'));
-        const foerToStock = parseFloat(await input.getAttribute('data-tostock'));
+        // Brøkknapperne er væk
+        await expect(card.locator('.ic-fraction-btn')).toHaveCount(0);
 
-        // Skift til den anden enhed
-        await enheder.nth(1).click();
-        const eftertoStock = parseFloat(await input.getAttribute('data-tostock'));
-        const efterTal     = parseFloat((await input.inputValue()).replace(',', '.'));
+        // Felterne står på én linje — ellers er de tre felter tre rækker
+        const y0 = (await felter.nth(0).boundingBox()).y;
+        const y1 = (await felter.nth(1).boundingBox()).y;
+        expect(Math.abs(y0 - y1)).toBeLessThan(4);
 
-        expect(eftertoStock).not.toBe(foerToStock);
-        // Mængden skal være bevaret i lagerenhed, ikke bare have skiftet etiket
-        expect(foerTal * foerToStock).toBeCloseTo(efterTal * eftertoStock, 2);
+        // Ryd lager-feltet, tast 2,5 i det næste
+        await felter.nth(0).locator('.mf-input').fill('');
+        // Dansk komma: et type=number-felt ville give et TOMT value her
+        await felter.nth(1).locator('.mf-input').fill('2,5');
+        await expect(card.locator('.ic-mf-sum')).toContainText('=');
 
-        // Konverteringslinjen viser hvad der faktisk lander på lageret
-        await expect(card.locator('.ic-conv-line')).not.toHaveText('');
-        await expect(card.locator('.ic-count-unit.ic-active')).toHaveCount(1);
+        await card.locator('.ic-qty-confirm').click();
+
+        const gemt = await page.evaluate((k) => {
+            const raw = localStorage.getItem('ic_counts_' + k.loc);
+            return raw ? JSON.parse(raw).counts[k.pid] : null;
+        }, { loc: LOCATION_ID, pid });
+        expect(gemt, 'tællingen skal være gemt').toBeTruthy();
+        const poster = gemt.entries[UNIT_A];
+        expect(poster.length).toBe(1);
+        expect(poster[0].qty).toBe(2.5);
+        expect(poster[0].factor_used).toBeGreaterThan(0);
+        // Tallet der skrives er summen i lager-enhed, ikke "2,5"
+        expect(gemt.units[UNIT_A]).toBeCloseTo(2.5 * poster[0].factor_used, 2);
     });
 
     // ── 08: kvitteringen ryddes når en ny optælling starter ──

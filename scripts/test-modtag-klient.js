@@ -490,7 +490,7 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
         eq(felter.length, 3, 'tre felter monteret i panelet');
         eq(felter[0].children[1].textContent, 'Kilo',
            'lager-enheden står FØRST — det er den der er forudfyldt, og den man retter');
-        eq(felter[0].children[0].value, 117.54,
+        eq(felter[0].children[0].value, '117,54',
            'og den er forudfyldt med det der står nu, som ét-felts-panelet altid har været');
         eq(Number(sumFelt.value), 117.54, 'intet tastet endnu → uændret');
 
@@ -576,8 +576,8 @@ console.log('\n\x1b[1m11. Lageroversigten: mængde i flere enheder\x1b[0m');
 
         // ± rammer nu Kasse
         soBox._soAdjStep(1, 1);
-        eq(fl[1].find('mf-input')[0].value, 1, '▲ flytter det markerede felt');
-        eq(fl[0].find('mf-input')[0].value, 117.54, 'og lader de andre være');
+        eq(fl[1].find('mf-input')[0].value, '1', '▲ flytter det markerede felt');
+        eq(fl[0].find('mf-input')[0].value, '117,54', 'og lader de andre være');
     }
 
     {

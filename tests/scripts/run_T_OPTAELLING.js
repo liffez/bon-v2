@@ -23,6 +23,11 @@
 const fs   = require('node:fs');
 const path = require('node:path');
 
+// Den delte mængdefelt-komponent (§14.6) skal være der FØR optællingen, som i
+// browseren — den afgør hvilke enheder en vare kan tælles i.
+globalThis.window = globalThis;
+require(path.join(__dirname, '..', '..', 'shared', 'mangde_felter.js'));
+
 const MOD_PATH = path.join(__dirname, '..', '..', 'shared', 'inventory_check.js');
 const IC = require(MOD_PATH);
 const SRC = fs.readFileSync(MOD_PATH, 'utf8');
@@ -268,9 +273,14 @@ function caseDecimals() {
     ok('12m data-amount bruger rå værdi (ikke _icFmt)',
         /data-amount="' \+ item\.countedAmount \+ '"/.test(SRC));
     // Guard: antal-feltet må ikke være type="number" (afviser komma)
-    ok('12n antal-felt er type=text + inputmode=decimal',
-        SRC.indexOf('inputmode="decimal" class="ic-qty-input"') !== -1 &&
-        SRC.indexOf('type="number" class="ic-qty-input"') === -1);
+    // Felterne bygges nu af den delte komponent (#665). Guarden gælder dér:
+    // et type="number"-felt giver et TOMT value for "2,5", og så ignoreres
+    // feltet tavst. Komponenten skal både skrive type=text og læse komma.
+    const MF_SRC = fs.readFileSync(path.join(__dirname, '..', '..', 'shared', 'mangde_felter.js'), 'utf8');
+    ok('12n tællefelterne er type=text + inputmode=decimal',
+        /input\.type = 'text'/.test(MF_SRC) && /'inputmode', 'decimal'/.test(MF_SRC) &&
+        !/input\.type = 'number'/.test(MF_SRC));
+    ok('12n2 dansk komma læses', globalThis.MangdeFelter._num('2,5') === 2.5);
     // Guard: rå parseFloat må ikke bruges på .value (parseFloat('2,5') === 2)
     ok('12o ingen rå parseFloat(input.value)', SRC.indexOf('parseFloat(input.value)') === -1);
 
@@ -342,7 +352,7 @@ function caseDecisions() {
     // som består selv hvis kaldet er gjort uopnåeligt.)
 
     // Destruktivt → skal bekræftes (3 tryk i alt, spec §7).
-    const decideFn = SRC.slice(SRC.indexOf('function _icDecide'), SRC.indexOf('function _icSetCountUnit'));
+    const decideFn = SRC.slice(SRC.indexOf('function _icDecide'), SRC.indexOf('function _icMountCount'));
     ok('10d udgået kræver bekræftelse', decideFn.indexOf('confirm(') !== -1);
 
     // Beslutninger må ikke skrives fra kort-handlingen — kun ved commit.
@@ -383,22 +393,19 @@ function caseCountUnits() {
     ok('13i skrivning sker altid i lagerenhed (kommentar-anker)',
        /Grocy f.r ALTID lagerenheden/.test(SRC));
 
-    // Brøk-knapperne: "en kvart pakke" giver kun mening når tælleenheden er
-    // STØRRE end lagerenheden. For en mindre enhed (gram af kilo) ville
-    // "¼ gram" være meningsløst — der beholder brøken sin gamle betydning.
-    const frac = SRC.slice(SRC.indexOf('function _icSetFraction'),
-                           SRC.indexOf('function _icRefreshFractionLabels'));
-    ok('13j brøk deler ÉN stykvare via _icIsPackUnit', /_icIsPackUnit\(toStock\)/.test(frac));
-    ok('13k målenhed falder tilbage til andel af forventet lager',
-       /grocy\s*\*\s*fraction\)\s*\/\s*toStock/.test(frac));
+    // Brøkknapperne er væk (#665): det åbnede tælles i den fine enhed i
+    // stedet for at gætte på en brøk hvis betydning skiftede med enheden.
+    ok('13j brøkknapperne er væk', SRC.indexOf('data-action="frac"') === -1 &&
+       SRC.indexOf('_icIsPackUnit') === -1);
 
-    // Stykvare vs. målenhed. Kålhovedet (0,8 kg) er det vigtige tilfælde: det er
-    // mindre end lagerenheden, men "et halvt kålhoved" giver god mening.
-    ok('13l lagerenhed er ikke en stykvare', IC._icIsPackUnit(1) === false);
-    ok('13m bøtte (0,25 kg) er en stykvare', IC._icIsPackUnit(0.25) === true);
-    ok('13n hovedkål (0,8 kg) er en stykvare', IC._icIsPackUnit(0.8) === true);
-    ok('13o kasse (5 kg) er en stykvare', IC._icIsPackUnit(5) === true);
-    ok('13p gram (0,001 kg) er en målenhed', IC._icIsPackUnit(0.001) === false);
+    // Enhederne kommer fra den delte komponent — en enhed uden faktor til
+    // lager-enheden tilbydes ikke (#358), ligesom i varemodtagelsen.
+    _ic.conversions = [{ product_id: 7, from_qu_id: 4, to_qu_id: 12, factor: 4 },
+                       { product_id: 7, from_qu_id: 8, to_qu_id: 4, factor: 0.05 }];
+    const tre = IC._icCountUnitOptions({ id: 7, qu_id_stock: 4, qu_id_purchase: 12, qu_id_consume: 8 });
+    ok('13k tre enheder når alle har en faktor', tre.length === 3 && tre[0].isStock === true,
+       JSON.stringify(tre));
+    ok('13l forbrugs-enhedens faktor', tre[2] && Math.abs(tre[2].toStock - 0.05) < 1e-9);
 }
 
 // Case 14 — session-nøglen. Fundet under PR 2: den var UTC-dateret, så en
@@ -686,7 +693,7 @@ async function main() {
     // Verificér export-guard
     const required = ['_icGroupOf', '_icVisibleInUnit', '_icClassifyCounted', '_icCategorize',
                       '_icFindFactor', '_icGetUnitsForLocation', '_icFmt', '_icParseNum', '_ic',
-                      '_icCountUnitOptions', '_icPickCountUnit', '_icLocalDate', '_icIsPackUnit',
+                      '_icCountUnitOptions', '_icPickCountUnit', '_icLocalDate', '_icCommitEntries',
                       '_icSessionKey', '_icSessionIsOld', '_icSaveCount',
                       '_icPlanCommit', '_icExecuteCommit', '_icCommitMessage',
                       '_icCommitErrorMessage'];

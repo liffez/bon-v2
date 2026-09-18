@@ -8401,6 +8401,56 @@ varen (den sidste slap igennem første gang: fixturen havde kun én vare).
 Browser-verificeret mod grocytest med rigtige klik: Fryser → Hylder og tjek-interval
 7 → 14 lander i Grocy og i historikken, rullet tilbage bagefter.
 
+### Optællingen tæller i flere enheder på én gang (#665, 19. september 2026)
+
+Optællingen havde én tælleenhed ad gangen, valgt i en vælger, og brøkknapper
+(¼ ½ ¾) hvis betydning skiftede med enheden: en kvart *kasse*, eller en kvart af
+*hele lageret*? `_icIsPackUnit` gættede ud fra størrelsesforholdet, og det
+grænsetilfælde (kålhovedet) blev aldrig afklaret. Varemodtagelsen og
+lageroversigten fik de delte mængdefelter i #658 — optællingen, hvor det
+egentlig hører hjemme (§14.6), manglede dem.
+
+- **Kortet har ét felt pr. enhed varen kan tælles i** (`MangdeFelter`, samme
+  komponent som de to andre skærme): `[ 2 ] Kasse  [   ] Kilo  [ 25 ] stk`.
+  Summen står i lager-enhed, og forskellen til det forventede kan ses før Gem.
+  Enhedsvælgeren og brøkknapperne er væk — det åbnede tælles i den fine enhed.
+- **± rammer det markerede felt** (samme greb som lageroversigten). Enter = Gem,
+  ↩ = tilbage til det forventede.
+- **Forudfyldt som før**: det forventede tal står i den enhed man plejer at
+  tælle i, så "Gem" uden at røre noget stadig er "tallet passer".
+- **Den huskede enhed er den der bar mest** af tællingen, pr. (vare, fysisk
+  enhed) — det uåbnede i kasser, ikke de løse stk. Den styrer kun hvilket felt
+  der står først (§14.3).
+- **Posterne gemmes** (`counts[id].entries[fysisk enhed]` = `{qu_id, qty,
+  factor_used}`) og **sendes med til serveren**, som summerer med SINE egne
+  omregninger (#658) — et tal regnet med en forældet faktor i browseren kan ikke
+  skrives. ✔ "tallet passer" gemmer én post i lager-enheden med faktor 1 (§15.11).
+  Mangler bare én fysisk enhed sine poster (en session fra før felterne), sendes
+  ingen: en halv liste ville give serveren et for lille tal uden en fejl.
+
+> ⚠️ **Felterne var `type="number"` — og det er en fælde for danskere.** Et
+> number-felt giver et TOMT `value` for "2,5" når browseren ikke er sat til
+> komma, og komponenten tolker tomt som "ingen post" — altså ignoreres det
+> tastede tavst. Optællingens eget felt havde været `type="text"` siden #331 af
+> netop den grund, og guarden (12n) fangede det. Komponenten er nu
+> `type="text"` + `inputmode="decimal"` for **alle tre skærme**, viser tal med
+> komma, og ±-knapperne går gennem `MangdeFelter.step`, der læser komma
+> (`parseFloat("2,5")` er 2).
+
+**Ikke bygget her:** `stock_count_entries` (§14.4) og tolerance i talt enhed
+(§14.5) hører til fase 4 — posterne ligger i sessionen og i serverens kald,
+ikke i en tabel endnu.
+
+**Tests:** `npm run test:optaelling-felter` (34 — de ægte `_icMountCount`,
+`_icAdjustQty`, `_icConfirmCount` og `_icExecuteCommit` i Node med en lille DOM)
++ `test:run-optaelling` 113/0 + Playwright `T_OPTAELLING_UI` 8/8 mod grocytest,
+hvor test 07 taster `2,5` i en rigtig browser og måler posterne.
+**Mutations-testet: 13 mutationer, alle fanget** — og `type="number"` fanges
+nu også af browseren (`Cannot type text into input[type=number]`).
+Browser-verificeret med rigtige klik på Hvidkål: 2,5 Antal → + → 3,5 → Gem →
+2,8 kg med posten `{Antal, 3,5, 0,8}` og Antal husket; felterne står på én
+linje også ved 375 px. Testdata ryddet.
+
 ---
 
 ## Næste opgave

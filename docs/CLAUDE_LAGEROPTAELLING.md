@@ -347,6 +347,12 @@ Det er sådan mennesker tæller: det uåbnede i kasser, det åbnede i vægt, res
 - Summen vises løbende i `qu_stock`, så det er tydeligt hvad der bliver posteret.
 - Den indlærte enhed (§14.3) bestemmer kun rækkefølge og fokus, ikke hvad der er muligt.
 
+> **Bygget i optællingen 19.09.2026 (#665).** Samme komponent som varemodtagelsen
+> og lageroversigten (`shared/mangde_felter.js`). Brøkknapperne (¼ ½ ¾) er fjernet.
+> Posterne ligger indtil videre i sessionen (`counts[id].entries[fysisk enhed]`) og
+> sendes til serveren, der summerer med sine egne omregninger; `stock_count_entries`
+> (§14.4) og tolerancen (§14.5) hører til fase 4 og er ikke bygget.
+
 **Præcision er ikke ens i de tre felter.** For frikadeller er `qu_consume` "1 stk = 0,065 kg" et gennemsnit, ikke fysik — frikadeller vejer ikke ens. En uåbnet kasse er derimod eksakt. Det skal ikke forhindre noget, men det er grunden til at den indlærte enhed pr. placering skal styre, frem for at gøre stk til standard bare fordi feltet findes. Det er også en grund til at afvigelser bør vurderes pr. enhed (§14.9), ikke kun pr. vare.
 
 ### 14.7 Omregning og emballage er to forskellige ting

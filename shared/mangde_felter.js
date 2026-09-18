@@ -199,15 +199,18 @@
 
                 var input = document.createElement('input');
                 input.className = 'mf-input';
-                input.type = 'number';
-                input.min = '0';
-                input.step = 'any';
+                // type="text", IKKE "number": et number-felt giver et TOMT
+                // value for "2,5" når browseren ikke er sat til komma — og så
+                // ignoreres feltet tavst (tomt = ingen post). Danskere taster
+                // komma. Optællingen har haft præcis dén guard siden #331.
+                input.type = 'text';
                 // Taltastatur på iPad/iPhone — og feltet tager imod
                 // tastaturets "Scan tekst" uden videre.
                 input.setAttribute('inputmode', 'decimal');
+                input.setAttribute('autocomplete', 'off');
                 input.setAttribute('aria-label', u.name);
                 if (values[u.qu_id] !== null && values[u.qu_id] !== undefined) {
-                    input.value = values[u.qu_id];
+                    input.value = show(values[u.qu_id]);
                 }
                 input.addEventListener('input', function () {
                     values[u.qu_id] = _mfNum(this.value);
@@ -292,6 +295,23 @@
         return isFinite(n) ? n : null;
     }
 
+    /** Et tal som det skal stå i feltet: dansk komma, ingen afrunding. */
+    function show(n) {
+        if (n === null || n === undefined || n === '') return '';
+        return String(n).replace('.', ',');
+    }
+
+    /** Læg delta til et felt og fortæl komponenten det — til ±-knapperne. */
+    function step(input, delta) {
+        if (!input) return;
+        var v = _mfNum(input.value) || 0;
+        var n = Math.max(0, Math.round((v + delta) * 1e6) / 1e6);
+        input.value = show(n);
+        var ev;
+        try { ev = new Event('input', { bubbles: true }); } catch (e) { ev = { type: 'input' }; }
+        input.dispatchEvent(ev);
+    }
+
     function _mfFmt(n) {
         if (n === null || n === undefined) return '';
         var r = Math.round(n * 1000) / 1000;
@@ -303,6 +323,8 @@
         unitsFor: unitsFor,
         factorTo: factorTo,
         stockSum: stockSum,
+        show: show,
+        step: step,
         // Til tests — de rene regler uden DOM.
         _num: _mfNum
     };
