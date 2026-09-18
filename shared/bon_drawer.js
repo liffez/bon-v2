@@ -209,7 +209,7 @@ class BonDrawer {
                     <!-- Slutkunde: hvem maden er til, når kunden ovenfor bestiller
                          for en anden (forhandler-ordrer, migration 167). Kunden
                          ovenfor er den der får fakturaen. -->
-                    <label class="drawer-sublabel" style="margin-top:12px">Slutkunde <span class="drawer-hint-inline">(hvis der bestilles for en anden)</span></label>
+                    <label class="drawer-sublabel" style="margin-top:12px">Slutkunde <span class="drawer-hint-inline">(hvis der bestilles for en anden)</span><span class="drawer-mark-formidler" hidden title="Firmaet bestiller for andre. Nogle oplyser aldrig hvem — feltet maa gerne staa tomt.">formidler</span></label>
                     <input type="text" class="drawer-field" data-field="end_customer_name"
                            placeholder="Fx Systematic — firmaet maden skal ud til">
                     <label class="drawer-sublabel" style="margin-top:12px">Dagskontakt</label>
@@ -722,6 +722,12 @@ class BonDrawer {
         // Slutkunde (forhandler-ordrer). Ingen pre-fill — tom betyder "ingen
         // slutkunde", og et gæt ville se ud som noget nogen havde skrevet.
         this._setFieldValue('end_customer_name', d.end_customer_name || '');
+        // Formidler-mærke. Firmaet bestiller for andre, så et tomt slutkunde-felt
+        // er ikke nødvendigvis en mangel — nogle formidlere oplyser aldrig hvem.
+        // Derfor et dæmpet mærke, ikke en advarsel: det siger hvad firmaet ER,
+        // og lader feltet stå tomt uden at nage.
+        const mark = this.el.querySelector('.drawer-mark-formidler');
+        if (mark) mark.hidden = !formidlerMark(d);
 
         // Dagskontakt — pre-fill fra kunde hvis tom
         this._setFieldValue('day_contact_name', d.day_contact_name || d.contact_name_full || '');

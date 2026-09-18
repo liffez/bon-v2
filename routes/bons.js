@@ -140,6 +140,7 @@ router.get('/', handle((req, res) => {
             c.email  AS customer_email,
             co.name  AS company_name,
             co.ean   AS company_ean,
+            co.is_reseller AS company_is_reseller,
             l.name   AS location_name,
             (SELECT COUNT(*) FROM mail_messages mm
              JOIN mail_threads mt ON mm.thread_id = mt.id

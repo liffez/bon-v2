@@ -747,15 +747,7 @@ function _blRenderTable() {
                     }
                     break;
                 case 'company':
-                    // Forhandler-ordre: vis begge dele, så det er tydeligt at
-                    // firmaet er den der betaler og ikke den maden er til.
-                    // Kun når slutkunden findes — alle andre rækker er uændrede.
-                    td1.textContent = bon.company_name || '';
-                    if (bon.end_customer_name) {
-                        td1.textContent += ' → ' + bon.end_customer_name;
-                        td1.title = (bon.company_name || '') + ' bestiller for ' + bon.end_customer_name;
-                    }
-                    td1.classList.add('bl-td-dim');
+                    _blCompanyCell(td1, bon);
                     break;
                 case 'end_customer':
                     td1.textContent = bon.end_customer_name || '';
@@ -932,4 +924,31 @@ function _blHandleBonStatus(data) {
 // tælleren) opdateres live uden reload.
 function _blHandleMailReceived(data) {
     _blLoadData();
+}
+
+// Firma-cellen. Egen funktion frem for inline i render-loopet, så den kan
+// KALDES af en test: en grep kan ikke se forskel på et mærke der bygges og et
+// der rent faktisk sættes ind i cellen, og netop dét slap igennem første gang.
+//
+// Tre tilstande:
+//   slutkunde kendt      "Able → Systematic" — pilen siger hvem der betaler
+//                        og hvem maden er til.
+//   formidler, ingen     "Able formidler" — dæmpet mærke. En OPLYSNING: nogle
+//                        formidlere oplyser aldrig slutkunden, så et tomt felt
+//                        er ofte den rigtige tilstand og må ikke se forkert ud.
+//   alt andet            bare firmanavnet, uændret fra før.
+function _blCompanyCell(td1, bon) {
+    td1.textContent = bon.company_name || '';
+    if (bon.end_customer_name) {
+        td1.textContent += ' → ' + bon.end_customer_name;
+        td1.title = (bon.company_name || '') + ' bestiller for ' + bon.end_customer_name;
+    } else if (formidlerMark(bon)) {
+        var mk = document.createElement('span');
+        mk.className = 'bl-mark-formidler';
+        mk.textContent = 'formidler';
+        mk.title = (bon.company_name || '') + ' bestiller for andre — slutkunde ikke oplyst';
+        td1.appendChild(document.createTextNode(' '));
+        td1.appendChild(mk);
+    }
+    td1.classList.add('bl-td-dim');
 }
