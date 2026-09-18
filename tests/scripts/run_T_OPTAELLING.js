@@ -499,15 +499,15 @@ function installFakeGrocy(failOn) {
         if (failOn.inventory === id) throw new Error('attrap: lager-skrivning fejlede');
         return { ok: true };
     };
-    globalThis.putGrocyProductUserfields = async function(id, fields) {
-        calls.push({ fn: 'userfields', id, fields });
+    globalThis.putGrocyProductUserfields = async function(id, fields, kilde) {
+        calls.push({ fn: 'userfields', id, fields, kilde });
         if (failOn.userfields === id) throw new Error('attrap: userfield-skrivning fejlede');
-        return { ok: true };
+        return failOn.sporFejl ? { ok: true, log_error: 'attrap: sporet fejlede' } : { ok: true };
     };
-    globalThis.putGrocyProduct = async function(id, body) {
-        calls.push({ fn: 'product', id, body });
+    globalThis.putGrocyProduct = async function(id, body, kilde) {
+        calls.push({ fn: 'product', id, body, kilde });
         if (failOn.product === id) throw new Error('attrap: produkt-opdatering fejlede');
-        return { ok: true };
+        return failOn.sporFejl ? { ok: true, log_error: 'attrap: sporet fejlede' } : { ok: true };
     };
     return calls;
 }
@@ -621,6 +621,24 @@ async function caseCommitExecution() {
        JSON.stringify(disc.map(c => c.fn)));
     ok('16q beslutninger tælles hver for sig',
        res.notrackDone === 1 && res.discDone === 1 && res.decFailed === 0);
+    // #666: beslutningerne er stamdata — de skal stå i varens historik som
+    // kommende fra optællingen. Kål-sagen var netop en ⋯-beslutning.
+    ok('16q2 beslutningerne sendes med kilden "optaelling" (#666)',
+       hverdag && hverdag.kilde === 'optaelling' &&
+       disc.some(c => c.fn === 'product' && c.kilde === 'optaelling'),
+       JSON.stringify(calls.map(c => [c.fn, c.kilde])));
+    ok('16q3 intet spor-hul når sporet lykkes', res.sporFejl === 0);
+    removeFakeGrocy();
+
+    // ── 16q4-5: beslutningen er gemt, men sporet fejlede — det skal siges ──
+    resetState();
+    _ic.decisions = { '9': 'discontinued' };
+    calls = installFakeGrocy({ sporFejl: true });
+    plan = IC._icPlanCommit({});
+    res  = await IC._icExecuteCommit(plan);
+    ok('16q4 et fejlet spor vælter ikke beslutningen', res.discDone === 1 && res.decFailed === 0);
+    const sporMsg = IC._icCommitMessage({ toWrite: [], keepCount: 0 }, res);
+    ok('16q5 kvitteringen siger at historikken mangler', res.sporFejl === 1 && /historik/.test(sporMsg), sporMsg);
     removeFakeGrocy();
 
     // ── 16r-t: fejl håndteres og holdes adskilt ──

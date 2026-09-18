@@ -781,7 +781,7 @@ function _pcSubmit() {
             var ufBody = {};
             if (hverdag && _pcGetUserfield('HverDag')) ufBody.HverDag = hverdag;
             if (Object.keys(ufBody).length === 0) return;
-            return putGrocyProductUserfields(productId, ufBody).catch(function(e) {
+            return putGrocyProductUserfields(productId, ufBody, 'opret-produkt').catch(function(e) {
                 warnings.push('Userfields kunne ikke gemmes: ' + e.message);
             });
         })

@@ -17,6 +17,8 @@ const packSizeGuard = require('../services/packSizeGuard');
 const supplierPrices = require('../services/supplierPrices');
 // #658: samme omregning som varemodtagelsen bruger (#358) — én regel, ét sted.
 const { resolveToStockAmount } = require('../services/quConvert');
+// #666: spor på stamdata-ændringer — hvem ændrede hvad, og hvornår.
+const stamdataLog = require('../services/stamdataLog');
 const { getDb } = require('../db/database');
 const { refreshRecipeUnitCountsSafe } = require('../services/recipeUnits');
 
@@ -373,9 +375,51 @@ router.post('/stock/:id/add', handle(async (req, res) => {
 
 /* ── Produkt userfields (LastCheckedAt etc.) ─────────────── */
 
+/**
+ * Skriv en stamdata-ændring til Grocy, og spor den (#666).
+ *
+ * Rækkefølgen er ikke tilfældig:
+ *   1. Læs "før" FRISK — ellers kan sporet logge en forkert gammel værdi.
+ *      Fejler læsningen, skriver vi alligevel: brugerens ændring er det
+ *      vigtige, og sporet siger ærligt at før-værdien var ukendt.
+ *   2. Skriv til Grocy.
+ *   3. Log KUN efter en vellykket skrivning. At logge en ændring der aldrig
+ *      skete, er værre end at mangle en linje.
+ *
+ * Et spor der fejler må ikke vælte en ændring der lykkedes — men det må
+ * heller ikke forsvinde i stilhed. Det er præcis den fejlklasse #666 findes
+ * for. Fejlen sendes derfor med i svaret, så skærmen kan sige den.
+ */
+async function sporetSkrivning(req, { productId, læsFør, skriv }) {
+    let før = null;
+    try { før = await læsFør(); }
+    catch (err) { console.warn(`[stamdata] kunne ikke læse før-værdi for produkt ${productId}:`, err.message); }
+
+    await skriv();   // kaster → handle() svarer med fejl, og intet logges
+
+    const ændret = stamdataLog.forskelle(før, req.body || {});
+    if (!ændret.length) return { logget: 0 };
+    try {
+        const navne = await stamdataLog.hentNavne(grocy);
+        return stamdataLog.skriv({
+            productId, ændret, navne,
+            userId: req.session ? req.session.userId : null,
+            kilde: stamdataLog.kildeFra(req),
+        });
+    } catch (err) {
+        console.error(`[stamdata] ÆNDRINGEN ER GEMT, men sporet fejlede for produkt ${productId}:`, err.message);
+        return { logget: 0, log_error: err.message };
+    }
+}
+
 router.put('/products/:id/userfields', handle(async (req, res) => {
-    await grocy.updateProductUserfields(parseInt(req.params.id), req.body);
-    res.json({ ok: true });
+    const productId = parseInt(req.params.id);
+    const spor = await sporetSkrivning(req, {
+        productId,
+        læsFør: () => grocy.getProductUserfieldsFresh(productId),
+        skriv:  () => grocy.updateProductUserfields(productId, req.body),
+    });
+    res.json({ ok: true, ...spor });
 }));
 
 /* ── Indkøbsliste ────────────────────────────────────────── */
@@ -486,8 +530,35 @@ router.put('/userfields/product_barcodes/:id', handle(async (req, res) => {
 }));
 
 router.put('/products/:id', handle(async (req, res) => {
-    await grocy.updateProduct(parseInt(req.params.id), req.body);
-    res.json({ ok: true });
+    const productId = parseInt(req.params.id);
+    const spor = await sporetSkrivning(req, {
+        productId,
+        læsFør: () => grocy.getProductFresh(productId),
+        skriv:  () => grocy.updateProduct(productId, req.body),
+    });
+    res.json({ ok: true, ...spor });
+}));
+
+/**
+ * GET /products/:id/historik — hvem ændrede hvad på varen (#666).
+ *
+ * Uden en visning er sporet ligegyldigt: det ville ligge i databasen præcis
+ * som Grocys egen log ligger i Grocy, uden at nogen ser det.
+ */
+router.get('/products/:id/historik', handle((req, res) => {
+    const productId = parseInt(req.params.id);
+    if (!productId) return res.status(400).json({ error: 'Ugyldigt produkt-id' });
+    const limit = Math.min(parseInt(req.query.limit) || 25, 200);
+    const rækker = getDb().prepare(`
+        SELECT c.id, c.action, c.field_name, c.old_value, c.new_value,
+               c.notes, c.created_at, c.user_id, u.name AS user_name
+        FROM changelog c
+        LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.entity_type = ? AND c.entity_id = ?
+        ORDER BY c.created_at DESC, c.id DESC
+        LIMIT ?
+    `).all(stamdataLog.ENTITY, productId, limit);
+    res.json(rækker);
 }));
 
 /* ── Shopping list item update ───────────────────────────── */

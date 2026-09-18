@@ -171,7 +171,7 @@ async function _cvSave(row, container, btn) {
         await postGrocyQuConversion({ product_id: id, from_qu_id: qu, to_qu_id: _cv.KILO, factor: kgPerStk });
         // Emballage-vægt pr. stk (gram) — gemmes altid, så 0 markerer "tjekket, ingen emballage"
         try {
-            await putGrocyProductUserfields(id, { co2e_packaging_g: emb });
+            await putGrocyProductUserfields(id, { co2e_packaging_g: emb }, 'co2');
         } catch (ufErr) {
             row.querySelector('.cv-preview').textContent = '⚠ kg-vej gemt, men emballage-felt fejlede: ' + (ufErr && ufErr.message ? ufErr.message : ufErr);
         }

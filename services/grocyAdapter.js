@@ -926,6 +926,22 @@ async function updateProductBarcodeUserfields(id, fields) {
     _cache.delete('product_barcodes');
 }
 
+/**
+ * Ét produkt, UDEN om cachen (#666).
+ *
+ * Bruges til at læse "før" inden en stamdata-ændring. Cachen kan være op til
+ * ti minutter gammel. Har nogen rettet varen imens, ville sporet logge en
+ * forkert gammel værdi og se troværdigt ud.
+ */
+async function getProductFresh(id) {
+    return grocyFetch(`/objects/products/${Number(id)}`);
+}
+
+/** Et produkts userfields, uden om cachen. Samme grund som getProductFresh. */
+async function getProductUserfieldsFresh(id) {
+    return grocyFetch(`/userfields/products/${Number(id)}`);
+}
+
 /** Opdater produkt (shopping_location_id, min_stock_amount etc.) */
 async function updateProduct(id, body) {
     await grocyPut(`/objects/products/${id}`, body);
@@ -1704,6 +1720,8 @@ async function updateProductUserfields(productId, fields) {
 
 module.exports = {
     // Read
+    getProductFresh,
+    getProductUserfieldsFresh,
     getRecipes,
     getRecipesRaw,
     getProductUnitCosts,

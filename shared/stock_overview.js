@@ -276,6 +276,11 @@ function _soBuildShell() {
     _soContainer.addEventListener('click', _soHandleClick);
     _soContainer.addEventListener('input', _soHandleInput);
     _soContainer.addEventListener('change', _soHandleChange);
+    // <details> sender 'toggle', som ikke bobler — derfor capture (#666).
+    _soContainer.addEventListener('toggle', function (e) {
+        var d = e.target;
+        if (d && d.id === 'soEditHistorik' && d.open) _soLoadHistorik(Number(d.getAttribute('data-product-id')));
+    }, true);
 
     // Escape to close edit modal (first), then expand
     document.addEventListener('keydown', function(e) {
@@ -1570,14 +1575,16 @@ async function _soReactivate(id) {
     if (!item) return;
     if (!confirm('Gør "' + item.name + '" aktiv igen?\n\nVaren kommer tilbage på lageroversigten og i optællingen.')) return;
     try {
-        await putGrocyProduct(id, { active: 1 });
+        var svarA = await putGrocyProduct(id, { active: 1 }, 'lageroversigt');
     } catch (err) {
         _soShowToast('Kunne ikke aktivere ' + esc(item.name) + ': ' + esc(err.message), 'error');
         return;
     }
     _soMoveToActive(id);
     _soApplyFilters();
-    _soShowToast(esc(item.name) + ' er aktiv igen' + (item.amount <= 0 ? ' — står på listen med 0 på lager, klik den for at give den et tal' : ''), 'success');
+    _soShowToast(esc(item.name) + ' er aktiv igen' + (item.amount <= 0 ? ' — står på listen med 0 på lager, klik den for at give den et tal' : '') +
+        (_soSporFejl(svarA) ? ' — men ændringen blev ikke skrevet i historikken' : ''),
+        _soSporFejl(svarA) ? 'warn' : 'success');
 }
 
 // ── "Sidst tjekket" (#613) ─────────────────────────────────
@@ -1868,6 +1875,75 @@ function _soOpenEdit(ids) {
     if (!bulk) _soLoadEditPrice(ids[0]);
 }
 
+// ════════════════════════════════════════════════════════════
+// HISTORIK I ✎ (#666)
+//
+// Hvem ændrede hvad på varen fra Bon. Foldet sammen og hentet først når den
+// åbnes — den er til dagen hvor noget ser forkert ud, ikke til hvert Gem.
+// ════════════════════════════════════════════════════════════
+
+var _SO_FELT_NAVNE = {
+    active: 'Aktiv', location_id: 'Standardplacering', default_consume_location_id: 'Forbrugsplacering',
+    shopping_location_id: 'Standard-butik', product_group_id: 'Varegruppe',
+    default_best_before_days: 'Bedst før (dage)', HverDag: 'Tjek-interval (dage)',
+    min_stock_amount: 'Minimumslager', qu_id_stock: 'Lager-enhed', qu_id_purchase: 'Købs-enhed',
+    qu_id_consume: 'Forbrugs-enhed', qu_id_price: 'Pris-enhed', name: 'Navn',
+    pris: 'Pris', overslag: 'Overslag', 'foretrukket varenummer': 'Foretrukket varenummer',
+    co2e_packaging_g: 'Emballage (g)'
+};
+
+function _soHistorikVærdi(felt, v) {
+    if (v === null || v === undefined || v === '') return '—';
+    if (felt === 'active') return (String(v) === '1') ? 'ja' : 'nej';
+    return String(v);
+}
+
+/** changelog.created_at er UTC ('YYYY-MM-DD HH:MM:SS'); vist i dansk tid. */
+function _soHistorikTid(raw) {
+    var d = (typeof parseServerDate === 'function') ? parseServerDate(raw) : new Date(raw);
+    if (!d || isNaN(d.getTime())) return raw || '';
+    return d.toLocaleString('da-DK', {
+        timeZone: 'Europe/Copenhagen', day: 'numeric', month: 'short',
+        hour: '2-digit', minute: '2-digit'
+    });
+}
+
+function _soHistorikHtml(rækker) {
+    if (!rækker || !rækker.length) {
+        return '<div class="so-edit-hint">Ingen ændringer registreret fra Bon endnu. ' +
+            'Ændringer lavet direkte i Grocy ses ikke her.</div>';
+    }
+    return '<ul class="so-historik-list">' + rækker.map(function (r) {
+        var navn = _SO_FELT_NAVNE[r.field_name] || r.field_name || 'ændring';
+        var tid  = _soHistorikTid(r.created_at);
+        return '<li class="so-historik-row">' +
+            '<div class="so-historik-what"><b>' + esc(navn) + '</b>: ' +
+                esc(_soHistorikVærdi(r.field_name, r.old_value)) + ' → ' +
+                esc(_soHistorikVærdi(r.field_name, r.new_value)) + '</div>' +
+            '<div class="so-edit-hint">' + esc(tid || '') + ' · ' + esc(r.user_name || 'ukendt bruger') +
+                (r.notes ? ' · ' + esc(r.notes) : '') + '</div>' +
+            '</li>';
+    }).join('') + '</ul>';
+}
+
+async function _soLoadHistorik(productId) {
+    var el = document.getElementById('soEditHistorikBody');
+    if (!el || typeof fetchGrocyProductHistorik !== 'function') return;
+    el.innerHTML = '<span class="so-edit-hint">Henter historik…</span>';
+    try {
+        var rækker = await fetchGrocyProductHistorik(productId, 25);
+        if (_soEditIds.length !== 1 || _soEditIds[0] !== productId) return;
+        el.innerHTML = _soHistorikHtml(rækker);
+    } catch (err) {
+        el.innerHTML = '<span class="so-edit-hint">Historikken kunne ikke hentes: ' + esc(err.message) + '</span>';
+    }
+}
+
+/** Et svar fra en stamdata-rute bærer log_error hvis sporet ikke blev skrevet. */
+function _soSporFejl(svar) {
+    return !!(svar && svar.log_error);
+}
+
 function _soFieldRow(label, controlHtml, hint) {
     return '<div class="so-edit-row">' +
         '<label class="so-edit-label">' + esc(label) + '</label>' +
@@ -1926,6 +2002,10 @@ function _soBuildEditForm(ids) {
     rows += numField('soEdit_dbb', 'Bedst før (dage)', p.default_best_before_days, '-1 = udløber aldrig');
     rows += selectField('soEdit_group', 'Varegruppe', _soGroupsArr, p.product_group_id, true, '(ingen)');
     rows += numField('soEdit_hverdag', 'Tjek-interval (dage)', uf.HverDag, 'Hvor ofte varen skal tælles i optælling. Tom = uændret.');
+    if (!bulk) {
+        rows += '<details class="so-edit-historik" id="soEditHistorik" data-product-id="' + ids[0] + '">' +
+            '<summary>Historik</summary><div id="soEditHistorikBody"></div></details>';
+    }
 
     return rows;
 }
@@ -2113,7 +2193,7 @@ async function _soCommitPendingPrice() {
         }
         // Uændret tal skrives ikke til Grocy igen — en pris har en dato på sig.
         if (n > 0 && (før === null || Math.abs(n - før) > 1e-9)) {
-            await setBarcodeStockPrice(bcId, n);
+            await setBarcodeStockPrice(bcId, n, 'lageroversigt');
             gemt = true;
         }
     }
@@ -2128,7 +2208,7 @@ async function _soCommitPendingPrice() {
             return 'fejl';
         }
         if (en > 0 && (estFør === null || Math.abs(en - estFør) > 1e-9)) {
-            await setEstimatePrice(d.product_id, en);
+            await setEstimatePrice(d.product_id, en, false, 'lageroversigt');
             gemt = true;
         }
     }
@@ -2161,21 +2241,21 @@ async function _soHandlePriceAction(el) {
         if (act === 'edit-estimate') { box.innerHTML = _soRenderEditPrice(d, 'estimate'); return; }
         if (act === 'preferred') {
             var id = el.value ? parseInt(el.value) : null;
-            await setPreferredBarcode(pid, id);
+            await setPreferredBarcode(pid, id, 'lageroversigt');
         } else if (act === 'save') {
             var inp = document.getElementById('soPriceInput');
             var n = _soParsePrice(inp.value);
             if (!(n > 0)) { _soShowToast('Skriv en pris større end 0', 'warn'); return; }
-            await setBarcodeStockPrice(parseInt(inp.getAttribute('data-barcode-id')), n);
+            await setBarcodeStockPrice(parseInt(inp.getAttribute('data-barcode-id')), n, 'lageroversigt');
             _soShowToast('Pris gemt', 'success');
         } else if (act === 'save-estimate') {
             var ei = document.getElementById('soEstimateInput');
             var en = _soParsePrice(ei.value);
             if (!(en > 0)) { _soShowToast('Skriv et overslag større end 0', 'warn'); return; }
-            await setEstimatePrice(pid, en);
+            await setEstimatePrice(pid, en, false, 'lageroversigt');
             _soShowToast('Overslag gemt', 'success');
         } else if (act === 'clear-estimate') {
-            await setEstimatePrice(pid, null);
+            await setEstimatePrice(pid, null, false, 'lageroversigt');
             _soShowToast('Overslag fjernet', 'success');
         } else {
             return;
@@ -2274,13 +2354,14 @@ async function _soSaveEdit() {
     var statusEl = document.getElementById('soEditStatus');
     if (saveBtn) saveBtn.disabled = true;
 
-    var success = 0, failed = 0;
+    var success = 0, failed = 0, sporFejl = 0;
     for (var i = 0; i < ids.length; i++) {
         var id = ids[i];
         if (statusEl) statusEl.textContent = 'Gemmer ' + (i + 1) + '/' + ids.length + '...';
         try {
-            if (mKeys.length) await putGrocyProduct(id, master);
-            if (uKeys.length) await putGrocyProductUserfields(id, user);
+            var svarM = mKeys.length ? await putGrocyProduct(id, master, 'lageroversigt') : null;
+            var svarU = uKeys.length ? await putGrocyProductUserfields(id, user, 'lageroversigt') : null;
+            if (_soSporFejl(svarM) || _soSporFejl(svarU)) sporFejl++;
             _soApplyEditToLocal(id, master, user);
             success++;
         } catch (err) {
@@ -2291,7 +2372,12 @@ async function _soSaveEdit() {
 
     _soCloseEdit();
 
-    if (failed === 0) {
+    if (failed === 0 && sporFejl > 0) {
+        // Ændringen ER gemt i Grocy. Men den står ikke i historikken, og det
+        // skal man vide — ellers ligner et hul i sporet at intet skete (#666).
+        _soShowToast((bulk ? (success + ' varer opdateret') : 'Vare opdateret') +
+            ' — men ændringen blev ikke skrevet i historikken', 'warn');
+    } else if (failed === 0) {
         _soShowToast(bulk ? (success + ' varer opdateret') : 'Vare opdateret', 'success');
     } else {
         _soShowToast(success + ' opdateret, ' + failed + ' fejlede', failed === ids.length ? 'error' : 'warn');

@@ -2103,18 +2103,20 @@ async function _icExecuteCommit(plan) {
     }
 
     // Beslutninger fra kortets menu — først her, som alt andet (spec §3).
-    var notrackDone = 0, discDone = 0, decFailed = 0;
+    var notrackDone = 0, discDone = 0, decFailed = 0, sporFejl = 0;
     for (var d = 0; d < plan.decisionIds.length; d++) {
         var dpid = parseInt(plan.decisionIds[d]);
         var kind = _ic.decisions[plan.decisionIds[d]];
         try {
             if (kind === 'notrack') {
                 // Tom HverDag = passiv vare: stiger aldrig til tops i sorteringen.
-                await putGrocyProductUserfields(dpid, { HverDag: '' });
+                var svarN = await putGrocyProductUserfields(dpid, { HverDag: '' }, 'optaelling');
+                if (svarN && svarN.log_error) sporFejl++;   // #666: gemt, men ikke i historikken
                 notrackDone++;
             } else if (kind === 'discontinued') {
                 await postGrocyInventory(dpid, 0);
-                await putGrocyProduct(dpid, { active: 0 });
+                var svarD = await putGrocyProduct(dpid, { active: 0 }, 'optaelling');
+                if (svarD && svarD.log_error) sporFejl++;
                 discDone++;
             }
         } catch (err) {
@@ -2125,7 +2127,8 @@ async function _icExecuteCommit(plan) {
 
     return {
         invWritten: invWritten, invFailed: invFailed,
-        notrackDone: notrackDone, discDone: discDone, decFailed: decFailed
+        notrackDone: notrackDone, discDone: discDone, decFailed: decFailed,
+        sporFejl: sporFejl
     };
 }
 
@@ -2138,7 +2141,12 @@ function _icCommitMessage(plan, res) {
     if (plan.keepCount > 0)  dele.push(plan.keepCount + ' beholdt lagerets tal');
     if (res.notrackDone > 0) dele.push(res.notrackDone + ' tælles ikke fast mere');
     if (res.discDone > 0)    dele.push(res.discDone + ' taget af listerne');
-    return 'Gemt. ' + (dele.length ? dele.join(', ') : 'Ingen ændringer') + '.';
+    var tekst = 'Gemt. ' + (dele.length ? dele.join(', ') : 'Ingen ændringer') + '.';
+    // #666: beslutningen ER gemt, men står ikke i varens historik. Det skal
+    // man vide — det var netop et spor der manglede, der gjorde kål-sagen svær.
+    if (res.sporFejl > 0) tekst += ' ' + res.sporFejl + ' ændring' + (res.sporFejl === 1 ? '' : 'er') +
+        ' blev ikke skrevet i varens historik.';
+    return tekst;
 }
 
 // Ren: fejlteksten. Skeln de to slags — en lager-skrivning der fejlede er
