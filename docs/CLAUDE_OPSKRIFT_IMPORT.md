@@ -199,7 +199,7 @@ Flowet er et tredje kort på designerens startskærm, *Importér opskrift*: inds
 
 Tillæggets antagelser (`CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md` §9) vises som en note pr. ingrediensrække i designeren, og importnoten lander i fremgangsmåden.
 
-**Forudsætning:** designeren skal først kunne den nuværende model — udbytte som eget felt (#680), produceret vare, underopskrift som produktlinje frem for nesting, og målvægt for skål-opskrifter. Se epic #660, fase F-1.
+**Forudsætning:** designeren skal først kunne den nuværende model — udbytte som eget felt (#680), produceret vare, underopskrift som produktlinje frem for nesting, og målvægt for skål-opskrifter. Se epic #660, fase F-1 (#683).
 
 ---
 
