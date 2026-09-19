@@ -210,6 +210,7 @@ bon-v2/
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
 │   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
 │   ├── bon_lines.js  ← mergeLines() — slår ens bon-linjer sammen til visning/eksport, eksponeres som window.BonLines
+│   ├── grocy_num.js  ← num() — tal fra Grocy-userfields med dansk komma tålt, eksponeres som window.GrocyNum (RecipeYield.num er et alias)
 │   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
 │   ├── auth.js       ← requireAuth() middleware (server-side)
 │   └── login.html    ← Fælles login-side (PIN + email auto-detect)
@@ -293,6 +294,20 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - E-conomic kræver linje-priser EX moms — `inclToExcl()` ved konvertering (jf. `CLAUDE_ECONOMIC_ADAPTER.md`)
   - Test-bonen T-5: 23.650 incl → 18.920 ex + 4.730 moms (i `tests/moms_audit_e2e.test.js`)
   - 7 visningsregler for labels (`Total inkl. moms`, `(ex moms)` osv.) i sektion 6c
+- **Tal fra Grocy-userfields: `num()` fra `shared/grocy_num.js` — aldrig rå `parseFloat`**
+  - Userfields er tekst. `parseFloat("1,1")` giver 1, så et dansk komma bliver
+    TAVST til et forkert tal (salgspris, kostpris, udbytte, CO₂). Grocy gemmer i dag
+    med punktum (0 komma-tal i grocy-hq 19/9 2026), så det er et værn.
+  - `num()` er ellers `parseFloat`: tomt/null/vrøvl giver NaN, så `|| 0` / `|| 1`
+    virker uændret.
+  - Server: `const { num: grocyNum } = require('../shared/grocy_num');`
+    Browser: `GrocyNum.num(...)`, og siden skal loade `/shared/grocy_num.js` FØR filen.
+    `shared/recipe_yield.js` læser den også, så den skal ligeledes loades efter.
+  - `Number(uf.X)` er bevidst ikke skiftet (giver NaN ved komma = tydelig fejl, og
+    `''` giver 0 dér, så et skift ændrer semantikken).
+  - Vagt: `npm run test:grocy-num` fejler ved ny rå `parseFloat` på et userfield,
+    ved en side der loader en GrocyNum-bruger uden `grocy_num.js` først, og hvis
+    `RecipeYield.num` ikke længere er samme funktion (#675).
 - **Ens bon-linjer slås sammen — `shared/bon_lines.js` (`mergeLines`)**
   - `POST /api/bons/:id/lines` lagde historisk én række pr. "Tilføj"-klik, så samme vare
     kunne ligge som fx 6 × "1× Kartoflen slider". Kortet skjulte det med sin egen
