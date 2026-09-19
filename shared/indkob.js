@@ -520,7 +520,7 @@ function _ibPackSizeKg(bc) {
         return bc._hoka.salesUnits[0].quantity || 1;
     }
     if (bc.userfields && bc.userfields.pack_size_stock_unit) {
-        return parseFloat(bc.userfields.pack_size_stock_unit) || 1;
+        return GrocyNum.num(bc.userfields.pack_size_stock_unit) || 1;
     }
     return 1;
 }
@@ -2078,7 +2078,7 @@ async function _ibAddToCart(productId) {
 
     try {
         var suCode = (bc.userfields && bc.userfields.supplier_unit_code) || 'ks';
-        var suQty = parseFloat((bc.userfields && bc.userfields.supplier_unit_qty) || '1') || 1;
+        var suQty = GrocyNum.num((bc.userfields && bc.userfields.supplier_unit_qty) || '1') || 1;
 
         // Use salesUnits from hoka if available
         if (bc._hoka && bc._hoka.salesUnits && bc._hoka.salesUnits.length > 0) {

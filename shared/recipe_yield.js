@@ -21,10 +21,13 @@
 // ==========================================
 
 (function (root, factory) {
-    const api = factory();
+    // Tal-hjælperen bor i shared/grocy_num.js — én definition for hele Bon.
+    const grocyNum = (typeof module !== 'undefined' && module.exports)
+        ? require('./grocy_num') : root.GrocyNum;
+    const api = factory(grocyNum);
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     if (typeof window !== 'undefined') window.RecipeYield = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (grocyNum) {
 
     // Køkkenets fritekst mod Grocys enhedsnavne. "stk" og "antal" er samme ting.
     const UNIT_ALIASES = {
@@ -63,15 +66,18 @@
         return c ? parseFloat(c.factor) : null;
     }
 
+    // Tal fra et Grocy-userfield (dansk komma tåles) — se shared/grocy_num.js.
+    const num = grocyNum.num;
+
     /**
      * Udbytte for opskriften SOM INDTASTET (base_servings), i lager-enhed.
      * null = kan ikke bestemmes.
      */
     function yieldInStockUnits(recipe, product, units, conversions) {
         const uf = (recipe && recipe.userfields) || {};
-        const per = parseFloat(uf.recipeunitnumber);
+        const per = num(uf.recipeunitnumber);
         if (!Number.isFinite(per) || per <= 0) return null;
-        const base = parseFloat(recipe && recipe.base_servings);
+        const base = num(recipe && recipe.base_servings);
         const total = per * (Number.isFinite(base) && base > 0 ? base : 1);
 
         const quId = unitIdByName(units, uf.recipeunit);
@@ -109,5 +115,5 @@
         return u ? (u.name_short || u.name || '') : '';
     }
 
-    return { unitIdByName, factorToStock, yieldInStockUnits, plannedYieldStock, stockUnitName, UNIT_ALIASES };
+    return { num, unitIdByName, factorToStock, yieldInStockUnits, plannedYieldStock, stockUnitName, UNIT_ALIASES };
 });

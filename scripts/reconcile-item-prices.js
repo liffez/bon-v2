@@ -35,6 +35,7 @@ process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 
 
 const { openDb } = require('../db/compat');
 const grocyAdapter = require('../services/grocyAdapter');
+const { num: grocyNum } = require('../shared/grocy_num');
 const { inclToExcl, exclToIncl } = require('../shared/moms');
 const { USERFIELD_TO_CATEGORY, CATEGORY_TO_USERFIELD } = require('../services/itemPriceBackfill');
 
@@ -70,7 +71,7 @@ async function main() {
         const userfield = CATEGORY_TO_USERFIELD[code];
         if (!userfield) continue;
 
-        const grocyIncl = parseFloat((recipe.userfields || {})[userfield]);
+        const grocyIncl = grocyNum((recipe.userfields || {})[userfield]);
         const grocyExcl = Number.isFinite(grocyIncl) && grocyIncl > 0 ? r2(inclToExcl(grocyIncl)) : null;
         const localExcl = r2(row.price);
 

@@ -212,6 +212,7 @@ bon-v2/
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
 │   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
 │   ├── bon_lines.js  ← mergeLines() — slår ens bon-linjer sammen til visning/eksport, eksponeres som window.BonLines
+│   ├── grocy_num.js  ← num() — tal fra Grocy-userfields med dansk komma tålt, eksponeres som window.GrocyNum (RecipeYield.num er et alias)
 │   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
 │   ├── auth.js       ← requireAuth() middleware (server-side)
 │   └── login.html    ← Fælles login-side (PIN + email auto-detect)
@@ -295,6 +296,20 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - E-conomic kræver linje-priser EX moms — `inclToExcl()` ved konvertering (jf. `CLAUDE_ECONOMIC_ADAPTER.md`)
   - Test-bonen T-5: 23.650 incl → 18.920 ex + 4.730 moms (i `tests/moms_audit_e2e.test.js`)
   - 7 visningsregler for labels (`Total inkl. moms`, `(ex moms)` osv.) i sektion 6c
+- **Tal fra Grocy-userfields: `num()` fra `shared/grocy_num.js` — aldrig rå `parseFloat`**
+  - Userfields er tekst. `parseFloat("1,1")` giver 1, så et dansk komma bliver
+    TAVST til et forkert tal (salgspris, kostpris, udbytte, CO₂). Grocy gemmer i dag
+    med punktum (0 komma-tal i grocy-hq 19/9 2026), så det er et værn.
+  - `num()` er ellers `parseFloat`: tomt/null/vrøvl giver NaN, så `|| 0` / `|| 1`
+    virker uændret.
+  - Server: `const { num: grocyNum } = require('../shared/grocy_num');`
+    Browser: `GrocyNum.num(...)`, og siden skal loade `/shared/grocy_num.js` FØR filen.
+    `shared/recipe_yield.js` læser den også, så den skal ligeledes loades efter.
+  - `Number(uf.X)` er bevidst ikke skiftet (giver NaN ved komma = tydelig fejl, og
+    `''` giver 0 dér, så et skift ændrer semantikken).
+  - Vagt: `npm run test:grocy-num` fejler ved ny rå `parseFloat` på et userfield,
+    ved en side der loader en GrocyNum-bruger uden `grocy_num.js` først, og hvis
+    `RecipeYield.num` ikke længere er samme funktion (#675).
 - **Ens bon-linjer slås sammen — `shared/bon_lines.js` (`mergeLines`)**
   - `POST /api/bons/:id/lines` lagde historisk én række pr. "Tilføj"-klik, så samme vare
     kunne ligge som fx 6 × "1× Kartoflen slider". Kortet skjulte det med sin egen
@@ -1515,6 +1530,8 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `settings/index.html` — "Vis priser i planlægningsbon" toggle under System
 
 ### Hjælpesystem
+> Fuld beskrivelse (fælles med whiteboard): `docs/CLAUDE_hjaelpesystem.md`
+
 - [x] `shared/help-system.js` (~370 linjer) — HelpSystem + MapMode moduler
   - Selector-baseret mapping (CSS-selectorer i JSON, ikke data-attributter)
   - H = hjælpepanel med nummererede badges + sidepanel
@@ -8517,6 +8534,72 @@ med den anden optællings enhed + dansk tid, chip-skift når serveren, én
 optælling med to enheder og begge udfald, `audit:optaellinger --count`
 viser dem. Balsamico sat tilbage på grocytest bagefter.
 
+### Opskrift-designeren overskrev udbyttet ved Gem (#680 + #364, 19.–20. september 2026)
+
+Et Gem i designeren — også uden at røre noget — skrev hvert felt, hver
+ingredienslinje og hver nesting tilbage til Grocy. Og flere af felterne blev
+skrevet ud fra noget andet end det Grocy havde:
+
+| Hvad | Ramte (målt på alle 131 opskrifter i grocy-hq 19/9) |
+|---|---|
+| `recipeunitnumber` sat lig `base_servings` | **8 udbytter overskrevet** — Chili Mayo 1,1→1 · Tahin 1,115→1 · Yoghurt 1,057→1 · Falaffel-stegning 36→1 · Skære Slider Brød 1→64 · begge slider-bokse 3→1 · **Ingrid ærter → udblødt 2,1→1** (ikke med i issuet) |
+| samme, på opskrifter uden udbytte | 13 fik opfundet et: `null` → `"1"` |
+| enheden fra en fast liste (`stk/kg/liter/antal/portion`) | **6 enheder slettet** — Grocy bruger `Timer`, `Kr`, `gram` og `liter,antal`, som listen ikke kendte, så `<select>` stod tom og Gem skrev det tomme |
+| `base_servings` gennem `parseInt` | decimaler skåret af (Rødløg - Syltet har haft 2,8) |
+| gruppen fra visnings-fallbacken | en opskrift uden gruppe ville få skrevet `Ingen kategori` |
+| navnet uden trim | 4 navne med mellemrum i enden ændret |
+
+Fem af de otte er produktionsopskrifter konverteret i #270. Deres udbytte er
+det lagertrækket, kostprisen (#558/#652) og CO₂-faktoren (#663) regner på —
+så ét Gem flyttede tallene stille. Samme fejlklasse som #305/#319.
+**Ingen af dem var nået at blive overskrevet i drift.**
+
+- **Gem sender kun det der er ændret.** Opskriften fotograferes når den åbnes
+  (`_rdCaptureOrig`), felterne skriver i `_rdDs`, og `_rdBuildSavePlan` er en
+  ren funktion der svarer på "hvad skal sendes for at komme fra A til B".
+  Er intet ændret, sendes intet. Det dækker alle felterne på én gang — også
+  dem ovenfor der hver især skulle have haft sin egen lappe.
+- **"1 portion er [1,1] [kg]"** er de to userfields der i forvejen beskriver
+  hvad en portion ER: `recipeunitnumber` + `recipeunit`. Ingen nye felter.
+  Tallet læses med `GrocyNum` (dansk komma), og **et tomt udbytte forbliver
+  tomt** — vi opfinder aldrig et (jf. yield-modellen 20/7).
+- **Valgmulighederne hentes fra Grocys egen feltdefinition**
+  (`preset-checklist`-konfigurationen), plus de værdier der står på
+  opskrifterne. En enhed må aldrig forsvinde fordi listen ikke kender den:
+  så står feltet tomt, og næste Gem skriver det tomme. `stk` og `portion`
+  forsvinder af sig selv — Grocy kender dem ikke.
+- **`base_servings` bevarer decimaler** (felt + åbning).
+- **#364:** `_rdUpdateNesting` manglede to af fire tilbage-konverteringer, så
+  en underopskrift vist i kg blev gemt i gram — faktor 1000. Ingredienser og
+  nestings deler nu **én** `_rdDisplayToOrigUnit`, så de fire veje ikke kan
+  skride fra hinanden igen. Den forstår også `gram` og `kilo`, som er de
+  navne enhederne faktisk har (Linse Suppe er `gram`).
+
+**Tests:** `npm run test:designer-gem` — 34. Den rigtige `recipe_designer.js`
+kører i en vm-sandkasse mod en falsk Grocy der registrerer hver skrivning;
+datasættet er et read-only udtræk (`npm run snapshot:opskrifter`, kun GET).
+Værnet måles to veje: **nul skrivninger** og et **byte-identisk fingeraftryk**
+af opskrift, userfields, linjer og nestings. Med `RD_SNAPSHOT=<fil>` køres det
+på **alle 131** opskrifter; fixturen i repoet er de 12 navngivne.
+**Mutations-testet: 16 mutationer, alle fanget** af hver sin navngivne assert.
+
+> ⚠️ **Første udgave af testen var tom.** Den bestod også på den GAMLE kode,
+> fordi attrap-DOM'en ikke udfyldte felterne fra den renderede HTML — det
+> gamle Gem stoppede ved "Giv opskriften et navn" og nåede aldrig at skrive.
+> Attrappen følger nu browserens regler for `value`, herunder at en `<select>`
+> står på `selected` eller den første option, og bliver tom når man sætter en
+> værdi listen ikke kender. Med den falder `main` på alle 131.
+
+Browser-verificeret med rigtige museklik mod grocy-test (kopi af HQ): Gem uden
+ændringer → "Ingen ændringer at gemme" og Grocy byte-identisk · udbytte rettet
+til 1,25 → **kun** `recipeunitnumber` flyttede sig · antal portioner sat til 2
+→ **kun** `base_servings` flyttede sig, udbyttet urørt · Linse Suppe beholder
+`gram`. Alt rullet tilbage bagefter.
+
+**Parkeret i #683** (kommentar på issuet): stamdata-spor på opskrifter (#666
+dækker kun produkter) og en advarsel når udbyttet ændres på en opskrift der
+producerer en vare.
+
 ---
 
 ## Næste opgave
@@ -9229,5 +9312,36 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
 *20. maj 2026 (Delivery Spor 2 — S2.0 + S2.1) — Vej-routing via OpenRouteService + DAWA-geokodning. Migration 073 (`delivery_routes`/`delivery_route_stops`/`delivery_incidents` + `geo_calculations` genskabt med nullable `bon_id`). Nye services: `routing.js` (ORS-wrapper m. afstands-cache), `geocode.js` (DAWA), `delivery_calc.js` (single-bon forslag), `route_planner.js` (computeRoute/applyRouteProposal). `routes/delivery.js` udvidet med `/calculate`, `/health` + 11 rute-endpoints. `office/views/logistik.js`+`.css` — leveringsoversigten (erstatter placeholderen). Constraint-forslag i bon-draweren. Constraint-princip: brud er advarsler, aldrig spærringer — office bestemmer. 143 delivery-tests grønne. Bevidst udskudt: Leaflet-kort, rute-popout-booking, `/history`. Spec: `docs/delivery/CLAUDE_DELIVERY_SPOR2.md`.*
 
 *5. juli 2026 (#251 — re-baseline af Grocy-live test-tracks) — Opfølgning på PR #248 (deterministiske tracks). De 11 Grocy-afhængige tracks re-baselinet mod nuværende kode + live grocytest via fuld procedure pr. track (kill port 4322 → `test:reset` → `test:snapshot` → `test:patch` → frisk `test:server` → track). **Resultat: 392 PASS · 3 FAIL · 5 SKIP.** 10 tracks fuldt grønne og matcher deres dokumenterede baseline præcist — **ingen stale fixtures at rette, ingen ægte produkt-bugs** (modsat #248's ~12 stale assertions). T_GROCY 14/16, T_STOCK 31/31, T_RECIPES 20/20, T_INDKOB_LISTE 38/39, T_INDKOB_SETUP 47/47, T_INDKOB_ADMIN 50/50, T_INDKOB_HORKRAM 54/56, T_VAREMOD_PATCH 26/26, T_VAREMODTAGELSE_FULL 67/67, T_OPSKRIFTER 35/35. De 3 FAIL er alle i **T_INVENTORY (10/13)** og er miljø-betinget — ikke regression: fem grocytest-produkter er udtømt til ~0 lager (pid 16 Kylling-BBQ, 28 Spinat, 33 Rødløg-Sylt, 48 Mayo-Vegansk, 72 Transport Kasser), så `consume` ikke har noget at trække fra ("fik 0"). Consume-logikken bekræftet virksom af T_GROCY/T_STOCK/T_VAREMODTAGELSE_FULL (alle muterer Grocy-lager, alle grønne). 10/13 = accepteret baseline (grocytest-lager toppes IKKE op unilateralt). Spec §41 kræver tilstrækkelig stock som precondition.*
+
+### Popoutet fik linket til leverandøren tilbage (17. september 2026)
+
+Den gamle overlay-modal havde en **"Kopiér og åbn {label}"**-knap der kopierede
+teksten og åbnede `delivery_vehicles.booking_url`. Da popoutet afløste den (19. maj),
+fulgte linket ikke med: `buildBookingPayload` leverede stadig `booking_url`, men
+`views/delivery/note.js` læste den kun for at kunne sige *"URL er ikke konfigureret"*.
+Kontoret kunne altså kopiere bestillingen og skulle så selv finde taxa.nu.
+
+- **Pille ved vogn-dropdownen** (`↗ taxa.nu`) — synlig i begge modes, så
+  felt-for-felt-flowet også har en vej derhen. Viser **værtsnavnet**, ikke vognens
+  navn: det står allerede i dropdownen ved siden af, og det man mangler at vide er
+  hvor man lander. `.dn-vehicle` wrapper hellere end at afkorte
+  (`byexpressen.groupnet.at` i et 420px-vindue).
+- **"Kopiér og åbn taxa.nu"** som primær knap i samlet tekst — ét klik igen.
+  Uden URL falder "Kopiér hele teksten" tilbage til at være den primære, som før.
+- **Knappen er et `<a target="_blank">`, ikke en `button` med `window.open()`.**
+  Et `window.open` efter `await navigator.clipboard.writeText()` ligger uden for
+  user-activation-vinduet i Safari og kan blive popup-blokeret; browseren følger
+  derimod altid et link-klik. Handleren kalder kun `copyToClipboard` oveni — intet
+  `preventDefault`.
+- **Kun `http:`/`https:` bliver klikbart.** URL'en kommer fra vores egen Settings,
+  men en `javascript:`-streng dér skal ikke kunne køre i popoutet.
+- Warningen ved manglende URL siger nu hvor den sættes (Indstillinger →
+  Leveringsmetoder), som de øvrige warnings i vinduet.
+
+Verificeret i browseren ved 420px (popoutets faktiske bredde) på alle fire vogne:
+Taxa (kort værtsnavn), By-expressen (langt), Volvo (ingen URL → intet link, primær
+knap tilbage på plads), felt-for-felt (pillen bliver), tom URL og `javascript:`-URL.
+Ét klik på "Kopiér og åbn" gav præcis ét `writeText` med hele bestillingsteksten
+**og** en navigation til taxa.nu.
 
 *17. august 2026 (prep-modal) — Enter i antal-feltet indsendte event-modalens `<form>` og oprettede bonnen efter første linje (synligt i drift: B4099/B4100/B4101 på Vig Festival inden for to minutter). `_evModal` blokerer nu Enter-submit for alle fire roller, navngiver knappen efter den bon der oprettes og tæller linjerne. Prep/top-up bruger `VarePicker` i detached mode med ny `priceField: 'cost'` (bonnen er 0 kr — kostprisen er det tal der driver Vareforbrug). Ens varer slås sammen. Fælde fundet undervejs: `VarePicker`s knapper manglede `type="button"`, så et klik på "Tilføj" eller en kategori indsendte formularen — kun synligt ved fysisk museklik, ikke via Enter eller `dispatchEvent`. PR #466. Bekræftet i drift samme dag.*

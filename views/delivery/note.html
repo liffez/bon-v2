@@ -19,6 +19,8 @@
     <div class="dn-vehicle">
         <select id="dn-vehicle-select" aria-label="Leverandør"></select>
         <span class="dn-estimate" id="dn-estimate" hidden></span>
+        <a class="dn-supplier-link" id="dn-supplier-link"
+           target="_blank" rel="noopener noreferrer" hidden></a>
     </div>
 
     <div class="dn-modes" id="dn-modes">
@@ -36,7 +38,11 @@
 
         <div class="dn-text-view" id="dn-text-view" hidden>
             <pre class="dn-clipboard-text" id="dn-clipboard-text"></pre>
-            <button type="button" class="dn-btn dn-btn-primary" id="dn-copy-all">Kopiér hele teksten</button>
+            <div class="dn-text-actions">
+                <a class="dn-btn dn-btn-primary dn-btn-link" id="dn-copy-open"
+                   target="_blank" rel="noopener noreferrer" hidden></a>
+                <button type="button" class="dn-btn dn-btn-primary" id="dn-copy-all">Kopiér hele teksten</button>
+            </div>
         </div>
     </main>
 

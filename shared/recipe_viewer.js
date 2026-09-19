@@ -97,7 +97,7 @@ async function _rvLoadData() {
                 // En produktionsopskrift vejer ikke summen af sine input —
                 // syltelage hældes fra og kød svinder. Er tallet ikke erklæret,
                 // opfinder vi det ikke (null → fald tilbage på summen).
-                var _yn = parseFloat(r.userfields && r.userfields.recipeunitnumber);
+                var _yn = GrocyNum.num(r.userfields && r.userfields.recipeunitnumber);
                 r.yieldPerServing = (isFinite(_yn) && _yn > 0) ? _yn : null;
                 return r;
             });

@@ -39,6 +39,7 @@ process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 
 
 const grocy = require('../services/grocyAdapter');
 const { yieldPerBatchStockOf } = require('../services/ingredientResolver');
+const { num: grocyNum } = require('../shared/grocy_num');
 
 const VIS_ALLE = process.argv.includes('--alle');
 
@@ -134,7 +135,7 @@ async function main() {
     const MASSE = { kilo: 1, kg: 1, gram: 0.001, g: 0.001 };
     function erklæretKg(r) {
         const uf = r.userfields || {};
-        const per = parseFloat(uf.recipeunitnumber);
+        const per = grocyNum(uf.recipeunitnumber);
         if (!Number.isFinite(per) || per <= 0) return null;
         const base = parseFloat(r.base_servings);
         const total = per * (Number.isFinite(base) && base > 0 ? base : 1);

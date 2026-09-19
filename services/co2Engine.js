@@ -22,6 +22,7 @@
 'use strict';
 
 const { findConversionFactor } = require('./quConvert');
+const { yieldInStockUnits } = require('../shared/recipe_yield');
 
 /** §1: co2e_source='na' → bevidst udeladt fra CO₂-regnskabet (ikke en mangel). */
 function isExcluded(product) {
@@ -130,7 +131,13 @@ function resolveIngredient(product, amount, ctx, memo, stack) {
     // Når en blanding bliver et rigtigt produkt (#268), holder menuen op med at
     // neste den og peger i stedet på produktet (Remoulade, Tahin dressing). Uden
     // det her forsvinder blandingens CO₂ tavst — produktet har ingen egen faktor.
-    if (factor == null && ctx.producedBy) {
+    //
+    // En 'computed'-faktor (skrevet af co2-f5-compute.js) er kun en CACHE af netop
+    // denne udrulning (#663). Kan opskriften rulles, vinder den levende udrulning —
+    // ellers ville en ændret opskrift holde fast i et gammelt tal til næste F5-kørsel.
+    // Cachen bruges kun som fallback når udbyttet ikke kan bestemmes.
+    const isComputed = (uf.co2e_source || '').trim() === 'computed';
+    if ((factor == null || isComputed) && ctx.producedBy) {
         const producer = ctx.producedBy.get(String(product.id));
         const perBatch = producer ? producedYieldStock(producer, product, ctx) : null;
         if (producer && perBatch > 0) {
@@ -150,7 +157,8 @@ function resolveIngredient(product, amount, ctx, memo, stack) {
             if (kg) out.factor = out.total / kg;
             return out;
         }
-        // Uden erklæret udbytte kan bidraget ikke skaleres — så falder vi videre.
+        // Uden erklæret udbytte kan bidraget ikke skaleres — så falder vi videre
+        // (til en evt. computed-cache, ellers arv/mangler).
     }
 
     if (kg == null) { out.status = 'missing_kgvej'; out.missing_kgvej.add(product.name); return out; }
@@ -242,7 +250,6 @@ function buildCtx(data) {
              baseServings, producedBy, childrenByParent, units: data.units || [] };
 }
 
-/** Nøjagtighed pr. masse: dækket kg / kendt kg. null hvis ingen kendt masse. */
 /**
  * Udbytte for en producerende opskrift, i produktets lager-enhed.
  * null/0 = kan ikke bestemmes → intet rulles ned.
@@ -252,27 +259,13 @@ function buildCtx(data) {
  * til `base_servings` portioner.
  */
 function producedYieldStock(recipeRaw, product, ctx) {
-    const uf = recipeRaw.userfields || {};
-    const perServing = parseFloat(uf.recipeunitnumber);
-    if (!Number.isFinite(perServing) || perServing <= 0) return null;
-    const base = parseFloat(recipeRaw.base_servings);
-    const total = perServing * (Number.isFinite(base) && base > 0 ? base : 1);
-
-    const want = String(uf.recipeunit || '').trim().toLowerCase();
-    const unit = (ctx.units || []).find(u => String(u.name || '').trim().toLowerCase() === want
-        || UNIT_ALIAS[want] === String(u.name || '').trim().toLowerCase());
-    if (!unit) return null;
-    if (Number(unit.id) === Number(product.qu_id_stock)) return total;
-
-    const conv = (ctx.conversions || []).find(c =>
-        String(c.product_id) === String(product.id)
-        && Number(c.from_qu_id) === Number(unit.id)
-        && Number(c.to_qu_id) === Number(product.qu_id_stock));
-    return conv ? total * parseFloat(conv.factor) : null;
+    // Én regel for "hvor meget giver opskriften" — den samme som kostprisen og
+    // produktions-batchen bruger (shared/recipe_yield). Tidligere havde motoren
+    // sin egen kopi med færre enheds-aliasser (#663).
+    return yieldInStockUnits(recipeRaw, product, ctx.units, ctx.conversions);
 }
 
-const UNIT_ALIAS = { kg: 'kilo', g: 'gram', l: 'liter', stk: 'antal', 'stk.': 'antal', styk: 'antal' };
-
+/** Nøjagtighed pr. masse: dækket kg / kendt kg. null hvis ingen kendt masse. */
 function accuracyPct(res) {
     const known = res.covered_kg + res.missing_kg;
     if (known > 0) return Math.round((res.covered_kg / known) * 100);
@@ -309,6 +302,106 @@ function computeAll(data) {
         });
     }
     return out;
+}
+
+/**
+ * Hvilke opskrifters `recipes.Co2e`-cache er forældet — til co2-f5-compute.js.
+ *
+ * F5 kører natligt (crontab). Skrev den alle komplette opskrifter hver gang,
+ * kunne loggen ikke vise HVAD der ændrede sig. Derfor: kun forskelle skrives,
+ * og hver ændring har før/efter.
+ *
+ *   complete + ny værdi ≠ cachen  → 'write'
+ *   complete + samme værdi        → 'unchanged'
+ *   ufuldstændig + har en cache   → 'stale'  (rapporteres, røres ikke — vi cacher
+ *                                   aldrig et halvt tal, og vi sletter ikke et
+ *                                   menneskes tal bag ryggen på det)
+ *   ufuldstændig uden cache       → udelades
+ *
+ * `data` skal have recipes + pos + nestings.
+ * @returns [{ recipe_id, name, current, next, action }]
+ */
+function recipeCacheUpdates(data, results, fmt = (n) => Math.round(n * 10000) / 10000) {
+    const res = results || computeAll(data);
+    // Opskrifter uden én eneste ingrediens (Rabat, Servicepersonale …) regner til
+    // 0 og står som "komplette" — de må aldrig få et 0 skrevet som CO₂.
+    const hasContent = new Set([...(data.pos || []).map(p => p.recipe_id),
+                                ...(data.nestings || []).map(n => n.recipe_id)]);
+    const out = [];
+    for (const r of (data.recipes || [])) {
+        const x = res.get(r.id);
+        if (!x || !hasContent.has(r.id)) continue;
+        const raw = (r.userfields || {}).Co2e;
+        const cur = (raw == null || raw === '') ? null : Number(String(raw).replace(',', '.'));
+        const current = Number.isFinite(cur) ? cur : null;
+        if (!x.complete) {
+            if (current != null) out.push({ recipe_id: r.id, name: r.name, current, next: null, action: 'stale' });
+            continue;
+        }
+        const next = fmt(x.co2e_per_serving);
+        out.push({ recipe_id: r.id, name: r.name, current, next,
+                   action: current != null && current === next ? 'unchanged' : 'write' });
+    }
+    return out;
+}
+
+/**
+ * Hvad co2-f5-compute.js må skrive som `co2e_per_kg` på producerede varer (#663).
+ *
+ *   faktor = opskriftens samlede CO₂ (for base_servings) ÷ udbyttet i kg
+ *
+ * Udbyttet er `recipeunitnumber × base_servings` i opskriftens enhed, omregnet til
+ * produktets lager-enhed (samme helper som kostprisen) og derfra til kg. Så dækkes
+ * både `recipeunitnumber ≠ 1` (Chili Mayo 1,1) og et udbytte i antal på en vare
+ * der lagerføres i kg (Falaffel). Den gamle regel skrev `co2e_per_serving` direkte
+ * og var 10 % for høj på Chili Mayo.
+ *
+ * Opskriften pr. vare er ctx.producedBy — den SAMME som motoren ruller ned i, så
+ * de to aldrig er uenige om hvilken opskrift der gælder.
+ *
+ * Rører aldrig en kilde et menneske eller en import har sat — heller ikke 'na'
+ * (bevidst ikke relevant). Kun tom kilde uden faktor, eller 'computed'.
+ *
+ * @returns [{ product_id, product_name, recipe_id, recipe_name, current, current_source,
+ *             yield_kg, factor, action: 'write'|'unchanged'|'skip', reason }]
+ */
+function computedProductFactors(data, fmt = (n) => Math.round(n * 10000) / 10000) {
+    const ctx = buildCtx(data);
+    const results = computeAll(data);
+    const out = [];
+    for (const [pid, recipe] of ctx.producedBy) {
+        const product = ctx.productById.get(pid);
+        if (!product) continue;
+        const uf = product.userfields || {};
+        const source = (uf.co2e_source || '').trim();
+        const current = (uf.co2e_per_kg == null || uf.co2e_per_kg === '') ? null : String(uf.co2e_per_kg);
+        const row = { product_id: product.id, product_name: product.name, recipe_id: recipe.id,
+                      recipe_name: recipe.name, current, current_source: source || null,
+                      yield_kg: null, factor: null, action: 'skip', reason: null };
+        out.push(row);
+
+        const writable = source === 'computed' || (source === '' && current == null);
+        if (!writable) { row.reason = `kilde '${source || 'faktor uden kilde'}' — rør ikke`; continue; }
+
+        const r = results.get(recipe.id);
+        if (!r || !r.complete) { row.reason = 'opskriften er ufuldstændig'; continue; }
+
+        const yStock = yieldInStockUnits(recipe, product, ctx.units, ctx.conversions);
+        if (!(yStock > 0)) { row.reason = 'udbytte kan ikke bestemmes (recipeunit/recipeunitnumber)'; continue; }
+        // En faktor er pr. kg. Lagerføres varen i en enhed uden kg-vej, findes der
+        // ikke et ærligt tal at skrive — så springes den over i stedet for at gætte.
+        const yKg = stockToKg(product, yStock, ctx.conversions, ctx.kiloId);
+        if (!(yKg > 0)) { row.reason = 'ingen kg-vej fra lager-enheden'; continue; }
+
+        row.yield_kg = yKg;
+        row.factor = fmt(r.total / yKg);
+        if (source === 'computed' && current != null && Number(current) === row.factor) {
+            row.action = 'unchanged'; row.reason = 'uændret';
+        } else {
+            row.action = 'write';
+        }
+    }
+    return out.sort((a, b) => Number(a.product_id) - Number(b.product_id));
 }
 
 /**
@@ -409,5 +502,5 @@ function breakdownRecipe(recipeId, data) {
     };
 }
 
-module.exports = { computeAll, computeRecipe, breakdownRecipe, buildCtx, inheritedFactor,
+module.exports = { computeAll, computeRecipe, computedProductFactors, recipeCacheUpdates, producedYieldStock, breakdownRecipe, buildCtx, inheritedFactor,
                    stockToKg, readFactor, isExcluded, findKiloId };
