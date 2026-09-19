@@ -197,5 +197,52 @@ t('co2-f5-compute.js skriver fra computedProductFactors, ikke co2e_per_serving',
         'rapporten skal vises i dry-run, før --apply');
 });
 
+/* 7. recipes.Co2e-cachen — kun forskelle (natlig kørsel) */
+console.log('\nrecipes.Co2e: kun forskelle skrives');
+const PSEUDO = { id: 7, name: 'Rabat', base_servings: 1, userfields: {} };
+function cacheData(chiliCo2e, menuCo2e, extra = {}) {
+    const d = data(extra);
+    d.recipes = [{ ...CHILI, userfields: { ...CHILI.userfields, Co2e: chiliCo2e } },
+                 { ...MENU,  userfields: { Co2e: menuCo2e } }, PSEUDO];
+    return d;
+}
+const up = (d) => E.recipeCacheUpdates(d);
+const byId = (rows, id) => rows.find(x => x.recipe_id === id);
+t('cachen er aktuel → intet skrives', () => {
+    const rows = up(cacheData('3.3613', String(Math.round(0.033 * 3.3613 / 1.1 * 10000) / 10000)));
+    assert.deepStrictEqual(rows.filter(x => x.action === 'write'), []);
+    assert.strictEqual(rows.filter(x => x.action === 'unchanged').length, 2);
+});
+t('forældet cache → skrives med før og efter', () => {
+    const r = byId(up(cacheData('3.5', '0.1')), 110);
+    assert.strictEqual(r.action, 'write');
+    assert.strictEqual(r.current, 3.5);
+    assert.strictEqual(r.next, 3.3613);
+});
+t('tom cache → skrives', () => {
+    assert.strictEqual(byId(up(cacheData('', '')), 110).action, 'write');
+});
+t('dansk komma i cachen læses som tal (ellers skrives alt hver nat)', () => {
+    assert.strictEqual(byId(up(cacheData('3,3613', '')), 110).action, 'unchanged');
+});
+t('opskrift uden ingredienser får aldrig et 0 skrevet', () => {
+    assert.strictEqual(byId(up(cacheData('', '')), 7), undefined);
+});
+t('ufuldstændig opskrift med gammelt tal → stale, skrives ikke', () => {
+    const d = cacheData('3.3613', '0.1');
+    d.pos = [...d.pos, { recipe_id: 110, product_id: 4, amount: 0.1 }];
+    const rows = up(d);
+    assert.strictEqual(byId(rows, 110).action, 'stale');
+    assert.strictEqual(byId(rows, 110).next, null);
+    assert.strictEqual(byId(rows, 88).action, 'stale', 'menuen er også ufuldstændig nu');
+});
+t('co2-f5-compute.js skriver kun "write"-rækker, ikke alle komplette', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'co2-f5-compute.js'), 'utf8');
+    assert.ok(/for \(const x of toWrite\) \{\s*try \{ await grocy\(cfg, 'PUT', `\/userfields\/recipes\//.test(src),
+        'skrive-løkken skal gå over toWrite');
+    assert.ok(!/for \(const r of complete\)[\s\S]{0,120}userfields\/recipes/.test(src), 'den gamle skriv-alt-løkke er tilbage');
+    assert.ok(/recipeCacheUpdates\(\{ recipes, pos, nestings \}/.test(src), 'pos/nestings skal med, ellers får tomme opskrifter 0');
+});
+
 console.log(`\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail ? 1 : 0);

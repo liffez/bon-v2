@@ -196,6 +196,13 @@ Ved bon-oprettelse (samme mønster som cost_price):
   aldrig `klimadb`/`material`/`supplier`/`manual`/`na`. Tidligere blev CO₂ pr. *portion*
   skrevet uden division, så Chili Mayo (1,1 kg pr. portion) fik 3,3613 i stedet for
   3,0557 (#663).
+- **Natlig kørsel.** `co2-f5-compute.js --apply` står i serverens crontab efter
+  kostpris-jobbet, så `recipes.Co2e` følger med når en opskrift, en faktor eller et
+  udbytte rettes — uden at nogen skal huske det:
+  `15 3 * * * cd /home/leif/bon-v2 && node scripts/co2-f5-compute.js --location=hq --apply >> logs/co2.log 2>&1`
+  Kun forskelle skrives (`co2Engine.recipeCacheUpdates`), og loggen viser hver ændring
+  med før → efter, eller "0 ændret". Opskrifter uden ingredienser får aldrig et 0, og en
+  opskrift der er blevet ufuldstændig beholder sit tal og nævnes som advarsel.
 - **`computed` er en cache, ikke en kilde.** Kan motoren rulle ned i den producerende
   opskrift, ignorerer den varens `computed`-faktor og regner live — ellers ville en ændret
   opskrift holde fast i et gammelt tal til næste F5-kørsel. Cachen bruges kun når udbyttet

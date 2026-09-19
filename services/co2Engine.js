@@ -305,6 +305,47 @@ function computeAll(data) {
 }
 
 /**
+ * Hvilke opskrifters `recipes.Co2e`-cache er forældet — til co2-f5-compute.js.
+ *
+ * F5 kører natligt (crontab). Skrev den alle komplette opskrifter hver gang,
+ * kunne loggen ikke vise HVAD der ændrede sig. Derfor: kun forskelle skrives,
+ * og hver ændring har før/efter.
+ *
+ *   complete + ny værdi ≠ cachen  → 'write'
+ *   complete + samme værdi        → 'unchanged'
+ *   ufuldstændig + har en cache   → 'stale'  (rapporteres, røres ikke — vi cacher
+ *                                   aldrig et halvt tal, og vi sletter ikke et
+ *                                   menneskes tal bag ryggen på det)
+ *   ufuldstændig uden cache       → udelades
+ *
+ * `data` skal have recipes + pos + nestings.
+ * @returns [{ recipe_id, name, current, next, action }]
+ */
+function recipeCacheUpdates(data, results, fmt = (n) => Math.round(n * 10000) / 10000) {
+    const res = results || computeAll(data);
+    // Opskrifter uden én eneste ingrediens (Rabat, Servicepersonale …) regner til
+    // 0 og står som "komplette" — de må aldrig få et 0 skrevet som CO₂.
+    const hasContent = new Set([...(data.pos || []).map(p => p.recipe_id),
+                                ...(data.nestings || []).map(n => n.recipe_id)]);
+    const out = [];
+    for (const r of (data.recipes || [])) {
+        const x = res.get(r.id);
+        if (!x || !hasContent.has(r.id)) continue;
+        const raw = (r.userfields || {}).Co2e;
+        const cur = (raw == null || raw === '') ? null : Number(String(raw).replace(',', '.'));
+        const current = Number.isFinite(cur) ? cur : null;
+        if (!x.complete) {
+            if (current != null) out.push({ recipe_id: r.id, name: r.name, current, next: null, action: 'stale' });
+            continue;
+        }
+        const next = fmt(x.co2e_per_serving);
+        out.push({ recipe_id: r.id, name: r.name, current, next,
+                   action: current != null && current === next ? 'unchanged' : 'write' });
+    }
+    return out;
+}
+
+/**
  * Hvad co2-f5-compute.js må skrive som `co2e_per_kg` på producerede varer (#663).
  *
  *   faktor = opskriftens samlede CO₂ (for base_servings) ÷ udbyttet i kg
@@ -461,5 +502,5 @@ function breakdownRecipe(recipeId, data) {
     };
 }
 
-module.exports = { computeAll, computeRecipe, computedProductFactors, producedYieldStock, breakdownRecipe, buildCtx, inheritedFactor,
+module.exports = { computeAll, computeRecipe, computedProductFactors, recipeCacheUpdates, producedYieldStock, breakdownRecipe, buildCtx, inheritedFactor,
                    stockToKg, readFactor, isExcluded, findKiloId };
