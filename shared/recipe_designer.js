@@ -15,7 +15,7 @@
           postGrocyRecipe, putGrocyRecipe, putGrocyRecipeUserfields,
           postGrocyRecipePos, putGrocyRecipePos, deleteGrocyRecipePos,
           postGrocyRecipeNesting, putGrocyRecipeNesting, deleteGrocyRecipeNesting,
-          esc */
+          fetchGrocyUserfields, GrocyNum, esc */
 
 // ════════════════════════════════════════════════════════════
 // STATE
@@ -31,6 +31,7 @@ var _rdChildrenByParent = {};    // parent_product_id -> [child product_id] (par
 var _rdQuConversions = [];       // unit conversions (raw)
 var _rdAllPositions  = [];       // all recipe positions (raw)
 var _rdAllNestings   = [];       // all nestings (raw)
+var _rdUfOptions     = {};       // userfield-navn -> [valgmuligheder] (preset-lister fra Grocy)
 
 var _rdContainer     = null;     // root DOM element
 var _rdDataLoaded    = false;
@@ -42,7 +43,8 @@ var _rdDs = {
     name: '',
     description: '',
     group: '',
-    recipeUnit: 'stk',
+    recipeUnit: '',        // userfield recipeunit — hvilken enhed én portion er
+    yieldNum: null,        // userfield recipeunitnumber — hvor meget én portion er (null = ikke oplyst)
     baseServings: 1,
     currentPortions: 1,
     ingredients: [],       // { id?, product_id, amount, qu_id, ingredient_group, note }
@@ -52,6 +54,10 @@ var _rdDs = {
     dirty: false,
     workMin: null          // aktiv arbejdstid (min) pr. batch — userfield arbejdstid_min
 };
+
+// Det der stod i Grocy da opskriften blev åbnet. Gem sammenligner med det og
+// sender KUN det der er ændret (#680) — et Gem uden ændringer skriver intet.
+var _rdOrig = null;
 
 var _rdVisibleCards       = new Set(['weight', 'stock']);
 
@@ -116,7 +122,10 @@ async function _rdLoadData(background) {
             fetchGrocyStock(),
             fetchGrocyRecipesPos(),
             fetchGrocyRecipesNestings(),
-            fetchGrocyQuantityUnitConversions()
+            fetchGrocyQuantityUnitConversions(),
+            // Valgmulighederne til Gruppe og Enhed kommer fra Grocys egen
+            // feltdefinition. Fejler kaldet, bruges værdierne i brug (se nedenfor).
+            fetchGrocyUserfields().catch(function() { return []; })
         ]);
 
         var rawRecipes   = results[0];
@@ -126,6 +135,7 @@ async function _rdLoadData(background) {
         var rawPos       = results[4];
         var rawNestings  = results[5];
         var rawConvs     = results[6];
+        var rawUfDefs    = results[7] || [];
 
         _rdRecipes = rawRecipes.map(function(r) {
             r._group   = (r.userfields && r.userfields.grupper) || 'Ingen kategori';
@@ -136,6 +146,8 @@ async function _rdLoadData(background) {
 
         _rdRecipeMap = {};
         _rdRecipes.forEach(function(r) { _rdRecipeMap[r.id] = r; });
+
+        _rdUfOptions = _rdPresetOptions(rawUfDefs);
 
         _rdProducts = rawProducts;
         _rdProductMap = {};
@@ -316,9 +328,14 @@ function _rdOpenForEdit(recipeId) {
     _rdDs.originalRecipeId = recipeId;
     _rdDs.name = recipe.name;
     _rdDs.description = recipe.description || '';
-    _rdDs.group = recipe._group;
-    _rdDs.recipeUnit = recipe._unit;
-    _rdDs.baseServings = parseInt(recipe.base_servings) || 1;
+    // Rå værdier fra Grocy — ikke visnings-fallbacks ('Ingen kategori', 'stk'),
+    // som ellers ville blive skrevet tilbage ved Gem (#680).
+    var uf = recipe.userfields || {};
+    _rdDs.group = uf.grupper == null ? '' : String(uf.grupper);
+    _rdDs.recipeUnit = uf.recipeunit == null ? '' : String(uf.recipeunit);
+    _rdDs.yieldNum = _rdOptNum(uf.recipeunitnumber);
+    // Decimaler bevares: parseInt gjorde 2,8 portioner til 2.
+    _rdDs.baseServings = _rdOptNum(recipe.base_servings) || 1;
     _rdDs.currentPortions = _rdDs.baseServings;
     _rdDs.removedIngIds = [];
     _rdDs.removedNestIds = [];
@@ -337,6 +354,8 @@ function _rdOpenForEdit(recipeId) {
         .filter(function(n) { return n.recipe_id == recipeId; })
         .map(function(n) { return _rdShallowCopy(n); });
 
+    _rdOrig = _rdCaptureOrig(recipeId);
+
     _rdComp = null;                    // ny opskrift åbnet → nulstil kostpris-cache
     _rdShowDesigner();
     _rdLoadComposition(recipeId);      // hent kostpris/breakdown (async)
@@ -352,7 +371,8 @@ function _rdStartNew() {
     _rdDs.name = '';
     _rdDs.description = '';
     _rdDs.group = '';
-    _rdDs.recipeUnit = 'stk';
+    _rdDs.recipeUnit = '';     // vælges af brugeren — vi opfinder ikke en enhed
+    _rdDs.yieldNum = null;     // ... og heller ikke et udbytte
     _rdDs.baseServings = 1;
     _rdDs.currentPortions = 1;
     _rdDs.ingredients = [];
@@ -361,6 +381,7 @@ function _rdStartNew() {
     _rdDs.removedNestIds = [];
     _rdDs.dirty = false;
     _rdDs.workMin = null;
+    _rdOrig = null;
 
     _rdComp = null;   // ny opskrift har ingen kostpris før den er gemt ("beregnes efter gem")
     _rdShowDesigner();
@@ -400,19 +421,19 @@ function _rdShowDesigner() {
                     '<div class="rd-meta-label">Gruppe</div>' +
                     '<select class="rd-meta-select" id="rdDGroup"></select>' +
                 '</div>' +
-                '<div class="rd-meta-field rd-narrow">' +
-                    '<div class="rd-meta-label">Enhed</div>' +
-                    '<select class="rd-meta-select" id="rdDUnit">' +
-                        '<option value="stk">stk</option>' +
-                        '<option value="kg">kg</option>' +
-                        '<option value="liter">liter</option>' +
-                        '<option value="antal">antal</option>' +
-                        '<option value="portion">portion</option>' +
-                    '</select>' +
+                // Én portion = recipeunitnumber × recipeunit. Det er opskriftens
+                // udbytte pr. portion, og det lagertræk, kostpris og CO₂ regner på (#680).
+                '<div class="rd-meta-field rd-yield-field">' +
+                    '<div class="rd-meta-label">1 portion er</div>' +
+                    '<div class="rd-yield-pair">' +
+                        '<input type="text" class="rd-meta-input rd-yield-num" id="rdDYield" inputmode="decimal" ' +
+                            'placeholder="ikke oplyst" value="' + esc(_rdFmtNum(_rdDs.yieldNum)) + '">' +
+                        '<select class="rd-meta-select" id="rdDUnit">' + _rdOptionsHtml('recipeunit', _rdDs.recipeUnit, '— vælg —') + '</select>' +
+                    '</div>' +
                 '</div>' +
                 '<div class="rd-meta-field rd-short">' +
                     '<div class="rd-meta-label">Base antal</div>' +
-                    '<input type="number" class="rd-meta-input" id="rdDBaseServings" value="' + _rdDs.baseServings + '" min="1" step="1">' +
+                    '<input type="text" class="rd-meta-input" id="rdDBaseServings" inputmode="decimal" value="' + esc(_rdFmtNum(_rdDs.baseServings)) + '">' +
                 '</div>' +
             '</div>' +
 
@@ -437,7 +458,7 @@ function _rdShowDesigner() {
                     '<button class="rd-portions-btn" id="rdPortPlus">+</button>' +
                 '</div>' +
                 '<span class="rd-portions-unit" id="rdPortUnit">' + esc(_rdDs.recipeUnit) + '</span>' +
-                '<span class="rd-base-info" id="rdBaseInfo">Base: ' + _rdDs.baseServings + ' ' + esc(_rdDs.recipeUnit) + '</span>' +
+                '<span class="rd-base-info" id="rdBaseInfo">Base: ' + _rdFmtNum(_rdDs.baseServings) + ' ' + esc(_rdDs.recipeUnit) + '</span>' +
             '</div>' +
 
             // Ingredients
@@ -507,7 +528,6 @@ function _rdShowDesigner() {
 
     // Initial render
     _rdPopulateGroupDropdown();
-    document.getElementById('rdDUnit').value = _rdDs.recipeUnit;
     _rdRenderIngredients();
     _rdRenderNestings();
     _rdRenderSummaryCards();
@@ -525,18 +545,38 @@ function _rdBindDesignerEvents() {
         _rdSwitchView('rdStartView');
     });
 
-    // Name input marks dirty
-    document.getElementById('rdDName').addEventListener('input', _rdMarkChanged);
+    // Felterne skriver i _rdDs — Gem læser derfra og sammenligner med _rdOrig.
+    document.getElementById('rdDName').addEventListener('input', function() {
+        _rdDs.name = this.value;
+        _rdMarkChanged();
+    });
 
     // Meta changes
-    document.getElementById('rdDGroup').addEventListener('change', _rdMarkChanged);
+    document.getElementById('rdDGroup').addEventListener('change', function() {
+        _rdDs.group = this.value;
+        _rdMarkChanged();
+    });
     document.getElementById('rdDUnit').addEventListener('change', function() {
         _rdDs.recipeUnit = this.value;
         _rdUpdatePortionsDisplay();
         _rdMarkChanged();
     });
+    var yieldEl = document.getElementById('rdDYield');
+    yieldEl.addEventListener('change', function() {
+        // Tomt felt = udbyttet er ikke oplyst. Vrøvl rulles tilbage til det der stod.
+        var raw = String(this.value).trim();
+        var n = raw === '' ? null : _rdOptNum(raw);
+        if (raw !== '' && !(n > 0)) { this.value = _rdFmtNum(_rdDs.yieldNum); return; }
+        _rdDs.yieldNum = n;
+        this.value = _rdFmtNum(n);
+        _rdMarkChanged();
+    });
+    yieldEl.addEventListener('focus', function() { this.select(); });
     document.getElementById('rdDBaseServings').addEventListener('change', function() {
-        _rdDs.baseServings = Math.max(1, parseInt(this.value) || 1);
+        var n = _rdOptNum(this.value);
+        if (!(n > 0)) { this.value = _rdFmtNum(_rdDs.baseServings); return; }
+        _rdDs.baseServings = n;
+        this.value = _rdFmtNum(n);
         _rdDs.currentPortions = _rdDs.baseServings;
         _rdUpdatePortionsDisplay();
         _rdRenderIngredients();
@@ -545,7 +585,10 @@ function _rdBindDesignerEvents() {
     });
 
     // Notes
-    document.getElementById('rdDNotes').addEventListener('input', _rdMarkChanged);
+    document.getElementById('rdDNotes').addEventListener('input', function() {
+        _rdDs.description = this.value;
+        _rdMarkChanged();
+    });
 
     // Portions
     document.getElementById('rdPortMinus').addEventListener('click', function() { _rdAdjustPortions(-1); });
@@ -678,7 +721,7 @@ function _rdFmtPortions(n) {
 
 // Ét sted der sætter mængden — både knapperne og feltet går igennem her.
 // Bemærk: kun VISNINGEN skaleres. `baseServings` (det der gemmes på opskriften)
-// er stadig et heltal og røres ikke herfra.
+// røres ikke herfra.
 function _rdSetPortions(p) {
     p = Math.round((Math.max(0, p || 0) + Number.EPSILON) * 100) / 100;
     // Tomt eller nulstillet felt falder tilbage til opskriftens eget tal.
@@ -702,7 +745,7 @@ function _rdUpdatePortionsDisplay() {
     var unitEl = document.getElementById('rdPortUnit');
     if (unitEl) unitEl.textContent = unit;
     var baseEl = document.getElementById('rdBaseInfo');
-    if (baseEl) baseEl.textContent = 'Base: ' + _rdDs.baseServings + ' ' + unit;
+    if (baseEl) baseEl.textContent = 'Base: ' + _rdFmtNum(_rdDs.baseServings) + ' ' + unit;
 }
 
 // ═════════════���══════════════════════════���═══════════════════
@@ -710,14 +753,10 @@ function _rdUpdatePortionsDisplay() {
 // ═��════════════════���══════════════════════════════════���══════
 
 function _rdPopulateGroupDropdown() {
-    var groupSet = {};
-    _rdRecipes.forEach(function(r) { groupSet[r._group] = true; });
-    var groups = Object.keys(groupSet).sort(function(a, b) { return a.localeCompare(b, 'da'); });
-
+    // Værdien er den RÅ gruppe fra Grocy. Tidligere var den visnings-teksten
+    // 'Ingen kategori', som et Gem så skrev ind som gruppe (#680).
     var sel = document.getElementById('rdDGroup');
-    sel.innerHTML = groups.map(function(g) {
-        return '<option value="' + esc(g) + '"' + (g === _rdDs.group ? ' selected' : '') + '>' + esc(g) + '</option>';
-    }).join('') + '<option value="">— Ny gruppe —</option>';
+    sel.innerHTML = _rdOptionsHtml('grupper', _rdDs.group, 'Ingen kategori');
 
     // Also populate add-ingredient group dropdown
     var ingGroupSet = {};
@@ -1268,14 +1307,8 @@ function _rdUpdateIng(idx, displayValue, displayUnit) {
     var mult = _rdDs.currentPortions / _rdDs.baseServings;
     var ing = _rdDs.ingredients[idx];
     if (!ing) return;
-    var realDisplayValue = parseFloat(displayValue) || 0;
-    var origUnit = (_rdQuantityUnits[ing.qu_id] || '').toLowerCase();
-    var du = displayUnit.toLowerCase();
-
-    if ((origUnit === 'kg' || origUnit === 'kilo') && du === 'g') realDisplayValue = realDisplayValue / 1000;
-    if ((origUnit === 'l' || origUnit === 'liter') && du === 'ml') realDisplayValue = realDisplayValue / 1000;
-    if ((origUnit === 'g' || origUnit === 'gram') && du === 'kg') realDisplayValue = realDisplayValue * 1000;
-    if (origUnit === 'ml' && du === 'l') realDisplayValue = realDisplayValue * 1000;
+    var realDisplayValue = _rdDisplayToOrigUnit(parseFloat(displayValue) || 0, displayUnit,
+        _rdQuantityUnits[ing.qu_id] || '');
 
     var baseDisplayAmt = realDisplayValue / mult;
     _rdDs.ingredients[idx].amount = _rdDisplayToRaw(baseDisplayAmt, ing.qu_id, ing.product_id);
@@ -1459,11 +1492,8 @@ function _rdRenderNestings() {
 
 function _rdUpdateNesting(idx, displayVal, displayUnit, origUnit) {
     var mult = _rdDs.currentPortions / _rdDs.baseServings;
-    var val = parseFloat(displayVal) || 0;
-    var du = displayUnit.toLowerCase();
-    var ou = origUnit.toLowerCase();
-    if ((ou === 'kg' || ou === 'kilo') && du === 'g') val = val / 1000;
-    if ((ou === 'l' || ou === 'liter') && du === 'ml') val = val / 1000;
+    // Alle fire veje tilbage — manglede g→kg og ml→l, så 2 kg blev gemt som 2 g (#364).
+    var val = _rdDisplayToOrigUnit(parseFloat(displayVal) || 0, displayUnit, origUnit);
     _rdDs.nestings[idx].servings = val / mult;
     _rdMarkChanged();
 }
@@ -1606,6 +1636,198 @@ function _rdGetConversionFactor(productId, fromQuId, toQuId) {
     if (gr && gr.factor !== 0) return 1.0 / gr.factor;
     return null;
 }
+// ════════════════════════════════════════════════════════════
+// SAVE — diff mod det åbnede (#680)
+// ════════════════════════════════════════════════════════════
+//
+// Gem sendte før hvert felt, hver ingredienslinje og hver nesting — også
+// dem der ikke var rørt — og flere felter blev skrevet ud fra noget andet
+// end det Grocy havde: `recipeunitnumber` blev sat lig `base_servings`,
+// `base_servings` blev parseInt'et, en enhed uden for designerens faste
+// liste blev til 'stk', og en opskrift uden gruppe fik 'Ingen kategori'.
+//
+// Nu fotograferes opskriften når den åbnes (_rdCaptureOrig), felterne skriver
+// i _rdDs, og Gem sender kun forskellen. Et Gem uden ændringer sender intet.
+
+function _rdOptNum(v) {
+    if (v == null || String(v).trim() === '') return null;
+    var n = GrocyNum.num(v);
+    return isFinite(n) ? n : null;
+}
+
+// Tal til et inputfelt: dansk komma, ingen flydende-tal-støj, tomt for null.
+function _rdFmtNum(n) {
+    if (n == null || !isFinite(n)) return '';
+    return String(Math.round(n * 1e6) / 1e6).replace('.', ',');
+}
+
+function _rdStr(v) { return v == null ? '' : String(v); }
+function _rdText(v) { return _rdStr(v).replace(/\r\n?/g, '\n'); }
+function _rdNumEq(a, b) {
+    if (a == null || b == null) return a == null && b == null;
+    return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+}
+
+// Preset-lister fra Grocys feltdefinitioner: { grupper: [...], recipeunit: [...] }.
+function _rdPresetOptions(defs) {
+    var out = {};
+    (defs || []).forEach(function(d) {
+        if (!d || d.entity !== 'recipes' || !/^preset-/.test(String(d.type || ''))) return;
+        out[d.name] = _rdStr(d.config).split(/\r?\n/)
+            .map(function(x) { return x.trim(); })
+            .filter(function(x) { return x !== ''; });
+    });
+    return out;
+}
+
+// <option>-liste til et preset-felt. Grocys definition er kilden. Værdier der
+// står på en opskrift uden at være i definitionen ('stk' på en gammel
+// opskrift, 'liter,antal') kommer også med — også opskriftens egen, som
+// dermed altid kan vises. En enhed må aldrig forsvinde fordi listen ikke
+// kender den: så står feltet tomt, og næste Gem skriver det tomme.
+function _rdOptionsHtml(field, current, emptyLabel) {
+    var seen = {}, opts = [];
+    function add(v) { if (v !== '' && !seen[v]) { seen[v] = true; opts.push(v); } }
+    (_rdUfOptions[field] || []).forEach(add);
+    var fromGrocy = opts.length;
+    _rdRecipes.forEach(function(r) { add(_rdStr(r.userfields && r.userfields[field])); });
+    var extra = opts.slice(fromGrocy).sort(function(a, b) { return a.localeCompare(b, 'da'); });
+    opts = opts.slice(0, fromGrocy).concat(extra);
+    var cur = _rdStr(current);
+    return '<option value=""' + (cur === '' ? ' selected' : '') + '>' + esc(emptyLabel) + '</option>' +
+        opts.map(function(v) {
+            return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>';
+        }).join('');
+}
+
+// Fotografi af opskriften som Grocy har den — i samme form som _rdCurrentValues.
+function _rdCaptureOrig(recipeId) {
+    var r = _rdRecipeMap[recipeId];
+    if (!r) return null;
+    var uf = r.userfields || {};
+    var pos = {}, nest = {};
+    _rdAllPositions.forEach(function(p) { if (p.recipe_id == recipeId) pos[p.id] = _rdShallowCopy(p); });
+    _rdAllNestings.forEach(function(n) { if (n.recipe_id == recipeId) nest[n.id] = _rdShallowCopy(n); });
+    return {
+        name: _rdStr(r.name),
+        description: r.description,
+        base_servings: _rdOptNum(r.base_servings),
+        grupper: _rdStr(uf.grupper),
+        recipeunit: _rdStr(uf.recipeunit),
+        recipeunitnumber: _rdOptNum(uf.recipeunitnumber),
+        arbejdstid_min: _rdOptNum(uf.arbejdstid_min),
+        positions: pos,
+        nestings: nest
+    };
+}
+
+function _rdCurrentValues() {
+    return {
+        name: String(_rdDs.name || '').trim(),
+        description: _rdDs.description,
+        base_servings: _rdDs.baseServings,
+        grupper: _rdStr(_rdDs.group),
+        recipeunit: _rdStr(_rdDs.recipeUnit),
+        recipeunitnumber: _rdDs.yieldNum,
+        arbejdstid_min: _rdDs.workMin,
+        ingredients: _rdDs.ingredients,
+        nestings: _rdDs.nestings,
+        removedIngIds: _rdDs.removedIngIds,
+        removedNestIds: _rdDs.removedNestIds
+    };
+}
+
+function _rdUfNumStr(n) { return n == null ? '' : String(n); }
+
+// Ren funktion: hvad skal sendes for at gå fra `orig` til `cur`?
+function _rdBuildSavePlan(orig, cur) {
+    orig = orig || { positions: {}, nestings: {} };
+    var plan = { recipe: {}, userfields: {}, posPut: [], posPost: [], posDelete: [],
+                 nestPut: [], nestPost: [], nestDelete: [] };
+
+    if (cur.name !== String(orig.name || '').trim()) plan.recipe.name = cur.name;
+    if (_rdText(cur.description) !== _rdText(orig.description)) plan.recipe.description = cur.description || null;
+    if (!_rdNumEq(cur.base_servings, orig.base_servings)) plan.recipe.base_servings = cur.base_servings;
+
+    if (cur.grupper !== _rdStr(orig.grupper)) plan.userfields.grupper = cur.grupper;
+    if (cur.recipeunit !== _rdStr(orig.recipeunit)) plan.userfields.recipeunit = cur.recipeunit;
+    if (!_rdNumEq(cur.recipeunitnumber, orig.recipeunitnumber)) plan.userfields.recipeunitnumber = _rdUfNumStr(cur.recipeunitnumber);
+    if (!_rdNumEq(cur.arbejdstid_min, orig.arbejdstid_min)) plan.userfields.arbejdstid_min = _rdUfNumStr(cur.arbejdstid_min);
+
+    plan.posDelete = (cur.removedIngIds || []).slice();
+    plan.nestDelete = (cur.removedNestIds || []).slice();
+
+    (cur.ingredients || []).forEach(function(ing) {
+        if (!ing.id) { plan.posPost.push(ing); return; }
+        var o = orig.positions[ing.id] || {};
+        var body = {};
+        ['amount', 'product_id', 'qu_id'].forEach(function(k) {
+            if (!_rdNumEq(_rdOptNum(ing[k]), _rdOptNum(o[k]))) body[k] = ing[k];
+        });
+        ['ingredient_group', 'note'].forEach(function(k) {
+            if (_rdStr(ing[k]) !== _rdStr(o[k])) body[k] = ing[k];
+        });
+        if (Object.keys(body).length) plan.posPut.push({ id: ing.id, body: body });
+    });
+
+    (cur.nestings || []).forEach(function(n) {
+        if (!n.id) { plan.nestPost.push(n); return; }
+        var o = orig.nestings[n.id] || {};
+        if (!_rdNumEq(_rdOptNum(n.servings), _rdOptNum(o.servings))) {
+            plan.nestPut.push({ id: n.id, body: { servings: n.servings } });
+        }
+    });
+    return plan;
+}
+
+function _rdPlanIsEmpty(p) {
+    return !Object.keys(p.recipe).length && !Object.keys(p.userfields).length &&
+        !p.posPut.length && !p.posPost.length && !p.posDelete.length &&
+        !p.nestPut.length && !p.nestPost.length && !p.nestDelete.length;
+}
+
+async function _rdExecuteSavePlan(recipeId, plan) {
+    if (Object.keys(plan.recipe).length) await putGrocyRecipe(recipeId, plan.recipe);
+    if (Object.keys(plan.userfields).length) await putGrocyRecipeUserfields(recipeId, plan.userfields);
+    for (var i = 0; i < plan.posDelete.length; i++) await deleteGrocyRecipePos(plan.posDelete[i]);
+    for (var j = 0; j < plan.nestDelete.length; j++) await deleteGrocyRecipeNesting(plan.nestDelete[j]);
+    for (var k = 0; k < plan.posPut.length; k++) await putGrocyRecipePos(plan.posPut[k].id, plan.posPut[k].body);
+    for (var l = 0; l < plan.posPost.length; l++) {
+        var ing = plan.posPost[l];
+        await postGrocyRecipePos({
+            recipe_id: recipeId,
+            product_id: ing.product_id,
+            amount: ing.amount,
+            qu_id: ing.qu_id,
+            only_check_single_unit_in_stock: 0,
+            ingredient_group: ing.ingredient_group || null,
+            not_check_stock_fulfillment: 0,
+            variable_amount: null,
+            price_factor: 1,
+            round_up: 0
+        });
+    }
+    for (var m = 0; m < plan.nestPut.length; m++) await putGrocyRecipeNesting(plan.nestPut[m].id, plan.nestPut[m].body);
+    for (var q = 0; q < plan.nestPost.length; q++) {
+        var n = plan.nestPost[q];
+        await postGrocyRecipeNesting({
+            recipe_id: recipeId,
+            includes_recipe_id: n.includes_recipe_id,
+            servings: n.servings
+        });
+    }
+}
+
+// Userfields til en ny opskrift: kun dem der har en værdi.
+function _rdNewRecipeUserfields(cur) {
+    var uf = {};
+    if (cur.grupper !== '') uf.grupper = cur.grupper;
+    if (cur.recipeunit !== '') uf.recipeunit = cur.recipeunit;
+    if (cur.recipeunitnumber != null) uf.recipeunitnumber = String(cur.recipeunitnumber);
+    if (cur.arbejdstid_min != null) uf.arbejdstid_min = String(cur.arbejdstid_min);
+    return uf;
+}
+
 
 // SAVE — Update existing
 // ════════════════════════════════════════════════════════════
@@ -1613,81 +1835,23 @@ function _rdGetConversionFactor(productId, fromQuId, toQuId) {
 async function _rdSaveRecipe() {
     if (_rdDs.mode !== 'modify' || !_rdDs.originalRecipeId) return;
 
-    var name = document.getElementById('rdDName').value.trim();
+    var name = String(_rdDs.name || '').trim();
     if (!name) { _rdShowAlert('Giv opskriften et navn', 'error'); return; }
+
+    // Kun det der er ændret siden opskriften blev åbnet sendes til Grocy (#680).
+    var plan = _rdBuildSavePlan(_rdOrig, _rdCurrentValues());
+    if (_rdPlanIsEmpty(plan)) {
+        _rdDs.dirty = false;
+        var m0 = document.getElementById('rdDChanged');
+        if (m0) m0.classList.remove('rd-visible');
+        _rdShowAlert('Ingen ændringer at gemme', 'info');
+        return;
+    }
 
     try {
         _rdShowAlert('Gemmer...', 'info');
 
-        var baseServings = parseInt(document.getElementById('rdDBaseServings').value) || 1;
-
-        // 1. Update recipe
-        await putGrocyRecipe(_rdDs.originalRecipeId, {
-            name: name,
-            description: document.getElementById('rdDNotes').value || null,
-            base_servings: baseServings
-        });
-
-        // 2. Update userfields (inkl. aktiv arbejdstid pr. batch)
-        await putGrocyRecipeUserfields(_rdDs.originalRecipeId, {
-            grupper: document.getElementById('rdDGroup').value,
-            recipeunit: document.getElementById('rdDUnit').value,
-            recipeunitnumber: String(baseServings),
-            arbejdstid_min: _rdDs.workMin != null ? String(_rdDs.workMin) : ''
-        });
-
-        // 3. Delete removed ingredients
-        for (var i = 0; i < _rdDs.removedIngIds.length; i++) {
-            await deleteGrocyRecipePos(_rdDs.removedIngIds[i]);
-        }
-
-        // 4. Delete removed nestings
-        for (var j = 0; j < _rdDs.removedNestIds.length; j++) {
-            await deleteGrocyRecipeNesting(_rdDs.removedNestIds[j]);
-        }
-
-        // 5. Update/create ingredients
-        for (var k = 0; k < _rdDs.ingredients.length; k++) {
-            var ing = _rdDs.ingredients[k];
-            if (ing.id) {
-                await putGrocyRecipePos(ing.id, {
-                    amount: ing.amount,
-                    product_id: ing.product_id,
-                    qu_id: ing.qu_id,
-                    ingredient_group: ing.ingredient_group,
-                    note: ing.note
-                });
-            } else {
-                await postGrocyRecipePos({
-                    recipe_id: _rdDs.originalRecipeId,
-                    product_id: ing.product_id,
-                    amount: ing.amount,
-                    qu_id: ing.qu_id,
-                    only_check_single_unit_in_stock: 0,
-                    ingredient_group: ing.ingredient_group || null,
-                    not_check_stock_fulfillment: 0,
-                    variable_amount: null,
-                    price_factor: 1,
-                    round_up: 0
-                });
-            }
-        }
-
-        // 6. Update/create nestings
-        for (var m = 0; m < _rdDs.nestings.length; m++) {
-            var n = _rdDs.nestings[m];
-            if (n.id) {
-                await putGrocyRecipeNesting(n.id, {
-                    servings: n.servings
-                });
-            } else {
-                await postGrocyRecipeNesting({
-                    recipe_id: _rdDs.originalRecipeId,
-                    includes_recipe_id: n.includes_recipe_id,
-                    servings: n.servings
-                });
-            }
-        }
+        await _rdExecuteSavePlan(_rdDs.originalRecipeId, plan);
 
         _rdDs.removedIngIds = [];
         _rdDs.removedNestIds = [];
@@ -1705,6 +1869,7 @@ async function _rdSaveRecipe() {
         _rdDs.nestings = _rdAllNestings
             .filter(function(nn) { return nn.recipe_id == _rdDs.originalRecipeId; })
             .map(function(nn) { return _rdShallowCopy(nn); });
+        _rdOrig = _rdCaptureOrig(_rdDs.originalRecipeId);   // næste Gem sammenligner med det nu gemte
         _rdRenderIngredients();
         _rdRenderNestings();
         _rdLoadComposition(_rdDs.originalRecipeId);   // frisk kostpris efter gem (fulfillment-cache ryddet af skrivningen)
@@ -1721,18 +1886,18 @@ async function _rdSaveRecipe() {
 // ══��═════════════════════════════════════════════════════════
 
 async function _rdSaveAsNew() {
-    var name = document.getElementById('rdDName').value.trim();
+    var name = String(_rdDs.name || '').trim();
     if (!name) { _rdShowAlert('Giv opskriften et navn', 'error'); return; }
 
     try {
         _rdShowAlert('Opretter ny opskrift...', 'info');
 
-        var baseServings = parseInt(document.getElementById('rdDBaseServings').value) || 1;
+        var baseServings = _rdDs.baseServings;
 
         // 1. Create recipe
         var resp = await postGrocyRecipe({
             name: name,
-            description: document.getElementById('rdDNotes').value || null,
+            description: _rdDs.description || null,
             base_servings: baseServings,
             desired_servings: baseServings,
             not_check_shoppinglist: 0,
@@ -1742,13 +1907,11 @@ async function _rdSaveAsNew() {
 
         var newId = parseInt(resp.created_object_id);
 
-        // 2. Set userfields (inkl. aktiv arbejdstid pr. batch)
-        await putGrocyRecipeUserfields(newId, {
-            grupper: document.getElementById('rdDGroup').value,
-            recipeunit: document.getElementById('rdDUnit').value,
-            recipeunitnumber: String(baseServings),
-            arbejdstid_min: _rdDs.workMin != null ? String(_rdDs.workMin) : ''
-        });
+        // 2. Set userfields (inkl. aktiv arbejdstid pr. batch).
+        // Kun felter med en værdi: udbytte og enhed er dem brugeren har — ved en
+        // kopi kildens egne. Er de tomme, forbliver de tomme; vi opfinder ikke et udbytte (#680).
+        var newUf = _rdNewRecipeUserfields(_rdCurrentValues());
+        if (Object.keys(newUf).length) await putGrocyRecipeUserfields(newId, newUf);
 
         // 3. Create all ingredients
         for (var i = 0; i < _rdDs.ingredients.length; i++) {
@@ -1806,6 +1969,7 @@ async function _rdSaveAsNew() {
         _rdDs.nestings = _rdAllNestings
             .filter(function(nn) { return nn.recipe_id == newId; })
             .map(function(nn) { return _rdShallowCopy(nn); });
+        _rdOrig = _rdCaptureOrig(newId);
         _rdRenderIngredients();
         _rdRenderNestings();
         _rdComp = null;                    // ny opskrift → hent frisk kostpris
@@ -1954,6 +2118,19 @@ function _rdFormatAmount(amount, unitName) {
     if (u === 'ml' && amount >= 1000)
         return { amount: _rdRound(amount / 1000, 2), unit: 'l' };
     return { amount: _rdRound(amount, 2), unit: unitName };
+}
+
+// Omvendt af _rdFormatAmount: et tal vist i `displayUnit` tilbage til `origUnit`.
+// Ét sted for ingredienser og underopskrifter, så de fire veje ikke kan skride
+// fra hinanden igen (#364). Enhedsnavnene er de samme som _rdFormatAmount kender.
+function _rdDisplayToOrigUnit(val, displayUnit, origUnit) {
+    var du = String(displayUnit || '').toLowerCase().trim();
+    var ou = String(origUnit || '').toLowerCase().trim();
+    if ((ou === 'kg' || ou === 'kilo') && du === 'g') return val / 1000;
+    if ((ou === 'l' || ou === 'liter') && du === 'ml') return val / 1000;
+    if ((ou === 'g' || ou === 'gram') && du === 'kg') return val * 1000;
+    if (ou === 'ml' && du === 'l') return val * 1000;
+    return val;
 }
 
 function _rdShallowCopy(obj) {

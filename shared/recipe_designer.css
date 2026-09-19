@@ -293,6 +293,12 @@
 .rd-meta-field.rd-narrow { max-width: 140px; }
 .rd-meta-field.rd-short  { max-width: 100px; }
 
+/* "1 portion er [1,1] [kg]" — udbyttet og dets enhed hører sammen (#680). */
+.rd-meta-field.rd-yield-field { max-width: 240px; }
+.rd-yield-pair { display: flex; gap: 6px; }
+.rd-yield-pair .rd-yield-num { flex: 0 0 90px; min-width: 0; }
+.rd-yield-pair .rd-meta-select { flex: 1 1 auto; min-width: 0; }
+
 .rd-meta-label {
     font-size: 11px;
     font-weight: 700;

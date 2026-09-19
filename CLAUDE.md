@@ -8468,6 +8468,72 @@ Browser-verificeret med rigtige klik på Hvidkål: 2,5 Antal → + → 3,5 → G
 2,8 kg med posten `{Antal, 3,5, 0,8}` og Antal husket; felterne står på én
 linje også ved 375 px. Testdata ryddet.
 
+### Opskrift-designeren overskrev udbyttet ved Gem (#680 + #364, 19.–20. september 2026)
+
+Et Gem i designeren — også uden at røre noget — skrev hvert felt, hver
+ingredienslinje og hver nesting tilbage til Grocy. Og flere af felterne blev
+skrevet ud fra noget andet end det Grocy havde:
+
+| Hvad | Ramte (målt på alle 131 opskrifter i grocy-hq 19/9) |
+|---|---|
+| `recipeunitnumber` sat lig `base_servings` | **8 udbytter overskrevet** — Chili Mayo 1,1→1 · Tahin 1,115→1 · Yoghurt 1,057→1 · Falaffel-stegning 36→1 · Skære Slider Brød 1→64 · begge slider-bokse 3→1 · **Ingrid ærter → udblødt 2,1→1** (ikke med i issuet) |
+| samme, på opskrifter uden udbytte | 13 fik opfundet et: `null` → `"1"` |
+| enheden fra en fast liste (`stk/kg/liter/antal/portion`) | **6 enheder slettet** — Grocy bruger `Timer`, `Kr`, `gram` og `liter,antal`, som listen ikke kendte, så `<select>` stod tom og Gem skrev det tomme |
+| `base_servings` gennem `parseInt` | decimaler skåret af (Rødløg - Syltet har haft 2,8) |
+| gruppen fra visnings-fallbacken | en opskrift uden gruppe ville få skrevet `Ingen kategori` |
+| navnet uden trim | 4 navne med mellemrum i enden ændret |
+
+Fem af de otte er produktionsopskrifter konverteret i #270. Deres udbytte er
+det lagertrækket, kostprisen (#558/#652) og CO₂-faktoren (#663) regner på —
+så ét Gem flyttede tallene stille. Samme fejlklasse som #305/#319.
+**Ingen af dem var nået at blive overskrevet i drift.**
+
+- **Gem sender kun det der er ændret.** Opskriften fotograferes når den åbnes
+  (`_rdCaptureOrig`), felterne skriver i `_rdDs`, og `_rdBuildSavePlan` er en
+  ren funktion der svarer på "hvad skal sendes for at komme fra A til B".
+  Er intet ændret, sendes intet. Det dækker alle felterne på én gang — også
+  dem ovenfor der hver især skulle have haft sin egen lappe.
+- **"1 portion er [1,1] [kg]"** er de to userfields der i forvejen beskriver
+  hvad en portion ER: `recipeunitnumber` + `recipeunit`. Ingen nye felter.
+  Tallet læses med `GrocyNum` (dansk komma), og **et tomt udbytte forbliver
+  tomt** — vi opfinder aldrig et (jf. yield-modellen 20/7).
+- **Valgmulighederne hentes fra Grocys egen feltdefinition**
+  (`preset-checklist`-konfigurationen), plus de værdier der står på
+  opskrifterne. En enhed må aldrig forsvinde fordi listen ikke kender den:
+  så står feltet tomt, og næste Gem skriver det tomme. `stk` og `portion`
+  forsvinder af sig selv — Grocy kender dem ikke.
+- **`base_servings` bevarer decimaler** (felt + åbning).
+- **#364:** `_rdUpdateNesting` manglede to af fire tilbage-konverteringer, så
+  en underopskrift vist i kg blev gemt i gram — faktor 1000. Ingredienser og
+  nestings deler nu **én** `_rdDisplayToOrigUnit`, så de fire veje ikke kan
+  skride fra hinanden igen. Den forstår også `gram` og `kilo`, som er de
+  navne enhederne faktisk har (Linse Suppe er `gram`).
+
+**Tests:** `npm run test:designer-gem` — 34. Den rigtige `recipe_designer.js`
+kører i en vm-sandkasse mod en falsk Grocy der registrerer hver skrivning;
+datasættet er et read-only udtræk (`npm run snapshot:opskrifter`, kun GET).
+Værnet måles to veje: **nul skrivninger** og et **byte-identisk fingeraftryk**
+af opskrift, userfields, linjer og nestings. Med `RD_SNAPSHOT=<fil>` køres det
+på **alle 131** opskrifter; fixturen i repoet er de 12 navngivne.
+**Mutations-testet: 16 mutationer, alle fanget** af hver sin navngivne assert.
+
+> ⚠️ **Første udgave af testen var tom.** Den bestod også på den GAMLE kode,
+> fordi attrap-DOM'en ikke udfyldte felterne fra den renderede HTML — det
+> gamle Gem stoppede ved "Giv opskriften et navn" og nåede aldrig at skrive.
+> Attrappen følger nu browserens regler for `value`, herunder at en `<select>`
+> står på `selected` eller den første option, og bliver tom når man sætter en
+> værdi listen ikke kender. Med den falder `main` på alle 131.
+
+Browser-verificeret med rigtige museklik mod grocy-test (kopi af HQ): Gem uden
+ændringer → "Ingen ændringer at gemme" og Grocy byte-identisk · udbytte rettet
+til 1,25 → **kun** `recipeunitnumber` flyttede sig · antal portioner sat til 2
+→ **kun** `base_servings` flyttede sig, udbyttet urørt · Linse Suppe beholder
+`gram`. Alt rullet tilbage bagefter.
+
+**Parkeret i #683** (kommentar på issuet): stamdata-spor på opskrifter (#666
+dækker kun produkter) og en advarsel når udbyttet ændres på en opskrift der
+producerer en vare.
+
 ---
 
 ## Næste opgave
