@@ -64,14 +64,25 @@
     }
 
     /**
+     * Tal fra et Grocy-userfield. Grocy gemmer med punktum ("1.1"), men et
+     * dansk komma ("1,1") må ikke stille blive til 1 — parseFloat stopper ved
+     * kommaet. Kun et decimal-komma omskrives; tusind-separatorer findes ikke
+     * i disse felter.
+     */
+    function num(v) {
+        if (typeof v === 'number') return v;
+        return parseFloat(String(v == null ? '' : v).trim().replace(',', '.'));
+    }
+
+    /**
      * Udbytte for opskriften SOM INDTASTET (base_servings), i lager-enhed.
      * null = kan ikke bestemmes.
      */
     function yieldInStockUnits(recipe, product, units, conversions) {
         const uf = (recipe && recipe.userfields) || {};
-        const per = parseFloat(uf.recipeunitnumber);
+        const per = num(uf.recipeunitnumber);
         if (!Number.isFinite(per) || per <= 0) return null;
-        const base = parseFloat(recipe && recipe.base_servings);
+        const base = num(recipe && recipe.base_servings);
         const total = per * (Number.isFinite(base) && base > 0 ? base : 1);
 
         const quId = unitIdByName(units, uf.recipeunit);
@@ -109,5 +120,5 @@
         return u ? (u.name_short || u.name || '') : '';
     }
 
-    return { unitIdByName, factorToStock, yieldInStockUnits, plannedYieldStock, stockUnitName, UNIT_ALIASES };
+    return { num, unitIdByName, factorToStock, yieldInStockUnits, plannedYieldStock, stockUnitName, UNIT_ALIASES };
 });
