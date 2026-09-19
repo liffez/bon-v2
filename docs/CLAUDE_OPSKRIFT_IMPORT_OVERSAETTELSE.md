@@ -4,7 +4,7 @@
 **Status:** Tillæg til `CLAUDE_OPSKRIFT_IMPORT.md` — oversættelseslag, enheder, svind, udbytte, målvægt og underopskrifter
 **Dato:** september 2026
 
-**Ændringer fra v0.4 (19.09.2026, Leif):** Målvægten er **350 g mad** (uden skål) for standardskålen, ikke 400 g — skålens egen vægt står i Grocy for sig. §6.1, §6.2, §11 og §12 rettet; de fire salater i `02 Salat` er justeret i drift (§12.1).
+**Ændringer fra v0.4 (19.09.2026):** Gennemsyn og gem af opskriften sker i opskrift-designeren (moderspec §4.6); §9 er indholdet designeren skal vise. Målvægten er **350 g mad** (uden skål) for standardskålen, ikke 400 g — skålens egen vægt står i Grocy for sig. §6.1, §6.2, §11 og §12 rettet; de fire salater i `02 Salat` er justeret i drift (§12.1).
 **Ændringer fra v0.3 (17.09.2026, gennemgang):** §8 rettet — nesting ER i brug i drift (28 referencer) og udfases af #270; importeren opretter aldrig nestings. Faktorbiblioteket starter som nyt modul og flytter IKKE CO₂-faktorerne (§7). `ingredient_alias` er planlagt, ikke eksisterende. Krydring harmoniseret til 0,5 % salt + 0,1 % peber (§6.2/§6.4/§9). Densitet har én kilde (§7). DTU-data holdes ude af git (§7). §12.1 følger Spor B's disciplin.
 **Ændringer fra v0.2:** Målvægt fastsat til 400 g for standardskålen (900 ml). Rollemodellen omskrevet fra procentfordeling til absolutte roller med basen som residual. Spinat afklaret som garniture. Eksisterende salatopskrifter skal justeres (§12).
 **Ændringer fra v0.1:** Bærer-klassifikation udgår af v1. Salater flyttet fra kilo-konvention til målvægt pr. skål. Emballage som egen skaleringsakse. Faktorbibliotek udskilt som eget modul.
@@ -417,6 +417,8 @@ selvstændig 1 kg-opskrift?"* med fire svar:
 ## 9. Visning og dokumentation af antagelser
 
 ### Ved gennemsyn: tre kolonner
+
+> *Gennemsynet sker i opskrift-designeren, ikke i en separat visning (moderspec §4.6). De tre kolonner nedenfor er det indhold designeren skal kunne vise for en importeret kladde: "Bliver" er ingrediensrækken, "Antagelse" er en note på rækken.*
 
 | Kilden skrev | Bliver | Antagelse |
 |---|---|---|
