@@ -143,6 +143,7 @@ bon-v2/
 │   ├── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
 │   ├── contact-points.js ← /api/contact-points/* (CRUD + toggle-public for kontaktpunkter)
 │   ├── flags.js      ← /api/flags/* (entity_flags CRUD + ack/dismiss — påmindelser på kunder/firmaer)
+│   ├── stock-counts.js ← /api/stock-counts/* (optællingen som objekt: start, linjer, luk — #673)
 │   └── delivery.js   ← /api/delivery/* (vehicles, booking, /calculate, /health, ruter — Spor 1+2)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
@@ -165,6 +166,7 @@ bon-v2/
 │   ├── bonDiscount.js        ← Rabatreglen ét sted: varer ja, levering/gebyrer/emballage nej (bonens total, rapporter, drift, e-conomic)
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
 │   ├── stamdataLog.js        ← Spor på stamdata-ændringer i Grocy: hvem ændrede hvad fra hvilken skærm (#666) — kun beslutninger, navne frem for id'er
+│   ├── stockCountLog.js      ← Optællingen som objekt (#673): linjer pr. vare × fysisk enhed med udfald, serverens faktor, samtidigheds-opslag
 │   ├── supplierPrices.js     ← Leverandørpriser pr. varenummer — læst/skrevet i Grocy (stregkodens last_price), pris pr. lager-enhed + manuelt overslag som internt varenummer (#657)
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
@@ -8437,9 +8439,8 @@ egentlig hører hjemme (§14.6), manglede dem.
 > komma, og ±-knapperne går gennem `MangdeFelter.step`, der læser komma
 > (`parseFloat("2,5")` er 2).
 
-**Ikke bygget her:** `stock_count_entries` (§14.4) og tolerance i talt enhed
-(§14.5) hører til fase 4 — posterne ligger i sessionen og i serverens kald,
-ikke i en tabel endnu.
+**Ikke bygget her:** tolerance i talt enhed (§14.5) hører til fase 4.
+`stock_count_entries` (§14.4) kom med #673 — se næste afsnit.
 
 **Tests:** `npm run test:optaelling-felter` (34 — de ægte `_icMountCount`,
 `_icAdjustQty`, `_icConfirmCount` og `_icExecuteCommit` i Node med en lille DOM)
@@ -8450,6 +8451,71 @@ nu også af browseren (`Cannot type text into input[type=number]`).
 Browser-verificeret med rigtige klik på Hvidkål: 2,5 Antal → + → 3,5 → Gem →
 2,8 kg med posten `{Antal, 3,5, 0,8}` og Antal husket; felterne står på én
 linje også ved 375 px. Testdata ryddet.
+
+### Optællingen gemmes som objekt + advarsel ved samtidig optælling (#673, 19. september 2026)
+
+Efter #665 blev de tastede poster sendt med til lagerkaldet, men **intet
+blev gemt i en tabel**. Når "Gem og luk" var kørt, var optællingen væk.
+Faktordiagnosen (§14.9: "afviger +5 % hver gang i Kasse") kræver historik,
+og hver optælling uden log er data vi aldrig får igen.
+
+- **Migration 179**: `stock_counts` (én pr. tryk på Start) · `stock_count_lines`
+  (vare × fysisk enhed) · `stock_count_entries` (hvert tastet felt).
+  Afvigelser fra spec §4.2 står i specen: `physical_unit_id` på **linjen**,
+  `current_physical_unit_id` som hint på optællingen, `status` (open/saved/discarded),
+  `site_location_id` (hvilken Grocy — `product_id` er et Grocy-id).
+- **Alle talte varer logges med et udfald**: `corrected` · `unchanged` ·
+  `kept_stock` · `failed`. At vi talte ER sket. Blev kun rettelserne gemt,
+  ville faktordiagnosen kun se de gange tallet var forkert, og så ligner
+  "+5 % hver gang" et mønster.
+  > ⚠️ Den oprindelige plan (log kun i lagerkaldet) ville have misset de
+  > fleste varer: der sendes kun et lagerkald når tallet flytter sig mere
+  > end 0,01 (`needsWrite`).
+- **Rettede varer logges af serveren i lagerkaldet**
+  (`POST /api/grocy/stock/:id/inventory` med `count`), og kun når Grocy tog imod.
+  Resten sendes samlet til `POST /api/stock-counts/:id/lines`. Begge veje går
+  gennem `services/stockCountLog.js`, som regner faktoren **selv**
+  (`resolveToStockAmount`). Klientens `factor_used` bruges aldrig. Fejler
+  loggen, vælter den ikke lagerrettelsen, men den siges i svaret (`log_error`)
+  og i kvitteringen.
+- **Poster beholder deres fysiske enhed.** `_icCommitEntries` samler dem stadig
+  til Grocys sum; `_icCountPayload` bygger én linje pr. enhed.
+- **`expected_qty`** = Grocys tal da varen blev talt. **`deviation_pct`** kun når
+  varen er talt ét sted: Grocy kender ikke fordelingen mellem KØL-1 og KØL-2.
+- **Et nyt Gem-forsøg erstatter** varens linjer (unik på count × vare × enhed).
+  Optællingen lukkes kun når alt lykkedes; en delvis fejl lader den stå åben.
+- **Start blokerer aldrig.** Svarer serveren ikke, tæller man videre, og
+  optællingen oprettes ved Gem. `countId` + `sortSeq` bor i sessionen, så en
+  genoptaget session fortsætter samme optælling. "Start forfra" kasserer den.
+- **`sort_index`** sættes første gang en vare tælles i en fysisk enhed (§7.3);
+  en rettelse bagefter flytter den ikke.
+
+**Advarsel ved samtidig optælling (første halvdel af #243):** Start viser andre
+åbne optællinger på samme lokation, startet inden for 12 timer. Ældre åbne er
+forladte og advarer ikke for evigt. Det er en advarsel, ikke en spærring.
+**Uden navn** (login er delte rollekonti — "Køkken tæller" siger intet og kan
+være én selv), med **hvor og hvornår**: *"Der er en anden optælling i gang i
+Hylder (KØL-2), startet 09:52."* Den fysiske enhed er tællerens aktuelle chip
+(opdateres ved skift), for en åben optælling har endnu ingen linjer. Er der
+mere end to, samles de på én linje.
+
+**Audit:** `npm run audit:optaellinger` (read-only; `-- --days 30`,
+`-- --count <id>`) viser optællingerne med udfald, peger på *gemt uden linjer*,
+*forladte åbne* og *linjer uden poster*, og lister de første faktor-spor (varer
+talt i en anden enhed end lager-enheden, med snit-afvigelse). Loggen har ingen
+visning før fase 7. Uden scriptet kan man ikke se om den fyldes.
+
+**Tests:** `npm run test:optaelling-log` (23 — de ægte ruter over HTTP, `:memory:`
+af de rigtige migrations, Grocy stubbet, inkl. audit-scriptet) +
+`test:optaelling-felter` 65 + `test:run-optaelling` 118 + Playwright
+`T_OPTAELLING_UI` 8/8 mod grocytest. **Mutations-testet: 21 mutationer, alle
+fanget.** To slap igennem første gang og blev lukket: fixturen til faktor-sporet
+manglede et forventet tal, så Mayo faldt fra af den forkerte grund, og
+"et nyt forsøg erstatter" kunne bestå fordi den unikke nøgle gav samme
+linjeantal. Browser-verificeret med rigtige klik mod grocytest: advarslen
+med den anden optællings enhed + dansk tid, chip-skift når serveren, én
+optælling med to enheder og begge udfald, `audit:optaellinger --count`
+viser dem. Balsamico sat tilbage på grocytest bagefter.
 
 ---
 
@@ -8863,7 +8929,13 @@ GET    /api/grocy/products/:id/historik?limit=           routes/grocy.js (stamda
 POST   /api/grocy/products                                routes/grocy.js (opret produkt)
 POST   /api/grocy/quantity-unit-conversions               routes/grocy.js (opret QU-konvertering)
 POST   /api/grocy/stock/:id/add                           routes/grocy.js (initial lagerbeholdning + pris)
-POST   /api/grocy/stock/:id/inventory                     routes/grocy.js (sæt lagertal — sender leverandørprisen med; svar: price_sent/price_reason)
+POST   /api/grocy/stock/:id/inventory                     routes/grocy.js (sæt lagertal — sender leverandørprisen med; svar: price_sent/price_reason; med `count` logges optællingen — #673)
+POST   /api/stock-counts         { grocy_location_id, physical_unit_id }  routes/stock-counts.js (Start — svar: count + andre åbne på lokationen)
+GET    /api/stock-counts/open?grocy_location_id=&exclude=  routes/stock-counts.js (andre åbne ved genoptaget session)
+PATCH  /api/stock-counts/:id     { physical_unit_id }  routes/stock-counts.js (hvor tælleren står — hint til advarslen)
+POST   /api/stock-counts/:id/lines  { products: [...] }  routes/stock-counts.js (uændret / beholdt / fejlet — serverens faktor)
+POST   /api/stock-counts/:id/finish                       routes/stock-counts.js
+POST   /api/stock-counts/:id/discard                      routes/stock-counts.js
 POST   /api/grocy/recipes                                routes/grocy.js (opret opskrift)
 PUT    /api/grocy/recipes/:id                            routes/grocy.js (opdater opskrift)
 PUT    /api/grocy/recipes/:id/userfields                 routes/grocy.js (opdater userfields)

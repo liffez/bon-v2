@@ -79,14 +79,17 @@ stock_count_state          -- én række pr. produkt, opdateres natligt
   deviation_history        -- JSON: sidste N afvigelser i procent
   cleanup_flags            -- JSON: hvilke datafejl varen har (§6)
 
-stock_counts               -- selve optællingen som objekt
-  id, location_id, physical_unit_id, started_at, finished_at, user_id
+stock_counts               -- selve optællingen som objekt  (BYGGET, #673 / migration 179)
+  id, site_location_id, grocy_location_id, current_physical_unit_id,
+  status (open|saved|discarded), started_at, finished_at, user_id
 
 stock_count_lines
-  count_id, product_id
+  count_id, product_id, product_name
+  physical_unit_id, physical_unit_name
   stock_qty                -- sum af posterne, det der blev posteret
   expected_qty, deviation_pct
   sort_index               -- rækkefølgen varen faktisk blev talt i
+  outcome                  -- corrected | unchanged | kept_stock | failed
 
 stock_count_entries        -- 1..3 pr. linje, ét pr. udfyldt felt (§14.4)
   line_id
@@ -94,6 +97,16 @@ stock_count_entries        -- 1..3 pr. linje, ét pr. udfyldt felt (§14.4)
   qty                      -- hvad brugeren faktisk tastede
   factor_used              -- faktor til qu_stock på tælletidspunktet
 ```
+
+**Afvigelser fra ovenstående (godkendt 19.09.2026, #673):**
+
+- **`physical_unit_id` ligger på linjen**, ikke på optællingen. Ét tryk på Start i én lokation kan dække flere fysiske enheder via chips (KØL-1, KØL-2), så én session er én optælling. `current_physical_unit_id` på optællingen er kun et *hint* om hvor tælleren står lige nu. Det opdateres ved chip-skift og bruges til advarslen ved samtidig optælling (#243). Navnet gemmes også på linjen, fordi enheder kan omdøbes og arkiveres.
+- **Hver linje har et udfald, og alle talte varer logges.** Det gælder også varer hvor tallet passede (`unchanged`), hvor lagerets tal blev beholdt (`kept_stock`) og hvor lagerskrivningen fejlede (`failed`). At vi talte, *er* sket. Det der ikke må logges, er at lageret blev rettet når det ikke blev. Blev kun rettelserne gemt, ville faktordiagnosen (§14.9) kun se de gange tallet var forkert.
+- **`site_location_id`** siger hvilken Grocy optællingen hører til. `product_id` er et Grocy-id og betyder noget andet på grocytest end på grocy-hq.
+- **`status`** i stedet for kun `finished_at`: en kasseret optælling må ikke senere ligne en gennemført.
+- **`expected_qty`** er Grocys tal da varen blev talt (den baseline tælleren sammenlignede med). Det er ikke tallet ved Gem, som et lagertræk kan have flyttet. **`deviation_pct`** udfyldes kun når varen er talt i én fysisk enhed. Grocy kender ikke fordelingen mellem KØL-1 og KØL-2, så ved flere enheder står den tom, og der regnes på varen samlet når historikken læses.
+
+Rettede varer logges af serveren i selve lagerkaldet (`POST /api/grocy/stock/:id/inventory` med `count`), og kun når Grocy tog imod. De øvrige udfald sendes samlet til `POST /api/stock-counts/:id/lines`. Begge veje går gennem `services/stockCountLog.js` og regner faktoren selv. Om loggen fyldes, ses med `npm run audit:optaellinger`.
 
 `stock_count_state` beregnes i et natligt job, ikke ved render. Optællingsskærmen må aldrig vente på Grocys stock log.
 

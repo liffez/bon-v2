@@ -268,6 +268,7 @@ app.use('/api/staff',            require('./routes/staff'));
 app.use('/api/goods-receipts',   require('./routes/goods-receipts'));
 app.use('/api/production',       require('./routes/production'));
 app.use('/api/physical-units',   require('./routes/physical-units'));
+app.use('/api/stock-counts',     require('./routes/stock-counts'));
 app.use('/api/schedule',         require('./routes/schedule'));
 app.use('/api/help-content',     require('./routes/help'));
 app.use('/api/sidekick',         require('./routes/sidekick'));

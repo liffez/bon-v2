@@ -11,6 +11,8 @@
 //   node scripts/test-optaelling-felter.js
 // ============================================================
 'use strict';
+// Advarslens klokkeslæt vises i dansk tid, uanset hvor testen køres.
+process.env.TZ = 'Europe/Copenhagen';
 const fs = require('fs');
 const path = require('path');
 
@@ -252,6 +254,125 @@ eq(IC._icCommitEntries(7).length, 2, 'posterne samles på tværs af placeringer'
     await IC._icExecuteCommit(IC._icPlanCommit({ '7': 47 }));
     eq((kald[0] || []).length, 2, 'og kaldet er det gamle (antal, uden poster)');
 
+
+    console.log('\n── #673: optællingen som objekt ──');
+    const mem = {};
+    globalThis.localStorage = {
+        getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); },
+        removeItem: k => { delete mem[k]; }, key: i => Object.keys(mem)[i], get length() { return Object.keys(mem).length; },
+    };
+    const MAYO = { id: 8, name: 'Mayo', qu_id_stock: 4 };
+    const OST  = { id: 9, name: 'Ost', qu_id_stock: 4 };
+    const srv = { opret: [], åbne: [], linjer: [], luk: [], kassér: [], patch: [], fejlInv: false, logFejl: null, nede: false };
+    function nulstilServer() {
+        Object.assign(srv, { opret: [], åbne: [], linjer: [], luk: [], kassér: [], patch: [], fejlInv: false, logFejl: null, nede: false });
+        kald.length = 0;
+    }
+    globalThis.createStockCount = async (loc, unitId, unitName) => {
+        if (srv.nede) throw new Error('Failed to fetch');
+        srv.opret.push({ loc, unitId, unitName });
+        return { count: { id: 42 }, others: [{ id: 41, started_at: '2026-09-19 08:12:00', user_name: 'Køkken', physical_unit_name: 'KØL-2' }] };
+    };
+    globalThis.fetchOpenStockCounts = async (loc, ex) => { srv.åbne.push({ loc, ex }); return { others: [] }; };
+    globalThis.patchStockCount = async (id, unitId, name) => { srv.patch.push({ id, unitId, name }); return {}; };
+    globalThis.postStockCountLines = async (id, products) => { srv.linjer.push({ id, products }); return { logged: products.length, errors: [] }; };
+    globalThis.finishStockCount = async (id) => { srv.luk.push(id); return {}; };
+    globalThis.discardStockCount = async (id) => { srv.kassér.push(id); return {}; };
+    globalThis.postGrocyInventory = async function () {
+        kald.push([].slice.call(arguments));
+        if (srv.fejlInv) throw new Error('Grocy nede');
+        return srv.logFejl ? { ok: true, log_error: srv.logFejl } : { ok: true };
+    };
+
+    function scenarie() {
+        nulstil(); nulstilServer();
+        _ic.locationId = 2; _ic.locationName = 'Køleskab';
+        _ic.physicalUnits = { 2: [{ id: 1, name: 'KØL-1' }, { id: 2, name: 'KØL-2' }] };
+        _ic.products = [BROED, MAYO, OST];
+        _ic.productsById = { 7: BROED, 8: MAYO, 9: OST };
+        _ic.grocyStock = { 7: { amount: 47 }, 8: { amount: 3 }, 9: { amount: 5 } };
+        _ic.countId = null; _ic.sortSeq = 0;
+        // Brød: 2 kasser i KØL-1, 25 stk i KØL-2 → rettes.
+        _ic.physicalUnit = 'KØL-1';
+        IC._icSaveCount(7, 15.36, [{ qu_id: 13, qty: 2, factor_used: 7.68 }]);
+        // Mayo: tallet passer.
+        IC._icSaveCount(8, 3);
+        // Ost: lageret har flyttet sig, brugeren beholdt lagerets tal.
+        IC._icSaveCount(9, 4);
+        _ic.counts[9].conflictResolved = 'keep';
+        _ic.physicalUnit = 'KØL-2';
+        IC._icSaveCount(7, 0.2025, [{ qu_id: 7, qty: 25, factor_used: 0.0081 }]);
+        // Brød rettes i KØL-1 igen — rækkefølgen må ikke flytte sig.
+        _ic.physicalUnit = 'KØL-1';
+        IC._icSaveCount(7, 15.36, [{ qu_id: 13, qty: 2, factor_used: 7.68 }]);
+    }
+    const frisk = { '7': 47, '8': 3, '9': 6 };
+
+    scenarie();
+    eq(JSON.stringify(_ic.counts[7].sortIndex), '{"KØL-1":1,"KØL-2":4}', 'rækkefølgen er første gang i hver enhed — en rettelse flytter den ikke');
+    let res = await IC._icExecuteCommit(IC._icPlanCommit(frisk));
+    eq(srv.opret.length, 1, 'optællingen oprettes ved Gem når Start ikke nåede serveren');
+    const brødKald = kald.find(k => k[0] === 7) || [];
+    const cnt = brødKald[4] || {};
+    eq(cnt.id, 42, 'lagerkaldet bærer optællingens id');
+    eq(cnt.expected_qty, 47, 'forventet = Grocys tal da varen blev talt');
+    eq((cnt.lines || []).length, 2, 'én linje pr. fysisk enhed');
+    const l1 = (cnt.lines || []).find(l => l.physical_unit_name === 'KØL-1') || {};
+    const l2 = (cnt.lines || []).find(l => l.physical_unit_name === 'KØL-2') || {};
+    ok(l1.physical_unit_id === 1 && (l1.entries || [])[0]?.qu_id === 13, 'kasserne står i KØL-1 med enhedens id');
+    ok(l2.physical_unit_id === 2 && (l2.entries || [])[0]?.qu_id === 7, 'de løse stk står i KØL-2 — posterne beholder deres enhed');
+    eq(l2.sort_index, 4, 'rækkefølgen følger med');
+    eq((brødKald[3] || []).length, 2, 'Grocys sum får stadig alle poster');
+    const sendt = (srv.linjer[0] || {}).products || [];
+    eq(sendt.map(p => p.product_id + ':' + p.outcome).join(','), '8:unchanged,9:kept_stock',
+       'tallet passer og lagerets tal beholdt logges også — i ét kald');
+    eq(kald.filter(k => k[0] === 8).length, 0, 'men Grocy røres ikke for dem');
+    eq(srv.luk.join(','), '42', 'optællingen lukkes når alt lykkedes');
+    ok(!res.logFejl && !res.logMangler, 'intet at sige om historikken');
+
+    scenarie(); srv.fejlInv = true;
+    res = await IC._icExecuteCommit(IC._icPlanCommit(frisk));
+    const fejlet = ((srv.linjer[0] || {}).products || []).find(p => p.product_id === 7);
+    eq(fejlet && fejlet.outcome, 'failed', 'en lagerskrivning der fejlede, logges som talt — ikke som rettet');
+    eq(srv.luk.length, 0, 'og optællingen står åben, så et nyt Gem skriver videre i den');
+
+    scenarie(); srv.logFejl = 'optællingen er lukket (saved)';
+    res = await IC._icExecuteCommit(IC._icPlanCommit(frisk));
+    eq(res.logFejl, 1, 'en log-fejl fra lagerkaldet tælles');
+    ok(/1 vare blev ikke gemt i optællingens historik/.test(IC._icCommitMessage(IC._icPlanCommit(frisk), res)),
+       'og siges i kvitteringen: ' + IC._icCommitMessage(IC._icPlanCommit(frisk), res));
+
+    scenarie(); srv.nede = true;
+    res = await IC._icExecuteCommit(IC._icPlanCommit(frisk));
+    eq(kald.filter(k => k[0] === 7).length, 1, 'uden server rettes lageret stadig');
+    eq((kald.find(k => k[0] === 7) || []).length, 4, '… med det gamle kald (ingen optælling at hænge det på)');
+    ok(/kunne ikke gemmes i historikken/.test(IC._icCommitMessage(IC._icPlanCommit(frisk), res)),
+       'og kvitteringen siger at historikken mangler');
+
+    console.log('\n── #673: Start, genoptagelse, advarsel ──');
+    scenarie();
+    await IC._icBeginServerCount();
+    eq(_ic.countId, 42, 'Start opretter optællingen');
+    _ic.countId = null;
+    IC._icLoadCounts();
+    eq(_ic.countId, 42, 'id overlever i sessionen — en genoptaget session fortsætter samme optælling');
+    srv.opret.length = 0;
+    await IC._icBeginServerCount();
+    eq(srv.opret.length, 0, 'genoptaget: ingen ny optælling');
+    eq((srv.åbne[0] || {}).ex, 42, '… men andre åbne hentes, uden én selv');
+    IC._icClearCounts();
+    eq(_ic.countId, null, 'kasseret session glemmer id');
+    const tekst = IC._icConcurrentText([{ started_at: '2026-09-19 08:12:00', user_name: 'Køkken', physical_unit_name: 'KØL-2' }], 'Køleskab');
+    ok(/Køleskab \(KØL-2\), startet 10:12/.test(tekst), 'advarslen siger hvor og hvornår (dansk tid): ' + tekst);
+    ok(!/Køkken/.test(tekst), 'men ikke rollekontoens navn');
+    eq(IC._icConcurrentText([], 'Køleskab'), '', 'ingen andre → ingen advarsel');
+    const mange = IC._icConcurrentText([1, 2, 3, 4].map(i => ({ started_at: '2026-09-19 08:1' + i + ':00', physical_unit_name: i < 4 ? 'KØL-1' : 'KØL-2' })), 'Køleskab');
+    ok(/^Der er 4 andre optællinger i gang i Køleskab \(KØL-1, KØL-2\), senest startet 10:14\./.test(mange),
+       'mange samles på én linje, enhederne uden gentagelser: ' + mange);
+    const skift = SRC.slice(SRC.indexOf('function _icSwitchToUnit'), SRC.indexOf('function _icSwitchToUnit') + 800);
+    ok(/_icSendCurrentUnit\(\)/.test(skift), 'chip-skift sender hvor tælleren står');
+    const nulstilKnap = SRC.slice(SRC.indexOf("'#icResumeReset'"), SRC.indexOf("'#icResumeReset'") + 300);
+    ok(/_icDiscardServerCount\(\)/.test(nulstilKnap), '"Start forfra" kasserer optællingen på serveren');
     console.log('\n── Wiring ──');
     const opret = SRC.slice(SRC.indexOf('function _icCreateCard'), SRC.indexOf('function _icMarkSeen'));
     ok(/_icMountCount\(card, fullProduct, defaultVal\)/.test(opret), 'kortet monterer felterne');

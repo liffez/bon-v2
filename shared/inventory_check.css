@@ -1036,6 +1036,8 @@
     color: #6b4c1a;
 }
 .ic-resume.ic-visible { display: flex; }
+/* #673: en anden optælling er i gang på samme lokation — advarsel, ikke spærring */
+.ic-concurrent { background: #fdf0d8; border-color: #e0b35c; color: #7a4d06; }
 .ic-resume-actions { margin-left: auto; display: flex; gap: 8px; }
 
 /* ── Enheds-chips ─────────────────────────────
