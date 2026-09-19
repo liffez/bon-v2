@@ -1513,6 +1513,8 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `settings/index.html` — "Vis priser i planlægningsbon" toggle under System
 
 ### Hjælpesystem
+> Fuld beskrivelse (fælles med whiteboard): `docs/CLAUDE_hjaelpesystem.md`
+
 - [x] `shared/help-system.js` (~370 linjer) — HelpSystem + MapMode moduler
   - Selector-baseret mapping (CSS-selectorer i JSON, ikke data-attributter)
   - H = hjælpepanel med nummererede badges + sidepanel
