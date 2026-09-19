@@ -843,13 +843,13 @@ function _rdActualPriceIncl() {
     var r = _rdRecipeMap[_rdDs.originalRecipeId];
     if (!r || !r.userfields) return null;
     var key = 'Salesprice' + _rdPrice.priceCat.charAt(0).toUpperCase() + _rdPrice.priceCat.slice(1);
-    var v = parseFloat(r.userfields[key]);
+    var v = GrocyNum.num(r.userfields[key]);
     return (isFinite(v) && v > 0) ? v : null;
 }
 
 function _rdCo2PerUnit() {
     var r = _rdRecipeMap[_rdDs.originalRecipeId];
-    var v = r && r.userfields ? parseFloat(r.userfields.Co2e) : NaN;
+    var v = r && r.userfields ? GrocyNum.num(r.userfields.Co2e) : NaN;
     return isFinite(v) ? v : null;
 }
 

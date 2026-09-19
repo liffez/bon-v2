@@ -16,6 +16,7 @@
 const { getDb } = require('../db/database');
 const { inclToExcl } = require('../db/helpers');
 const grocyAdapter = require('./grocyAdapter');
+const { num: grocyNum } = require('../shared/grocy_num');
 
 // Map Grocy userfield-navn → price_category_code
 const USERFIELD_TO_CATEGORY = {
@@ -171,7 +172,7 @@ function syncPricesFromGrocy(rawRecipes, opts = {}) {
             const categoryId = codeToId[categoryCode];
             if (!categoryId) continue;
 
-            const inclMoms = parseFloat(uf[userfield]);
+            const inclMoms = grocyNum(uf[userfield]);
             if (!Number.isFinite(inclMoms) || inclMoms <= 0) {
                 deleted += del.run(recipe.id, categoryId).changes;
                 continue;
