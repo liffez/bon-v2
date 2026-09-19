@@ -459,11 +459,38 @@ function fetchGrocyProductGroups() {
  * tastede det i — serveren summerer med sine egne omregninger og afgør tallet.
  * Uden entries opfører den sig som hidtil: `amount` bruges som det er.
  */
-function postGrocyInventory(productId, amount, bestBeforeDate, entries) {
+// count (#673): { id, product_name, expected_qty, lines: [...] } — sendes når
+// kaldet kommer fra en optælling, så serveren logger varen efter Grocy tog imod.
+function postGrocyInventory(productId, amount, bestBeforeDate, entries, count) {
     var body = { amount: amount };
     if (entries && entries.length) body.entries = entries;
+    if (count && count.id) body.count = count;
     if (bestBeforeDate) body.best_before_date = bestBeforeDate;
     return apiFetch('/grocy/stock/' + productId + '/inventory', { method: 'POST', body: JSON.stringify(body) });
+}
+// ── Optællingen som objekt (#673) ──
+function createStockCount(grocyLocationId, physicalUnitId, physicalUnitName) {
+    return apiFetch('/stock-counts', { method: 'POST', body: JSON.stringify({
+        grocy_location_id: grocyLocationId, physical_unit_id: physicalUnitId, physical_unit_name: physicalUnitName,
+    }) });
+}
+function fetchOpenStockCounts(grocyLocationId, excludeId) {
+    return apiFetch('/stock-counts/open?grocy_location_id=' + encodeURIComponent(grocyLocationId) +
+        (excludeId ? '&exclude=' + encodeURIComponent(excludeId) : ''));
+}
+function patchStockCount(countId, physicalUnitId, physicalUnitName) {
+    return apiFetch('/stock-counts/' + countId, { method: 'PATCH', body: JSON.stringify({
+        physical_unit_id: physicalUnitId, physical_unit_name: physicalUnitName,
+    }) });
+}
+function postStockCountLines(countId, products) {
+    return apiFetch('/stock-counts/' + countId + '/lines', { method: 'POST', body: JSON.stringify({ products: products }) });
+}
+function finishStockCount(countId) {
+    return apiFetch('/stock-counts/' + countId + '/finish', { method: 'POST' });
+}
+function discardStockCount(countId) {
+    return apiFetch('/stock-counts/' + countId + '/discard', { method: 'POST' });
 }
 function postGrocyStockAdd(productId, body) {
     return apiFetch('/grocy/stock/' + productId + '/add', { method: 'POST', body: JSON.stringify(body) });

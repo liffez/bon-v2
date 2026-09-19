@@ -19,6 +19,8 @@ const supplierPrices = require('../services/supplierPrices');
 const { resolveToStockAmount } = require('../services/quConvert');
 // #666: spor på stamdata-ændringer — hvem ændrede hvad, og hvornår.
 const stamdataLog = require('../services/stamdataLog');
+// #673: optællingen som objekt — rettede varer logges her, kun når Grocy tog imod.
+const stockCountLog = require('../services/stockCountLog');
 const { getDb } = require('../db/database');
 const { refreshRecipeUnitCountsSafe } = require('../services/recipeUnits');
 
@@ -298,7 +300,7 @@ router.post('/quantity-unit-conversions', handle(async (req, res) => {
 
 router.post('/stock/:id/inventory', handle(async (req, res) => {
     const productId = parseInt(req.params.id);
-    const { amount, entries, best_before_date } = req.body;
+    const { amount, entries, best_before_date, count } = req.body;
 
     // #658: mængden kan være tastet i flere enheder ("2 kasser og 25 stk").
     //
@@ -354,11 +356,41 @@ router.post('/stock/:id/inventory', handle(async (req, res) => {
     try { priced = await supplierPrices.priceForStock(grocy, productId); }
     catch (err) { console.warn('[grocy] prisopslag fejlede:', err.message); }
     const r = await grocy.setInventory(productId, stockAmount, best_before_date || null, { price: priced.price });
-    res.json({
+
+    // #673: kom kaldet fra en optælling, skrives varens linjer NU — efter at
+    // Grocy tog imod, aldrig før. Et spor der fejler må ikke vælte en
+    // lagerrettelse der lykkedes, men det siges i svaret (log_error).
+    let countLog = null;
+    if (count && count.id) {
+        try {
+            const [prods, convs] = await Promise.all([
+                grocy.getProducts(), grocy.getQuantityUnitConversions(),
+            ]);
+            const res1 = stockCountLog.logProducts(getDb(), {
+                countId: count.id,
+                items: [{
+                    product_id: productId,
+                    product_name: count.product_name,
+                    expected_qty: count.expected_qty,
+                    outcome: (r && r.unchanged) ? 'unchanged' : 'corrected',
+                    lines: count.lines,
+                }],
+                products: prods, conversions: convs,
+            });
+            countLog = res1.errors.length ? { log_error: res1.errors[0].error } : { logged: res1.logged };
+        } catch (err) {
+            countLog = { log_error: err.message };
+        }
+        if (countLog.log_error) {
+            console.error(`[optælling] LAGERET ER RETTET, men optællingen blev ikke logget for produkt ${productId}:`, countLog.log_error);
+        }
+    }
+
+    res.json(Object.assign({
         ok: true, product_id: productId, new_amount: stockAmount,
         unchanged: !!(r && r.unchanged),
         price_sent: priced.price, price_reason: priced.reason,
-    });
+    }, countLog || {}));
 }));
 
 /* ── Stock add (initial lagerbeholdning ved opret-produkt) ── */

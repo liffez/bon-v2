@@ -501,8 +501,8 @@ function installFakeGrocy(failOn) {
         console.error = function() {};
     }
 
-    globalThis.postGrocyInventory = async function(id, amount, bestBefore) {
-        calls.push({ fn: 'inventory', id, amount, bestBefore, argc: arguments.length });
+    globalThis.postGrocyInventory = async function(id, amount, bestBefore, entries, count) {
+        calls.push({ fn: 'inventory', id, amount, bestBefore, argc: arguments.length, count });
         if (failOn.inventory === id) throw new Error('attrap: lager-skrivning fejlede');
         return { ok: true };
     };
@@ -516,6 +516,16 @@ function installFakeGrocy(failOn) {
         if (failOn.product === id) throw new Error('attrap: produkt-opdatering fejlede');
         return failOn.sporFejl ? { ok: true, log_error: 'attrap: sporet fejlede' } : { ok: true };
     };
+    // #673: optællingen på serveren.
+    globalThis.createStockCount = async function(loc, unitId, unitName) {
+        calls.push({ fn: 'count-create', loc, unitId, unitName });
+        return { count: { id: 77 }, others: [] };
+    };
+    globalThis.postStockCountLines = async function(id, products) {
+        calls.push({ fn: 'count-lines', id, products });
+        return { logged: products.length, errors: [] };
+    };
+    globalThis.finishStockCount = async function(id) { calls.push({ fn: 'count-finish', id }); return {}; };
     return calls;
 }
 
@@ -524,6 +534,9 @@ function removeFakeGrocy() {
     delete globalThis.postGrocyInventory;
     delete globalThis.putGrocyProductUserfields;
     delete globalThis.putGrocyProduct;
+    delete globalThis.createStockCount;
+    delete globalThis.postStockCountLines;
+    delete globalThis.finishStockCount;
 }
 
 // Byg en talt vare: produkt + lager + count med baseline.
@@ -561,7 +574,8 @@ async function caseCommitExecution() {
 
     // Bug 2 — ægte assertion nu: best-before må ALDRIG sendes med.
     ok('16b lager-skrivning sender ingen best-before (Bug 2)',
-       inv[0].argc === 2 && inv[0].bestBefore === undefined,
+       // 2 argumenter uden optælling; 5 når kaldet bærer optællingen (#673).
+       (inv[0].argc === 2 || inv[0].argc === 5) && inv[0].bestBefore === undefined,
        'argc=' + inv[0].argc + ' bb=' + inv[0].bestBefore);
 
     const stamped = calls.filter(c => c.fn === 'userfields' && c.fields.LastCheckedAt).map(c => c.id);
@@ -592,7 +606,12 @@ async function caseCommitExecution() {
     calls = installFakeGrocy();
     plan = IC._icPlanCommit({ '1': 9 });
     res  = await IC._icExecuteCommit(plan);
-    ok('16j "lagerets tal er rigtigt" skriver intet', calls.length === 0);
+    // Intet til Grocy. Optællingen selv logges (#673) — at vi talte ER sket.
+    const grocyKald = calls.filter(c => c.fn === 'inventory' || c.fn === 'userfields' || c.fn === 'product');
+    ok('16j "lagerets tal er rigtigt" skriver intet til lageret', grocyKald.length === 0, JSON.stringify(grocyKald));
+    const behold = (calls.find(c => c.fn === 'count-lines') || { products: [] }).products;
+    ok('16j2 men tællingen logges som "lagerets tal beholdt"',
+       behold.length === 1 && behold[0].outcome === 'kept_stock', JSON.stringify(behold));
     ok('16k den tælles som beholdt', plan.keepCount === 1 && plan.toWrite.length === 0);
     removeFakeGrocy();
 
@@ -681,6 +700,26 @@ async function caseCommitExecution() {
     const tom = IC._icCommitMessage({ toWrite: [], keepCount: 0 },
                                     { invWritten: 0, notrackDone: 0, discDone: 0 });
     ok('16w tom commit siger "Ingen ændringer"', /Ingen ændringer/.test(tom), tom);
+
+    // ── 16y-ab: optællingen som objekt (#673) ──
+    resetState();
+    _ic.countId = 55;
+    counted(1, 'Ændret',  5, 3);
+    counted(2, 'Uændret', 4, 4);
+    calls = installFakeGrocy();
+    res = await IC._icExecuteCommit(IC._icPlanCommit({ '1': 5, '2': 4 }));
+    const invC = calls.find(c => c.fn === 'inventory') || {};
+    ok('16y lagerkaldet bærer optællingens id', invC.count && invC.count.id === 55, JSON.stringify(invC.count));
+    ok('16z en genoptaget optælling oprettes ikke igen', !calls.some(c => c.fn === 'count-create'));
+    const linjeKald = calls.find(c => c.fn === 'count-lines') || { products: [] };
+    ok('16aa den uændrede vare logges som talt, uden lagerkald',
+       linjeKald.id === 55 && linjeKald.products.length === 1 &&
+       linjeKald.products[0].product_id === 2 && linjeKald.products[0].outcome === 'unchanged',
+       JSON.stringify(linjeKald.products));
+    ok('16ab optællingen lukkes til sidst', calls[calls.length - 1].fn === 'count-finish' &&
+       calls[calls.length - 1].id === 55, JSON.stringify(calls.map(c => c.fn)));
+    removeFakeGrocy();
+    _ic.countId = null;
 
     const fejlMsg = IC._icCommitErrorMessage({ invWritten: 2, invFailed: 1, decFailed: 1 });
     ok('16x fejlbesked skelner de to slags fejl',

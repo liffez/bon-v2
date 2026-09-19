@@ -152,7 +152,9 @@
     "audit:produktionspolitik": "node --env-file=.env scripts/audit-production-policy.js",
     "audit:kostpris-kilder": "node --experimental-sqlite scripts/audit-kostpris-kilder.js",
     "test:stamdata": "node --experimental-sqlite --test tests/stamdata_spor.test.js && node scripts/test-stamdata-klient.js",
-    "test:optaelling-felter": "node scripts/test-optaelling-felter.js"
+    "test:optaelling-felter": "node scripts/test-optaelling-felter.js",
+    "test:optaelling-log": "node --experimental-sqlite --test tests/stock_counts.test.js",
+    "audit:optaellinger": "node --experimental-sqlite scripts/audit-stock-counts.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

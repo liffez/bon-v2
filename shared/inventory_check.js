@@ -16,7 +16,9 @@
 /* global fetchGrocyStock, fetchGrocyProducts, fetchGrocyQuantityUnits,
           fetchGrocyLocations, fetchGrocyQuantityUnitConversions,
           postGrocyInventory, putGrocyProductUserfields,
-          postGrocyShoppingList, esc */
+          postGrocyShoppingList, esc,
+          createStockCount, fetchOpenStockCounts, patchStockCount,
+          postStockCountLines, finishStockCount, discardStockCount */
 
 // ════════════════════════════════════════════════════════════
 // STATE
@@ -40,6 +42,8 @@ var _ic = {
     decisions:     {},          // productId -> 'notrack' | 'discontinued'  (⋯-menu, skrives ved commit)
     countUnitPref: {},          // "<pid>|<enhed>" -> qu_id — sidst brugte tælleenhed i den kontekst
     startedAt:     null,        // ISO — hvornår sessionen begyndte (drives genoptag-banneret)
+    countId:       null,        // #673: stock_counts.id på serveren (null = ikke oprettet endnu)
+    sortSeq:       0,           // #673: løbende tæller — rækkefølgen varer blev talt i (§7.3)
     priorities:    {},          // productId -> "high"|"low"
     manualAdded:   {},          // productId -> enhed hvor varen blev hentet frem manuelt
     physicalUnits: {},          // locationId -> [{ id, name, sort_order, archived_at }] fra server
@@ -297,6 +301,8 @@ function _icLoadCounts() {
     _ic.skippedByUnit = data.skippedByUnit || {};
     _ic.decisions     = data.decisions || {};
     _ic.startedAt     = data.startedAt || null;
+    _ic.countId       = data.countId || null;
+    _ic.sortSeq       = data.sortSeq || 0;
 
     if (!_ic.startedAt && Object.keys(_ic.counts).length) _ic.startedAt = new Date().toISOString();
 }
@@ -310,7 +316,9 @@ function _icSaveCounts() {
             counts:        _ic.counts,
             skippedByUnit: _ic.skippedByUnit,
             decisions:     _ic.decisions,
-            startedAt:     _ic.startedAt
+            startedAt:     _ic.startedAt,
+            countId:       _ic.countId,
+            sortSeq:       _ic.sortSeq
         }));
     } catch (e) {}
 }
@@ -322,6 +330,8 @@ function _icClearCounts() {
     _ic.decisions = {};
     _ic.skipped = [];
     _ic.startedAt = null;
+    _ic.countId = null;
+    _ic.sortSeq = 0;
 }
 
 // Er sessionen startet på en tidligere dag? (driver genoptag-banneret)
@@ -461,6 +471,15 @@ function _icRenderSetup() {
             '</span>' +
         '</div>' +
 
+        // #673/#243: en anden optælling er i gang på samme lokation. En
+        // advarsel, ikke en spærring — to kan godt tælle hver sin fysiske enhed.
+        '<div class="ic-resume ic-concurrent" id="icConcurrent">' +
+            '<span id="icConcurrentText"></span>' +
+            '<span class="ic-resume-actions">' +
+                '<button class="ic-btn-secondary" id="icConcurrentClose">OK</button>' +
+            '</span>' +
+        '</div>' +
+
         '<div class="ic-location-bar">' +
             '<div class="ic-form-group">' +
                 '<label>Lokation</label>' +
@@ -558,8 +577,12 @@ function _icRenderSetup() {
     _icContainer.querySelector('#icResumeKeep').addEventListener('click', function() {
         _icContainer.querySelector('#icResume').classList.remove('ic-visible');
     });
+    _icContainer.querySelector('#icConcurrentClose').addEventListener('click', function() {
+        _icContainer.querySelector('#icConcurrent').classList.remove('ic-visible');
+    });
     _icContainer.querySelector('#icResumeReset').addEventListener('click', function() {
         if (!confirm('Vil du slette det du allerede har talt og starte forfra?')) return;
+        _icDiscardServerCount();
         _icClearCounts();
         _icContainer.querySelector('#icResume').classList.remove('ic-visible');
         _icRenderProducts();
@@ -633,6 +656,9 @@ function _icResetUI() {
     if (list) list.style.display = 'none';
     var empty = _icContainer.querySelector('#icEmptyState');
     if (empty) empty.style.display = 'block';
+    // Advarslen handlede om den optælling der nu er slut.
+    var conc = _icContainer.querySelector('#icConcurrent');
+    if (conc) conc.classList.remove('ic-visible');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -824,6 +850,9 @@ async function _icStartCheck() {
         _icLoadSkipped();
         _icLoadCountUnitPrefs();
         _icShowResumeBanner();
+        // #673: opret optællingen på serveren (eller genbrug den genoptagne).
+        // Venter IKKE — en server der ikke svarer må ikke stoppe køkkenet.
+        _icBeginServerCount();
         // Kvitteringen hører til den FORRIGE optælling. Står den endnu når en ny
         // begynder, ligner den en kvittering for det man er i gang med.
         _icClearReceipt();
@@ -843,6 +872,139 @@ async function _icStartCheck() {
 }
 
 // ════════════════════════════════════════════════════════════
+// OPTÆLLINGEN PÅ SERVEREN (#673, spec §14.4)
+// ════════════════════════════════════════════════════════════
+// Sessionen lever stadig i browseren; serveren får et objekt at hænge
+// linjerne på, så historikken overlever "Gem og luk". Intet her må stoppe
+// en optælling: svarer serveren ikke, tæller man videre, og optællingen
+// oprettes ved Gem i stedet (_icEnsureCountId).
+
+function _icCurrentUnitId() {
+    return _icGetUnitIdByName(_ic.locationId, _ic.physicalUnit);
+}
+
+async function _icBeginServerCount() {
+    try {
+        var others;
+        if (_ic.countId) {
+            var o = await fetchOpenStockCounts(_ic.locationId, _ic.countId);
+            others = o && o.others;
+            _icSendCurrentUnit();
+        } else {
+            var r = await createStockCount(_ic.locationId, _icCurrentUnitId(), _ic.physicalUnit);
+            _ic.countId = r && r.count ? r.count.id : null;
+            if (_ic.countId) _icSaveCounts();
+            others = r && r.others;
+        }
+        _icShowConcurrent(others || []);
+    } catch (e) {
+        console.warn('[optælling] kunne ikke oprette optællingen på serveren — tæller videre:', e && e.message);
+    }
+}
+
+async function _icEnsureCountId() {
+    if (_ic.countId) return _ic.countId;
+    try {
+        var r = await createStockCount(_ic.locationId, _icCurrentUnitId(), _ic.physicalUnit);
+        _ic.countId = r && r.count ? r.count.id : null;
+    } catch (e) {
+        console.warn('[optælling] optællingen kunne ikke oprettes på serveren:', e && e.message);
+    }
+    return _ic.countId;
+}
+
+// Hvor tælleren står lige nu — kun et hint til andres advarsel.
+function _icSendCurrentUnit() {
+    if (!_ic.countId || typeof patchStockCount !== 'function') return;
+    try {
+        var p = patchStockCount(_ic.countId, _icCurrentUnitId(), _ic.physicalUnit);
+        if (p && p.catch) p.catch(function() {});
+    } catch (e) {}
+}
+
+function _icDiscardServerCount() {
+    if (!_ic.countId || typeof discardStockCount !== 'function') return;
+    try {
+        var p = discardStockCount(_ic.countId);
+        if (p && p.catch) p.catch(function() {});
+    } catch (e) {}
+}
+
+// Ren: advarselsteksten. Uden navn — login er delte rollekonti, så "Køkken
+// tæller" siger intet og kan endda være én selv på en anden skærm. Hvor og
+// hvornår er det der kan handles på.
+function _icConcurrentText(others, locationName) {
+    if (!others || !others.length) return '';
+    var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+    // SQLite-tid er UTC uden markør. Læses den som den står, bliver den
+    // lokal tid, og advarslen er to timer forkert om sommeren.
+    var tidAf = function(o) {
+        var raw = String(o.started_at || '');
+        var d = new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
+        return raw && !isNaN(d) ? pad(d.getHours()) + ':' + pad(d.getMinutes()) : '';
+    };
+    var sted = locationName || 'lokationen';
+    var råd = '. Tæl en anden enhed, eller vent — ellers kan I overskrive hinandens tal.';
+    if (others.length <= 2) {
+        var dele = others.map(function(o) {
+            var hvor = o.physical_unit_name ? ' (' + o.physical_unit_name + ')' : '';
+            var tid = tidAf(o);
+            return sted + hvor + (tid ? ', startet ' + tid : '');
+        });
+        return (others.length === 1 ? 'Der er en anden optælling i gang i ' : 'Der er 2 andre optællinger i gang: ') +
+            dele.join(' · ') + råd;
+    }
+    // Mange: én linje, ikke en opremsning. Enhederne uden gentagelser.
+    var enheder = [];
+    others.forEach(function(o) {
+        if (o.physical_unit_name && enheder.indexOf(o.physical_unit_name) < 0) enheder.push(o.physical_unit_name);
+    });
+    var seneste = tidAf(others[others.length - 1]);
+    return 'Der er ' + others.length + ' andre optællinger i gang i ' + sted +
+        (enheder.length ? ' (' + enheder.join(', ') + ')' : '') +
+        (seneste ? ', senest startet ' + seneste : '') + råd;
+}
+
+function _icShowConcurrent(others) {
+    if (!_icContainer) return;
+    var el = _icContainer.querySelector('#icConcurrent');
+    if (!el) return;
+    var t = _icConcurrentText(others, _ic.locationName);
+    if (!t) { el.classList.remove('ic-visible'); return; }
+    _icContainer.querySelector('#icConcurrentText').textContent = t;
+    el.classList.add('ic-visible');
+}
+
+// Det en vare bærer til serveren: én linje pr. fysisk enhed den er talt i.
+// Posterne beholder deres enhed — _icCommitEntries samler dem til Grocys sum,
+// men linjen skal vide at "2 Kasse" stod i KØL-1.
+function _icCountPayload(productId) {
+    var c = _ic.counts[productId];
+    if (!c || !c.units) return null;
+    var p = (_ic.productsById && _ic.productsById[productId]) ||
+            (_ic.products || []).find(function(x) { return String(x.id) === String(productId); });
+    var lines = [];
+    for (var u in c.units) {
+        if (!c.units.hasOwnProperty(u)) continue;
+        lines.push({
+            physical_unit_name: u,
+            physical_unit_id:   _icGetUnitIdByName(_ic.locationId, u),
+            stock_qty:          c.units[u],
+            sort_index:         (c.sortIndex && c.sortIndex[u] !== undefined) ? c.sortIndex[u] : null,
+            entries:            (c.entries && Array.isArray(c.entries[u])) ? c.entries[u] : null
+        });
+    }
+    if (!lines.length) return null;
+    return {
+        product_id:   parseInt(productId),
+        product_name: p ? p.name : null,
+        // Grocys tal DA varen blev talt — det tælleren sammenlignede med.
+        expected_qty: c.grocyAtCount === undefined ? null : c.grocyAtCount,
+        lines:        lines
+    };
+}
+
+// ════════════════════════════════════════════════════════════
 // SKIFT FYSISK ENHED
 // ════════════════════════════════════════════════════════════
 
@@ -858,6 +1020,7 @@ function _icSwitchToUnit(unitName) {
     _ic.physicalUnit = unitName;
     var sel = _icContainer.querySelector('#icUnitSelect');
     if (sel) sel.value = _ic.physicalUnit;
+    _icSendCurrentUnit();
 
     _icLoadSkipped();
     _icRenderProducts();
@@ -1686,6 +1849,10 @@ function _icSaveCount(productId, amount, entries) {
     c.units[_ic.physicalUnit] = amount;
     if (!c.entries) c.entries = {};
     c.entries[_ic.physicalUnit] = Array.isArray(entries) ? entries : _icStockEntries(productId, amount);
+    // §7.3: første gang varen tælles i DENNE fysiske enhed. En rettelse bagefter
+    // flytter den ikke — det er rækkefølgen man gik rundt i, der skal læres.
+    if (!c.sortIndex) c.sortIndex = {};
+    if (c.sortIndex[_ic.physicalUnit] === undefined) c.sortIndex[_ic.physicalUnit] = ++_ic.sortSeq;
     // Hvilken fysisk enhed varen sidst blev talt i → bliver LastCheckedUnit ved commit (Bug 1).
     c.lastUnit = _ic.physicalUnit;
     // Concurrency-baseline (§6): Grocy-mængden brugeren SÅ da hun talte. Fanges én gang
@@ -2087,6 +2254,7 @@ function _icPlanCommit(freshStock) {
     var toWrite = [];
     var pendingConflicts = 0;
     var keepCount = 0;
+    var keepIds = [];
 
     _ic.products.forEach(function(product) {
         var cls = _icClassifyCounted(product, freshStock);
@@ -2094,7 +2262,7 @@ function _icPlanCommit(freshStock) {
         // §6 — konflikt-gate: en vare hvor Grocy har flyttet sig siden brugeren
         // talte, og som ikke er afklaret, må IKKE overskrives tavst.
         if (cls.conflict) { pendingConflicts++; return; }
-        if (cls.resolved === 'keep') { keepCount++; return; } // behold lagerets tal
+        if (cls.resolved === 'keep') { keepCount++; keepIds.push(product.id); return; } // behold lagerets tal
         toWrite.push({ id: product.id, cls: cls });
     });
 
@@ -2102,6 +2270,7 @@ function _icPlanCommit(freshStock) {
         toWrite: toWrite,
         pendingConflicts: pendingConflicts,
         keepCount: keepCount,
+        keepIds: keepIds,
         decisionIds: Object.keys(_ic.decisions || {})
     };
 }
@@ -2110,25 +2279,68 @@ function _icPlanCommit(freshStock) {
 async function _icExecuteCommit(plan) {
     var invWritten = 0, invFailed = 0;
 
+    // #673: optællingen som objekt. Rettede varer logges af serveren i selve
+    // lagerkaldet — kun når Grocy tog imod. Resten (tallet passede, lagerets
+    // tal beholdt, lagerskrivningen fejlede) samles og sendes bagefter: at vi
+    // talte ER sket, også når lageret ikke blev rørt.
+    var counted = plan.toWrite.length + (plan.keepIds ? plan.keepIds.length : 0);
+    var countId = counted ? await _icEnsureCountId() : _ic.countId;
+    var logItems = [];
+    var logFejl = 0;
+    function payloadFor(id, outcome) {
+        var pl = countId ? _icCountPayload(id) : null;
+        if (pl && outcome) pl.outcome = outcome;
+        return pl;
+    }
+
     for (var i = 0; i < plan.toWrite.length; i++) {
         var it = plan.toWrite[i];
         // Bug 2 — ingen best-before (Grocy bevarer eksisterende batches og
         // daterer surplus via default_best_before_days).
         if (it.cls.needsWrite) {
+            var pl = payloadFor(it.id);
+            var countArg = pl ? Object.assign({ id: countId }, pl) : undefined;
             try {
                 var poster = _icCommitEntries(it.id);
-                if (poster && poster.length) await postGrocyInventory(it.id, it.cls.total, undefined, poster);
-                else await postGrocyInventory(it.id, it.cls.total);
+                var svar;
+                // Uden optælling på serveren er kaldet præcis det samme som før.
+                if (poster && poster.length) {
+                    svar = countArg ? await postGrocyInventory(it.id, it.cls.total, undefined, poster, countArg)
+                                    : await postGrocyInventory(it.id, it.cls.total, undefined, poster);
+                } else {
+                    svar = countArg ? await postGrocyInventory(it.id, it.cls.total, undefined, undefined, countArg)
+                                    : await postGrocyInventory(it.id, it.cls.total);
+                }
+                if (countArg && svar && svar.log_error) logFejl++;
                 invWritten++;
             } catch (err) {
                 console.error('Failed to update ' + it.id + ':', err);
                 invFailed++;
+                var plF = payloadFor(it.id, 'failed');
+                if (plF) logItems.push(plF);
                 continue;   // spring stemplingen over hvis lager-skrivningen fejlede
             }
+        } else {
+            var plU = payloadFor(it.id, 'unchanged');
+            if (plU) logItems.push(plU);
         }
         // Bug 1 — LastCheckedAt/LastCheckedUnit skrives KUN her, kun for varer
         // der faktisk blev talt. _icUpdateLastChecked sluger egne fejl.
         await _icUpdateLastChecked(it.id, it.cls.lastUnit);
+    }
+
+    (plan.keepIds || []).forEach(function(id) {
+        var plK = payloadFor(id, 'kept_stock');
+        if (plK) logItems.push(plK);
+    });
+    if (countId && logItems.length) {
+        try {
+            var lr = await postStockCountLines(countId, logItems);
+            logFejl += (lr && lr.errors) ? lr.errors.length : 0;
+        } catch (err) {
+            console.error('[optælling] linjerne blev ikke logget:', err);
+            logFejl += logItems.length;
+        }
     }
 
     // Beslutninger fra kortets menu — først her, som alt andet (spec §3).
@@ -2154,10 +2366,19 @@ async function _icExecuteCommit(plan) {
         }
     }
 
+    // Lukkes kun når alt lykkedes. En delvis fejl lader optællingen stå
+    // åben, så et nyt tryk på Gem skriver videre i den samme.
+    if (countId && invFailed === 0 && decFailed === 0) {
+        try { await finishStockCount(countId); }
+        catch (err) { console.error('[optælling] kunne ikke lukke optællingen:', err); }
+    }
+
     return {
         invWritten: invWritten, invFailed: invFailed,
         notrackDone: notrackDone, discDone: discDone, decFailed: decFailed,
-        sporFejl: sporFejl
+        sporFejl: sporFejl,
+        logFejl: logFejl,
+        logMangler: counted > 0 && !countId
     };
 }
 
@@ -2175,6 +2396,10 @@ function _icCommitMessage(plan, res) {
     // man vide — det var netop et spor der manglede, der gjorde kål-sagen svær.
     if (res.sporFejl > 0) tekst += ' ' + res.sporFejl + ' ændring' + (res.sporFejl === 1 ? '' : 'er') +
         ' blev ikke skrevet i varens historik.';
+    // #673: lageret er rettet, men selve optællingen er ikke gemt til senere.
+    if (res.logMangler) tekst += ' Optællingen kunne ikke gemmes i historikken (ingen forbindelse til serveren).';
+    else if (res.logFejl > 0) tekst += ' ' + res.logFejl + ' vare' + (res.logFejl === 1 ? '' : 'r') +
+        ' blev ikke gemt i optællingens historik.';
     return tekst;
 }
 
@@ -2199,8 +2424,9 @@ async function _icSaveAllToGrocy() {
         return;
     }
 
-    if (plan.toWrite.length === 0 && plan.decisionIds.length === 0) {
+    if (plan.toWrite.length === 0 && plan.decisionIds.length === 0 && !(plan.keepIds && plan.keepIds.length)) {
         _icAlert('Der er ikke noget at gemme', 'info');
+        _icDiscardServerCount();   // intet talt — den åbne række må ikke advare andre
         _ic._commitFresh = null;
         _icClearCounts();
         _icCloseSummary();
@@ -2514,6 +2740,13 @@ if (typeof module !== 'undefined' && module.exports) {
         _icExecuteCommit: _icExecuteCommit,
         _icCommitMessage: _icCommitMessage,
         _icCommitErrorMessage: _icCommitErrorMessage,
+        // #673 — optællingen som objekt
+        _icCountPayload: _icCountPayload,
+        _icConcurrentText: _icConcurrentText,
+        _icBeginServerCount: _icBeginServerCount,
+        _icLoadCounts: _icLoadCounts,
+        _icSaveCounts: _icSaveCounts,
+        _icClearCounts: _icClearCounts,
         // Delt state-reference så tests kan opsætte syntetiske scenarier (T_OPTAELLING).
         _ic: _ic
     };
