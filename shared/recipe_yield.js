@@ -21,10 +21,13 @@
 // ==========================================
 
 (function (root, factory) {
-    const api = factory();
+    // Tal-hjælperen bor i shared/grocy_num.js — én definition for hele Bon.
+    const grocyNum = (typeof module !== 'undefined' && module.exports)
+        ? require('./grocy_num') : root.GrocyNum;
+    const api = factory(grocyNum);
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     if (typeof window !== 'undefined') window.RecipeYield = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (grocyNum) {
 
     // Køkkenets fritekst mod Grocys enhedsnavne. "stk" og "antal" er samme ting.
     const UNIT_ALIASES = {
@@ -63,16 +66,8 @@
         return c ? parseFloat(c.factor) : null;
     }
 
-    /**
-     * Tal fra et Grocy-userfield. Grocy gemmer med punktum ("1.1"), men et
-     * dansk komma ("1,1") må ikke stille blive til 1 — parseFloat stopper ved
-     * kommaet. Kun et decimal-komma omskrives; tusind-separatorer findes ikke
-     * i disse felter.
-     */
-    function num(v) {
-        if (typeof v === 'number') return v;
-        return parseFloat(String(v == null ? '' : v).trim().replace(',', '.'));
-    }
+    // Tal fra et Grocy-userfield (dansk komma tåles) — se shared/grocy_num.js.
+    const num = grocyNum.num;
 
     /**
      * Udbytte for opskriften SOM INDTASTET (base_servings), i lager-enhed.

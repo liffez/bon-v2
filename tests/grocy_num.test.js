@@ -121,9 +121,7 @@ test('§4 indkøb: pakkestørrelse med komma, fallback 1 bevaret', () => {
 });
 
 // ── §5 vagt ──────────────────────────────────────────────────
-// De to filer #663 omskriver (co2Engine, recipe_yield) er undtaget indtil den
-// er merget — dér flytter #663 dem selv over på num().
-const ALLOW = new Set(['services/co2Engine.js', 'shared/recipe_yield.js']);
+const ALLOW = new Set();
 const USERFIELD_PARSEFLOAT = /parseFloat\(\s*\(?\s*(uf\b|[\w.]*userfields\b|\(\s*[\w.]*userfields)/;
 
 function walk(dir, out = []) {
@@ -151,7 +149,7 @@ test('§5 ingen rå parseFloat på et Grocy-userfield', () => {
 
 test('§5 sider der bruger GrocyNum.num loader grocy_num.js før filen', () => {
     const users = walk('shared').concat(walk('office'), walk('kitchen'))
-        .filter(f => /GrocyNum\.num\(/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')))
+        .filter(f => f !== 'shared/grocy_num.js' && /GrocyNum/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')))
         .map(f => '/' + f);
     assert.ok(users.length > 0);
     const pages = [];
@@ -170,4 +168,8 @@ test('§5 sider der bruger GrocyNum.num loader grocy_num.js før filen', () => {
             assert.ok(helper >= 0 && helper < at, `${page} loader ${u} uden grocy_num.js før`);
         }
     }
+});
+
+test('§5 én definition: RecipeYield.num ER grocy_num.num', () => {
+    assert.equal(require('../shared/recipe_yield').num, num);
 });
