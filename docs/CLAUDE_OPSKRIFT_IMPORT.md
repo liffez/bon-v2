@@ -184,6 +184,23 @@ Efter hvert skridt logges det oprettede id i `import_plan_item`. Efter sidste sk
 
 Fejler et skridt, standses udførelsen, planen får status `delvist_udfoert`, og der tilbydes en fortrydelse baseret på de loggede id'er.
 
+### 4.6 Gennemsyn og gem sker i opskrift-designeren (19.09.2026)
+
+Bon har allerede en opskrift-designer (`shared/recipe_designer.js`) med ingredienstabel, fremgangsmåde og live-beregning af vægt, lager, kostpris, pris, DB og CO₂e. Importen bygger derfor **ikke** sin egen opskrifts-editor.
+
+Arbejdsdelingen følger risikoen i §4.5:
+
+| Skridt | Hvem | Hvorfor |
+|---|---|---|
+| 1–6 — enheder, omregninger, varer, userfields på varer | **Planen og dens writer** | svære at fortryde; beholder resumé, verifikation og fortrydelse (§4.4–4.5) |
+| 7–8 — opskrift og opskriftslinjer | **Designeren** | det brugeren skal se og rette; én vej til at skrive en opskrift til Grocy |
+
+Flowet er et tredje kort på designerens startskærm, *Importér opskrift*: indsæt/upload → plan → når alle linjer peger på en rigtig vare: **Åbn i designer** med `RecipeDraft` omsat til designerens format → ret → Gem. Designerens Gem registreres på planen (`import_plan_item`), så idempotens og genimport (§6) virker uændret.
+
+Tillæggets antagelser (`CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md` §9) vises som en note pr. ingrediensrække i designeren, og importnoten lander i fremgangsmåden.
+
+**Forudsætning:** designeren skal først kunne den nuværende model — udbytte som eget felt (#680), produceret vare, underopskrift som produktlinje frem for nesting, og målvægt for skål-opskrifter. Se epic #660, fase F-1.
+
 ---
 
 ## 5. Konsekvensvisning
