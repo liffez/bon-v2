@@ -11,25 +11,24 @@
 
 ## To kopier af samme system
 
-Systemet blev bygget i bon-v2 og kopieret til whiteboard. Kopierne er siden drevet fra
-hinanden — bon-v2's er nået længst:
+Systemet blev bygget i bon-v2 og kopieret til whiteboard. **bon-v2 er originalen** —
+whiteboards to filer er en kopi (senest synkroniseret september 2026), med én bevidst
+forskel: whiteboard sender brugsstatistik når hjælpen åbnes (`help_open`, i `show()`).
 
 | | bon-v2 | whiteboard |
 |---|---|---|
-| Logik | `shared/help-system.js` | `public/help-system.js` |
-| Styling | `shared/help-system.css` | `public/help-system.css` |
+| Logik | `shared/help-system.js` | `public/help-system.js` (kopi + `help_open`-linjen) |
+| Styling | `shared/help-system.css` | `public/help-system.css` (identisk kopi) |
 | Tekster | `data/help-content.json` | `data/help-content.json` |
 | API | `routes/help.js` | `server/routes/help.js` |
 | Gem (`POST /api/help-content`) | **kræver admin-login** (`requireAuth('admin')`) | **ingen adgangskontrol** ud over login-gaten foran tavlen |
-| Delte hjælpesæt (`_shared` / `_include`) | ✅ | ❌ |
-| Kun synlige elementer får badges | ✅ | ❌ (første match, også skjulte) |
-| Panelet vælger side (⇄, husket i `localStorage`) | ✅ | ❌ (altid højre) |
-| Mobil: klik i panelet lukker det og viser elementet | ✅ | ❌ |
-| Brugsstatistik når hjælpen åbnes (`help_open`) | ❌ | ✅ |
 
-**Ret bevidst.** En rettelse i den ene kopi hører næsten altid også hjemme i den anden.
-Skal whiteboard have bon-v2's forbedringer, er det sikreste at kopiere bon-v2's filer over
-og lægge `help_open`-linjen ind igen (i `show()`).
+**Rettes i bon-v2 først**, og kopieres så til whiteboard (husk `help_open`-linjen). Så
+driver de to ikke fra hinanden igen. Tjek med
+`diff bon-v2/shared/help-system.js whiteboard/public/help-system.js` — kun
+`help_open`-linjen må stå tilbage.
+
+Forskellen på gem ligger i serveren, ikke i de kopierede filer.
 
 ---
 
@@ -37,8 +36,11 @@ og lægge `help_open`-linjen ind igen (i `show()`).
 
 - **Logik og styling** er statiske filer, som sider inkluderer.
 - **Teksterne** ligger i `data/help-content.json` — det eneste der ændres i drift. Filen
-  serveres **ikke** statisk; den læses og skrives via API'et og ligger i `data/`, som ikke
-  røres af deploy.
+  serveres **ikke** statisk; den læses og skrives via API'et.
+- **Filen er versionsstyret.** Et gem på serveren ændrer den i serverens arbejdskopi, og så
+  kan næste `git pull` gå i stå på den (eller overskrive tekster rettet i repoet). Efter
+  kortlægning i drift: hent filen ned fra serveren, commit den, og deploy — så står
+  repoet og serveren ens igen.
 - `GET /api/help-content` — hele indholdet (offentligt).
 - `POST /api/help-content` — erstatter **hele** filen med request-body.
 
@@ -96,7 +98,7 @@ Genvejene virker ikke mens fokus står i `input`, `textarea` eller `select`.
 ```
 
 - Yderste nøgle = sidenøglen. Elementer findes via `selector`.
-- **Delte sæt (kun bon-v2):** komponenter der går igen på mange sider (modal, bon-kort,
+- **Delte sæt:** komponenter der går igen på mange sider (modal, bon-kort,
   bon-drawer, indkøbs-chips, varemodtagelse, optælling) har deres tekster ét sted under
   `_shared`. En side trækker dem ind med `"_include": [...]`. Sidens egne punkter vinder
   ved navnesammenfald, så én side kan skrive en delt tekst om uden at røre de andre.
@@ -122,7 +124,7 @@ bon-v2 settings og whiteboards `/admin` bruger ikke hjælpesystemet.
 1. Tilføj `data-help-page` / `data-help-page-name` (eller `setPage` for et view) og deploy.
 2. Åbn siden, tryk **Ctrl+Shift+H**, klik de vigtige elementer og skriv teksterne.
    (bon-v2: log ind som admin først, ellers afvises gem.)
-3. Går en komponent igen på flere sider (bon-v2), så flyt teksterne til `_shared` og brug
+3. Går en komponent igen på flere sider, så flyt teksterne til `_shared` og brug
    `_include` i stedet for at kortlægge den på hver side.
 4. Tryk **H** og læs det hele igennem som en ny medarbejder ville.
 
@@ -130,8 +132,8 @@ bon-v2 settings og whiteboards `/admin` bruger ikke hjælpesystemet.
 
 ## Kendte begrænsninger
 
-- **Ingen historik.** Et gem erstatter hele filen. Tag en kopi af `data/help-content.json`
-  før større omskrivninger.
+- **Ingen historik ud over git.** Et gem erstatter hele filen. Commit ændringer fra drift
+  tilbage til repoet (se "Filerne og API'et").
 - **Sidste gem vinder.** To der kortlægger samtidig, overskriver hinanden.
 - **Intet admin-panel til teksterne.** Tekster rettes ved at kortlægge elementet igen, eller
   direkte i JSON-filen. `_shared` / `_include` redigeres kun i filen.
