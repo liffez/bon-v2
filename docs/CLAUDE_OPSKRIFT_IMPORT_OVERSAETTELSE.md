@@ -1,9 +1,10 @@
 # CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md
 
-**Version:** v0.4
+**Version:** v0.5
 **Status:** Tillæg til `CLAUDE_OPSKRIFT_IMPORT.md` — oversættelseslag, enheder, svind, udbytte, målvægt og underopskrifter
 **Dato:** september 2026
 
+**Ændringer fra v0.4 (19.09.2026, Leif):** Målvægten er **350 g mad** (uden skål) for standardskålen, ikke 400 g — skålens egen vægt står i Grocy for sig. §6.1, §6.2, §11 og §12 rettet; de fire salater i `02 Salat` er justeret i drift (§12.1).
 **Ændringer fra v0.3 (17.09.2026, gennemgang):** §8 rettet — nesting ER i brug i drift (28 referencer) og udfases af #270; importeren opretter aldrig nestings. Faktorbiblioteket starter som nyt modul og flytter IKKE CO₂-faktorerne (§7). `ingredient_alias` er planlagt, ikke eksisterende. Krydring harmoniseret til 0,5 % salt + 0,1 % peber (§6.2/§6.4/§9). Densitet har én kilde (§7). DTU-data holdes ude af git (§7). §12.1 følger Spor B's disciplin.
 **Ændringer fra v0.2:** Målvægt fastsat til 400 g for standardskålen (900 ml). Rollemodellen omskrevet fra procentfordeling til absolutte roller med basen som residual. Spinat afklaret som garniture. Eksisterende salatopskrifter skal justeres (§12).
 **Ændringer fra v0.1:** Bærer-klassifikation udgår af v1. Salater flyttet fra kilo-konvention til målvægt pr. skål. Emballage som egen skaleringsakse. Faktorbibliotek udskilt som eget modul.
@@ -171,12 +172,13 @@ portionsantal væk, og målvægten sættes derefter.
 
 | Skåltype | Volumen | Målvægt | Pakningsdensitet | Status |
 |---|---|---|---|---|
-| Standard salatskål | 900 ml | **400 g** | 0,44 kg/l | I brug |
+| Standard salatskål | 900 ml | **350 g** mad (uden skål) | 0,39 kg/l | I brug |
 | Bowl-skål | TBD | TBD | 0,7–0,8 kg/l forventet | Ikke anskaffet |
 
 **Målvægten er et valgt tal, ikke et beregnet.** Volumen sætter et loft — låget
 skal kunne lukke — men inden for det loft er målvægten en beslutning om portion
-og pris. 400 g i 900 ml er afprøvet og passer.
+og pris. 350 g mad i 900 ml er valgt (Leif, 19.09.2026). Målvægten er **maden alene** — skål, låg,
+gaffel og serviet er emballage med deres egen vægt i Grocy og tælles ikke med.
 
 **For bowls vender bindingen.** Korn, pasta og kartofler pakker tættere, så en
 900 ml skål ville kunne rumme 700 g eller mere. Volumen er derfor ikke længere
@@ -190,7 +192,7 @@ Importeren må ikke udlede bowl-målvægten af volumen × densitet.
 Roller skalerer ikke ens, og det er dét der er strukturen. En portion protein er
 en portion protein, uanset skålens størrelse.
 
-| Rolle | Adfærd | Standard (400 g skål) |
+| Rolle | Adfærd | Standard (350 g skål) |
 |---|---|---|
 | **Protein** | Absolut — en portion er en portion | 100 g |
 | **Dressing** | Absolut pr. skål — mere gør salaten våd | 25 g |
@@ -433,7 +435,7 @@ Under linjerne: målvægt, faktisk sum, afvigelse, batchvægt og dækningsgrad.
 ### Afvigelsesadvarsel
 
 ```
-Målvægt 400 g — opskriften giver 447 g (+12 %)
+Målvægt 350 g — opskriften giver 447 g (+28 %)
 ```
 
 En **advarsel, ikke en blokering.** En tung salat kan være et bevidst valg, men
@@ -472,31 +474,33 @@ udbyttet — ikke som en automatisk justering.
 
 ## 11. Regneeksempel: Kyllingen BBQ-Salat
 
-Nuværende opskrift mod 400 g målvægt:
+Opskriften før justering mod 350 g målvægt (kørt i drift 19.09.2026):
 
-| Rolle | Vare | Nu | Justeret |
+| Rolle | Vare | Før | Justeret |
 |---|---|---|---|
 | Protein | Kylling - BBQ | 100 g | 100 g |
-| Base | Spidskål | 240 g | **195 g** |
+| Base | Spidskål | 240 g | **143 g** |
 | Garniture | Semidried tomater | 40 g | 40 g |
 | Garniture | Spinat | 20 g | 20 g |
 | Garniture | Valnødder | 20 g | 20 g |
 | Dressing | Chili Mayo | 25 g | 25 g |
 | Krydring | Salt - Flager | 2 g | 2 g |
-| **I alt** | | **447 g** | **402 g** |
+| **I alt** | | **447 g** | **350 g** |
 
 ```
-base = 400 − 100 − 25 − (40 + 20 + 20) − 2 = 193 g → 195 g afrundet
+base = 350 − 100 − 25 − (40 + 20 + 20) − 2 = 143 g
 ```
 
-Hele justeringen på 47 g tages i basen. Protein, dressing og garniture står
+Basen er 41 % af skålen — over grænsen på 30 %. Kostpris 30,24 → 27,91 kr.
+
+Hele justeringen på 97 g tages i basen. Protein, dressing og garniture står
 urørt — man skærer ikke i kyllingen for at ramme en skålvægt.
 
 ---
 
 ## 12. Opgaver
 
-1. **Juster de fire eksisterende salatopskrifter** i `02 Salat` til 400 g efter rollemodellen. Basen absorberer differencen i hver. *Det er en Grocy-stamdataændring og kører efter Spor B's disciplin: efter #270, én opskrift ad gangen, `recipe-fingerprint.js` før og efter — kostpris, CO₂ og enhedstælling på de fire flytter sig.*
+1. ✅ **Juster de fire eksisterende salatopskrifter** i `02 Salat` til 350 g efter rollemodellen — **gjort 19.09.2026** (#270): Kyllingen BBQ 447 → 350 g, Kålen 509 → 350 g, Bønnen 473 → 350 g (Spidskål som base), Kartoflen 403 → 350 g (kartofler og spidskål er begge base; nedskæringen fordelt forholdsvis). Basen absorberer differencen i hver. *Det er en Grocy-stamdataændring og kører efter Spor B's disciplin: efter #270, én opskrift ad gangen, `recipe-fingerprint.js` før og efter — kostpris, CO₂ og enhedstælling på de fire flytter sig.*
 2. Vej en fyldt skål af hver af de fire, og registrer pakningsdensiteten i
    `faktor_skaaltype`. Fire målte værdier er mere værd end DTU til dette formål.
 3. Beslut bowl-skålens volumen og målvægt (§6.1) når skålene anskaffes.
@@ -508,7 +512,7 @@ urørt — man skærer ikke i kyllingen for at ramme en skålvægt.
 
 1. Findes skålstørrelserne allerede i Bon som varer eller prisniveauer, eller
    skal `faktor_skaaltype` oprettes som ny tabel?
-2. Er 400 g også den rigtige målvægt for en bowl, eller skal bowls have deres
+2. Er 350 g også den rigtige målvægt for en bowl, eller skal bowls have deres
    egen — givet at de pakker tættere og koster mere pr. skål?
 3. Hvornår er `02 Salat` stor nok til at `faktor_rolle_norm` er meningsfuld?
    Under ca. 10 opskrifter er DTU-referencen bedre.
