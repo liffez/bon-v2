@@ -28,6 +28,7 @@ const itemPricesRouter = express.Router();   // monteres på /api/item-prices
 const { getDb } = require('../db/database');
 const { handle, logChange, inclToExcl, exclToIncl, nonRevenueBonExcludeSQL } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+const { num: grocyNum } = require('../shared/grocy_num');
 const grocyAdapter = require('../services/grocyAdapter');
 const { convertAndFormat } = require('../services/quConvert');
 
@@ -250,7 +251,7 @@ router.get('/overview', handle(async (req, res) => {
 
         const isOrganic = String(uf.Oeko) === '1';
         const cost = costMap[r.id];
-        const co2ePerUnit = cost?.co2e ?? (parseFloat(uf.Co2e) || 0);
+        const co2ePerUnit = cost?.co2e ?? (grocyNum(uf.Co2e) || 0);
 
         // Manglende råvarepriser gør kostprisen til et MINIMUM, ikke et tal.
         // Dækningsbidraget bliver dermed et maksimum — og er der slet intet

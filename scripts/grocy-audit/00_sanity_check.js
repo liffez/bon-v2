@@ -8,6 +8,7 @@
 const path = require('path');
 const os = require('os');
 const { openDb } = require('./lib/db');
+const { num: grocyNum } = require('../../shared/grocy_num');
 
 const args = Object.fromEntries(
     process.argv.slice(2)
@@ -44,8 +45,8 @@ const uf = Object.fromEntries(userVals.map(r => [r.name, r.value]));
 console.log('\nUserfields:');
 for (const [k, v] of Object.entries(uf)) console.log(`  ${k.padEnd(24)} = ${v}`);
 
-const sales = parseFloat(uf.SalespriceCatering || 0);
-const manualCost = parseFloat(uf.costprice || 0);
+const sales = grocyNum(uf.SalespriceCatering || 0);
+const manualCost = grocyNum(uf.costprice || 0);
 
 const ingredients = db.prepare(`
     SELECT rp.id, rp.product_id, p.name AS product_name, rp.amount, rp.qu_id,

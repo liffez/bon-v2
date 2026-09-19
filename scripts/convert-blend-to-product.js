@@ -88,6 +88,7 @@ const ER_CLI = require.main === module;
 if (ER_CLI && !STATE) die('Angiv --state <fil>. Uden en tilstandsfil kan konverteringen ikke fortrydes.');
 
 const grocy = require(path.join(__dirname, '..', 'services', 'grocyAdapter'));
+const { num: grocyNum } = require('../shared/grocy_num');
 
 // Samme fritekst→enhed-oversættelse som resolveren bruger. `recipeunit` er
 // fritekst ("kg"), Grocys enheder hedder "Kilo".
@@ -302,7 +303,7 @@ async function main() {
     // Uden det kan menu-mængderne ikke regnes, og gaten kan ikke folde
     // produktet tilbage til råvarer. Vi opfinder ikke et udbytte.
     const uf = recipe.userfields || {};
-    const perServing = parseFloat(uf.recipeunitnumber);
+    const perServing = grocyNum(uf.recipeunitnumber);
     const base = parseFloat(recipe.base_servings) || 1;
     if (!Number.isFinite(perServing) || perServing <= 0) {
         die(`"${recipe.name}" mangler userfield recipeunitnumber. Udfyld udbyttet i Grocy først (jf. #372) — ellers`

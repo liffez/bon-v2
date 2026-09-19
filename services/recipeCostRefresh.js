@@ -30,6 +30,7 @@
 const grocyAdapter = require('./grocyAdapter');
 const recipeCost = require('./recipeCost');
 const { syncPricesFromGrocy } = require('./itemPriceBackfill');
+const { num: grocyNum } = require('../shared/grocy_num');
 
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
 
@@ -96,7 +97,7 @@ async function refreshRecipeCosts(db, opts = {}) {
         try {
             const uf = recipe.userfields || {};
             const b = beregnet.get(recipe.id);
-            const co2e = parseFloat(uf.Co2e) || null;
+            const co2e = grocyNum(uf.Co2e) || null;
 
             // `b.cost > 0 || b.complete` — en opskrift der lovligt koster 0
             // (fx en ren emballage-linje til 0 kr) er stadig en beregning.
@@ -105,8 +106,8 @@ async function refreshRecipeCosts(db, opts = {}) {
                 cost = b.cost; kilde = 'bon';
             } else if (grocyCost[recipe.id] > 0) {
                 cost = grocyCost[recipe.id]; kilde = 'grocy';
-            } else if (parseFloat(uf.costprice) > 0) {
-                cost = parseFloat(uf.costprice); kilde = 'userfield';
+            } else if (grocyNum(uf.costprice) > 0) {
+                cost = grocyNum(uf.costprice); kilde = 'userfield';
             } else {
                 cost = 0; kilde = 'ukendt';
             }

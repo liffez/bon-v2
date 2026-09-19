@@ -13,6 +13,7 @@
 
 const { getDb } = require('../db/database');
 const { getDefaultLocationId, offsetISO, getRecipeCostWindowDays } = require('../db/helpers');
+const { num: grocyNum } = require('../shared/grocy_num');
 
 /* ══════════════════════════════════════════════════════════════
    CACHE
@@ -590,24 +591,24 @@ async function getRecipes() {
                 name: r.name,
                 category: uf.grupper || null,
                 unit: uf.recipeunit || 'stk',
-                unit_number: parseFloat(uf.recipeunitnumber) || 1,
+                unit_number: grocyNum(uf.recipeunitnumber) || 1,
                 prices: {
-                    store:      parseFloat(uf.SalespriceStore) || 0,
-                    catering:   parseFloat(uf.SalespriceCatering) || 0,
-                    festival:   parseFloat(uf.SalespriceFestival) || 0,
-                    produktion: parseFloat(uf.SalespriceProduktion) || 0,
-                    waiste:     parseFloat(uf.SalespriceWaiste) || 0,
+                    store:      grocyNum(uf.SalespriceStore) || 0,
+                    catering:   grocyNum(uf.SalespriceCatering) || 0,
+                    festival:   grocyNum(uf.SalespriceFestival) || 0,
+                    produktion: grocyNum(uf.SalespriceProduktion) || 0,
+                    waiste:     grocyNum(uf.SalespriceWaiste) || 0,
                 },
                 cost_price: bonCost.has(r.id)
                     ? bonCost.get(r.id).cost
-                    : (costMap[r.id] ?? (parseFloat(uf.costprice) || 0)),
+                    : (costMap[r.id] ?? (grocyNum(uf.costprice) || 0)),
                 // Hvor tallet kom fra. 'grocy' betyder at cachen endnu ikke er
                 // fyldt — kør scripts/refresh-recipe-costs.js.
                 cost_price_source: bonCost.has(r.id) ? bonCost.get(r.id).source : 'grocy',
                 // Råvarer uden kendt pris. En opskrift med huller ser ellers
                 // præcis ud som en der bare er billig.
                 cost_price_missing: bonCost.has(r.id) ? bonCost.get(r.id).missing : null,
-                co2e: parseFloat(uf.Co2e) || 0,
+                co2e: grocyNum(uf.Co2e) || 0,
             };
         })
         .sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));

@@ -38,6 +38,7 @@
 // "hvad kom der ud af opskriften" ville drive fra hinanden, og forskellen
 // ville først vise sig ved en optælling.
 const { yieldInStockUnits, unitIdByName } = require('../shared/recipe_yield');
+const { num: grocyNum } = require('../shared/grocy_num');
 
 // Tærskler for de to advarsler. De VÆLGER ikke noget — de gør en uenighed
 // synlig i Opskrifter & priser, så et tal man ikke kan stole på kan kendes
@@ -425,7 +426,7 @@ function compute(recipeId, ctx, memo, stack) {
     stack.delete(recipeId);
 
     const uf = recipe.userfields || {};
-    const per = parseFloat(uf.recipeunitnumber);
+    const per = grocyNum(uf.recipeunitnumber);
     const base = parseFloat(recipe.base_servings);
     const yieldAmount = (Number.isFinite(per) && per > 0)
         ? per * (Number.isFinite(base) && base > 0 ? base : 1) : null;

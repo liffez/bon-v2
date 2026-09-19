@@ -19,6 +19,7 @@
 
 const grocy = require('./grocyAdapter');
 const { findConversionFactor, convertAndFormat } = require('./quConvert');
+const { num: grocyNum } = require('../shared/grocy_num');
 
 /**
  * Aggregér ingrediensbehov for en liste bon-linjer.
@@ -515,7 +516,7 @@ async function expandProducedToRaw(items) {
 /** Udbytte for én opskrift i produktets lager-enhed. null = kan ikke bestemmes. */
 function yieldPerBatchStockOf(recipeRaw, product, unitMap, quConversions) {
     const uf = recipeRaw.userfields || {};
-    const perServing = parseFloat(uf.recipeunitnumber);
+    const perServing = grocyNum(uf.recipeunitnumber);
     if (!Number.isFinite(perServing) || perServing <= 0) return null;
     const base = parseFloat(recipeRaw.base_servings);
     const servings = Number.isFinite(base) && base > 0 ? base : 1;
@@ -578,7 +579,7 @@ function makeProducibility(ctx) {
      */
     function yieldPerBatchStock(recipeRaw, product) {
         const uf = recipeRaw.userfields || {};
-        const perServing = parseFloat(uf.recipeunitnumber);
+        const perServing = grocyNum(uf.recipeunitnumber);
         if (!Number.isFinite(perServing) || perServing <= 0) return null;
 
         const base = parseFloat(recipeRaw.base_servings);

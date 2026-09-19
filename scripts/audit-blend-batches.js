@@ -35,6 +35,7 @@
 const { yieldPerBatchStockOf, collectRecipeNeedsFlat } = require('../services/ingredientResolver');
 
 const { HURTIG_GROUP, recipeGroupOf } = require('../services/ingredientResolver');
+const { num: grocyNum } = require('../shared/grocy_num');
 
 const argOf = (f) => { const i = process.argv.indexOf(f); return i >= 0 ? process.argv[i + 1] : null; };
 const INSTANCE = (argOf('--instance') || 'hq').toUpperCase();
@@ -119,7 +120,7 @@ function num(n) {
         // Rene arbejdstrin: ingen råvarer og ingen der bruger dem. Røres ikke (§3).
         if (!direkte && !nest && brugtAf.size === 0) { arbejdstrin.push(r); continue; }
 
-        const perServing = parseFloat(r.userfields?.recipeunitnumber);
+        const perServing = grocyNum(r.userfields?.recipeunitnumber);
         const base = parseInt(r.base_servings) || 1;
         const yUnit = String(r.userfields?.recipeunit || '').trim();
 
