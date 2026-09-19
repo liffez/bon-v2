@@ -188,6 +188,18 @@ Ved bon-oprettelse (samme mønster som cost_price):
   bons.total_co2e = Σ(bon_lines.co2e)                      (evt. denormaliseret cache)
 ```
 
+- **Producerede varer (`co2e_source = 'computed'`)** — `co2-f5-compute.js` skriver en
+  kg-faktor på varen en opskrift producerer: **opskriftens samlede CO₂ ÷ udbyttet i kg**
+  (`recipeunitnumber × base_servings`, omregnet via `shared/recipe_yield` → lager-enhed →
+  kg). Reglen bor i `co2Engine.computedProductFactors`. Opskriften pr. vare er den samme
+  som motoren ruller i (`producedBy`, laveste id). Kun tom kilde eller `computed` skrives —
+  aldrig `klimadb`/`material`/`supplier`/`manual`/`na`. Tidligere blev CO₂ pr. *portion*
+  skrevet uden division, så Chili Mayo (1,1 kg pr. portion) fik 3,3613 i stedet for
+  3,0557 (#663).
+- **`computed` er en cache, ikke en kilde.** Kan motoren rulle ned i den producerende
+  opskrift, ignorerer den varens `computed`-faktor og regner live — ellers ville en ændret
+  opskrift holde fast i et gammelt tal til næste F5-kørsel. Cachen bruges kun når udbyttet
+  ikke kan bestemmes.
 - **`recipes.Co2e` er kun visnings-cache**, ikke kilde. Autoritativ værdi = frosset `bon_lines.co2e`.
 - Frys-på-bon beskytter historik når CONCITO opdaterer faktorer (v1.1→v1.2 ændrede flere tal).
 - Motoren har **én regel**: `mængde → kg × faktor`. Emballage adskiller sig kun ved at have en vægt-konvertering, ikke ved en særregel.
