@@ -14,6 +14,10 @@
  *   node scripts/co2-f5-compute.js --location=hq --oracle        # + validér mod orakel
  *   node scripts/co2-f5-compute.js --location=hq --missing       # + list manglende faktor/kg-vej
  *   node scripts/co2-f5-compute.js --location=hq --apply         # skriv recipes.Co2e (komplette)
+ *
+ * Natligt (crontab på serveren, efter refresh-recipe-costs.js kl. 03:00):
+ *   15 3 * * * cd /home/leif/bon-v2 && node scripts/co2-f5-compute.js --location=hq --apply >> logs/co2.log 2>&1
+ * Kun forskelle skrives, og loggen viser hver ændring med før → efter.
  */
 
 const fs = require('fs');
@@ -58,7 +62,8 @@ async function grocy(cfg, method, p, body) {
 const fmt = (n) => (Math.round(n * 10000) / 10000);
 
 async function processLocation(code) {
-    console.log(`\n══ Lokation: ${code.toUpperCase()} ${APPLY ? '(APPLY)' : '(dry-run)'} ══`);
+    const stamp = new Date().toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen' });
+    console.log(`\n══ Lokation: ${code.toUpperCase()} ${APPLY ? '(APPLY)' : '(dry-run)'} · ${stamp} ══`);
     const cfg = resolveConfig(code);
     const [recipes, pos, nestings, products, conversions, units] = await Promise.all([
         grocy(cfg, 'GET', '/objects/recipes'),
@@ -110,13 +115,26 @@ async function processLocation(code) {
         console.log(`    #${String(x.product_id).padEnd(4)} ${x.product_name.padEnd(24)} ← ${x.recipe_name.padEnd(26)} i dag ${cur.padEnd(22)} → ${nu}`);
     }
 
+    // Opskrifternes Co2e-cache: kun forskelle. Kører natligt — et "intet ændret"
+    // skal kunne skelnes fra et "76 ændret" i loggen.
+    const cache = engine.recipeCacheUpdates({ recipes, pos, nestings }, results, fmt);
+    const toWrite = cache.filter(x => x.action === 'write');
+    const stale = cache.filter(x => x.action === 'stale');
+    const f = (n) => n == null ? '—' : String(n).replace('.', ',');
+    console.log(`\n  recipes.Co2e: ${toWrite.length} ændret · ${cache.filter(x => x.action === 'unchanged').length} uændret`);
+    for (const x of toWrite) console.log(`    · ${x.name}: ${f(x.current)} → ${f(x.next)}`);
+    if (stale.length) {
+        console.log(`  ⚠ ${stale.length} ufuldstændige opskrifter har stadig et gammelt tal (røres ikke):`);
+        for (const x of stale) console.log(`    · ${x.name}: ${f(x.current)}`);
+    }
+
     if (APPLY) {
         let ok = 0, err = 0;
-        for (const r of complete) {
-            try { await grocy(cfg, 'PUT', `/userfields/recipes/${r.recipe_id}`, { Co2e: String(fmt(r.co2e_per_serving)) }); ok++; }
-            catch (e) { console.log(`    ✗ ${r.name}: ${e.message}`); err++; }
+        for (const x of toWrite) {
+            try { await grocy(cfg, 'PUT', `/userfields/recipes/${x.recipe_id}`, { Co2e: String(x.next) }); ok++; }
+            catch (e) { console.log(`    ✗ ${x.name}: ${e.message}`); err++; }
         }
-        console.log(`\n  → recipes.Co2e skrevet for ${ok} komplette opskrifter${err ? `, fejl: ${err}` : ''}.`);
+        console.log(`\n  → recipes.Co2e skrevet: ${ok}${err ? `, fejl: ${err}` : ''}.`);
 
         // Propagér (§3 "computed") til output-produktets co2e_per_kg, så opskrifter
         // der bruger PRODUKTET også har et tal. Motoren foretrækker alligevel den
@@ -131,7 +149,7 @@ async function processLocation(code) {
                 prodOk++;
             } catch (e) { console.log(`    ✗ output-produkt ${x.product_name}: ${e.message}`); }
         }
-        if (prodOk) console.log(`  → output-produkt-faktorer (computed) skrevet: ${prodOk}.`);
+        console.log(`  → output-produkt-faktorer (computed) skrevet: ${prodOk}.`);
     } else {
         console.log('\n  → dry-run: intet skrevet. Kør med --apply (skriver kun komplette).');
     }
