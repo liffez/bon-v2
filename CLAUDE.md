@@ -8650,4 +8650,35 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
 
 *5. juli 2026 (#251 — re-baseline af Grocy-live test-tracks) — Opfølgning på PR #248 (deterministiske tracks). De 11 Grocy-afhængige tracks re-baselinet mod nuværende kode + live grocytest via fuld procedure pr. track (kill port 4322 → `test:reset` → `test:snapshot` → `test:patch` → frisk `test:server` → track). **Resultat: 392 PASS · 3 FAIL · 5 SKIP.** 10 tracks fuldt grønne og matcher deres dokumenterede baseline præcist — **ingen stale fixtures at rette, ingen ægte produkt-bugs** (modsat #248's ~12 stale assertions). T_GROCY 14/16, T_STOCK 31/31, T_RECIPES 20/20, T_INDKOB_LISTE 38/39, T_INDKOB_SETUP 47/47, T_INDKOB_ADMIN 50/50, T_INDKOB_HORKRAM 54/56, T_VAREMOD_PATCH 26/26, T_VAREMODTAGELSE_FULL 67/67, T_OPSKRIFTER 35/35. De 3 FAIL er alle i **T_INVENTORY (10/13)** og er miljø-betinget — ikke regression: fem grocytest-produkter er udtømt til ~0 lager (pid 16 Kylling-BBQ, 28 Spinat, 33 Rødløg-Sylt, 48 Mayo-Vegansk, 72 Transport Kasser), så `consume` ikke har noget at trække fra ("fik 0"). Consume-logikken bekræftet virksom af T_GROCY/T_STOCK/T_VAREMODTAGELSE_FULL (alle muterer Grocy-lager, alle grønne). 10/13 = accepteret baseline (grocytest-lager toppes IKKE op unilateralt). Spec §41 kræver tilstrækkelig stock som precondition.*
 
+### Popoutet fik linket til leverandøren tilbage (17. september 2026)
+
+Den gamle overlay-modal havde en **"Kopiér og åbn {label}"**-knap der kopierede
+teksten og åbnede `delivery_vehicles.booking_url`. Da popoutet afløste den (19. maj),
+fulgte linket ikke med: `buildBookingPayload` leverede stadig `booking_url`, men
+`views/delivery/note.js` læste den kun for at kunne sige *"URL er ikke konfigureret"*.
+Kontoret kunne altså kopiere bestillingen og skulle så selv finde taxa.nu.
+
+- **Pille ved vogn-dropdownen** (`↗ taxa.nu`) — synlig i begge modes, så
+  felt-for-felt-flowet også har en vej derhen. Viser **værtsnavnet**, ikke vognens
+  navn: det står allerede i dropdownen ved siden af, og det man mangler at vide er
+  hvor man lander. `.dn-vehicle` wrapper hellere end at afkorte
+  (`byexpressen.groupnet.at` i et 420px-vindue).
+- **"Kopiér og åbn taxa.nu"** som primær knap i samlet tekst — ét klik igen.
+  Uden URL falder "Kopiér hele teksten" tilbage til at være den primære, som før.
+- **Knappen er et `<a target="_blank">`, ikke en `button` med `window.open()`.**
+  Et `window.open` efter `await navigator.clipboard.writeText()` ligger uden for
+  user-activation-vinduet i Safari og kan blive popup-blokeret; browseren følger
+  derimod altid et link-klik. Handleren kalder kun `copyToClipboard` oveni — intet
+  `preventDefault`.
+- **Kun `http:`/`https:` bliver klikbart.** URL'en kommer fra vores egen Settings,
+  men en `javascript:`-streng dér skal ikke kunne køre i popoutet.
+- Warningen ved manglende URL siger nu hvor den sættes (Indstillinger →
+  Leveringsmetoder), som de øvrige warnings i vinduet.
+
+Verificeret i browseren ved 420px (popoutets faktiske bredde) på alle fire vogne:
+Taxa (kort værtsnavn), By-expressen (langt), Volvo (ingen URL → intet link, primær
+knap tilbage på plads), felt-for-felt (pillen bliver), tom URL og `javascript:`-URL.
+Ét klik på "Kopiér og åbn" gav præcis ét `writeText` med hele bestillingsteksten
+**og** en navigation til taxa.nu.
+
 *17. august 2026 (prep-modal) — Enter i antal-feltet indsendte event-modalens `<form>` og oprettede bonnen efter første linje (synligt i drift: B4099/B4100/B4101 på Vig Festival inden for to minutter). `_evModal` blokerer nu Enter-submit for alle fire roller, navngiver knappen efter den bon der oprettes og tæller linjerne. Prep/top-up bruger `VarePicker` i detached mode med ny `priceField: 'cost'` (bonnen er 0 kr — kostprisen er det tal der driver Vareforbrug). Ens varer slås sammen. Fælde fundet undervejs: `VarePicker`s knapper manglede `type="button"`, så et klik på "Tilføj" eller en kategori indsendte formularen — kun synligt ved fysisk museklik, ikke via Enter eller `dispatchEvent`. PR #466. Bekræftet i drift samme dag.*

@@ -36,6 +36,27 @@
             .replace(/'/g, '&#39;');
     }
 
+    // Kun http/https må blive et klikbart link. URL'en kommer fra vores egen
+    // Settings, men en 'javascript:'-streng dér skal ikke kunne køre her.
+    function httpUrlOrNull(raw) {
+        if (!raw) return null;
+        try {
+            const u = new URL(String(raw).trim());
+            return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Vist tekst = hvor man lander ('taxa.nu'), ikke hele URL'en.
+    function urlHostLabel(href) {
+        try {
+            return new URL(href).hostname.replace(/^www\./, '');
+        } catch (e) {
+            return href;
+        }
+    }
+
     // ── Parse bonId fra URL ───────────────────────────────────
     const pathMatch = window.location.pathname.match(/\/delivery\/note\/(\d+)/);
     const bonId = pathMatch ? Number(pathMatch[1]) : null;
@@ -74,6 +95,8 @@
     const $textView   = document.getElementById('dn-text-view');
     const $clipText   = document.getElementById('dn-clipboard-text');
     const $copyAll    = document.getElementById('dn-copy-all');
+    const $copyOpen   = document.getElementById('dn-copy-open');
+    const $supplierLink = document.getElementById('dn-supplier-link');
     const $bookingRef = document.getElementById('dn-booking-ref');
     const $actualCost = document.getElementById('dn-actual-cost');
     const $skipBtn    = document.getElementById('dn-skip');
@@ -185,7 +208,7 @@
         if (warnings.length > 0) {
             const lines = warnings.map(w => {
                 if (w === 'template_not_configured') return '⚠ Samlet tekst-skabelon er ikke konfigureret. Tilføj den under Indstillinger → Leveringsmetoder.';
-                if (w === 'booking_url_not_configured') return '⚠ URL er ikke konfigureret.';
+                if (w === 'booking_url_not_configured') return '⚠ Leverandørens bookingside er ikke konfigureret. Tilføj URL\'en under Indstillinger → Leveringsmetoder.';
                 return '⚠ ' + esc(w);
             });
             $warnings.innerHTML = lines.map(l => '<div class="dn-warning-line">' + l + '</div>').join('');
@@ -193,6 +216,8 @@
         } else {
             $warnings.hidden = true;
         }
+
+        renderSupplierLink();
 
         const hasFields = Array.isArray(p.fields);
 
@@ -223,6 +248,34 @@
         applyMode();
         updateMissingBanner();
         updateBookButton();
+    }
+
+    // Link til leverandørens bookingside. Vises kun når der ER en brugbar URL —
+    // en vogn vi kører selv (calendar) har ingen, og så er der intet at åbne.
+    function renderSupplierLink() {
+        const href = httpUrlOrNull(state.payload && state.payload.booking_url);
+        const host = href ? urlHostLabel(href) : '';
+
+        if (href) {
+            $supplierLink.href = href;
+            $supplierLink.textContent = '↗ ' + host;
+            $supplierLink.title = 'Åbn ' + href + ' i ny fane';
+            $supplierLink.hidden = false;
+
+            $copyOpen.href = href;
+            $copyOpen.textContent = 'Kopiér og åbn ' + host;
+            $copyOpen.title = 'Kopierer teksten og åbner ' + href;
+            $copyOpen.hidden = false;
+            $copyAll.classList.remove('dn-btn-primary');
+            $copyAll.classList.add('dn-btn-secondary');
+        } else {
+            $supplierLink.hidden = true;
+            $supplierLink.removeAttribute('href');
+            $copyOpen.hidden = true;
+            $copyOpen.removeAttribute('href');
+            $copyAll.classList.remove('dn-btn-secondary');
+            $copyAll.classList.add('dn-btn-primary');
+        }
     }
 
     function renderFields(fields) {
@@ -470,6 +523,14 @@
         if (!text) return;
         const ok = await copyToClipboard(text);
         if (ok) showToast('Hele teksten kopieret');
+    });
+
+    // "Kopiér og åbn" er bevidst et <a target="_blank">: browseren følger linket
+    // som en almindelig navigation, så et window.open() efter await på clipboard
+    // ikke kan blive popup-blokeret. Vi kalder kun copy oveni — intet preventDefault.
+    $copyOpen.addEventListener('click', () => {
+        const text = $clipText.textContent || '';
+        if (text) copyToClipboard(text);
     });
 
     // ── Vehicle-skift ────────────────────────────────────────
