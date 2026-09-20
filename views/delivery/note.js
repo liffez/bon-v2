@@ -75,6 +75,8 @@
         payload: null,
         mode: 'text',                     // 'fields' | 'text' — samlet tekst er default (nemmest at kopiere)
         copiedFields: new Set(),          // husker hvilke felter er kopieret (UX)
+        clipText: '',                     // teksten der kopieres — IKKE DOM'ens
+                                          // textContent, som også rummer tællerne
         loading: true,
         saving: false,
         error: null
@@ -237,11 +239,14 @@
 
         // Render samlet tekst
         if (p.clipboard_text) {
-            $clipText.textContent = p.clipboard_text;
+            state.clipText = p.clipboard_text;
+            renderClipboard(p.clipboard_text, p.text_blocks);
         } else if (hasFields) {
             // Generér fallback fra fields hvis ikke clipboard_text leveres
-            $clipText.textContent = p.fields.map(f => f.label + ': ' + f.value).join('\n');
+            state.clipText = p.fields.map(f => f.label + ': ' + f.value).join('\n');
+            $clipText.textContent = state.clipText;
         } else {
+            state.clipText = '';
             $clipText.textContent = '(ingen tekst — konfigurér skabelon under Indstillinger → Leveringsmetoder)';
         }
 
@@ -276,6 +281,55 @@
             $copyAll.classList.remove('dn-btn-secondary');
             $copyAll.classList.add('dn-btn-primary');
         }
+    }
+
+    // Den samlede tekst som klikbare blokke.
+    //
+    // Kontoret kopierer blok for blok ind i leverandørens formular, så hver blok
+    // er sin egen kopi-knap. Har blokken en tegngrænse ({{max:N}} i skabelonen),
+    // står tælleren ved siden af — den bor UDEN FOR blokkens span, så den aldrig
+    // følger med i det der kopieres.
+    //
+    // Teksten der kopieres er payloadets egen (state.clipText), ikke DOM'ens
+    // textContent: tællerne ville ellers snige sig med.
+    function renderClipboard(text, blocks) {
+        if (!Array.isArray(blocks) || blocks.length === 0) {
+            $clipText.textContent = text;
+            return;
+        }
+
+        let html = '';
+        let pos = 0;
+        blocks.forEach((b, i) => {
+            const at = text.indexOf(b.text, pos);
+            if (at < 0) return;                       // blokken findes ikke — spring over
+            html += esc(text.slice(pos, at));         // whitespace mellem blokke, uændret
+            html += '<span class="dn-block' + (b.over ? ' over' : '')
+                  + '" data-block="' + i + '" title="Klik for at kopiere denne blok">'
+                  + esc(b.text) + '</span>';
+            if (b.maxlen) {
+                html += '<span class="dn-block-count' + (b.over ? ' over' : '') + '">'
+                      + b.length + '/' + b.maxlen + '</span>';
+            }
+            pos = at + b.text.length;
+        });
+        html += esc(text.slice(pos));
+        $clipText.innerHTML = html;
+
+        $clipText.querySelectorAll('.dn-block').forEach(el => {
+            el.addEventListener('click', async () => {
+                const b = blocks[Number(el.dataset.block)];
+                if (!b) return;
+                const ok = await copyToClipboard(b.text);
+                if (ok) {
+                    el.classList.add('copied');
+                    setTimeout(() => el.classList.remove('copied'), 1200);
+                    showToast(b.over
+                        ? 'Blok kopieret — men den er ' + (b.length - b.maxlen) + ' tegn for lang'
+                        : 'Blok kopieret');
+                }
+            });
+        });
     }
 
     function renderFields(fields) {
@@ -321,10 +375,16 @@
         const valueCls = missing ? 'dn-field-value dim' : 'dn-field-value';
         const valueEsc = esc(field.value || '');
 
+        if (field.over) classes.push('over');
+        const count = field.maxlen
+            ? `<span class="dn-field-count${field.over ? ' over' : ''}">${field.length}/${field.maxlen}</span>`
+            : '';
+
         return `
             <div class="${classes.join(' ')}" data-idx="${idx}" data-value="${valueEsc}" title="${valueEsc}">
                 <span class="dn-field-label">${esc(field.label)}</span>
                 <span class="${valueCls}">${valueEsc || '&nbsp;'}</span>
+                ${count}
                 <span class="dn-field-icon">${icon}</span>
             </div>`;
     }
@@ -344,8 +404,26 @@
                 .filter(Boolean);
         }
 
+        // For lange blokke/felter: leverandørens formular afviser dem, så det
+        // skal stå fremme — ikke kun som et tal man selv skal opdage.
+        const over = []
+            .concat((p.text_blocks || []).filter(b => b.over)
+                .map(b => 'tekstblok (' + b.length + '/' + b.maxlen + ')'))
+            .concat((p.fields || []).filter(f => f.over)
+                .map(f => f.label + ' (' + f.length + '/' + f.maxlen + ')'));
+
+        let html = '';
         if (labels.length > 0) {
-            $missing.innerHTML = '<strong>Mangler:</strong> ' + esc(labels.join(', ')) + ' · markeres som <em>[mangler]</em>';
+            html += '<strong>Mangler:</strong> ' + esc(labels.join(', ')) + ' · markeres som <em>[mangler]</em>';
+        }
+        if (over.length > 0) {
+            if (html) html += '<br>';
+            html += '<strong>For lang:</strong> ' + esc(over.join(', '))
+                 + ' · forkort teksten, ellers afviser leverandøren den';
+        }
+
+        if (html) {
+            $missing.innerHTML = html;
             $missing.hidden = false;
         } else {
             $missing.hidden = true;
@@ -519,7 +597,7 @@
 
     // ── Klipboard "Kopier hele teksten" ──────────────────────
     $copyAll.addEventListener('click', async () => {
-        const text = $clipText.textContent || '';
+        const text = state.clipText || '';
         if (!text) return;
         const ok = await copyToClipboard(text);
         if (ok) showToast('Hele teksten kopieret');
@@ -529,7 +607,7 @@
     // som en almindelig navigation, så et window.open() efter await på clipboard
     // ikke kan blive popup-blokeret. Vi kalder kun copy oveni — intet preventDefault.
     $copyOpen.addEventListener('click', () => {
-        const text = $clipText.textContent || '';
+        const text = state.clipText || '';
         if (text) copyToClipboard(text);
     });
 

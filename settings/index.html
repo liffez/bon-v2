@@ -1361,6 +1361,11 @@
             <div style="margin-top:8px;font-size:12px;color:#888">
               Tip: variabler er inden i krøllede parenteser, fx <code>{customer_name}</code>.
               Manglende felter på en bon vises som <code>[mangler]</code> i preview.
+              <br>
+              Har leverandørens felt en tegngrænse, sæt en linje med
+              <code>{{max:120}}</code> lige over den blok det gælder (en blok = linjerne
+              frem til næste tomme linje). Popoutet viser så en tæller ved blokken og
+              markerer den rødt hvis den er for lang — teksten afkortes aldrig.
             </div>
           </div>
 
@@ -6206,7 +6211,12 @@ function _dvParseFields(json) {
         return arr.map(f => ({
             label: String(f && f.label != null ? f.label : ''),
             template: String(f && f.template != null ? f.template : ''),
-            step: f && f.step ? String(f.step) : ''
+            step: f && f.step ? String(f.step) : '',
+            // maxlen SKAL med her. Uden den ville grænsen forsvinde første gang
+            // nogen åbner vognen og trykker Gem — en indstilling der falder bort
+            // fordi editoren ikke kendte den.
+            maxlen: f && Number.isInteger(Number(f.maxlen)) && Number(f.maxlen) > 0
+                ? String(Number(f.maxlen)) : ''
         }));
     } catch (e) {
         console.warn('[settings] Ugyldig booking_fields_json:', e.message);
@@ -6229,7 +6239,7 @@ function _dvRenderFields() {
         const isFirst = idx === 0;
         const isLast = idx === _dvFields.length - 1;
         return '<div class="dv-field-row" data-idx="' + idx + '"' +
-            ' style="display:grid;grid-template-columns:24px 130px 130px 1fr 24px;gap:6px;align-items:center;background:#fafaf8;padding:6px;border:1px solid var(--color-border);border-radius:5px">' +
+            ' style="display:grid;grid-template-columns:24px 120px 120px 1fr 72px 24px;gap:6px;align-items:center;background:#fafaf8;padding:6px;border:1px solid var(--color-border);border-radius:5px">' +
             '<div style="display:flex;flex-direction:column;gap:2px">' +
                 '<button type="button" class="st-btn-secondary st-btn-sm" title="Op" onclick="dvMoveField(' + idx + ',-1)"' + (isFirst ? ' disabled' : '') + ' style="padding:0 2px;font-size:10px;line-height:1">▲</button>' +
                 '<button type="button" class="st-btn-secondary st-btn-sm" title="Ned" onclick="dvMoveField(' + idx + ',1)"' + (isLast ? ' disabled' : '') + ' style="padding:0 2px;font-size:10px;line-height:1">▼</button>' +
@@ -6237,12 +6247,13 @@ function _dvRenderFields() {
             '<input type="text" class="st-input dv-field-step" placeholder="Step (valgfri)" value="' + esc(f.step) + '" data-idx="' + idx + '" style="font-size:12px">' +
             '<input type="text" class="st-input dv-field-label" placeholder="Label *" value="' + esc(f.label) + '" data-idx="' + idx + '" style="font-size:12px">' +
             '<input type="text" class="st-input dv-field-template" placeholder="{variabel} eller fri tekst" value="' + esc(f.template) + '" data-idx="' + idx + '" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">' +
+            '<input type="text" inputmode="numeric" class="st-input dv-field-maxlen" placeholder="max tegn" title="Leverandørens felt-grænse. Popoutet tæller og markerer — det afkorter aldrig." value="' + esc(f.maxlen) + '" data-idx="' + idx + '" style="font-size:12px;text-align:center">' +
             '<button type="button" title="Fjern" onclick="dvRemoveField(' + idx + ')" style="background:none;border:none;color:#b04030;font-size:16px;cursor:pointer;padding:0">×</button>' +
         '</div>';
     }).join('');
 
     // Bind input handlers
-    c.querySelectorAll('.dv-field-label, .dv-field-template, .dv-field-step').forEach(inp => {
+    c.querySelectorAll('.dv-field-label, .dv-field-template, .dv-field-step, .dv-field-maxlen').forEach(inp => {
         inp.addEventListener('input', _dvOnFieldInput);
         inp.addEventListener('focus', _dvOnFieldFocus);
     });
@@ -6253,6 +6264,7 @@ function _dvOnFieldInput(e) {
     if (Number.isNaN(idx) || !_dvFields[idx]) return;
     if (e.target.classList.contains('dv-field-label'))    _dvFields[idx].label = e.target.value;
     if (e.target.classList.contains('dv-field-template')) _dvFields[idx].template = e.target.value;
+    if (e.target.classList.contains('dv-field-maxlen'))   _dvFields[idx].maxlen = e.target.value;
     if (e.target.classList.contains('dv-field-step'))     _dvFields[idx].step = e.target.value;
 }
 
@@ -6450,7 +6462,8 @@ async function dvSaveVehicle() {
         .map(f => ({
             label: (f.label || '').trim(),
             template: (f.template || ''),
-            step: (f.step || '').trim()
+            step: (f.step || '').trim(),
+            maxlen: (f.maxlen || '').trim()
         }))
         .filter(f => f.label || f.template || f.step);
     const missingLabel = cleanedFields.find(f => !f.label);
@@ -6464,6 +6477,9 @@ async function dvSaveVehicle() {
     const serialized = cleanedFields.map(f => {
         const out = { label: f.label, template: f.template };
         if (f.step) out.step = f.step;
+        // Kun et helt, positivt tal er en grænse — vrøvl gemmes ikke.
+        const m = Number(f.maxlen);
+        if (Number.isInteger(m) && m > 0) out.maxlen = m;
         return out;
     });
     data.booking_fields_json = serialized.length > 0 ? JSON.stringify(serialized) : null;

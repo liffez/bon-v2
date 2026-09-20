@@ -12,6 +12,7 @@
 
 const { getDb } = require('../db/database');
 const { getBon } = require('../db/helpers');
+const { boxesForBon } = require('./deliveryBoxes');
 
 // ==========================================
 // Variabel-katalog
@@ -33,7 +34,7 @@ const TEMPLATE_VARIABLES = [
     { key: 'delivery_date', label: 'Dato (DD-MM-YYYY)', example: '03-05-2026' },
     { key: 'delivery_time', label: 'Leveringstid', example: '12:30' },
     { key: 'pickup_time', label: 'Afhentningstid (afgang fra HQ)', example: '12:00' },
-    { key: 'total_boxes', label: 'Antal kasser', example: '4' },
+    { key: 'total_boxes', label: 'Antal kasser (transportkasser på bonen)', example: '4' },
     { key: 'total_pax', label: 'Antal personer', example: '15' },
     { key: 'delivery_notes', label: 'Leveringsinstruks', example: 'Ring på dørtelefon ved ankomst' },
     { key: 'packaging_lines', label: 'Pakke-info (linjeliste)', example: '4× Sandwich-kasse · 1× Drikke-kasse' }
@@ -88,11 +89,12 @@ function buildPackagingLines(lines) {
 // Manglende felter bliver tom string i tekst,
 // men listes også i `missing` så UI kan advare.
 // ==========================================
-function buildContext(bon) {
+function buildContext(bon, opts = {}) {
     if (!bon) return { vars: {}, missing: [...VARIABLE_KEYS] };
 
     const addr = bon.delivery_address || {};
     const fullAddress = buildAddressString(addr);
+    const resolvedBoxes = boxesForBon(bon, opts.boxRecipeIds || null);
 
     // Customer name fra contact_name_full eller fallback
     let customerName = '';
@@ -116,7 +118,11 @@ function buildContext(bon) {
         delivery_date: formatDate(bon.delivery_date),
         delivery_time: bon.delivery_time || '',
         pickup_time: bon.pickup_time || '',
-        total_boxes: bon.boxes != null ? String(bon.boxes) : '',
+        // Kolonnen bons.boxes er tom på alle bons i drift — tallet ligger på
+        // bonnen som transportkasse-linjer. Se services/deliveryBoxes.js.
+        // null (ingen kasser registreret) → tom streng → feltet melder [mangler],
+        // frem for at påstå "0 kolli" over for buddet.
+        total_boxes: resolvedBoxes != null ? String(resolvedBoxes) : '',
         total_pax: bon.pax != null ? String(bon.pax) : '',
         delivery_notes: bon.delivery_notes || '',
         packaging_lines: buildPackagingLines(bon.lines)
@@ -127,7 +133,7 @@ function buildContext(bon) {
         if (!vars[key] || String(vars[key]).trim() === '') missing.push(key);
     }
 
-    return { vars, missing };
+    return { vars, missing, boxes: resolvedBoxes };
 }
 
 // ==========================================
@@ -171,6 +177,79 @@ function renderTemplate(template, vars, options = {}) {
 }
 
 // ==========================================
+// Blokke i den samlede tekst, med valgfri tegngrænse.
+//
+// Leverandørens formular har felter med en øvre grænse — taxa.nu's besked-felt
+// tager 120 tegn. Teksten Bon genererer skal passe i dem, og kontoret kan ikke
+// se om den gør det ved at kigge på en kodeblok. En linje der kun indeholder
+//
+//   {{max:120}}
+//
+// sætter grænsen for blokken lige under (til næste blanke linje). Markøren
+// fjernes fra den tekst der kopieres — den er en instruktion, ikke indhold.
+//
+// En blok = sammenhængende ikke-tomme linjer. Whitespace bevares præcis som
+// skabelonen har det: kontoret har selv valgt hvor luften skal være, og vi
+// samler ikke teksten på ny med vores egne separatorer.
+//
+// Vi AFKORTER aldrig. Er blokken for lang, siges det — hvad der skal ud er
+// kontorets valg, og et telefonnummer klippet væk i stilhed er værre end en
+// tekst man selv forkorter.
+// ==========================================
+const BLOCK_LIMIT_RE = /^\s*\{\{\s*max\s*:\s*(\d{1,4})\s*\}\}\s*$/;
+
+function renderTemplateBlocks(template, vars) {
+    if (template == null) return { text: '', blocks: [] };
+
+    const outLines = [];
+    const blocks = [];
+    let pendingLimit = null;   // grænse sat af en markør, venter på sin blok
+    let current = null;        // blokken vi er i gang med
+
+    for (const rawLine of String(template).split('\n')) {
+        const m = rawLine.match(BLOCK_LIMIT_RE);
+        if (m) {
+            // Markør-linjen udelades af outputtet.
+            pendingLimit = Number(m[1]);
+            continue;
+        }
+
+        const { text: line, hasMissing } = _renderWithMeta(rawLine, vars);
+        outLines.push(line);
+
+        if (line.trim() === '') {
+            current = null;          // blank linje afslutter blokken
+            pendingLimit = null;     // en markør uden blok efter sig falder bort
+            continue;
+        }
+        if (!current) {
+            // Grænsen nulstilles IKKE her: den blanke linje der afslutter blokken
+            // gør det (se ovenfor), og det er den eneste vej til en ny blok. En
+            // nulstilling her ville være kode der aldrig gør noget.
+            current = { lines: [], maxlen: pendingLimit, missing: false };
+            blocks.push(current);
+        }
+        current.lines.push(line);
+        if (hasMissing) current.missing = true;
+    }
+
+    const text = outLines.join('\n');
+    return {
+        text,
+        blocks: blocks.map(b => {
+            const blockText = b.lines.join('\n');
+            return {
+                text: blockText,
+                length: blockText.length,
+                maxlen: b.maxlen != null ? b.maxlen : null,
+                over: b.maxlen != null && blockText.length > b.maxlen,
+                missing: b.missing
+            };
+        })
+    };
+}
+
+// ==========================================
 // Renderer booking_fields_json til en array af { label, value, missing, step }.
 // Bruges af popout-vinduet til at vise klikbare felt-chips.
 //
@@ -190,11 +269,19 @@ function renderFields(vehicle, vars) {
 
     return fields.map(f => {
         const { text, hasMissing } = _renderWithMeta(f && f.template != null ? f.template : '', vars);
+        // maxlen: leverandørens felt har en øvre grænse (taxa.nu's besked-felt
+        // tager 120 tegn). Vi afkorter ikke — popoutet viser tælleren og
+        // markerer overskridelsen, så kontoret selv kan forkorte.
+        const maxlen = Number(f && f.maxlen);
+        const hasMax = Number.isInteger(maxlen) && maxlen > 0;
         return {
             label: String(f && f.label != null ? f.label : ''),
             value: text,
             missing: hasMissing,
-            step: f && f.step ? String(f.step) : null
+            step: f && f.step ? String(f.step) : null,
+            maxlen: hasMax ? maxlen : null,
+            length: text.length,
+            over: hasMax && text.length > maxlen
         };
     });
 }
@@ -258,15 +345,18 @@ function buildBookingPayload(bonId, vehicleId) {
         throw err;
     }
 
-    const { vars, missing } = buildContext(bon);
+    const { vars, missing, boxes: resolvedBoxes } = buildContext(bon);
     const warnings = [];
 
     let clipboard_text = null;
+    let text_blocks = null;
     if (vehicle.booking_method === 'manual_clipboard') {
         if (!vehicle.booking_template || !vehicle.booking_template.trim()) {
             warnings.push('template_not_configured');
         } else {
-            clipboard_text = renderTemplate(vehicle.booking_template, vars);
+            const rendered = renderTemplateBlocks(vehicle.booking_template, vars);
+            clipboard_text = rendered.text;
+            text_blocks = rendered.blocks;
         }
     }
 
@@ -274,12 +364,16 @@ function buildBookingPayload(bonId, vehicleId) {
         warnings.push('booking_url_not_configured');
     }
 
-    const estimated = estimateCost(vehicle, bon);
+    // Prisen SKAL regne med det kasse-antal feltet viser. Med bons.boxes råt
+    // (altid tom) fyrede By-expressens kasse-tillæg aldrig, så popoutet viste
+    // 154 kr hvor logistik-rækken — der allerede udleder kasserne — viste 254.
+    const estimated = estimateCost(vehicle, { ...bon, boxes: resolvedBoxes });
 
     return {
         booking_method: vehicle.booking_method,
         booking_url: vehicle.booking_url || null,
         clipboard_text,
+        text_blocks,
         fields: renderFields(vehicle, vars),
         missing_fields: missing,
         vehicle: {
@@ -299,7 +393,7 @@ function buildBookingPayload(bonId, vehicleId) {
             delivery_address: vars.delivery_address,
             customer_name: vars.customer_name,
             company_name: vars.company_name,
-            boxes: bon.boxes,
+            boxes: resolvedBoxes,
             pax: bon.pax
         },
         estimated_cost_dkk: estimated,
@@ -398,6 +492,7 @@ module.exports = {
     TEMPLATE_VARIABLES,
     renderTemplate,
     renderFields,
+    renderTemplateBlocks,
     buildContext,
     buildBookingPayload,
     buildPackagingLines,

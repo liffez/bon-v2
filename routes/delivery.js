@@ -22,6 +22,7 @@ const {
     getVehicleById,
     TEMPLATE_VARIABLES
 } = require('../services/booking_template');
+const { boxCountSql, boxesForBon } = require('../services/deliveryBoxes');
 const {
     logBookingEvent,
     setActualCost,
@@ -370,6 +371,7 @@ router.post('/calculate', requireAuth(), handle(async (req, res) => {
         Number(workload) > 0 ? Math.max(1, Math.ceil(Number(workload) / paxPerBox)) : 0;
 
     let input;
+    let calcBoxesSource = 'given';
     if (bon_id) {
         const bon = getBon(Number(bon_id));
         if (!bon) return res.status(404).json({ error: `Bon ${bon_id} ikke fundet` });
@@ -388,15 +390,22 @@ router.post('/calculate', requireAuth(), handle(async (req, res) => {
             }
         }
 
-        // Udled kasse-antal når bonen ikke har det sat (boxes-kolonnen er ofte
-        // tom; kasser beregnes ellers først i panelet). 154 er By-expressens
-        // MINIMUM — kasse-priserne lægges til via estimateCost. Samme udledning
-        // som defaultBoxesForBon: ceil(arbejdsmængde / pax_per_box).
-        let estBoxes = Number(bon.boxes) > 0 ? Number(bon.boxes) : 0;
-        if (!estBoxes) {
+        // Kasse-antal: TÆL bonnens transportkasse-linjer (services/deliveryBoxes.js)
+        // — samme kilde som bud-popoutets {total_boxes}. Uden det regnede
+        // logistik-rækken på ceil(enheder / pax_per_box) mens popoutet talte
+        // linjerne, og de to viste hver sin pris for samme bon.
+        // Har bonnen ingen kasse-linjer, falder vi tilbage på arbejdsmængden:
+        // her SKAL der et tal til for at kunne prissætte, og et skøn er bedre
+        // end ingen pris. `boxes_source` siger hvilket det blev, så skærmen
+        // kan skelne et talt antal fra et gæt.
+        let estBoxes = boxesForBon(bon);
+        let boxesSource = estBoxes != null ? 'counted' : null;
+        if (estBoxes == null) {
             const workload = Number(bon.total_units) > 0 ? Number(bon.total_units) : (Number(bon.pax) || 0);
             estBoxes = boxesFromWorkload(workload);
+            boxesSource = estBoxes > 0 ? 'estimated' : 'none';
         }
+        calcBoxesSource = boxesSource;
 
         input = {
             addressId: bon.delivery_address_id || null,
@@ -424,7 +433,7 @@ router.post('/calculate', requireAuth(), handle(async (req, res) => {
     // boxes + pax_per_box med tilbage: prisen afhænger af kasse-antallet, så
     // beregneren skal kunne vise HVILKET antal prisen er regnet på.
     const result = await calculateForBon(input);
-    res.json({ ...result, boxes: input.boxes, pax_per_box: paxPerBox });
+    res.json({ ...result, boxes: input.boxes, boxes_source: calcBoxesSource, pax_per_box: paxPerBox });
 }));
 
 // ==========================================
@@ -557,10 +566,15 @@ function getRoutesWithStops(date) {
     sql += ' ORDER BY r.route_date, r.pickup_time, r.id';
     const routes = db.prepare(sql).all(...params);
 
+    // Kasse-antal: kolonnen bons.boxes er tom i drift, så tallet tælles fra
+    // bonnens transportkasse-linjer (services/deliveryBoxes.js). Uden det stod
+    // der altid "std" i logistik-oversigten, og kapacitets-advarslen kunne
+    // aldrig fyre. Subqueryens parametre står i SELECT-listen → bindes FØRST.
+    const boxSql = boxCountSql('b');
     const stopStmt = db.prepare(`
         SELECT s.id AS stop_id, s.bon_id, s.sequence, s.eta, s.status,
                s.distance_from_prev_m, s.duration_from_prev_s, s.completed_at,
-               b.bon_number, b.delivery_time, b.boxes, b.pax,
+               b.bon_number, b.delivery_time, ${boxSql.sql} AS boxes, b.pax,
                b.delivery_address_id,
                sd.code AS status_code,
                c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
@@ -576,7 +590,7 @@ function getRoutesWithStops(date) {
         ORDER BY s.sequence
     `);
     for (const r of routes) {
-        r.stops = stopStmt.all(r.id);
+        r.stops = stopStmt.all(...boxSql.args, r.id);
         if (r.route_geojson) {
             try { r.route_geojson = JSON.parse(r.route_geojson); }
             catch (e) { r.route_geojson = null; }
@@ -602,9 +616,14 @@ router.get('/overview', requireAuth(), handle((req, res) => {
     if (!date) return res.status(400).json({ error: 'date er påkrævet' });
     const db = getDb();
 
+    // Kasse-antal: kolonnen bons.boxes er tom i drift, så tallet tælles fra
+    // bonnens transportkasse-linjer (services/deliveryBoxes.js). Uden det stod
+    // der altid "std" i logistik-oversigten, og kapacitets-advarslen kunne
+    // aldrig fyre. Subqueryens parametre står i SELECT-listen → bindes FØRST.
+    const ovBoxSql = boxCountSql('b');
     const bons = db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_time, b.pickup_time,
-               b.boxes, b.pax, b.delivery_type, b.delivery_method,
+               ${ovBoxSql.sql} AS boxes, b.pax, b.delivery_type, b.delivery_method,
                b.delivery_vehicle_id, b.delivery_notes,
                sd.code AS status_code,
                c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
@@ -625,7 +644,7 @@ router.get('/overview', requireAuth(), handle((req, res) => {
           AND b.is_offer = 0 AND b.is_internal = 0
           AND sd.code != 'AFLYST'
         ORDER BY b.delivery_time, b.id
-    `).all(date);
+    `).all(...ovBoxSql.args, date);
 
     res.json({ date, bons, routes: getRoutesWithStops(date), hq: getHqCoords() });
 }));
@@ -1143,9 +1162,14 @@ router.get('/courier/today', requireAuth(), handle((req, res) => {
         ORDER BY r.pickup_time, r.id
     `).all(date, userId);
 
+    // Kasse-antal: kolonnen bons.boxes er tom i drift, så tallet tælles fra
+    // bonnens transportkasse-linjer (services/deliveryBoxes.js). Uden det stod
+    // der altid "std" i logistik-oversigten, og kapacitets-advarslen kunne
+    // aldrig fyre. Subqueryens parametre står i SELECT-listen → bindes FØRST.
+    const cBoxSql = boxCountSql('b');
     const stopStmt = db.prepare(`
         SELECT s.id AS stop_id, s.bon_id, s.sequence, s.eta, s.status, s.completed_at,
-               b.bon_number, b.delivery_time, b.boxes, b.pax, b.delivery_notes,
+               b.bon_number, b.delivery_time, ${cBoxSql.sql} AS boxes, b.pax, b.delivery_notes,
                b.day_contact_name, b.day_contact_phone, b.payment_type,
                sd.code AS status_code,
                c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
@@ -1166,7 +1190,7 @@ router.get('/courier/today', requireAuth(), handle((req, res) => {
         FROM delivery_incidents WHERE route_stop_id = ? ORDER BY logged_at
     `);
     for (const r of routes) {
-        r.stops = stopStmt.all(r.id);
+        r.stops = stopStmt.all(...cBoxSql.args, r.id);
         for (const s of r.stops) {
             // Ens linjer slås sammen — chaufføren skal se "3× Kartoflen slider",
             // ikke tre gange "1×" (se shared/bon_lines.js).
