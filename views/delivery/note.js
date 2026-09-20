@@ -304,13 +304,17 @@
             const at = text.indexOf(b.text, pos);
             if (at < 0) return;                       // blokken findes ikke — spring over
             html += esc(text.slice(pos, at));         // whitespace mellem blokke, uændret
-            html += '<span class="dn-block' + (b.over ? ' over' : '')
-                  + '" data-block="' + i + '" title="Klik for at kopiere denne blok">'
-                  + esc(b.text) + '</span>';
+            // Tælleren står OVER blokken, ikke ved siden af dens sidste linje:
+            // grænsen gælder hele blokken, og hængt bagpå så den ud som en del
+            // af den nederste linje. Den bor stadig uden for blokkens span, så
+            // den hverken følger med ved klik eller ved en musemarkering.
             if (b.maxlen) {
                 html += '<span class="dn-block-count' + (b.over ? ' over' : '') + '">'
                       + b.length + '/' + b.maxlen + '</span>';
             }
+            html += '<span class="dn-block' + (b.over ? ' over' : '')
+                  + '" data-block="' + i + '" title="Klik for at kopiere denne blok">'
+                  + esc(b.text) + '</span>';
             pos = at + b.text.length;
         });
         html += esc(text.slice(pos));

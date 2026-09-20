@@ -390,10 +390,13 @@ html, body {
 .dn-block.copied  { background: rgba(122,168,116,.30); }
 .dn-block.over    { box-shadow: inset 2px 0 0 #d9534f; background: rgba(217,83,79,.14); }
 
+/* Egen linje OVER blokken — grænsen gælder hele blokken, ikke dens sidste linje.
+   user-select:none så den ikke kan komme med i en musemarkering. */
 .dn-block-count {
+    display: block;
     font-size: 10px;
+    line-height: 1.4;
     color: #a8a49c;
-    margin-left: 6px;
     white-space: nowrap;
     user-select: none;
 }

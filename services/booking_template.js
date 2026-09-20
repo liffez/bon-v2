@@ -34,7 +34,8 @@ const TEMPLATE_VARIABLES = [
     { key: 'delivery_date', label: 'Dato (DD-MM-YYYY)', example: '03-05-2026' },
     { key: 'delivery_time', label: 'Leveringstid', example: '12:30' },
     { key: 'pickup_time', label: 'Afhentningstid (afgang fra HQ)', example: '12:00' },
-    { key: 'total_boxes', label: 'Antal kasser (transportkasser på bonen)', example: '4' },
+    { key: 'total_boxes', label: 'Antal kasser — kun tallet', example: '4' },
+    { key: 'total_boxes_text', label: 'Antal kasser med ordet (bøjet)', example: '4 kasser' },
     { key: 'total_pax', label: 'Antal personer', example: '15' },
     { key: 'delivery_notes', label: 'Leveringsinstruks', example: 'Ring på dørtelefon ved ankomst' },
     { key: 'packaging_lines', label: 'Pakke-info (linjeliste)', example: '4× Sandwich-kasse · 1× Drikke-kasse' }
@@ -84,6 +85,23 @@ function buildPackagingLines(lines) {
 }
 
 // ==========================================
+// "1 kasse" / "4 kasser" — tallet med ordet, bøjet.
+//
+// Et bart "1" i en bestilling ("start: B4296, 1 hos Ristet Rug") siger ingenting
+// til den der skal køre. Men "{total_boxes} kasser" i skabelonen ville give
+// "1 kasser", så bøjningen hører i koden, ikke i teksten.
+//
+// Det RENE tal bevares som {total_boxes}: et formularfelt der hedder "Antal
+// kolli" skal have 4, ikke "4 kasser".
+// ==========================================
+function boxesText(n) {
+    if (n == null) return '';
+    const v = Number(n);
+    if (!Number.isFinite(v) || v <= 0) return '';
+    return v === 1 ? '1 kasse' : `${v} kasser`;
+}
+
+// ==========================================
 // Bygger variabel-context til template-rendering.
 // Tager bon-objekt (fra getBon) og returnerer flat map.
 // Manglende felter bliver tom string i tekst,
@@ -123,6 +141,7 @@ function buildContext(bon, opts = {}) {
         // null (ingen kasser registreret) → tom streng → feltet melder [mangler],
         // frem for at påstå "0 kolli" over for buddet.
         total_boxes: resolvedBoxes != null ? String(resolvedBoxes) : '',
+        total_boxes_text: boxesText(resolvedBoxes),
         total_pax: bon.pax != null ? String(bon.pax) : '',
         delivery_notes: bon.delivery_notes || '',
         packaging_lines: buildPackagingLines(bon.lines)
@@ -496,6 +515,7 @@ module.exports = {
     buildContext,
     buildBookingPayload,
     buildPackagingLines,
+    boxesText,
     buildAddressString,
     formatDate,
     estimateCost,

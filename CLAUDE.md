@@ -8729,10 +8729,35 @@ kode der viste sig uopnåelig (den blanke linje nulstiller altid grænsen) og
 derfor er fjernet frem for at få en test skrevet om sig.
 
 Browser-verificeret mod driftsskabelonen med rigtige museklik: markøren væk,
-tæller 116/120, adressen som egen blok, klik kopierer præcis blokken uden
-tælleren, langt kontaktnavn → 137/120 i rødt med banner, "Kopiér hele teksten"
-uden tællere og med telefonnummeret intakt, og `maxlen` overlever et gem gennem
+tæller over blokken, adressen som egen blok, klik kopierer præcis blokken uden
+tælleren, langt kontaktnavn → rødt med banner, "Kopiér hele teksten" uden
+tællere og med telefonnummeret intakt, og `maxlen` overlever et gem gennem
 Settings. Testdata ryddet.
+
+**Efterspil fra drifttesten (samme dag).** To ting kom retur:
+
+- **Tælleren stod ved siden af blokkens sidste linje** og så dermed ud som en
+  del af den. Grænsen gælder hele blokken, så tælleren står nu på sin egen
+  linje **over** den. Den bor fortsat uden for blokkens span og har
+  `user-select: none`, så den hverken følger med ved klik eller ved en
+  musemarkering — begge dele efterprøvet i browseren.
+- **`{total_boxes}` gav et bart "1"** (`start: B4296, 1 hos Ristet Rug`), som
+  ikke siger noget til den der skal køre. Ny **`{total_boxes_text}`** er samme
+  tal med ordet på, **bøjet**: `1 kasse` / `4 kasser`. Bøjningen hører i koden —
+  `{total_boxes} kasser` i skabelonen ville give "1 kasser". **Migration 182**
+  bytter variablen ud i Taxas skabelon.
+
+  Det rene tal bevares som `{total_boxes}` og bruges uændret af By-expressens
+  felt **"Antal kolli"**: et formularfelt der spørger om et antal skal have `4`,
+  ikke "4 kasser".
+
+> ⚠️ **Tegnbudgettet er nu stramt.** Besked-blokken går fra 111 til **117–119
+> af de 120** alt efter kasseantal. Et længere kontakt- eller firmanavn
+> sprænger grænsen — det er netop dét tælleren er til for, men det betyder også
+> at teksten ikke tåler mere. Skal der plads til mere, må noget andet forkortes
+> (fx `kontakt:`-præfikset eller efternavnet).
+
+Testen voksede 66 → **81 asserts**; 13 mutationer i alt, alle fanget.
 
 
 ## Næste opgave

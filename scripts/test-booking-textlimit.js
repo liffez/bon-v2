@@ -24,7 +24,7 @@ const { runMigrations } = require('../db/migrate');
 runMigrations(TEST_DB);
 
 const { getDb } = require('../db/database');
-const { renderTemplateBlocks, renderFields, buildBookingPayload } = require('../services/booking_template');
+const { renderTemplateBlocks, renderFields, buildBookingPayload, boxesText } = require('../services/booking_template');
 
 let pass = 0, fail = 0;
 function assert(cond, msg) {
@@ -41,6 +41,7 @@ const VARS = {
     bon_number: 'B4296', total_boxes: '4', company_name: 'Merkur Andelskasse',
     delivery_contact_name: 'Katrine Rosengren Norup', delivery_contact_phone: '+4551621845',
     delivery_time: '11:30', delivery_date: '21-09-2026', pickup_time: '10:45',
+    total_boxes_text: '4 kasser',
     packaging_lines: '32× 04 Slider · 6× 06 Emballage',
     delivery_address: 'Vesterbrogade 40, 1620 København V'
 };
@@ -92,18 +93,32 @@ assertEqual(rm.blocks[0].missing, false, 'blok med alt udfyldt: missing=false');
 assertEqual(rm.blocks[1].missing, true, 'blok med [mangler]: missing=true');
 assert(rm.blocks[1].text.includes('[mangler]'), 'og markeringen står i teksten');
 
+// ─── 1b. "1 kasse" / "4 kasser" ───────────────────────────
+// Et bart "1" i en bestilling siger ingenting til den der skal køre. Bøjningen
+// hører i koden: "{total_boxes} kasser" i skabelonen ville give "1 kasser".
+console.log('\n=== boxesText ===');
+assertEqual(boxesText(1), '1 kasse', 'ental');
+assertEqual(boxesText(2), '2 kasser', 'flertal');
+assertEqual(boxesText(12), '12 kasser', 'to cifre');
+assertEqual(boxesText('3'), '3 kasser', 'tal som streng');
+assertEqual(boxesText(null), '', 'ingen kasser → tom, så feltet melder [mangler]');
+assertEqual(boxesText(0), '', 'nul er ikke "0 kasser"');
+assertEqual(boxesText(-1), '', 'negativt → tom');
+assertEqual(boxesText('vrøvl'), '', 'vrøvl → tom, ikke NaN');
+
 // ─── 2. Drifts-scenariet: taxas blok mod 120 ──────────────
 console.log('\n=== Taxas besked-blok mod de 120 tegn ===');
 const TAXA = '{bon_number}. \n{packaging_lines}\n{total_boxes}\n\n\n\n{{max:120}}\n'
-           + 'start: {bon_number}, {total_boxes} hos Ristet Rug\n'
+           + 'start: {bon_number}, {total_boxes_text} hos Ristet Rug\n'
            + 'lever til {company_name}\n'
            + 'kontakt: {delivery_contact_name}. {delivery_contact_phone}\n'
            + '{delivery_time}\n\n{delivery_address}\n\n{delivery_date}\n{pickup_time}';
 const rt = renderTemplateBlocks(TAXA, VARS);
 const besked = rt.blocks[1];
 assertEqual(besked.maxlen, 120, 'besked-blokken har grænsen');
-assertEqual(besked.length, 111, 'lander på 111 tegn med almindelige data');
-assertEqual(besked.over, false, '111 ≤ 120 → passer');
+assertEqual(besked.length, 118, 'lander på 118 tegn med "4 kasser"');
+assertEqual(besked.over, false, '118 ≤ 120 → passer, men kun lige');
+assert(besked.text.includes('4 kasser'), 'og ordet står der — ikke et bart "4"');
 assert(rt.blocks.some(b => b.text.includes('Vesterbrogade 40')), 'adressen er sin EGEN blok');
 assert(!besked.text.includes('Vesterbrogade'), 'og ligger IKKE i den trange besked-blok');
 
@@ -248,6 +263,13 @@ assertEqual(blokIndhold.length, 3, 'tre blok-spans');
 assert(blokIndhold.every(t => !t.includes('dn-block-count')),
        'TÆLLEREN LIGGER UDEN FOR BLOK-SPANET — den kan ikke følge med i kopien');
 assertEqual(blokIndhold[1], 'lang blok her', 'blok-spanet rummer KUN blokkens egen tekst');
+
+// Tælleren står OVER blokken — grænsen gælder hele blokken, ikke dens sidste
+// linje. Hængt bagpå så den ud som en del af den nederste linje.
+const iTaeller = html.indexOf('13/120');
+const iBlok = html.indexOf('lang blok her');
+assert(iTaeller > -1 && iBlok > -1, 'både tæller og blok er i HTML');
+assert(iTaeller < iBlok, 'TÆLLEREN STÅR FØR BLOKKEN');
 assert(html.includes('dn-block-count over'), 'overskridelse markeres');
 assert(!html.includes('9/'), 'blok uden grænse får ingen tæller');
 
@@ -261,6 +283,24 @@ assert(fake.innerHTML.includes('</span>\n\n\n<span'), 'whitespace mellem blokke 
 fake.textContent = ''; fake.innerHTML = '';
 rc('bare tekst', null);
 assertEqual(fake.textContent, 'bare tekst', 'uden blokke falder den tilbage til ren tekst');
+
+// ─── 6b. Migration 182: tallet får sit ord ────────────────
+console.log('\n=== Migration 182: {total_boxes} → {total_boxes_text} ===');
+const mig182 = fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '182_taxa_boxes_text.sql'), 'utf8');
+db.prepare(`UPDATE delivery_vehicles SET booking_template=? WHERE code='taxa-4x35'`)
+  .run('{total_boxes}\n\nstart: X, {total_boxes} hos Ristet Rug');
+db.exec(mig182);
+const t182 = db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t;
+assertEqual(t182, '{total_boxes_text}\n\nstart: X, {total_boxes_text} hos Ristet Rug',
+            'BEGGE forekomster skiftet');
+db.exec(mig182);
+assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t,
+            t182, 'idempotent — _text bliver ikke til _text_text');
+
+// By-expressens "Antal kolli" skal have det RENE tal, ikke ordet.
+const byex = db.prepare(`SELECT booking_fields_json j FROM delivery_vehicles WHERE code='byekspressen'`).get();
+assert((byex.j || '').includes('{total_boxes}'), 'By-expressens felt bruger stadig det rene tal');
+assert(!(byex.j || '').includes('total_boxes_text'), 'og migrationen rørte ikke den anden vogn');
 
 // ─── 7. Settings må ikke tabe grænsen ─────────────────────
 // _dvParseFields læser booking_fields_json ind i editoren. Bevarer den ikke
