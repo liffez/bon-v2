@@ -8667,10 +8667,23 @@ en frisk lokal DB: "Antal kolli: 4" og ≈ 244 kr hvor der før stod `[mangler]`
 og 144 kr; en bon uden kasse-linjer melder stadig `[mangler]`; `/overview`,
 `/routes` og `/calculate` er enige om de 4. Testdata ryddet.
 
-> **Ikke bygget:** Settings-UI til listen. En ny kassetype i Grocy skal
-> tilføjes med SQL indtil da — men der er kun kommet to typer siden 2023, og
-> `settings.description` forklarer hvad feltet er. Hører hjemme under
-> Settings → Leveringsmetoder hvis det bliver aktuelt.
+**Settings → Leveringsmetoder → "Hvad tæller som en kasse"** (efterspurgt i
+drift): chips med × og en dropdown over Grocys opskrifter. Uden den kunne
+listen kun ændres med SQL, og en regel man ikke kan se er en regel man ikke
+kan rette.
+
+To ting gør den brugbar frem for bare gemt:
+- **En tom liste advarer** (*"⚠ Ingen opskrifter valgt — antal kasser står
+  tomt i alle bud-bestillinger"*) i stedet for at se ud som "ingen regel".
+  Tom betyder at `{total_boxes}` melder `[mangler]` på hver eneste bon.
+- **Grocy nede → id'erne vises alligevel**, rødligt og med deres nummer, og
+  dropdownen slås fra frem for at stå tom og forvirre. Et hik i Grocy må ikke
+  gøre reglen usynlig — og det må ikke rive vogn-oversigten med sig, så
+  `dbxInit()` har sin egen fejlhåndtering.
+
+Ændringen gælder **næste bud-bestilling**: `PATCH /api/settings/:key` rydder
+`deliveryBoxes`' 60s-cache. Efterprøvet i browseren begge veje — med RR Boks
+på listen tæller en bon med 2 transportkasser + 7 bokse **9**, uden den **2**.
 
 
 ### Taxa manglede adressen, og beskedfeltet tager 120 tegn (20. september 2026)
