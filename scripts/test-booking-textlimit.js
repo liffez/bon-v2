@@ -110,14 +110,14 @@ assertEqual(boxesText('vrøvl'), '', 'vrøvl → tom, ikke NaN');
 console.log('\n=== Taxas besked-blok mod de 120 tegn ===');
 const TAXA = '{bon_number}. \n{packaging_lines}\n{total_boxes}\n\n\n\n{{max:120}}\n'
            + 'start: {bon_number}, {total_boxes_text} hos Ristet Rug\n'
-           + 'lever til {company_name}\n'
+           + 'lever: {company_name}\n'
            + 'tlf {delivery_contact_name}. {delivery_contact_phone}\n'
            + '{delivery_time}\n\n{delivery_address}\n\n{delivery_date}\n{pickup_time}';
 const rt = renderTemplateBlocks(TAXA, VARS);
 const besked = rt.blocks[1];
 assertEqual(besked.maxlen, 120, 'besked-blokken har grænsen');
-assertEqual(besked.length, 113, 'lander på 113 tegn med "4 kasser" og "tlf"');
-assertEqual(besked.over, false, '113 ≤ 120 → passer');
+assertEqual(besked.length, 110, 'lander på 110 tegn efter "tlf" og "lever:"');
+assertEqual(besked.over, false, '110 ≤ 120 → passer med 10 tegn luft');
 assert(besked.text.includes('4 kasser'), 'og ordet står der — ikke et bart "4"');
 assert(rt.blocks.some(b => b.text.includes('Vesterbrogade 40')), 'adressen er sin EGEN blok');
 assert(!besked.text.includes('Vesterbrogade'), 'og ligger IKKE i den trange besked-blok');
@@ -344,12 +344,33 @@ assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE c
 // Og hvad besparelsen reelt giver: hvor langt må navnet være?
 const MK = navn => renderTemplateBlocks(
     '{{max:120}}\nstart: {bon_number}, {total_boxes_text} hos Ristet Rug\n'
-    + 'lever til {company_name}\ntlf {delivery_contact_name}. {delivery_contact_phone}\n{delivery_time}',
+    + 'lever: {company_name}\ntlf {delivery_contact_name}. {delivery_contact_phone}\n{delivery_time}',
     { ...VARS, total_boxes_text: '1 kasse', delivery_contact_name: navn }).blocks[0];
-assertEqual(MK('Katrine Rosengren Norup').length, 112, 'almindeligt navn (23 tegn) → 112/120');
-assertEqual(MK('A'.repeat(31)).length, 120, '31-tegns navn rammer grænsen præcist');
-assertEqual(MK('A'.repeat(31)).over, false, 'og 120 er stadig indenfor');
-assertEqual(MK('A'.repeat(32)).over, true, '32 tegn sprænger — tælleren siger det');
+assertEqual(MK('Katrine Rosengren Norup').length, 109, 'almindeligt navn (23 tegn) → 109/120');
+assertEqual(MK('A'.repeat(34)).length, 120, '34-tegns navn rammer grænsen præcist');
+assertEqual(MK('A'.repeat(34)).over, false, 'og 120 er stadig indenfor');
+assertEqual(MK('A'.repeat(35)).over, true, '35 tegn sprænger — tælleren siger det');
+
+// ─── 6d. Migration 184: "lever:" sparer tre til ───────────
+console.log('\n=== Migration 184: lever til → lever: ===');
+const mig184 = fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '184_taxa_lever_label.sql'), 'utf8');
+db.prepare(`UPDATE delivery_vehicles SET booking_template=? WHERE code='taxa-4x35'`)
+  .run('start: X\nlever til {company_name}\ntlf {delivery_contact_name}');
+db.exec(mig184);
+const t184 = db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t;
+assertEqual(t184, 'start: X\nlever: {company_name}\ntlf {delivery_contact_name}',
+            'labelen byttet, firmanavnet urørt');
+db.exec(mig184);
+assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t,
+            t184, 'idempotent');
+
+// Ankeret er HELE 'lever til {company_name}' — "lever til" foran fri tekst er
+// kontorets egen formulering og skal stå.
+db.prepare(`UPDATE delivery_vehicles SET booking_template=? WHERE code='taxa-4x35'`)
+  .run('lever til receptionen');
+db.exec(mig184);
+assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t,
+            'lever til receptionen', '"lever til" foran fri tekst røres IKKE');
 
 // ─── 7. Settings må ikke tabe grænsen ─────────────────────
 // _dvParseFields læser booking_fields_json ind i editoren. Bevarer den ikke

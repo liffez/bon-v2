@@ -8751,14 +8751,25 @@ Settings. Testdata ryddet.
   felt **"Antal kolli"**: et formularfelt der spørger om et antal skal have `4`,
   ikke "4 kasser".
 
-**Og så blev der gjort plads** (migration 183, drift-forslag): `kontakt: ` er
-9 tegn der ikke siger taxaen noget, `tlf ` er 4 og siger det samme i den
-telegramstil blokken allerede har (`start:`, `lever til`). Blokken går fra
-117–119 til **112–114 af de 120**, så der er plads til et kontaktnavn på ca.
-31 tegn mod 23 i dag. Et virkelig langt navn sprænger stadig grænsen — det er
-dét tælleren er til for.
+**Og så blev der gjort plads** (migration 183 + 184, begge drift-forslag):
+`kontakt: ` → `tlf ` sparer 5 tegn, `lever til ` → `lever: ` sparer 3. Begge
+siger det samme i den telegramstil blokken allerede har (`start:`), og kolon
+går igen. Blokken går fra 117–119 til **109–111 af de 120**:
 
-Testen voksede 66 → **90 asserts**; 15 mutationer i alt, alle fanget.
+| | 1 kasse | 12 kasser |
+|---|---|---|
+| før | 117 | 119 |
+| efter `tlf` | 112 | 114 |
+| efter `lever:` | **109** | **111** |
+
+Det giver plads til et kontaktnavn på **34 tegn** mod 23 i dag. Et virkelig
+langt navn sprænger stadig grænsen — det er dét tælleren er til for.
+
+Begge migrationer matcher **hele ankeret** (`kontakt: {delivery_contact_name}`,
+`lever til {company_name}`), ikke bare ordene: et `kontakt:` eller `lever til`
+foran fri tekst er kontorets egen formulering og skal stå.
+
+Testen voksede 66 → **93 asserts**; 17 mutationer i alt, alle fanget.
 
 > ⚠️ **En pre-eksisterende natte-bug faldt ud undervejs.**
 > `test-delivery-spor2-courier.js` byggede sin dato med
