@@ -111,13 +111,13 @@ console.log('\n=== Taxas besked-blok mod de 120 tegn ===');
 const TAXA = '{bon_number}. \n{packaging_lines}\n{total_boxes}\n\n\n\n{{max:120}}\n'
            + 'start: {bon_number}, {total_boxes_text} hos Ristet Rug\n'
            + 'lever til {company_name}\n'
-           + 'kontakt: {delivery_contact_name}. {delivery_contact_phone}\n'
+           + 'tlf {delivery_contact_name}. {delivery_contact_phone}\n'
            + '{delivery_time}\n\n{delivery_address}\n\n{delivery_date}\n{pickup_time}';
 const rt = renderTemplateBlocks(TAXA, VARS);
 const besked = rt.blocks[1];
 assertEqual(besked.maxlen, 120, 'besked-blokken har grænsen');
-assertEqual(besked.length, 118, 'lander på 118 tegn med "4 kasser"');
-assertEqual(besked.over, false, '118 ≤ 120 → passer, men kun lige');
+assertEqual(besked.length, 113, 'lander på 113 tegn med "4 kasser" og "tlf"');
+assertEqual(besked.over, false, '113 ≤ 120 → passer');
 assert(besked.text.includes('4 kasser'), 'og ordet står der — ikke et bart "4"');
 assert(rt.blocks.some(b => b.text.includes('Vesterbrogade 40')), 'adressen er sin EGEN blok');
 assert(!besked.text.includes('Vesterbrogade'), 'og ligger IKKE i den trange besked-blok');
@@ -301,6 +301,55 @@ assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE c
 const byex = db.prepare(`SELECT booking_fields_json j FROM delivery_vehicles WHERE code='byekspressen'`).get();
 assert((byex.j || '').includes('{total_boxes}'), 'By-expressens felt bruger stadig det rene tal');
 assert(!(byex.j || '').includes('total_boxes_text'), 'og migrationen rørte ikke den anden vogn');
+
+// ─── 6c. Migration 183: "tlf" sparer plads ────────────────
+// "kontakt: " er 9 tegn der ikke siger taxaen noget; "tlf " er 4 og siger det
+// samme i den telegramstil blokken allerede har. Fem tegn er meget når der er
+// tre tilbage.
+console.log('\n=== Migration 183: kontakt: → tlf ===');
+const mig183 = fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '183_taxa_tlf_label.sql'), 'utf8');
+db.prepare(`UPDATE delivery_vehicles SET booking_template=? WHERE code='taxa-4x35'`)
+  .run('lever til X\nkontakt: {delivery_contact_name}. {delivery_contact_phone}');
+db.exec(mig183);
+const t183 = db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t;
+assertEqual(t183, 'lever til X\ntlf {delivery_contact_name}. {delivery_contact_phone}',
+            'labelen byttet, navn og nummer urørt');
+db.exec(mig183);
+assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t,
+            t183, 'idempotent');
+
+// En omskrevet linje røres ikke — det er kontorets tekst.
+db.prepare(`UPDATE delivery_vehicles SET booking_template=? WHERE code='taxa-4x35'`)
+  .run('ring til {delivery_contact_name}');
+db.exec(mig183);
+assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t,
+            'ring til {delivery_contact_name}', 'anden formulering → migrationen holder sig fra det');
+
+// Ankeret er HELE 'kontakt: {delivery_contact_name}', ikke bare ordet: et
+// "kontakt: " foran fri tekst er kontorets egen formulering og skal stå.
+db.prepare(`UPDATE delivery_vehicles SET booking_template=? WHERE code='taxa-4x35'`)
+  .run('kontakt: kontoret 33218989');
+db.exec(mig183);
+assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t,
+            'kontakt: kontoret 33218989', '"kontakt:" foran fri tekst røres IKKE');
+
+// To forekomster af ankeret → vi gætter ikke hvilken der menes.
+db.prepare(`UPDATE delivery_vehicles SET booking_template=? WHERE code='taxa-4x35'`)
+  .run('kontakt: {delivery_contact_name}\n\nkontakt: {delivery_contact_name}');
+db.exec(mig183);
+assertEqual(db.prepare(`SELECT booking_template t FROM delivery_vehicles WHERE code='taxa-4x35'`).get().t,
+            'kontakt: {delivery_contact_name}\n\nkontakt: {delivery_contact_name}',
+            'to ankre → migrationen holder sig fra det');
+
+// Og hvad besparelsen reelt giver: hvor langt må navnet være?
+const MK = navn => renderTemplateBlocks(
+    '{{max:120}}\nstart: {bon_number}, {total_boxes_text} hos Ristet Rug\n'
+    + 'lever til {company_name}\ntlf {delivery_contact_name}. {delivery_contact_phone}\n{delivery_time}',
+    { ...VARS, total_boxes_text: '1 kasse', delivery_contact_name: navn }).blocks[0];
+assertEqual(MK('Katrine Rosengren Norup').length, 112, 'almindeligt navn (23 tegn) → 112/120');
+assertEqual(MK('A'.repeat(31)).length, 120, '31-tegns navn rammer grænsen præcist');
+assertEqual(MK('A'.repeat(31)).over, false, 'og 120 er stadig indenfor');
+assertEqual(MK('A'.repeat(32)).over, true, '32 tegn sprænger — tælleren siger det');
 
 // ─── 7. Settings må ikke tabe grænsen ─────────────────────
 // _dvParseFields læser booking_fields_json ind i editoren. Bevarer den ikke

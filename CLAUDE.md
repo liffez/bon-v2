@@ -8751,13 +8751,22 @@ Settings. Testdata ryddet.
   felt **"Antal kolli"**: et formularfelt der spørger om et antal skal have `4`,
   ikke "4 kasser".
 
-> ⚠️ **Tegnbudgettet er nu stramt.** Besked-blokken går fra 111 til **117–119
-> af de 120** alt efter kasseantal. Et længere kontakt- eller firmanavn
-> sprænger grænsen — det er netop dét tælleren er til for, men det betyder også
-> at teksten ikke tåler mere. Skal der plads til mere, må noget andet forkortes
-> (fx `kontakt:`-præfikset eller efternavnet).
+**Og så blev der gjort plads** (migration 183, drift-forslag): `kontakt: ` er
+9 tegn der ikke siger taxaen noget, `tlf ` er 4 og siger det samme i den
+telegramstil blokken allerede har (`start:`, `lever til`). Blokken går fra
+117–119 til **112–114 af de 120**, så der er plads til et kontaktnavn på ca.
+31 tegn mod 23 i dag. Et virkelig langt navn sprænger stadig grænsen — det er
+dét tælleren er til for.
 
-Testen voksede 66 → **81 asserts**; 13 mutationer i alt, alle fanget.
+Testen voksede 66 → **90 asserts**; 15 mutationer i alt, alle fanget.
+
+> ⚠️ **En pre-eksisterende natte-bug faldt ud undervejs.**
+> `test-delivery-spor2-courier.js` byggede sin dato med
+> `new Date().toISOString().slice(0,10)` (UTC), mens serverens `/courier/today`
+> bruger `todayISO()` (Europe/Copenhagen). Mellem midnat og kl. 02 oprettede
+> testen ruter på den ene dag og spurgte efter den anden — alle 29 asserts
+> faldt. Den blev synlig fordi arbejdet løb over midnat; jf. #133 og
+> memory `project_utc_today_bug`. Rettet til `todayISO()`.
 
 
 ## Næste opgave

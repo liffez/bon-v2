@@ -23,7 +23,12 @@ const { spawn } = require('child_process');
 const TEST_DB = path.join(os.tmpdir(), `bon-test-spor2c-${Date.now()}.db`);
 const PORT = 4328;
 const BASE = `http://localhost:${PORT}`;
-const TODAY = new Date().toISOString().slice(0, 10);
+// Dansk dato, ikke UTC. Serverens /courier/today bruger todayISO()
+// (Europe/Copenhagen), så mellem midnat og kl. 02 ville UTC-datoen være
+// GÅRSDAGENS: testen oprettede ruter på den ene dag og spurgte efter den
+// anden, og alle asserts faldt. Jf. #133 og CLAUDE.md's dato-regel.
+const { todayISO } = require('../db/helpers');
+const TODAY = todayISO();
 
 let pass = 0, fail = 0;
 function assert(cond, msg) {
