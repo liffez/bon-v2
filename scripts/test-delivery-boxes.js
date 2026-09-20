@@ -197,7 +197,45 @@ function mountApi() {
     });
 }
 
-// ─── 8. Det GEMTE estimat ─────────────────────────────────
+// ─── 7b. Settings-feltet ──────────────────────────────────
+// Uden det kan listen kun ændres med SQL, og så er reglen usynlig for dem der
+// skal bruge den. Funktionerne skæres ud af settings/index.html og køres i en
+// vm-sandkasse — det er de SAMME funktioner browseren bruger, ikke en kopi.
+const vm = require('vm');
+const stSrc = fs.readFileSync(path.join(__dirname, '..', 'settings', 'index.html'), 'utf8');
+// indexOf(til) SKAL starte fra fra-positionen: slut-ankeret findes også
+// tidligere i filen, og så blev udsnittet tomt/omvendt.
+const cut = (fra, til) => {
+    const a = stSrc.indexOf(fra);
+    if (a < 0) throw new Error('fandt ikke start-anker: ' + fra);
+    const b = stSrc.indexOf(til, a + fra.length);
+    if (b < 0) throw new Error('fandt ikke slut-anker: ' + til);
+    return stSrc.slice(a, b);
+};
+const dbxSrc = cut('var _dbxSelected = [];', 'async function loadDeliveryVehicles() {')
+             + cut('function _ucParse(raw) {', '\n}\n') + '\n}\n';
+
+// Attrap-DOM: elementerne husker hvad der blev skrevet i dem.
+const el = {};
+const mkEl = () => ({ innerHTML: '', textContent: '', value: '', disabled: false });
+for (const id of ['dbx-list', 'dbx-add-select', 'dbx-status']) el[id] = mkEl();
+const gemteKald = [];
+const ctx = vm.createContext({
+    document: { getElementById: id => el[id] || null },
+    allSettings: { delivery_box_recipes: '[47,96]' },
+    getGrocyRecipesCached: async () => ([
+        { id: 47, name: 'Transportkasse', category: '06 Emballage' },
+        { id: 96, name: 'Transportkasse m låg', category: '06 Emballage' },
+        { id: 12, name: 'RR Boks', category: '06 Emballage' }
+    ]),
+    saveSetting: async (k, v) => { gemteKald.push([k, v]); },
+    esc: x => String(x == null ? '' : x),
+    setTimeout: () => {},
+    console
+});
+vm.runInContext(dbxSrc + ';globalThis._api = { dbxInit, dbxAddSelected, dbxRemove, sel: () => _dbxSelected };', ctx);
+const dbx = ctx._api;
+
 // logBookingEvent er ASYNC (pickup_time kan kræve et ORS-kald). Uden await
 // måler vi tilstanden før den har skrevet noget, og assertionen ville bestå
 // mod hvad som helst.
@@ -246,6 +284,43 @@ function mountApi() {
     assert(stop, '/routes svarer med stop (args-rækkefølgen holder)');
     assertEqual(stop && stop.boxes, 4, '/routes: stoppet bærer det talte kasse-antal — kapacitets-tjekket kan fyre');
     srv.close();
+
+    console.log('\n=== settings: Hvad tæller som en kasse ===');
+    await dbx.dbxInit();
+    assertEqual(dbx.sel(), [47, 96], 'læser de gemte id fra settings');
+    assert(el['dbx-list'].innerHTML.includes('Transportkasse m låg'),
+           'chips viser opskriftens NAVN, ikke bare id');
+    assert(el['dbx-add-select'].innerHTML.includes('RR Boks'), 'dropdown har de ikke-valgte');
+    // Tæl options i stedet for at lede efter en streng: optionen hedder
+    // "Transportkasse (06 Emballage)", så en match på ">Transportkasse<"
+    // var altid falsk og kunne ikke se om filteret virkede.
+    const optAntal = h => (String(h).match(/<option /g) || []).length;
+    assertEqual(optAntal(el['dbx-add-select'].innerHTML), 2,
+                'kun de ikke-valgte + pladsholderen (3 opskrifter, 2 valgt)');
+
+    el['dbx-add-select'].value = '12';
+    await dbx.dbxAddSelected();
+    assertEqual(dbx.sel(), [47, 96, 12], 'tilføjer den valgte');
+    assertEqual(gemteKald[gemteKald.length - 1], ['delivery_box_recipes', '[47,96,12]'],
+                'og gemmer under den rigtige nøgle');
+
+    await dbx.dbxRemove(47);
+    assertEqual(dbx.sel(), [96, 12], 'fjerner den klikkede');
+    assertEqual(gemteKald[gemteKald.length - 1][1], '[96,12]', 'og gemmer med det samme');
+
+    // Tom liste betyder at INTET tælles — det skal siges, ikke bare vises tomt.
+    await dbx.dbxRemove(96); await dbx.dbxRemove(12);
+    assert(el['dbx-list'].textContent.includes('⚠') || el['dbx-list'].innerHTML.includes('⚠'),
+           'tom liste advarer om at antal kasser så står tomt overalt');
+
+    // Grocy nede: id'erne skal stadig kunne ses og fjernes — en regel man ikke
+    // kan se er en regel man ikke kan rette.
+    ctx.allSettings.delivery_box_recipes = '[47,96]';
+    ctx.getGrocyRecipesCached = async () => { throw new Error('Grocy nede'); };
+    await dbx.dbxInit();
+    assertEqual(dbx.sel(), [47, 96], 'Grocy nede → id bevares');
+    assert(el['dbx-list'].innerHTML.includes('#47'), 'og vises med deres id');
+    assertEqual(el['dbx-add-select'].disabled, true, 'dropdown slås fra frem for at stå tom og forvirre');
 
     console.log('\n=== delivery_log: estimatet der skrives til databasen ===');
     // Egen bon: rute-stoppet ovenfor har allerede sat vognen på bonDrift, og
