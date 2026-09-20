@@ -163,6 +163,7 @@ bon-v2/
 │   ├── companyMatcher.js     ← matchCompany (CVR → EAN → e-mail → navnelighed), similarity, normalizeName
 │   ├── crmActivity.js        ← logActivity/validateActivity — ÉN kilde til at skrive en crm_activities-række
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
+│   ├── deliveryBoxes.js      ← Hvor mange kolli buddet skal bære: talt fra bonnens transportkasse-linjer (`bons.boxes` er tom i drift). Delt af popout, pris, ruter og det gemte estimat (#687)
 │   ├── bonDiscount.js        ← Rabatreglen ét sted: varer ja, levering/gebyrer/emballage nej (bonens total, rapporter, drift, e-conomic)
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
 │   ├── stamdataLog.js        ← Spor på stamdata-ændringer i Grocy: hvem ændrede hvad fra hvilken skærm (#666) — kun beslutninger, navne frem for id'er
@@ -8601,6 +8602,183 @@ dækker kun produkter) og en advarsel når udbyttet ændres på en opskrift der
 producerer en vare.
 
 ---
+
+### Antal kasser: kolonnen var tom, tallet lå på bonnen (20. september 2026)
+
+Bud-popoutet meldte **"Mangler: Antal kasser"** på en bon der havde både
+transportkasser og receptionsskinner på sig. Det var ikke noget særligt ved
+den bon: `{total_boxes}` læste kolonnen `bons.boxes` råt, og den er tom på
+**alle 3.288 bons** i drift. Feltet meldte `[mangler]` på hver eneste bon,
+uanset indhold — der findes ingen skærm der sætter kolonnen.
+
+Tallet lå på bonnen hele tiden som emballage-linjer: **444 af 509
+leverings-bons i 2026** har en transportkasse-linje, gennemsnitligt 3,3 stk.
+
+**Og det kostede penge.** By-expressens formel har `included_boxes: 2,
+extra_box_cost: 50`. Med `boxes = 0` fyrede tillægget aldrig, så popoutet
+viste 154 kr hvor logistik-rækkens `/calculate` — det ENESTE sted der
+allerede udledte et kasse-antal — viste 254. To priser for samme bon, og den
+lave var den man bestilte efter. Samme fejlklasse som #305/#319: en tavs nul
+der ligner et svar.
+
+- **`services/deliveryBoxes.js`** er reglen: `getBoxRecipeIds` (cachet
+  setting), `countBoxesFromLines` (ren), `boxesForBon` (bon fra `getBon`) og
+  `boxCountSql` (subquery til queries uden `bon_lines`).
+- **Migration 180**: `settings.delivery_box_recipes` = `[47, 96]`
+  (Transportkasse + Transportkasse m låg). Opskrifterne **udpeges**, de gættes
+  ikke ud fra navnet — samme mønster som `unit_count_extra_recipes` (113) og
+  `economic_amount_line_recipes` (144). Et match på `%transportkasse%` ville
+  ramme enhver ny vare nogen kalder noget i den retning.
+- **Skinner og RR-bokse tæller ikke med** (beslutning 20. sep.): de ligger i
+  kassen, og buddet bærer kasser. RR Boks står med 47.485 stk i drift og ville
+  gøre kolli-tallet meningsløst.
+- **Vi udleder ikke et tal når linjerne mangler.** `boxesForBon` giver `null`,
+  feltet melder `[mangler]`, og vi påstår ikke "0 kolli" over for buddet.
+  Ét sted er det anderledes: **`/calculate`** SKAL kunne prissætte, så den
+  falder tilbage på `ceil(arbejdsmængde / pax_per_box)` og siger det med
+  `boxes_source: 'counted' | 'estimated'`. Logistik-rækkens tooltip skriver
+  "4 kasser" mod "2 kasser, skønnet" — et gæt der ser ud som en optælling er
+  værre end et gæt man kan se.
+- **`bons.boxes` beholder forrangen** hvis nogen HAR sat den. I praksis dødt,
+  men et tal et menneske har skrevet skal vinde over en optælling.
+
+**Fire andre læsere af den døde kolonne rettet i samme greb** — ellers ville
+popoutet sige "4 kasser" mens de øvrige skærme sagde noget andet:
+
+| Sted | Var |
+|---|---|
+| `buildBookingPayload` → `estimateCost` | popoutets pris uden kasse-tillæg |
+| `delivery_log.logBookingEvent` | `delivery_cost_estimated` gemt uden tillæg |
+| `/overview` + `/routes` + `/courier/today` | logistik viste altid "std"; rute-kapacitetstjekket kunne aldrig fyre (By-expressen: 4 kassers kapacitet mod 3,3 i snit) |
+| `/calculate` | regnede på `ceil(enheder/16)` mens popoutet talte linjer |
+
+> ⚠️ **Subqueryens parametre står i SELECT-listen og skal bindes FØR resten.**
+> `boxCountSql` returnerer `{sql, args}`, og kaldet er
+> `.all(...box.args, bonId)`. Får man rækkefølgen galt, svarer SQLite
+> `column index out of range` — i drift, ikke i en test, for **ingen test
+> ramte `/overview` eller `/routes` over HTTP** før denne. De gør de nu.
+
+**Tests**: `npm run test:kasser` — 45 asserts. Regressionen er drifts-scenariet
+(transportkasse-linjer + tom kolonne), og endpointene rammes ægte med routeren
+monteret in-process. **Mutations-testet: 10 mutationer, alle fanget** af hver
+sin navngivne assert. Regression grøn: spor1-unit 105, spor1 65, spor2-unit 42,
+spor2-routes 24, spor2-courier 29, lobo 21, migrate 6. Browser-verificeret mod
+en frisk lokal DB: "Antal kolli: 4" og ≈ 244 kr hvor der før stod `[mangler]`
+og 144 kr; en bon uden kasse-linjer melder stadig `[mangler]`; `/overview`,
+`/routes` og `/calculate` er enige om de 4. Testdata ryddet.
+
+> **Ikke bygget:** Settings-UI til listen. En ny kassetype i Grocy skal
+> tilføjes med SQL indtil da — men der er kun kommet to typer siden 2023, og
+> `settings.description` forklarer hvad feltet er. Hører hjemme under
+> Settings → Leveringsmetoder hvis det bliver aktuelt.
+
+
+### Taxa manglede adressen, og beskedfeltet tager 120 tegn (20. september 2026)
+
+To ting meldt fra drift i samme ombæring som kasse-tællingen ovenfor.
+
+**Adressen manglede helt.** Taxas samlede skabelon havde INGEN adresse-variabel —
+kun `lever til {company_name}`. Taxaen fik altså firmanavnet og ingen adresse.
+Variablerne har eksisteret hele tiden (`{delivery_address}` m.fl.); de var bare
+aldrig sat ind i netop den skabelon, som kontoret har skrevet i hånden i Settings.
+
+**Beskedfeltet hos taxa.nu tager 120 tegn**, og blokken med start/lever/kontakt
+lander på **111** med almindelige data — ni fra grænsen. Et langt kontaktnavn
+sprænger den, og kontoret kunne ikke se det ved at kigge på en kodeblok.
+
+- **`{{max:N}}` i skabelonen**: en linje der kun indeholder markøren sætter
+  grænsen for blokken under sig (en blok = linjerne frem til næste tomme linje).
+  Markøren fjernes fra den tekst der kopieres — den er en instruktion, ikke
+  indhold. `renderTemplateBlocks` i [services/booking_template.js](services/booking_template.js)
+  returnerer `text_blocks: [{text, length, maxlen, over, missing}]` ved siden af
+  `clipboard_text`.
+- **Vi afkorter ALDRIG.** Popoutet viser tælleren (`111/120`), markerer blokken
+  rød når den er over, og skriver det i mangler-banneret. Hvad der skal ud er
+  kontorets valg — et telefonnummer klippet væk i stilhed er værre end en tekst
+  man selv forkorter.
+- **Blokke er klikbare**: hver blok er sin egen kopi-knap, for kontoret kopierer
+  blok for blok ind i leverandørens formular. **Tælleren bor uden for blokkens
+  span**, så den hverken følger med ved klik eller ved en musemarkering.
+  "Kopiér hele teksten" bruger payloadets egen tekst, ikke DOM'ens `textContent`,
+  af samme grund.
+- **Whitespace bevares præcist.** Kontoret har selv valgt hvor luften skal være,
+  og vi samler ikke teksten på ny med vores egne separatorer.
+- **`maxlen` på felter** (`booking_fields_json`) giver samme tæller i
+  felt-for-felt-visningen. Additivt: et felt uden `maxlen` opfører sig som før.
+- **Migration 181** sætter begge dele på Taxa: markøren før besked-blokken og
+  adressen som egen blok før datoen (111 + 36 = 147 ville have sprængt grænsen,
+  så den kunne ikke komme ind i blokken). Skabelonen er kontorets egen tekst, så
+  migrationen **overskriver den ikke** — den sætter kun det ind der mangler, og
+  kun når ankeret optræder præcis én gang. Har nogen skrevet skabelonen om, sker
+  der ingenting. `booking_template` seedes i øvrigt ikke af nogen migration, så
+  på en frisk dev-DB er 181 en no-op; det er drift den retter.
+
+> ⚠️ **`_dvParseFields` i Settings tabte `maxlen`.** Editoren mappede kun
+> label/template/step, så grænsen ville være forsvundet første gang nogen åbnede
+> vognen og trykkede Gem — en indstilling der falder bort fordi editoren ikke
+> kendte den. Feltet er nu med hele vejen: parse → input-række → serialisering.
+> Låst fast af en test, fordi den slags kun viser sig ved et tilfældigt gem.
+
+**Tests**: `npm run test:tegngraense` — 66 asserts. Blok-parsingen, felternes
+`maxlen`, migrationen (inkl. at den lader en omskrevet skabelon være), og
+popoutets rendering i vm-sandkasse — hvor en attrap registrerer klik-handlerne,
+så vi måler hvad et klik **faktisk kopierer** og ikke kun hvordan markup'en ser
+ud. **Mutations-testet: 9 mutationer, alle fanget.** To slap igennem første runde
+og blev lukket: en assert der ikke kunne skelne tællerens placering, og en linje
+kode der viste sig uopnåelig (den blanke linje nulstiller altid grænsen) og
+derfor er fjernet frem for at få en test skrevet om sig.
+
+Browser-verificeret mod driftsskabelonen med rigtige museklik: markøren væk,
+tæller over blokken, adressen som egen blok, klik kopierer præcis blokken uden
+tælleren, langt kontaktnavn → rødt med banner, "Kopiér hele teksten" uden
+tællere og med telefonnummeret intakt, og `maxlen` overlever et gem gennem
+Settings. Testdata ryddet.
+
+**Efterspil fra drifttesten (samme dag).** To ting kom retur:
+
+- **Tælleren stod ved siden af blokkens sidste linje** og så dermed ud som en
+  del af den. Grænsen gælder hele blokken, så tælleren står nu på sin egen
+  linje **over** den. Den bor fortsat uden for blokkens span og har
+  `user-select: none`, så den hverken følger med ved klik eller ved en
+  musemarkering — begge dele efterprøvet i browseren.
+- **`{total_boxes}` gav et bart "1"** (`start: B4296, 1 hos Ristet Rug`), som
+  ikke siger noget til den der skal køre. Ny **`{total_boxes_text}`** er samme
+  tal med ordet på, **bøjet**: `1 kasse` / `4 kasser`. Bøjningen hører i koden —
+  `{total_boxes} kasser` i skabelonen ville give "1 kasser". **Migration 182**
+  bytter variablen ud i Taxas skabelon.
+
+  Det rene tal bevares som `{total_boxes}` og bruges uændret af By-expressens
+  felt **"Antal kolli"**: et formularfelt der spørger om et antal skal have `4`,
+  ikke "4 kasser".
+
+**Og så blev der gjort plads** (migration 183 + 184, begge drift-forslag):
+`kontakt: ` → `tlf ` sparer 5 tegn, `lever til ` → `lever: ` sparer 3. Begge
+siger det samme i den telegramstil blokken allerede har (`start:`), og kolon
+går igen. Blokken går fra 117–119 til **109–111 af de 120**:
+
+| | 1 kasse | 12 kasser |
+|---|---|---|
+| før | 117 | 119 |
+| efter `tlf` | 112 | 114 |
+| efter `lever:` | **109** | **111** |
+
+Det giver plads til et kontaktnavn på **34 tegn** mod 23 i dag. Et virkelig
+langt navn sprænger stadig grænsen — det er dét tælleren er til for.
+
+Begge migrationer matcher **hele ankeret** (`kontakt: {delivery_contact_name}`,
+`lever til {company_name}`), ikke bare ordene: et `kontakt:` eller `lever til`
+foran fri tekst er kontorets egen formulering og skal stå.
+
+Testen voksede 66 → **93 asserts**; 17 mutationer i alt, alle fanget.
+
+> ⚠️ **En pre-eksisterende natte-bug faldt ud undervejs.**
+> `test-delivery-spor2-courier.js` byggede sin dato med
+> `new Date().toISOString().slice(0,10)` (UTC), mens serverens `/courier/today`
+> bruger `todayISO()` (Europe/Copenhagen). Mellem midnat og kl. 02 oprettede
+> testen ruter på den ene dag og spurgte efter den anden — alle 29 asserts
+> faldt. Den blev synlig fordi arbejdet løb over midnat; jf. #133 og
+> memory `project_utc_today_bug`. Rettet til `todayISO()`.
+
 
 ## Næste opgave
 

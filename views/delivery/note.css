@@ -370,3 +370,44 @@ html, body {
         grid-column: 1 / -1;
     }
 }
+
+/* ==========================================
+   Blokke i den samlede tekst
+   Hver blok er sin egen kopi-knap — kontoret kopierer blok for blok ind i
+   leverandørens formular. Tælleren står UDEN FOR blokken, så den aldrig
+   følger med i det der kopieres.
+   ========================================== */
+.dn-block {
+    cursor: pointer;
+    border-radius: 3px;
+    /* Negativ margin + padding gør klikfladen lidt større end teksten uden
+       at flytte noget: blokkene sidder i en <pre>, hvor hver px tæller. */
+    margin: 0 -3px;
+    padding: 0 3px;
+    transition: background-color .12s;
+}
+.dn-block:hover   { background: rgba(255,255,255,.10); }
+.dn-block.copied  { background: rgba(122,168,116,.30); }
+.dn-block.over    { box-shadow: inset 2px 0 0 #d9534f; background: rgba(217,83,79,.14); }
+
+/* Egen linje OVER blokken — grænsen gælder hele blokken, ikke dens sidste linje.
+   user-select:none så den ikke kan komme med i en musemarkering. */
+.dn-block-count {
+    display: block;
+    font-size: 10px;
+    line-height: 1.4;
+    color: #a8a49c;
+    white-space: nowrap;
+    user-select: none;
+}
+.dn-block-count.over { color: #ff8a85; font-weight: 600; }
+
+/* Tegntæller på felt-chips (felt-for-felt-visningen) */
+.dn-field-count {
+    font-size: 10px;
+    color: var(--color-text-dim, #8a8378);
+    white-space: nowrap;
+    user-select: none;
+}
+.dn-field-count.over { color: #b3352f; font-weight: 600; }
+.dn-field-row.over   { box-shadow: inset 2px 0 0 #d9534f; }

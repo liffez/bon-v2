@@ -238,6 +238,12 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
     if (req.params.key === 'smartplan_hq_location') {
         require('../services/smartplanAdapter').clearCache();
     }
+    // Hvilke opskrifter der tæller som transportkasser driver både {total_boxes}
+    // i bud-popoutet og leverandørernes kasse-tillæg. Cachen er 60s — ryd den,
+    // så en rettelse gælder næste booking og ikke først om et minut.
+    if (req.params.key === 'delivery_box_recipes') {
+        require('../services/deliveryBoxes').invalidateBoxRecipeCache();
+    }
     // Interne afsendere afgør hvor indgående mail lander — en ændring skal virke
     // ved næste polling, ikke først når 60s-cachen udløber.
     if (req.params.key === 'internal_mail_domains' || req.params.key === 'mail_domain') {
