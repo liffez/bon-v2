@@ -178,11 +178,11 @@ Faste kolonner: status · produkt · mængde · enhed · gram · kostpris · CO�
 
 | Regel | |
 |---|---|
-| R6.1 | Handlinger ligger altid i ⋯ (Erstat, Flyt til sektion ▸, Sæt svind, Åbn opskrift, Fjern). En linje må ikke skifte form |
+| R6.1 | Handlinger ligger altid i ⋯ (Erstat, Flyt til sektion ▸, Åbn opskrift, Fjern). En linje må ikke skifte form |
 | R6.2 | Steppere kun for stk-enheder. Vægt og volumen får et talfelt med `inputmode="decimal"` |
 | R6.3 | Statusprikken betyder **afklaret / ikke afklaret** — ikke lagerstatus |
 | R6.4 | Enhedsnavne normaliseres i visningen: stk, g, kg, ml, l |
-| R6.5 | Svind vises som annotation efter navnet: "+10 % rensesvind medregnet". Mængden er uberørt (I2) |
+| R6.5 | Svind vises som annotation efter navnet: "+10 % rensesvind medregnet". Mængden er uberørt (I2). **Kan ikke sættes i hånden endnu** — `waste_pct` findes hverken i kladden, på serveren eller i Grocy, så en note ville forsvinde ved næste Gem. Menupunktet «Sæt svind» er fjernet indtil feltet har et sted at bo; visningen bliver stående, så importens annotation kan renderes den dag den kommer |
 
 ### 6.3 Udfoldning
 

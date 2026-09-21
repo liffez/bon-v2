@@ -378,6 +378,33 @@ console.log('\n── §8 ± vises kun ved fokus ──────────�
     ok(!andet, 'kontrol: alt andet må stadig få fokus som normalt');
 }
 
+// ── §9 Ingen knap der taber sit indhold ───────────────────────
+// «Sæt svind» skrev `waste_pct` på linjen og viste annotationen — men
+// feltet findes hverken i kladden, på serveren eller i Grocy, så noten
+// forsvandt ved næste Gem. Samme klasse som allergen-pillen: en kontrol
+// der ser ud til at virke og ikke gør.
+console.log('\n── §9 «Sæt svind» er væk indtil den kan gemmes ───────────');
+{
+    const editor = fs.readFileSync(path.join(__dirname, '..', 'shared', 'recipe_editor.js'), 'utf8');
+    ok(!/'waste'/.test(editor), '⋯-menuen tilbyder ikke længere at sætte svind');
+    ok(!/function sætSvind/.test(editor), 'og funktionen bag den er fjernet, ikke bare skjult');
+
+    // Læseren bliver: importen producerer annotationen (I2), og den skal
+    // kunne vises den dag feltet har et sted at bo.
+    const linjer = fs.readFileSync(path.join(__dirname, '..', 'shared', 'recipe_lines.js'), 'utf8');
+    ok(/function svindTekst/.test(linjer),
+        'men visningen bliver stående — importen skal kunne rendere sin annotation');
+
+    // Og den virker stadig, hvis nogen fylder feltet.
+    const RL = sandbox.window.RecipeLines;
+    const ud = RL.buildList(
+        { recipe_id: 1, name: 'x', base_servings: 1, yield: {},
+          lines: [{ product_id: 9, amount: 1, waste_pct: 10, waste_label: 'rensesvind' }] },
+        { lines: [{ draft_index: 0, name: 'Gulerødder', unit: 'Kilo', amount_stock: 1 }] }, {});
+    ok(/10\s*%\s*rensesvind/.test(ud.lines[0].annotation || ''),
+        `en kladde med svind viser det stadig (${ud.lines[0].annotation})`);
+}
+
 console.log(fail ? `\n\x1b[31m${pass} PASS · ${fail} FAIL\x1b[0m\n`
                  : `\n\x1b[32m${pass} PASS · 0 FAIL\x1b[0m\n`);
 process.exit(fail ? 1 : 0);

@@ -1492,7 +1492,12 @@ function åbnMenu(knap, key) {
     const punkter = [];
     if (v.expandable) punkter.push(['open-recipe', 'Åbn opskrift']);
     punkter.push(['move', 'Flyt til sektion ▸']);
-    punkter.push(['waste', v.annotation ? 'Ret svind' : 'Sæt svind']);
+    // «Sæt svind» stod her og skrev `waste_pct` på linjen. Annotationen blev
+    // vist — men feltet findes hverken i kladden, på serveren eller i Grocy,
+    // så noten forsvandt ved næste Gem. En knap der taber sit indhold er
+    // værre end ingen knap. Læseren (`svindTekst` i recipe_lines.js) bliver
+    // stående: importen producerer annotationen (spec §8/I2), og den skal
+    // kunne vises den dag den har et sted at bo.
     punkter.push(['remove', 'Fjern']);
     m.innerHTML = punkter.map(([a, t]) =>
         '<button class="re-menu-i" data-menu="' + a + '" data-key="' + esc(key) + '">' + esc(t) + '</button>').join('');
@@ -1510,7 +1515,6 @@ function åbnMenu(knap, key) {
         lukMenu();
         if (a === 'remove') fjernLinje(key);
         if (a === 'move')   flytSektion(key);
-        if (a === 'waste')  sætSvind(key);
         if (a === 'open-recipe') {
             const rid = v.type === 'nesting' ? v.includes_recipe_id : v.semi_recipe_id;
             if (rid) window.open('/kitchen/recipes.html?recipe=' + rid, '_blank', 'noopener');
@@ -1536,22 +1540,6 @@ function flytSektion(key) {
     l.section = (isFinite(n) && n >= 1 && n <= valg.length) ? valg[n - 1] : svar.trim();
     S.lastSection = l.section;
     byggLinjer(); tegnListe(); tegnTilføj(); tegnBund();
-}
-
-/** I2: svind ANNOTERES. Mængden røres ikke — vi regner ikke baglæns. */
-function sætSvind(key) {
-    const l = linjeFraKey(key);
-    if (!l) return;
-    const svar = prompt('Svind i procent (tom fjerner):', l.waste_pct == null ? '' : String(l.waste_pct));
-    if (svar == null) return;
-    const n = num(svar);
-    if (n == null) { delete l.waste_pct; delete l.waste_label; }
-    else {
-        l.waste_pct = n;
-        const t = (prompt('Hvad slags svind? (fx rensesvind)', l.waste_label || 'svind') || '').trim();
-        if (t) l.waste_label = t;
-    }
-    byggLinjer(); tegnListe(); tegnBund();
 }
 
 /* ── Gennemgang (§8.4) ────────────────────────────────────────── */
