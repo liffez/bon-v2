@@ -1180,6 +1180,25 @@ function patchCustomer(customerId, fields) {
     });
 }
 
+// Hvad hænger der på kontaktpersonen? Spørges FØR bekræftelsen, så dialogen
+// kan sige hvad en lukning efterlader i stedet for at vise tallet bagefter.
+function fetchCustomerContent(customerId) {
+    return apiFetch('/customers/' + customerId + '/content');
+}
+
+// Luk en kontaktperson (is_active = 0). Slettes aldrig — bons, tilbud og
+// mailtråde bliver stående og beholder navnet.
+function closeCustomer(customerId, reason) {
+    return apiFetch('/customers/' + customerId, {
+        method: 'DELETE',
+        body: JSON.stringify({ reason: reason || null }),
+    });
+}
+
+function restoreCustomer(customerId) {
+    return apiFetch('/customers/' + customerId + '/restore', { method: 'POST' });
+}
+
 function patchCustomerEconomic(customerId, fields) {
     return apiFetch('/customers/' + customerId + '/economic', {
         method: 'PATCH',

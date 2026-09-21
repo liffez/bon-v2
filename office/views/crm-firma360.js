@@ -596,7 +596,9 @@ function _f3RenderRfm(rfm) {
 // ─── KONTAKTER-FANEN ───────────────────────────────────────────
 
 function _f3RenderKontakter(el) {
-    const { customers } = _f3State.data;
+    const { customers, closed_customers } = _f3State.data;
+    const closed = closed_customers || [];
+
     const listHtml = (!customers || customers.length === 0)
         ? '<div class="f3-empty">Ingen kontaktpersoner under dette firma endnu.</div>'
         : `<div class="f3-cust-list">
@@ -614,8 +616,31 @@ function _f3RenderKontakter(el) {
                         <span class="f3-cust-orders">${c.order_count || 0} bons</span>
                         ${c.last_order_date ? `<span class="f3-cust-last">${_f3FormatDate(c.last_order_date)}</span>` : ''}
                     </div>
+                    <button class="f3-cust-remove" data-remove="${c.id}"
+                            title="Fjern ${escapeHtml(c.name.trim())} fra ${escapeHtml(_f3State.data.company?.name || 'firmaet')}">×</button>
                 </div>
             `).join('')}
+        </div>`;
+
+    // Lukkede kontaktpersoner. Uden listen ville en lukning være en blindgyde:
+    // rækken står ikke i nogen anden visning og kan kun findes på sit id.
+    const closedHtml = closed.length === 0 ? '' : `
+        <div class="f3-closed-wrap">
+            <button class="f3-closed-toggle" id="f3-closed-toggle" aria-expanded="false">
+                ${closed.length} lukket${closed.length === 1 ? '' : 'e'} <span class="f3-closed-caret">▾</span>
+            </button>
+            <div class="f3-closed-list" id="f3-closed-list" hidden>
+                ${closed.map(c => `
+                    <div class="f3-closed-row">
+                        <div class="f3-closed-main">
+                            <span class="f3-closed-name">${escapeHtml(c.name.trim() || '(uden navn)')}</span>
+                            <span class="f3-closed-meta">${c.email ? escapeHtml(c.email) : '— ingen email —'}${
+                                c.order_count ? ' · ' + c.order_count + ' bons' : ''}</span>
+                        </div>
+                        <button class="f3-closed-restore" data-restore="${c.id}" title="Luk op igen">↺ Gendan</button>
+                    </div>
+                `).join('')}
+            </div>
         </div>`;
 
     el.innerHTML = `
@@ -624,15 +649,165 @@ function _f3RenderKontakter(el) {
         </div>
         <div id="f3-kontakt-form"></div>
         ${listHtml}
+        ${closedHtml}
     `;
 
     el.querySelector('#f3-add-kontakt')?.addEventListener('click', _f3OpenAddKontakt);
+
     el.querySelectorAll('.f3-cust-row').forEach(row => {
-        row.addEventListener('click', () => {
+        row.addEventListener('click', (e) => {
+            // ×-knappen og hele bekræftelsen ligger INDE i rækken, som selv er
+            // klikbar. Uden vagten ville et klik på "Annullér" åbne Kunde 360°.
+            if (e.target.closest('.f3-cust-remove, .f3-cust-confirm')) return;
             const cid = parseInt(row.dataset.customerId, 10);
             if (typeof window.openKunde360 === 'function') window.openKunde360(cid);
         });
     });
+
+    el.querySelectorAll('.f3-cust-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _f3OpenRemoveKontakt(parseInt(btn.dataset.remove, 10));
+        });
+    });
+
+    const toggle = el.querySelector('#f3-closed-toggle');
+    toggle?.addEventListener('click', () => {
+        const list = el.querySelector('#f3-closed-list');
+        if (!list) return;
+        const open = !list.hidden;
+        list.hidden = open;
+        toggle.setAttribute('aria-expanded', String(!open));
+        toggle.querySelector('.f3-closed-caret').textContent = open ? '▾' : '▴';
+    });
+
+    el.querySelectorAll('.f3-closed-restore').forEach(btn => {
+        btn.addEventListener('click', () => _f3RestoreKontakt(parseInt(btn.dataset.restore, 10), btn));
+    });
+}
+
+/**
+ * Bekræftelsen ved fjernelse — inline i rækken, ikke en modal.
+ *
+ * To valg, fordi "fjern" dækker to forskellige ting og de har hver sit udfald:
+ *
+ *   Stoppet i firmaet   → company_id = null. Personen bliver privatkunde og
+ *                         står stadig i kundesøgningen og modtager stadig mail.
+ *   Forkert oprettet    → is_active = 0. Rækken forsvinder fra alle lister,
+ *                         fra kundesøgningen og fra mail-routingen, men slettes
+ *                         aldrig: bons og tilbud beholder navnet.
+ *
+ * Indholdet hentes FØR valget træffes — et tal man først ser bagefter er ingen
+ * hjælp når man står og skal beslutte om rækken må lukkes.
+ */
+async function _f3OpenRemoveKontakt(customerId) {
+    const row = document.querySelector(`.f3-cust-row[data-customer-id="${customerId}"]`);
+    if (!row) return;
+    if (row.querySelector('.f3-cust-confirm')) {       // allerede åben → luk igen
+        row.querySelector('.f3-cust-confirm').remove();
+        row.classList.remove('f3-cust-row-confirming');
+        return;
+    }
+    // Kun én bekræftelse ad gangen — ellers kan to rækker stå med hver sit
+    // "fjern?" og man rammer den forkerte.
+    document.querySelectorAll('.f3-cust-confirm').forEach(x => {
+        x.closest('.f3-cust-row')?.classList.remove('f3-cust-row-confirming');
+        x.remove();
+    });
+
+    const cust = (_f3State.data.customers || []).find(c => c.id === customerId);
+    const navn = (cust?.name || '').trim() || 'kontaktpersonen';
+    const firma = _f3State.data.company?.name || 'firmaet';
+
+    const box = document.createElement('div');
+    box.className = 'f3-cust-confirm';
+    box.innerHTML = `<div class="f3-cc-load">Henter…</div>`;
+    row.appendChild(box);
+    row.classList.add('f3-cust-row-confirming');
+
+    let counts = null;
+    try {
+        counts = (await fetchCustomerContent(customerId)).counts;
+    } catch (err) {
+        box.innerHTML = `<div class="f3-cc-err">Kunne ikke hente: ${escapeHtml(err.message)}</div>`;
+        return;
+    }
+
+    const bits = [];
+    if (counts.bons)        bits.push(counts.bons + ' bon' + (counts.bons === 1 ? '' : 's'));
+    if (counts.tilbud)      bits.push(counts.tilbud + ' tilbud');
+    if (counts.traade)      bits.push(counts.traade + ' mailtråd' + (counts.traade === 1 ? '' : 'e'));
+    if (counts.aktiviteter) bits.push(counts.aktiviteter + ' aktivitet' + (counts.aktiviteter === 1 ? '' : 'er'));
+
+    box.innerHTML = `
+        <div class="f3-cc-head">Fjern <strong>${escapeHtml(navn)}</strong> fra ${escapeHtml(firma)}?</div>
+        ${bits.length
+            ? `<div class="f3-cc-content">Der hænger ${bits.join(' · ')} på hende. Det bliver stående uanset hvad du vælger.</div>`
+            : `<div class="f3-cc-content f3-cc-empty">Der hænger intet på rækken.</div>`}
+        <div class="f3-cc-choices">
+            <button class="f3-cc-btn f3-cc-detach" data-act="detach">
+                <span class="f3-cc-btn-t">Stoppet i firmaet</span>
+                <span class="f3-cc-btn-d">Bliver privatkunde — står stadig i kundesøgningen</span>
+            </button>
+            <button class="f3-cc-btn f3-cc-close" data-act="close">
+                <span class="f3-cc-btn-t">Forkert oprettet — luk rækken</span>
+                <span class="f3-cc-btn-d">Ude af lister, søgning og mail-routing. Kan gendannes</span>
+            </button>
+        </div>
+        <div class="f3-cc-foot">
+            <button class="f3-cc-cancel" data-act="cancel">Annullér</button>
+            <span class="f3-cc-msg"></span>
+        </div>
+    `;
+
+    box.querySelector('[data-act="cancel"]').addEventListener('click', () => {
+        box.remove();
+        row.classList.remove('f3-cust-row-confirming');
+    });
+    box.querySelector('[data-act="detach"]').addEventListener('click', () => _f3DoRemove(customerId, 'detach', box, navn));
+    box.querySelector('[data-act="close"]').addEventListener('click', () => _f3DoRemove(customerId, 'close', box, navn));
+}
+
+async function _f3DoRemove(customerId, act, box, navn) {
+    const msg = box.querySelector('.f3-cc-msg');
+    box.querySelectorAll('button').forEach(b => b.disabled = true);
+    if (msg) { msg.textContent = 'Gemmer…'; msg.className = 'f3-cc-msg'; }
+    try {
+        if (act === 'detach') {
+            await patchCustomer(customerId, { company_id: null });
+            _f3ShowToast(navn + ' er nu privatkunde', 'ok');
+        } else {
+            const r = await closeCustomer(customerId, 'fjernet fra ' + (_f3State.data.company?.name || 'firmaet'));
+            // Lukkede kontaktpunkter nævnes: adressen holder op med at route
+            // mail til hende, og dét er ikke til at se på skærmen.
+            const cp = r.contact_points_closed
+                ? ' · ' + r.contact_points_closed + ' kontaktpunkt' + (r.contact_points_closed === 1 ? '' : 'er') + ' lukket'
+                : '';
+            _f3ShowToast(navn + ' er lukket' + cp, 'ok');
+        }
+        await _f3Reload();
+    } catch (err) {
+        box.querySelectorAll('button').forEach(b => b.disabled = false);
+        if (msg) { msg.textContent = 'Fejl: ' + err.message; msg.className = 'f3-cc-msg f3-cc-msg-err'; }
+    }
+}
+
+async function _f3RestoreKontakt(customerId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Gendanner…'; }
+    try {
+        const r = await restoreCustomer(customerId);
+        // En adresse der er lært på en ANDEN kunde imens kan ikke åbnes igen —
+        // to aktive ejere ville gøre mail-routingen tvetydig. Det siges højt,
+        // ellers ville kontaktpunktet bare mangle.
+        const sk = (r.contact_points_skipped || []).length;
+        _f3ShowToast(sk
+            ? 'Gendannet — men ' + sk + ' adresse' + (sk === 1 ? '' : 'r') + ' bruges nu af en anden kontakt'
+            : 'Kontaktpersonen er gendannet', 'ok');
+        await _f3Reload();
+    } catch (err) {
+        if (btn) { btn.disabled = false; btn.textContent = '↺ Gendan'; }
+        _f3ShowToast('Fejl: ' + err.message, 'error');
+    }
 }
 
 function _f3OpenAddKontakt() {

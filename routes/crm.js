@@ -1225,6 +1225,22 @@ router.get('/company/:id', handle((req, res) => {
       ORDER BY last_order_date DESC NULLS LAST, order_count DESC, name ASC
     `).all(id);
 
+    // Lukkede kontaktpersoner (is_active = 0). Eget felt frem for et flag på
+    // `customers`, så listens betydning er uændret for alle nuværende læsere.
+    // Uden dem ville en lukning være en blindgyde: rækken står ikke i nogen
+    // liste og kan kun findes på sit id.
+    const closed_customers = db.prepare(`
+        SELECT c.id,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+               c.email, c.phone, c.updated_at,
+               COUNT(DISTINCT b.id) AS order_count
+          FROM customers c
+     LEFT JOIN bons b ON b.customer_id = c.id AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
+         WHERE c.company_id = ? AND c.is_active = 0
+      GROUP BY c.id
+      ORDER BY c.updated_at DESC, name ASC
+    `).all(id);
+
     // RFM-data for firmaet
     const rfm = db.prepare(`
         SELECT r_score, f_score, m_score, rfm_total, stage AS rfm_stage,
@@ -1330,6 +1346,7 @@ router.get('/company/:id', handle((req, res) => {
         },
         contact_points,
         customers,
+        closed_customers,
         rfm,
         flags,
         activities: mergedActivities,
