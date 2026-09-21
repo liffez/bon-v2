@@ -1,0 +1,24 @@
+-- 186_deduct_location.sql
+-- ==========================================
+-- Hvor gik lagertrækket hen? (#535)
+--
+-- Alt der skriver til Grocy følger `settings.default_grocy_location_id`. Peger
+-- den på Test, trækkes lageret DÉR: produktions-lageret rører sig ikke, bonen
+-- markeres `inventory_deducted = 1`, og trækket kan ikke gentages — idempotens-
+-- vagten er netop bygget til at forhindre det. Bagefter kunne det kun findes
+-- ved at kigge i Grocys stock_log og undre sig.
+--
+-- `production_batches` gemmer allerede sin `location_id`. Bons gjorde ikke.
+--
+-- IKKE det samme som `bons.location_id`. Den er bonens EGEN lokation (hvor
+-- ordren hører hjemme) og sættes ved oprettelsen. Denne her er hvor lagertrækket
+-- FAKTISK landede, og den følger `settings.default_grocy_location_id` i det
+-- øjeblik bonen blev leveret. De to er som regel ens — og når de ikke er, er det
+-- præcis det tilfælde kolonnen findes for.
+--
+-- NULL betyder "ikke skrevet ned": enten en bon fra før denne kolonne, eller et
+-- træk der aldrig nåede Grocy (event-gaten, ingen opskriftslinjer). Vi gætter
+-- ikke bagud — et opdigtet id ville ligne en måling.
+-- ==========================================
+
+ALTER TABLE bons ADD COLUMN inventory_deducted_location_id INTEGER REFERENCES locations(id);

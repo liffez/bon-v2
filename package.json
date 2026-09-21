@@ -99,7 +99,7 @@
     "test:modtag": "node --experimental-sqlite --test tests/modtag_uden_bestilling.test.js && node --experimental-sqlite --test tests/lager_flere_enheder.test.js && node scripts/test-modtag-klient.js",
     "test:consume-race": "node --experimental-sqlite scripts/test-consume-race.js",
     "test:pos-bon": "node --experimental-sqlite scripts/test-pos-bon-no-stock.js",
-    "test:deduct-watchdog": "node --experimental-sqlite scripts/test-deduct-watchdog.js",
+    "test:deduct-watchdog": "node --experimental-sqlite scripts/test-deduct-watchdog.js && node --experimental-sqlite --test tests/deduct_location.test.js",
     "diagnose:partial-consume": "node --experimental-sqlite scripts/diagnose-partial-consume.js",
     "check:receipt-units": "node --experimental-sqlite scripts/check-receipt-unit-conversions.js",
     "test:receipt-schema": "node --experimental-sqlite scripts/test-receipt-schema.js && node --experimental-sqlite scripts/test-receipt-schema-e2e.js && node --experimental-sqlite scripts/test-goods-receipt-webhook.js",

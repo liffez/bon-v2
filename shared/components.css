@@ -413,3 +413,22 @@
 }
 .bl-flag-badge:hover { filter: brightness(0.92); }
 
+
+/* Lagertræk i en Grocy der ikke er drift (#535) — bliver stående til den lukkes. */
+.grocy-warn {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 10001;
+    display: flex; align-items: flex-start; gap: 14px;
+    max-width: 560px;
+    background: #7a2e22; color: #fff;
+    padding: 14px 18px; border-radius: 8px;
+    font-size: 14px; line-height: 1.45;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+}
+.grocy-warn-close {
+    flex: 0 0 auto;
+    background: rgba(255,255,255,0.18); color: #fff;
+    border: 1px solid rgba(255,255,255,0.45); border-radius: 5px;
+    padding: 5px 14px; font: inherit; font-weight: 600; cursor: pointer;
+}
+.grocy-warn-close:hover { background: rgba(255,255,255,0.3); }

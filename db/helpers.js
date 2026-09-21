@@ -203,7 +203,13 @@ async function autoBatchForBon(bonId, lines, recipeFactors, packingOverrides = n
     }
 }
 
-// Grocy auto-consume når en bon leveres. Idempotent via bons.inventory_deducted —
+// Grocy auto-consume når en bon leveres. Returnerer SYNKRONT om et træk blev sat
+// i gang, og hvilken Grocy det lander i: { started, location }. Kalderen skal
+// ikke gentage reglerne (auto-deduct-flag, event-gate, idempotens) for at kunne
+// advare — gjorde den det, ville de to udgaver skride fra hinanden, og advarslen
+// ville før eller siden påstå et træk der aldrig skete (#535).
+//
+// Idempotent via bons.inventory_deducted —
 // kaldes både fra office-status-skift (routes/bons.js) og courier-levering
 // (routes/delivery.js), men trækker kun lageret én gang. Fire-and-forget:
 // Grocy-kaldet afventes ikke, så et langsomt/nede Grocy ikke blokerer svaret.
@@ -220,10 +226,18 @@ function autoConsumeBonInventory(bonId) {
         LEFT JOIN events e            ON b.event_id          = e.id
         WHERE b.id = ?
     `).get(bonId);
-    if (!bon) return;
+    if (!bon) return { started: false, location: null };
     if (bon.inventory_deducted === 1) {
         console.log(`[grocy_consume] bon ${bonId}: lager allerede trukket — skipper (idempotens)`);
-        return;
+        return { started: false, location: null };
+    }
+    // Hvor lander trækket? Slås op FØR kaldene, så sporet gælder den Grocy der
+    // faktisk blev skrevet i — også hvis nogen skifter aktiv lokation imens (#535).
+    // Uden den kan et fejlagtigt træk ikke findes bagefter, kun gættes.
+    const trukketIn = activeGrocyLocation();
+    if (isNonDriftLocation(trukketIn)) {
+        console.warn(`[grocy_consume] bon ${bonId}: ADVARSEL — aktiv Grocy er "${trukketIn.name}"`
+                   + ` (${trukketIn.code}), ikke drift. Lageret trækkes DÉR, og trækket kan ikke gentages.`);
     }
     // Event-scoped no-deduct (CLAUDE_EVENT.md §5) FØRST — en let-event salgsbon
     // må ALDRIG trække HQ-lager, uanset om det globale auto-deduct-flag er
@@ -239,7 +253,7 @@ function autoConsumeBonInventory(bonId) {
         ).run(bonId);
         logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: 'event_prep_owns_stock' });
         console.log(`[grocy_consume] bon ${bonId}: event-salgsbon — træk sprunget over (prep ejer HQ-lageret)`);
-        return;
+        return { started: false, location: null };
     }
     // Vej B (CLAUDE_EVENT.md §11): det globale auto-deduct-flag styrer resten af
     // forretningen. En let-event prep/top-up-bon undtages — den trækker uanset
@@ -251,7 +265,7 @@ function autoConsumeBonInventory(bonId) {
         && bon.price_category_code === 'produktion';
     if (!isEventProduction) {
         const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
-        if (!autoDeduct || autoDeduct.value !== '1') return;
+        if (!autoDeduct || autoDeduct.value !== '1') return { started: false, location: null };
     }
     const lines = getBonLines(bonId);
     // Manuelle pakke-overrides (kun event-prep-bons har dem) — trækker den
@@ -330,12 +344,19 @@ function autoConsumeBonInventory(bonId) {
         if (state === 'failed') {
             // Status gemmes ALLIGEVEL — uden den ville en fejlet bon se ud præcis
             // som en bon der endnu ikke var forsøgt.
-            db.prepare(`UPDATE bons SET inventory_deduct_status = 'failed' WHERE id = ?`).run(bonId);
+            // Et forsøgt træk hører også til et sted: uden lokationen kan en
+            // fejlet bon ikke skelnes fra en der ramte den forkerte Grocy.
+            db.prepare(`UPDATE bons SET inventory_deduct_status = 'failed',
+                                        inventory_deducted_location_id = ? WHERE id = ?`)
+              .run(trukketIn?.id ?? null, bonId);
         } else {
+            // 'empty' betyder at intet blev skrevet til Grocy — så står lokationen
+            // tom. Vi skriver kun ned hvor der FAKTISK blev trukket.
             db.prepare(
                 `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP,
-                                 inventory_deduct_status = ? WHERE id = ?`
-            ).run(state, bonId);
+                                 inventory_deduct_status = ?,
+                                 inventory_deducted_location_id = ? WHERE id = ?`
+            ).run(state, state === 'empty' ? null : (trukketIn?.id ?? null), bonId);
         }
         logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: JSON.stringify({ state, results }) });
     }).catch(err => {
@@ -343,9 +364,15 @@ function autoConsumeBonInventory(bonId) {
         // trækket kan gentages — og status gør fejlen synlig.
         console.error(`[grocy_consume] bon ${bonId}: fejl:`, err.message);
         try {
-            db.prepare(`UPDATE bons SET inventory_deduct_status = 'failed' WHERE id = ?`).run(bonId);
+            db.prepare(`UPDATE bons SET inventory_deduct_status = 'failed',
+                                        inventory_deducted_location_id = ? WHERE id = ?`)
+              .run(trukketIn?.id ?? null, bonId);
         } catch (_) { /* DB nede — loggen er alt vi har */ }
     });
+
+    // Svaret gives NU, mens kalderen stadig kan vise noget på skærmen. Selve
+    // trækket er fire-and-forget: leveringen må ikke vente på Grocy.
+    return { started: true, location: trukketIn };
 }
 
 // Manuelle pakke-overrides på en (event-prep) bon. Returnerer et Map
@@ -463,6 +490,31 @@ function getStatusId(code) {
 
 function getDefaultLocationId() {
     return getDb().prepare(`SELECT id FROM locations WHERE is_active = 1 ORDER BY id LIMIT 1`).get()?.id;
+}
+
+// Hvilken Grocy skriver vi i lige nu? (#535)
+//
+// Samme opslag som grocyAdapter.getGrocyConfig(), men uden at kræve en nøgle:
+// den skal kunne svare i en advarsel og i et spor, også når opsætningen er halv.
+// Returnerer null hvis der intet kan slås op — så siger kalderen det, frem for
+// at gætte på HQ.
+function activeGrocyLocation() {
+    const db = getDb();
+    const setting = db.prepare(`SELECT value FROM settings WHERE key = 'default_grocy_location_id'`).get();
+    const id = setting ? parseInt(setting.value) : getDefaultLocationId();
+    if (!id) return null;
+    return db.prepare(`SELECT id, code, name FROM locations WHERE id = ?`).get(id) || null;
+}
+
+// Lokationer der IKKE er beregnet til drift. Trailer og festival er legitime
+// skrivemål (#81) — det er kun test og den udfasede cafe-instans der altid er
+// en fejl at trække lager i. Listen skrives ud frem for at udlede "alt der ikke
+// er HQ": så koster en ny festival-lokation ikke en falsk advarsel.
+const NON_DRIFT_LOCATION_CODES = ['test', 'cafe'];
+
+/** Skal vi advare om at lagertrækket lander et sted der ikke er drift? */
+function isNonDriftLocation(loc) {
+    return !!loc && NON_DRIFT_LOCATION_CODES.includes(String(loc.code || '').toLowerCase());
 }
 
 // ─── BON-OPRETTELSE (fælles) ──────────────────────────────
@@ -1195,6 +1247,7 @@ module.exports = {
     searchAsId,
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, getStatusId, getDefaultLocationId,
+    activeGrocyLocation, isNonDriftLocation, NON_DRIFT_LOCATION_CODES,
     createBon,
     todayISO, offsetISO, sqlTime, copenhagenDayStartSql, addDaysISO,
     autoConsumeBonInventory,
