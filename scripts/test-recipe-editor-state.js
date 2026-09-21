@@ -275,8 +275,24 @@ console.log('\n── §6 Et rettet tal gemmes i lager-enhed ──────�
     klik({ dataset: { act: 'inc', key: vist.key } });
     ok(nær(S.draft.lines[0].amount, 0.046, 1e-9),
         `«+» giver ét gram mere (fik ${S.draft.lines[0].amount} kg)`);
+    // Og FELTET skal følge med straks. Læste det serverens `display_amount`,
+    // stod det med det gamle tal indtil /beregn svarede — man trykker «+»,
+    // kladden ændrer sig, og skærmen viser noget andet. Fanget i browseren,
+    // ikke her: den første udgave af testen målte kun kladden.
+    ok(S.lines.lines[0].amount === 46,
+        `og feltet viser 46 med det samme (fik ${S.lines.lines[0].amount})`);
     klik({ dataset: { act: 'dec', key: vist.key } });
     ok(nær(S.draft.lines[0].amount, 0.045, 1e-9), 'og «−» tager det igen');
+
+    // Og det gælder også det FAKTISKE input: gentegningen bevarer brugerens
+    // råtekst mens feltet har fokus (ellers tegnes «0,» som «0» midt i en
+    // indtastning), så ± skal skrive det nye tal selv. Uden det står feltet
+    // på det gamle tal mens alt andet er opdateret — set i browseren, ikke her.
+    const inp = byId('_felt_i0');
+    inp.dataset.act = 'amount'; inp.dataset.key = vist.key; inp.value = 'noget gammelt';
+    S.el.querySelector = (sel) => (/data-act="amount"/.test(sel) ? inp : null);
+    klik({ dataset: { act: 'inc', key: vist.key } });
+    ok(inp.value === '46', `og selve feltet får det nye tal skrevet i sig (fik ${inp.value})`);
 
     // En linje serveren ikke har set endnu: feltet og kladden er samme enhed.
     const ny = kladde(null, 'ZZT ny', '');
@@ -333,6 +349,33 @@ console.log('\n── §7 Ét klik er ét klik, uanset hvor mange opskrifter ─
     await RE.mount(rod, { draft: medSub, meta: META, overview: ovSub, mode: 'modify' });  // lige antal
     klik({ dataset: { act: 'expand', key: 'i0' } });
     ok(S.expanded.has('i0'), 'og udfoldningen åbner ved ét klik, også efter to mounts');
+}
+
+// ── §8 ± kommer først frem når man går i tallet ───────────────
+// To knapper ved hver anden linje gør en liste man LÆSER til en række
+// kontroller. De er derfor skjult indtil feltet har fokus — og så skal
+// klikket på dem ikke selv fjerne dem igen.
+console.log('\n── §8 ± vises kun ved fokus ──────────────────────────────');
+{
+    const css = fs.readFileSync(path.join(__dirname, '..', 'shared', 'recipe_editor.css'), 'utf8');
+    ok(/\.re-step\s*\{[^}]*visibility:\s*hidden/s.test(css),
+        'knapperne er skjulte som udgangspunkt');
+    ok(/\.re-qty:focus-within\s+\.re-step\s*\{[^}]*visibility:\s*visible/.test(css),
+        'og kommer frem når mængdefeltet har fokus');
+    ok(!/\.re-step\s*\{[^}]*display:\s*none/s.test(css),
+        'skjult med `visibility`, ikke `display` — pladsen skal blive stående, ellers hopper kolonnen');
+
+    // Uden preventDefault flytter mousedown fokus væk fra feltet, knappen
+    // bliver skjult igen, og klikket når aldrig frem.
+    await RE.mount(byId('rod'), { draft: A, meta: META, overview: {}, mode: 'modify' });
+    let afvist = false;
+    const stepKnap = { closest: (sel) => (sel === '.re-step' ? {} : null) };
+    S.el._fyr('mousedown', { target: stepKnap, preventDefault() { afvist = true; } });
+    ok(afvist, 'et tryk på ± holder fokus i feltet, så knappen ikke forsvinder under fingeren');
+
+    let andet = false;
+    S.el._fyr('mousedown', { target: { closest: () => null }, preventDefault() { andet = true; } });
+    ok(!andet, 'kontrol: alt andet må stadig få fokus som normalt');
 }
 
 console.log(fail ? `\n\x1b[31m${pass} PASS · ${fail} FAIL\x1b[0m\n`

@@ -1173,6 +1173,19 @@ function justérMængde(key, delta) {
         const vist = (num(l.amount) || 0) * f;
         l.amount = Math.max(0, vist + delta) / f;
     }
+    // Genbyg FØR gentegning: listen udleder det viste tal af kladden, og
+    // uden det ville feltet stå med det gamle tal indtil /beregn svarede.
+    byggLinjer();
+
+    // Skriv det nye tal i feltet SELV. Gentegningen bevarer brugerens råtekst
+    // mens feltet har fokus (ellers ville «0,» blive tegnet som «0» midt i en
+    // indtastning) — og ± flytter jo netop tallet uden at nogen har tastet.
+    // Uden det her står feltet med det gamle tal mens alt andet er opdateret.
+    const felt = S.el && S.el.querySelector(
+        '[data-act="amount"][data-key="' + String(key).replace(/"/g, '\\"') + '"]');
+    const ny = S.lines && (S.lines.lines || []).find(x => x.key === key);
+    if (felt && ny && ny.amount != null) felt.value = String(ny.amount).replace('.', ',');
+
     tegnListe(); genhentUdfoldning(key); planlægBeregn(); tegnBund();
 }
 
@@ -1427,6 +1440,14 @@ function bind() {
             if (rid) window.open('/kitchen/recipes.html?recipe=' + rid, '_blank', 'noopener');
             return;
         }
+    }, sig);
+
+    // − og + er kun synlige mens feltet har fokus (`:focus-within`). Et klik
+    // på dem ville flytte fokus VÆK ved mousedown, knappen ville forsvinde,
+    // og klikket aldrig blive fuldført. preventDefault holder fokus i feltet;
+    // så bliver knappen stående, og man kan trykke videre på den.
+    el.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.re-step')) e.preventDefault();
     }, sig);
 
     tegnBund();

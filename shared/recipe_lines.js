@@ -198,6 +198,19 @@ function svindTekst(linje) {
  * @param ctx      { enhedNavn: Map<id,navn>, gruppeNavn: Map<id,navn>,
  *                   erEmballageGruppe: fn }
  */
+/**
+ * Linjens mængde som den vises: lager-enheden ganget op med serverens faktor.
+ *
+ * To decimaler, som serveren selv afrunder til — ellers ville feltet vise
+ * 1,995 hvor serveren siger 2, og de to ville se uenige ud om det samme tal.
+ */
+function visMængde(linje, b) {
+    const raa = tal(linje.amount);
+    const f = b && b.display_factor;
+    if (raa == null || f == null || !isFinite(f) || f <= 0) return raa;
+    return Math.round(raa * f * 100) / 100;
+}
+
 function buildLine(linje, beregnet, ctx) {
     const c = ctx || {};
     const b = beregnet || null;
@@ -249,8 +262,11 @@ function buildLine(linje, beregnet, ctx) {
         // `display_factor` SKAL med ud: feltet er redigerbart, og uden den
         // kan en kalder ikke komme tilbage til lager-enheden. Et gæt på 1
         // ville gemme 2 kg hvor køkkenet skrev 2 stk (#352).
-        amount: type === 'nesting' ? tal(linje.servings)
-              : (b && b.display_amount != null ? tal(b.display_amount) : tal(linje.amount)),
+        // Tallet udledes af KLADDEN med serverens faktor — ikke af serverens
+        // `display_amount`. Feltet skal reagere på ± med det samme; serverens
+        // svar kommer først efter debouncen, og indtil da ville feltet stå
+        // med det gamle tal mens kladden var ændret.
+        amount: type === 'nesting' ? tal(linje.servings) : visMængde(linje, b),
         amount_stock: type === 'nesting' ? null : tal(linje.amount),
         display_factor: (b && b.display_factor != null) ? tal(b.display_factor) : null,
         unit: enhed,

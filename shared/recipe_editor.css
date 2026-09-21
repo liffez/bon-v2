@@ -147,7 +147,13 @@
     width: 30px; height: 30px; border: 1px solid var(--color-border);
     background: var(--color-background); border-radius: 6px; cursor: pointer;
     color: var(--color-text-dim); font: inherit;
+    /* − og + kommer først frem når man går i tallet. En liste man LÆSER
+       skal kunne læses; to knapper ved hver anden linje gør den til en
+       række kontroller. `visibility` og ikke `display`, så pladsen bliver
+       stående — ellers hopper hele kolonnen når feltet får fokus. */
+    visibility: hidden;
 }
+.re-qty:focus-within .re-step { visibility: visible; }
 .re-qin {
     width: 72px; text-align: center; font-family: inherit;
     border: 1px solid var(--color-border); border-radius: 6px; padding: 5px 4px;
