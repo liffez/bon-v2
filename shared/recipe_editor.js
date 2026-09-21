@@ -32,28 +32,60 @@ const RL = (typeof RecipeLines !== 'undefined') ? RecipeLines : null;
    Tilstand
    ══════════════════════════════════════════════════════════════ */
 
-const S = {
-    el: null,                // rod-element
-    mode: 'new',             // 'new' | 'modify' | 'import'
-    draft: null,             // kladden — den ENESTE sandhed om hvad der redigeres
-    orig: null,              // dyb kopi ved indlæsning; diffen måles mod den (I4)
-    overview: null,          // sidste svar fra /beregn
-    lines: null,             // RecipeLines.buildList(...)
-    ctx: {},                 // enhedsnavne, varegrupper, emballage-reglen
-    meta: {},                // grupper, enheder, priskategorier — til dropdowns
-    busy: false,
-    calcSeq: 0,              // hvilket /beregn-svar er det nyeste
-    lastSection: '',         // R4.2 — tilføj-blokken forvælger sidst rørte sektion
-    expanded: new Set(),     // udfoldede halvfabrikat/nesting-linjer
-    columns: null,           // kolonnevælger (localStorage)
-    search: { q: '', res: null, open: false, busy: false },
-    newLine: null,           // formularen for «+ Ny vare»
-    review: null,            // gennemgangspanelet (§8.4)
-    onExit: null,
-};
+/**
+ * Editorens tilstand — ALT hvad der hører til ÉN opskrift.
+ *
+ * Den er en funktion og ikke et objektliteral, fordi `mount` skal kunne
+ * nulstille den i ét greb. Felterne blev tidligere sat løbende (`S.stepsEdited = …`)
+ * uden at være deklareret her, og så blev de glemt når `mount` ryddede op
+ * felt for felt: en opskrift man åbnede bagefter viste — og ville gemme —
+ * den forriges fremgangsmåde. Et felt der kun findes når det er sat, er et
+ * felt der bliver glemt. Skriv det HER.
+ */
+function friskTilstand() {
+    return {
+        el: null,                // rod-element
+        mode: 'new',             // 'new' | 'modify' | 'import'
+        draft: null,             // kladden — den ENESTE sandhed om hvad der redigeres
+        orig: null,              // dyb kopi ved indlæsning; diffen måles mod den (I4)
+        overview: null,          // sidste svar fra /beregn
+        lines: null,             // RecipeLines.buildList(...)
+        ctx: {},                 // enhedsnavne, varegrupper, emballage-reglen
+        meta: {},                // grupper, enheder, priskategorier — til dropdowns
+        busy: false,
+        lastSection: '',         // R4.2 — tilføj-blokken forvælger sidst rørte sektion
+        expanded: new Set(),     // udfoldede halvfabrikat/nesting-linjer
+        expandData: null,        // svarene bag dem — nøglet på linje-key, som kan kollidere
+        columns: null,           // kolonnevælger (localStorage)
+        search: { q: '', res: null, open: false, busy: false },
+        searchSeq: 0,
+        newLine: null,           // formularen for «+ Ny vare»
+        review: null,            // gennemgangspanelet (§8.4)
+        editLineKey: null,       // linjen der redigeres inline
+        menu: null,              // åben ⋯-menu
+        priceTarget: null,       // DB%-skyderen — en norm pr. kategori, ikke pr. browser
+        skabelon: null,          // sektionsskabelon (hentes af hentSektionsskabelon)
+        stepsParsed: null,       // parset fremgangsmåde fra `description`
+        stepsEdited: null,       // brugerens ændringer i den
+        _udfoldT: null,          // timer for «opdaterer …» på en åben udfoldning
+        onExit: null,
+    };
+}
+
+const S = friskTilstand();
+// Tælleren for hvilket /beregn-svar der er det nyeste hører IKKE i
+// friskTilstand(): nulstilles den til 0 ved hvert mount, kan et svar fra
+// den forrige opskrift stadig være «nyt nok» og overskrive tallene.
+S.calcSeq = 0;
 
 const COL_KEY = 'rd_editor_cols';
-const COL_DEF = { gram: true, cost: true, co2: true, stock: false, allergen: false };
+// «Allergener» stod her som en sjette pille. Den tændte, men der findes
+// ingen allergen-kolonne i listen — og datagrundlaget bærer den ikke:
+// 21 af 225 varer i Grocy har `hk_allergens`, og indholdet er scrapet
+// råt («Mozzarella → Ælk»). En kontrol der ikke gør noget er værre end
+// ingen kontrol; en der viser forkerte allergener er farlig. Bygges den,
+// skal den bygges på data nogen står inde for.
+const COL_DEF = { gram: true, cost: true, co2: true, stock: false };
 
 /* ══════════════════════════════════════════════════════════════
    Småting
@@ -225,6 +257,18 @@ function antalÆndringer() {
  */
 async function mount(el, opts) {
     const o = opts || {};
+
+    // Ryd tilstanden fra den forrige opskrift i ÉT greb. Feltvis oprydning
+    // glemmer det felt der kom til sidst; her kan intet slippe igennem.
+    //
+    // Timeren stoppes først. I dag ville den alligevel ikke gøre skade —
+    // den løber over `expanded`, som nulstilles lige nedenfor — men et løst
+    // kort der kun holdes i skak af et ANDET felts oprydning er ikke et værn.
+    clearTimeout(S._udfoldT);
+    const seq = S.calcSeq;
+    Object.assign(S, friskTilstand());
+    S.calcSeq = seq + 1;   // ugyldiggør et /beregn-svar der stadig er undervejs
+
     S.el = el;
     S.mode = o.mode || (o.draft && o.draft.recipe_id != null ? 'modify' : 'new');
     S.draft = o.draft || tomKladde();
@@ -232,10 +276,6 @@ async function mount(el, opts) {
     S.meta = o.meta || {};
     S.onExit = o.onExit || null;
     S.overview = o.overview || null;
-    S.expanded = new Set();
-    S.search = { q: '', res: null, open: false, busy: false };
-    S.newLine = null;
-    S.review = null;
     S.lastSection = førsteSektion(S.draft);
     S.columns = læsKolonner();
     S.ctx = byggCtx(S.meta);
@@ -292,10 +332,14 @@ async function hentSektionsskabelon() {
    ══════════════════════════════════════════════════════════════ */
 
 function læsKolonner() {
+    const ud = Object.assign({}, COL_DEF);
     try {
         const r = JSON.parse(localStorage.getItem(COL_KEY) || 'null');
-        return r ? Object.assign({}, COL_DEF, r) : Object.assign({}, COL_DEF);
-    } catch (e) { return Object.assign({}, COL_DEF); }
+        // KUN kendte nøgler. En gemt kolonne der ikke findes mere ville
+        // ellers blive skrevet tilbage ved hvert klik og leve for evigt.
+        if (r) Object.keys(COL_DEF).forEach(k => { if (k in r) ud[k] = !!r[k]; });
+    } catch (e) { /* privat vindue */ }
+    return ud;
 }
 function gemKolonner() {
     try { localStorage.setItem(COL_KEY, JSON.stringify(S.columns)); } catch (e) { /* privat vindue */ }
@@ -1035,7 +1079,7 @@ function tegnPris(o) {
 }
 
 function tegnKolonneVælger() {
-    const navne = { gram: 'Gram', cost: 'Kostpris', co2: 'CO₂e', stock: 'Lager', allergen: 'Allergener' };
+    const navne = { gram: 'Gram', cost: 'Kostpris', co2: 'CO₂e', stock: 'Lager' };
     return '<div class="re-card re-cols"><div class="re-ov-h">VIS KOLONNER</div><div class="re-cols-row">' +
         Object.keys(navne).map(k =>
             '<button class="re-colbtn' + (S.columns[k] ? ' re-colbtn-on' : '') +
@@ -1152,7 +1196,6 @@ async function søg(q) {
     } finally { S.search.busy = false; }
     tegnResultater();
 }
-S.searchSeq = 0;
 
 /** Udfoldning (§6.3) — skrivebeskyttet, hentet på stedet. */
 async function foldUd(key) {
