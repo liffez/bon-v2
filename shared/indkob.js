@@ -51,6 +51,11 @@ var _ibLinkPanelId     = null;
    udløser en render sekunder efter at panelet er åbnet. Uden dette forsvinder
    teksten mens man skriver; fokus og markør blev gendannet, men ikke værdien. */
 var _ibLinkDraft       = {};
+/* Bestillingsteksten — sådan hedder varen hos DENNE leverandør. Gemmes på
+   stregkodens `note` og er det bestillingsmailen skriver; varenummeret kan
+   være vores eget interne, som leverandøren ikke kender. Samme grund til at
+   den bor uden for DOM'en som varenr-draften ovenfor. */
+var _ibLinkNoteDraft   = {};
 /* Sat når panelet retter et EKSISTERENDE varenummer (chippens ✎) i stedet for
    at lægge et nyt til. Holder barcode-id'et, ikke produktets. */
 var _ibLinkEditBcId    = null;
@@ -1276,12 +1281,19 @@ function _ibGetBadges(entry) {
  *     lægges på Hørkram-lokationen. Kun sådan kan varen lægges i deres kurv —
  *     også når produktet i øvrigt hører til en anden gruppe (fx Emballage).
  *  2. Leverandørens eget varenummer → lægges på DENNE gruppes lokation.
- *     Feltet er fri tekst, for en leverandør uden katalog har ofte ikke et
- *     nummer, men en fast betegnelse ("Hvide servietter 33x33") som er dét
- *     man skriver i bestillingsmailen.
+ *     Feltet er fri tekst: nogle leverandører har intet nummer, kun en fast
+ *     betegnelse. Har de heller ikke det, laver Bon et internt (INT-nnnn).
  *
- * INT-nummeret er nødløsningen når der hverken findes nummer eller betegnelse.
+ * Bestillingsteksten er et FELT FOR SIG (stregkodens `note`), fordi den skal
+ * i mailen mens et internt nummer ikke skal — se shared/supplier_order_lines.js.
  */
+/* Varenummer og bestillingstekst ryddes ALTID sammen: de er to felter i det
+   samme panel, og en efterladt note ville dukke op på næste vare man kobler. */
+function _ibClearLinkDraft(productId) {
+    delete _ibLinkDraft[productId];
+    delete _ibLinkNoteDraft[productId];
+}
+
 function _ibRenderLinkPanel(entry) {
     var pid = entry.product.id;
     var group = _ibGroups[_ibFindGroupForEntry(entry)] || {};
@@ -1304,9 +1316,11 @@ function _ibRenderLinkPanel(entry) {
     // ── Leverandørens eget varenummer ──
     h += '<div class="ib-lp-block">';
     h += '<div class="ib-lp-note"><b>' + (editBc ? 'Ret varenummer hos ' : 'Varenummer hos ') + _ibEsc(supLabel) + '</b>' +
-         ' — nummer eller den betegnelse du skriver i bestillingen.</div>';
+         (editBc ? ' — deres eget nummer, eller det interne Bon har lavet.'
+                 : ' — deres eget nummer. Har de ikke et, kan Bon lave et internt nedenfor.') +
+         '</div>';
     h += '<div class="ib-lp-row">';
-    h += '<input class="ib-lp-inp" placeholder="fx 4471 eller Hvide servietter 33x33"' +
+    h += '<input class="ib-lp-inp" placeholder="fx 4471 — eller lad Bon lave et internt nummer nedenfor"' +
          ' data-ib="lp-varenr" data-product-id="' + pid + '"' +
          ' value="' + _ibEsc(_ibLinkDraft[pid] || '') + '">';
     h += '<button class="ib-lp-btn" data-ib="lp-save-varenr" data-product-id="' + pid + '">Gem</button>';
@@ -1314,6 +1328,19 @@ function _ibRenderLinkPanel(entry) {
         h += '<button class="ib-lp-btn ghost" data-ib="lp-cancel-edit" data-product-id="' + pid + '">Annullér</button>';
     }
     h += '</div>';
+
+    // Bestillingsteksten. Står under nummeret, fordi den er dét leverandøren
+    // reelt bestiller efter — vores Grocy-navn ("Burgerlommer") kan ikke skelne
+    // 11×11 fra 14×14 cm.
+    h += '<div class="ib-lp-sub">Sådan hedder varen hos ' + _ibEsc(supLabel) + '</div>';
+    h += '<div class="ib-lp-row">';
+    h += '<input class="ib-lp-inp" placeholder="fx Burgerlommer, brune, 11 x 11 cm., pakke af 1.000 stk."' +
+         ' data-ib="lp-note" data-product-id="' + pid + '"' +
+         ' value="' + _ibEsc(_ibLinkNoteDraft[pid] || '') + '">';
+    h += '</div>';
+    h += '<div class="ib-lp-hint">Det er denne tekst der står i bestillingen — ikke varenummeret, ' +
+         'hvis det er et Bon selv har lavet. Tom: så bruges varens navn i Grocy.</div>';
+
     h += '<div class="ib-lp-msg" data-ib="lp-msg" data-product-id="' + pid + '"></div>';
     h += '</div>';
 
@@ -1350,9 +1377,11 @@ function _ibRenderLinkPanel(entry) {
     }
 
     // ── Nødløsning ──
-    h += '<div class="ib-lp-foot">Har varen hverken nummer eller fast betegnelse? ' +
+    h += '<div class="ib-lp-foot">Har ' + _ibEsc(supLabel) + ' ikke et varenummer? ' +
          '<button class="ib-lp-link" data-ib="lp-gen-int" data-product-id="' + pid + '">' +
-         'Generer et internt nummer</button></div>';
+         'Lav et internt nummer</button>' +
+         '<div class="ib-lp-foot-sub">Kun til os — det kommer ikke med i bestillingen. ' +
+         'Skriv teksten ovenfor først, så bruges den.</div></div>';
 
     h += '</div>';
     return h;
@@ -1413,7 +1442,7 @@ function _ibOpenEditVarenr(productId, barcodeId) {
     if (_ibLinkPanelId === productId && _ibLinkEditBcId === barcodeId) {
         _ibLinkEditBcId = null;
         _ibLinkPanelId = null;
-        delete _ibLinkDraft[productId];
+        _ibClearLinkDraft(productId);
         _ibRender();
         return;
     }
@@ -1421,6 +1450,7 @@ function _ibOpenEditVarenr(productId, barcodeId) {
     _ibLinkPanelId = productId;
     _ibLinkEditBcId = barcodeId;
     _ibLinkDraft[productId] = bc.barcode || '';
+    _ibLinkNoteDraft[productId] = bc.note || '';
     _ibRender();
     var inp = _ibContainer && _ibContainer.querySelector('[data-ib="lp-varenr"][data-product-id="' + productId + '"]');
     if (inp) { inp.focus(); inp.select(); }
@@ -1449,7 +1479,7 @@ async function _ibDeleteVarenr(productId, barcodeId) {
         await deleteProductBarcode(barcodeId);
         _ibLinkEditBcId = null;
         _ibLinkPanelId = null;
-        delete _ibLinkDraft[productId];
+        _ibClearLinkDraft(productId);
         _ibToast('Varenr. ' + bc.barcode + ' fjernet');
 
         _ibBarcodes = await fetchProductBarcodes();
@@ -1523,42 +1553,52 @@ async function _ibSaveFreeVarenr(productId) {
     var entry = _ibFindEntry(productId);
     if (!entry) return;
 
+    // Tom bestillingstekst ⇒ varens navn i Grocy, så linjen aldrig står uden
+    // vare. Det er også dét de eksisterende koblinger har i note-feltet.
+    var noteInp = _ibContainer && _ibContainer.querySelector('[data-ib="lp-note"][data-product-id="' + productId + '"]');
+    var note = (noteInp ? noteInp.value : (_ibLinkNoteDraft[productId] || '')).trim()
+               || (entry.product.name || '');
+
     // Rettelse af et eksisterende nummer — ikke et nyt ved siden af.
     if (_ibLinkEditBcId) {
-        await _ibUpdateVarenr(productId, _ibLinkEditBcId, varenr, msgEl);
+        await _ibUpdateVarenr(productId, _ibLinkEditBcId, varenr, note, msgEl);
         return;
     }
 
     var groupKey = _ibFindGroupForEntry(entry);
     var locId = parseInt(groupKey) || null;
 
-    await _ibLinkBarcode(productId, varenr, entry.product.name || '', locId, msgEl);
+    await _ibLinkBarcode(productId, varenr, note, locId, msgEl);
 }
 
 /* Ret et eksisterende varenummer. Lokationen røres ikke — det er stadig samme
    leverandørs nummer, det er bare skrevet om. */
-async function _ibUpdateVarenr(productId, barcodeId, varenr, msgEl) {
+async function _ibUpdateVarenr(productId, barcodeId, varenr, note, msgEl) {
     if (_ibBusy) return;
     var entry = _ibFindEntry(productId);
     var bc = entry && entry.barcodes.filter(function(b) { return b.id === barcodeId; })[0];
     if (!bc) return;
 
-    if (String(bc.barcode) === String(varenr)) {
+    // Begge felter uændrede ⇒ intet at skrive. Noten tælles med: man kan
+    // rette teksten alene, og et tidligt exit på nummeret ville kaste den væk.
+    if (String(bc.barcode) === String(varenr) && String(bc.note || '') === String(note || '')) {
         _ibLinkEditBcId = null;
         _ibLinkPanelId = null;
-        delete _ibLinkDraft[productId];
+        _ibClearLinkDraft(productId);
         _ibRender();
         return;
     }
 
     _ibBusy = true;
     try {
-        await updateProductBarcode(barcodeId, { barcode: String(varenr) });
+        await updateProductBarcode(barcodeId, { barcode: String(varenr), note: String(note || '') });
 
         _ibLinkEditBcId = null;
         _ibLinkPanelId = null;
-        delete _ibLinkDraft[productId];
-        _ibToast('Varenr. ændret til ' + varenr);
+        _ibClearLinkDraft(productId);
+        _ibToast(String(bc.barcode) === String(varenr)
+            ? 'Bestillingstekst opdateret'
+            : 'Varenr. ændret til ' + varenr);
 
         _ibBarcodes = await fetchProductBarcodes();
         _ibBuildGroups();
@@ -1575,6 +1615,20 @@ async function _ibUpdateVarenr(productId, barcodeId, varenr, msgEl) {
     }
 }
 
+/* Listens entry → varen som LEVERANDØREN ser den. Forhåndsvisningen, kopiér-
+   listen og ordrelinjen til mailen skal beskrive den SAMME bestilling; tre
+   kopier af denne mapping ville før eller siden vise hver sit. */
+function _ibOrderItem(e) {
+    var bc = e.selectedBarcode;
+    return {
+        product_name: e.product.name,
+        note: bc ? (bc.note || null) : null,
+        barcode: bc ? bc.barcode : null,
+        quantity: e.qty,
+        unit: e.needUnit,
+    };
+}
+
 /* ── Manual order dialog ───────────────────────────────────── */
 function _ibRenderManualDialog(g, key, readyItems) {
     var isOpen = _ibMoOpen === key;
@@ -1585,10 +1639,10 @@ function _ibRenderManualDialog(g, key, readyItems) {
     h += '<div class="ib-mo-title">Registrér bestilling — ' + _ibEsc(g.displayName) + '</div>';
     h += '<div class="ib-mo-list">';
     for (var i = 0; i < itemsToShow.length; i++) {
-        var e = itemsToShow[i];
-        var bcNote = e.selectedBarcode ? ('Nr. ' + e.selectedBarcode.barcode) : '';
-        h += '<div class="ib-mo-item"><span class="ib-mo-iname">' + _ibEsc(e.product.name) + '</span>';
-        h += '<span class="ib-mo-iqty">' + e.qty + ' ' + _ibEsc(e.needUnit) + (bcNote ? ' · ' + bcNote : '') + '</span></div>';
+        var vare = _ibOrderItem(itemsToShow[i]);
+        var nr = SupplierOrderLines.supplierNumber(vare);
+        h += '<div class="ib-mo-item"><span class="ib-mo-iname">' + _ibEsc(SupplierOrderLines.supplierLabel(vare)) + '</span>';
+        h += '<span class="ib-mo-iqty">' + _ibEsc(SupplierOrderLines.quantityText(vare)) + (nr ? ' · Nr. ' + _ibEsc(nr) : '') + '</span></div>';
     }
     h += '</div>';
     h += '<div class="ib-mo-acts">';
@@ -1788,8 +1842,8 @@ function _ibHandleClick(e) {
         case 'open-link':
             // Stod panelet i rette-tilstand, skal "+ Varenr." lægge et NYT til —
             // ikke fortsætte med at rette det forrige.
-            if (_ibLinkPanelId === parseInt(productId) && !_ibLinkEditBcId) delete _ibLinkDraft[productId];
-            if (_ibLinkEditBcId) delete _ibLinkDraft[productId];
+            if (_ibLinkPanelId === parseInt(productId) && !_ibLinkEditBcId) _ibClearLinkDraft(productId);
+            if (_ibLinkEditBcId) _ibClearLinkDraft(productId);
             _ibLinkPanelId = (_ibLinkPanelId === parseInt(productId) && !_ibLinkEditBcId) ? null : parseInt(productId);
             _ibLinkEditBcId = null;
             _ibRender();
@@ -1811,7 +1865,7 @@ function _ibHandleClick(e) {
         case 'lp-cancel-edit':
             _ibLinkEditBcId = null;
             _ibLinkPanelId = null;
-            delete _ibLinkDraft[productId];
+            _ibClearLinkDraft(productId);
             _ibRender();
             break;
 
@@ -2022,6 +2076,10 @@ function _ibHandleInput(e) {
         _ibLinkDraft[el.getAttribute('data-product-id')] = el.value;
         return;
     }
+    if (el.getAttribute('data-ib') === 'lp-note') {
+        _ibLinkNoteDraft[el.getAttribute('data-product-id')] = el.value;
+        return;
+    }
     if (el.getAttribute('data-ib') === 'qty-input') {
         var pid = el.getAttribute('data-product-id');
         var entry = _ibFindEntry(pid);
@@ -2207,14 +2265,13 @@ async function _ibConfirmManualOrder(groupKey, sendEmail) {
 
     try {
         var lines = items.map(function(e) {
-            return {
-                product_id: e.product.id,
-                product_name: e.product.name,
-                quantity: e.qty,
-                unit: e.needUnit || 'stk',
-                barcode: e.selectedBarcode ? e.selectedBarcode.barcode : null,
-                varenr: e.selectedBarcode ? e.selectedBarcode.barcode : null,
-            };
+            var vare = _ibOrderItem(e);
+            vare.product_id = e.product.id;
+            vare.unit = vare.unit || 'stk';
+            // Serveren bygger mailens linje af note+barcode; varenr er det
+            // felt purchase_order_lines gemmer.
+            vare.varenr = vare.barcode;
+            return vare;
         });
 
         var result = await createPendingOrder({
@@ -2337,12 +2394,12 @@ function _ibCopyOrderList(groupKey) {
     if (!g) return;
 
     var items = g.items.filter(function(e) { return !e.isOrdered && (e._marked || e.matched); });
-    var lines = items.map(function(e) {
-        var bc = e.selectedBarcode;
-        return e.product.name + '\t' + e.qty + ' ' + e.needUnit + (bc ? '\tNr. ' + bc.barcode : '');
-    });
 
-    var text = 'Bestilling — ' + g.displayName + '\n' + lines.join('\n');
+    // Samme regel som bestillingsmailen (shared/supplier_order_lines.js):
+    // leverandørens egen betegnelse, og vores interne numre udeladt. De to
+    // flader skriver til den samme leverandør og må ikke vise hver sit.
+    var text = SupplierOrderLines.copyList(items.map(_ibOrderItem),
+                                           'Bestilling — ' + g.displayName);
 
     if (navigator.clipboard) {
         navigator.clipboard.writeText(text).then(function() {
@@ -2454,7 +2511,7 @@ async function _ibLinkBarcode(productId, varenr, name, locationId, msgEl) {
         });
 
         _ibLinkPanelId = null;
-        delete _ibLinkDraft[productId];
+        _ibClearLinkDraft(productId);
         _ibToast('Varenr. ' + varenr + ' koblet til ' + name);
 
         // Refresh
@@ -2576,8 +2633,20 @@ async function _ibGenerateIntBarcode(grocyProductId) {
     var p = _ibProducts[grocyProductId];
     if (!p) { _ibToast('Produkt ikke fundet', true); return; }
 
-    // Find the shopping_location_id for this product
-    var shopLocId = p.shopping_location_id || null;
+    // Lokationen er DEN GRUPPE panelet står i — ikke produktets default
+    // handelssted. De to er sjældent ens for en emballagevare, og et internt
+    // nummer på den forkerte leverandør er tavst forkert: varen ser koblet ud
+    // og dukker op i en andens bestilling. Falder tilbage på produktets eget
+    // felt hvis gruppen ikke kan bestemmes.
+    var entry = _ibFindEntry(grocyProductId);
+    var groupKey = entry ? _ibFindGroupForEntry(entry) : null;
+    var shopLocId = parseInt(groupKey) || p.shopping_location_id || null;
+
+    // Bestillingsteksten hvis den er skrevet, ellers varens navn. Uden den ville
+    // mailen stå med "INT-0001" — et nummer kun vi kender.
+    var noteInp = _ibContainer && _ibContainer.querySelector('[data-ib="lp-note"][data-product-id="' + grocyProductId + '"]');
+    var note = (noteInp ? noteInp.value : (_ibLinkNoteDraft[grocyProductId] || '')).trim()
+               || (p.name || '');
 
     var intNr = _ibNextIntNumber();
 
@@ -2586,6 +2655,7 @@ async function _ibGenerateIntBarcode(grocyProductId) {
             product_id: grocyProductId,
             barcode: intNr,
             shopping_location_id: shopLocId,
+            note: note,
         });
 
         _ibToast(p.name + ' → ' + intNr);
@@ -2594,6 +2664,7 @@ async function _ibGenerateIntBarcode(grocyProductId) {
         _ibBarcodes = await fetchProductBarcodes();
         _ibBuildGroups();
         _ibLinkPanelId = null;
+        _ibClearLinkDraft(grocyProductId);
         _ibRender();
     } catch (err) {
         _ibToast('Fejl: ' + (err.message || ''), true);

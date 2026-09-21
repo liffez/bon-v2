@@ -885,6 +885,10 @@ body.zone-office .ib-toolbar { top: 0; }
 }
 .ib-lp-link.danger { color: var(--ib-red, #bc181b); }
 .ib-lp-foot-sub { font-size: 10px; color: var(--color-text-dim, #999); margin-top: 3px; }
+/* Bestillingsteksten under varenummeret: en underoverskrift, ikke et nyt afsnit
+   — de to felter hører til samme kobling. */
+.ib-lp-sub { font-size: 11px; font-weight: 700; color: var(--color-text, #333); margin-bottom: 4px; }
+.ib-lp-hint { font-size: 10px; color: var(--color-text-dim, #999); margin: -4px 0 8px; line-height: 1.35; }
 .ib-lp-source { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--color-text-dim, #999); margin-bottom: 8px; }
 .ib-lp-note { font-size: 11px; color: var(--color-text-dim, #777); margin-bottom: 6px; }
 .ib-lp-note a { color: var(--brand-primary); font-weight: 700; }

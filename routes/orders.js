@@ -29,6 +29,7 @@ const { handle, logChange, todayISO } = require('../db/helpers');
 const { transaction } = require('../db/compat');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
+const supplierLines = require('../shared/supplier_order_lines');
 
 // Alle ordre-endpoints kræver login (indkøb må laves af alle aktive roller,
 // ikke kun admin). Lukker bl.a. den åbne udgående-mail-vektor via kontakt@.
@@ -184,14 +185,11 @@ router.post('/pending', handle(async (req, res) => {
                 const mail = require('../services/mailService');
                 const today = todayISO();
 
-                // Build vareliste
-                const vareliste = (items || []).map(it => {
-                    const name = it.product_name || it.name || 'Ukendt';
-                    const qty  = it.quantity_ordered || it.quantity || 0;
-                    const unit = it.unit || 'stk';
-                    const nr   = it.barcode || it.varenr || '';
-                    return `• ${name} — ${qty} ${unit}${nr ? ' (nr. ' + nr + ')' : ''}`;
-                }).join('\n');
+                // Varelinjen som leverandøren ser den. Reglen bor i
+                // shared/supplier_order_lines.js, fordi "Kopiér liste" skriver
+                // den SAMME bestilling til den samme leverandør — to udgaver
+                // ville før eller siden vise hver sit.
+                const vareliste = supplierLines.mailList(items || []);
 
                 const mailResult = await mail.sendFromTemplate({
                     templateKey: 'order_email',

@@ -225,6 +225,7 @@ bon-v2/
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
 │   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
 │   ├── bon_lines.js  ← mergeLines() — slår ens bon-linjer sammen til visning/eksport, eksponeres som window.BonLines
+│   ├── supplier_order_lines.js ← Varelinjen som LEVERANDØREN ser den: betegnelsen er stregkodens `note`, og vores egne INT-numre udelades. Delt af bestillingsmailen, kopiér-listen og forhåndsvisningen (#419-familien)
 │   ├── grocy_num.js  ← num() — tal fra Grocy-userfields med dansk komma tålt, eksponeres som window.GrocyNum (RecipeYield.num er et alias)
 │   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
 │   ├── auth.js       ← requireAuth() middleware (server-side)
@@ -9300,6 +9301,53 @@ Testen voksede 66 → **93 asserts**; 17 mutationer i alt, alle fanget.
 > faldt. Den blev synlig fordi arbejdet løb over midnat; jf. #133 og
 > memory `project_utc_today_bug`. Rettet til `todayISO()`.
 
+
+### Bestillingen til leverandøren: betegnelse frem for vores eget nummer (21. september 2026)
+
+Serviwets varer har **ingen varenumre** — fakturaen er otte linjer ren tekst. Bon kan
+lave et internt nummer (`INT-0001`) for at kunne koble varen, men det tal siger
+leverandøren intet, og det stod midt i bestillingsmailen som `(nr. INT-0001)`.
+
+Samtidig bar linjen vores Grocy-navn. "Burgerlommer" kan ikke bestilles efter: Serviwet
+har dem i både 11×11 og 14×14 cm, og forskellen står kun i deres egen betegnelse.
+
+**`note` på stregkoden var allerede leverandørens tekst** — målt på grocy-hq har 142 af
+146 koblinger en note, og kun 10 er lig produktnavnet (`Cornichoner` → `Cornichons,
+330 g`). Feltet blev bare aldrig brugt til andet end chip-etiketten.
+
+- **`shared/supplier_order_lines.js`** er reglen: betegnelsen er `note` (ellers vores
+  navn), og nummeret udelades når det er vores eget. Mønstret `/^INT-\d+$/` er
+  **smalt med vilje** — `SW-2210` ligner et internt nummer, men er Serviwets eget og
+  skal med.
+- **Tre flader deler den nu**: bestillingsmailen (`routes/orders.js`), "Kopiér liste"
+  og forhåndsvisningen i registrér-dialogen. De byggede hver sin linje, så dialogen
+  kunne vise `Nr. INT-0002` mens mailen udelod det — man kunne ikke stole på det man så
+  lige før afsendelse. `_ibOrderItem` samler oven i købet mapningen entry → vare ét sted.
+- **Bestillingsteksten har sit eget felt** i kobl-panelet ("Sådan hedder varen hos X").
+  At skrive betegnelsen i nummer-feltet er stadig muligt (fri tekst, eksisterende
+  praksis) og taber ingen information — den står så som nummer.
+- **`varenr` gemmes uændret på ordren.** Det er kun MAILEN der udelader interne numre.
+
+**To fejl i INT-generatoren rettet undervejs**, begge relevante for netop dette flow:
+den koblede til **produktets** default handelssted i stedet for den gruppe panelet står
+i (alle andre veje bruger gruppens), og den satte **ingen note** — så chip og mail stod
+med `INT-0001`.
+
+**Ingen migration.** `note` er Grocys eget felt på `product_barcodes`.
+
+**Tests**: `npm run test:bestillingslinjer` — 55 asserts. §2 rammer den ÆGTE route over
+HTTP med mailService stubbet i require-cachen; §3 måler mailen og kopiér-listen mod
+**hinanden**; §4–5 kører den ÆGTE `shared/indkob.js` i en vm-sandkasse og måler hvad der
+ville blive SENDT. **Mutations-testet: 13 mutationer, alle fanget.**
+Browser-verificeret mod grocy-test med rigtige museklik hele vejen: panel → internt
+nummer + bestillingstekst → kobling på lokation 7 med noten → forhåndsvisning og
+kopiér-tekst uden INT-nummeret, men med leverandørens egne numre i behold.
+Testdata slettet, grocy-test gendannet.
+
+> ⚠️ **De tre eksisterende Emballage-koblinger i drift** har en kortere note end
+> fri-teksten i nummer-feltet (`Børne boks` mod `Børnebokse hvid m/låg 12x12`). Ingen
+> information tabes — begge står på linjen — men noten kan med fordel rettes til
+> Serviwets egen tekst.
 
 ## Næste opgave
 
