@@ -1826,7 +1826,8 @@ class BonDrawer {
         const fromLabel = (BON_CONFIG.statuses[curStatus] || {}).label || curStatus;
         const toLabel = (BON_CONFIG.statuses[statusKey] || {}).label || statusKey;
         try {
-            await patchBonStatus(this.bonId, backendCode, undefined, force, confirmNoInvoice);
+            const svar = await patchBonStatus(this.bonId, backendCode, undefined, force, confirmNoInvoice);
+            if (svar?.grocy_warning && typeof showGrocyWarning === 'function') showGrocyWarning(svar.grocy_warning);
             this.data.status_code = backendCode;
             // Fakturamærket følger af udfaldet: kom vi igennem UDEN at bekræfte,
             // fandtes der en faktura (eller vagten er inaktiv) → intet mærke.

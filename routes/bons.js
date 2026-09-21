@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, hasDeliveryLine, recalcBonTotal } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, isNonDriftLocation, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, hasDeliveryLine, recalcBonTotal } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
@@ -1002,8 +1002,21 @@ router.patch('/:id/status', handle((req, res) => {
 
     // Grocy auto-consume ved LEVERET (uafhængigt af triggers_json).
     // Idempotent via bons.inventory_deducted — T_INV_IDEM_01 verificerer adfærden.
+    //
+    // Peger den aktive Grocy et sted der ikke er drift (Test, den udfasede cafe),
+    // lander trækket DÉR — og kan ikke gentages, fordi idempotens-vagten netop
+    // forhindrer det (#535). Det er ikke en spærring: der kan være en grund til
+    // at stå i Test. Men det skal siges, mens man er ved skærmen.
+    let grocyWarning = null;
     if (status_code === 'LEVERET') {
-        autoConsumeBonInventory(id);
+        // Spørg trækket selv om der SKETE noget, og hvor. Reglerne (auto-deduct-
+        // flaget, event-gaten, idempotensen) bor ét sted; gentog ruten dem, ville
+        // advarslen før eller siden påstå et træk der aldrig blev sat i gang.
+        const { started, location } = autoConsumeBonInventory(id) || {};
+        if (started && isNonDriftLocation(location)) {
+            grocyWarning = `Lageret blev trukket i "${location.name}" — ikke i produktions-Grocy.`
+                         + ' Skift aktiv Grocy under Settings → Grocy. Trækket kan ikke gentages på denne bon.';
+        }
     }
 
     // Cashflow-sync: opret/opdater/slet cf_invoice afhængigt af status.
@@ -1048,6 +1061,9 @@ router.patch('/:id/status', handle((req, res) => {
         // transition (Patch D). Fallback til false/null for kompatibilitet.
         requires_confirmation: transition?.requires_confirmation === 1,
         confirmation_message:  transition?.confirmation_message ?? null,
+        // null når alt er som det skal være — så en klient der ikke kender feltet
+        // er upåvirket, og en der gør kun viser noget når der ER noget.
+        grocy_warning: grocyWarning,
         triggers
     });
 }));

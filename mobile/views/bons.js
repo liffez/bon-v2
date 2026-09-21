@@ -1381,10 +1381,13 @@ async function _mbChangeStatus(bonId, toCode, confirmNoInvoice) {
     try {
         var payload = { status_code: toCode, user_id: _mbUser.id };
         if (confirmNoInvoice) payload.confirm_no_invoice = true;
-        await apiFetch('/bons/' + bonId + '/status', {
+        var svar = await apiFetch('/bons/' + bonId + '/status', {
             method: 'PATCH',
             body: JSON.stringify(payload)
         });
+        // Lagertrækket landede et sted der ikke er drift (#535). Trækket kan ikke
+        // gentages på bonen, så beskeden bliver stående til den lukkes.
+        if (svar && svar.grocy_warning && typeof showGrocyWarning === 'function') showGrocyWarning(svar.grocy_warning);
         if (navigator.vibrate) navigator.vibrate(50);
         await _mbShowDetail(bonId);
         if (window._mToast) window._mToast('Status opdateret');

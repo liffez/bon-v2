@@ -270,6 +270,14 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   `PUBLIC_DIRS` i server.js. Mount aldrig en mappe der også indeholder kode
   eller data (`express.static(__dirname)` lagde engang `data/bon.db` frit)
 - **Standalone scripts bruger `openDb()`** fra `db/compat.js` — aldrig `DatabaseSync` direkte
+- **Lagertræk skriver ned HVOR det gik hen** — `bons.inventory_deducted_location_id`
+  (migration 186). Alt der skriver til Grocy følger `settings.default_grocy_location_id`;
+  peger den på Test, trækkes lageret DÉR, bonen markeres som trukket, og trækket kan ikke
+  gentages (idempotens-vagten). Kolonnen er IKKE `bons.location_id` — den er bonens egen
+  lokation. `autoConsumeBonInventory()` returnerer synkront `{ started, location }`, så en
+  kalder kan advare uden at gentage reglerne; ruten viser `grocy_warning` ved LEVERET når
+  lokationen ikke er drift (`isNonDriftLocation`, i dag `test` og `cafe` — trailer og
+  festival er legitime). Ingen spærring. Vagthunden rapporterer dem bagefter (#535)
 - **Test-scripts isolerer databasen** — `require('./helpers/isolated_db');` som FØRSTE
   linje i `scripts/test-*.js`, før `db/`, `services/` eller `routes/` requires.
   `grocyAdapter` slår lokationen op gennem `getGrocyConfig()` → `getDb()`, og stien er

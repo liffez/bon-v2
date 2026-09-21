@@ -223,7 +223,10 @@ document.addEventListener('bon:status-changed', async (e) => {
 
     // Kald API
     try {
-        await patchBonStatus(id, statusToBackend(newStatus));
+        const svar = await patchBonStatus(id, statusToBackend(newStatus));
+        // Lagertrækket landede et sted der ikke er drift (#535) — sig det mens
+        // køkkenet står ved skærmen. Trækket kan ikke gentages på bonen.
+        if (svar?.grocy_warning && typeof showGrocyWarning === 'function') showGrocyWarning(svar.grocy_warning);
     } catch (err) {
         console.error('Status-skift fejlede:', err);
         // Revert ved fejl

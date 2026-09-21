@@ -910,6 +910,30 @@ function statusBadgeHtml(statusCode, opts = {}) {
    Arver currentColor så de farves som omgivende tekst.
    ══════════════════════════════════════════════════════════════ */
 
+/**
+ * Advarsel om at et lagertræk landede et sted der ikke er drift (#535).
+ *
+ * Bliver STÅENDE til den lukkes. En toast der forsvinder af sig selv er
+ * forkert her: trækket kan ikke gentages på bonen, så beskeden er det eneste
+ * varsel man får — og den skal kunne læses færdig, også af en der kiggede væk.
+ */
+function showGrocyWarning(msg) {
+    if (!msg) return;
+    document.querySelectorAll('.grocy-warn').forEach(el => el.remove());
+    const box = document.createElement('div');
+    box.className = 'grocy-warn';
+    const tekst = document.createElement('div');
+    tekst.textContent = '⚠ ' + msg;
+    const luk = document.createElement('button');
+    luk.type = 'button';
+    luk.className = 'grocy-warn-close';
+    luk.textContent = 'OK';
+    luk.addEventListener('click', () => box.remove());
+    box.appendChild(tekst);
+    box.appendChild(luk);
+    document.body.appendChild(box);
+}
+
 function mailIcon(size, extraStyle) {
     var s = size || 14;
     var style = 'vertical-align:-2px;flex-shrink:0' + (extraStyle ? ';' + extraStyle : '');
