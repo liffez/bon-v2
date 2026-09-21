@@ -1298,6 +1298,60 @@ body.ib-focus-mode .ib-group.ib-focused { display: block; }
 }
 .ib-item-sup.warn { color: #7a5200; background: var(--ib-orange-light, #fef3d6); }
 
+/* ── ORDREMAIL SOM KLADDE ──
+   Bygger på cart-blocked-modalens overlay, men bredere: her skal en hel mail
+   kunne læses og rettes, ikke kun en besked kvitteres. */
+.ib-md-modal {
+    width: 680px;
+    padding: 18px 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+}
+.ib-md-head { font-size: 15px; font-weight: 700; color: var(--color-text, #333); }
+.ib-md-to {
+    font-size: 12px; color: var(--color-text-dim, #777);
+    padding-bottom: 6px; border-bottom: .5px solid var(--color-border-light, #e8e4e0);
+}
+.ib-md-to b { color: var(--color-text, #333); }
+.ib-md-to-hint { margin-left: 8px; font-size: 11px; opacity: .8; }
+.ib-md-lbl {
+    font-size: 11px; font-weight: 700; letter-spacing: .02em;
+    color: var(--color-text-dim, #777); margin-top: 4px;
+}
+.ib-md-subject, .ib-md-body {
+    width: 100%;
+    box-sizing: border-box;          /* siden er content-box; uden den flyder feltet ud */
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--color-text, #333);
+}
+.ib-md-body { resize: vertical; min-height: 220px; line-height: 1.45; }
+.ib-md-subject:focus, .ib-md-body:focus {
+    outline: none; border-color: var(--brand-primary, #8e631f);
+}
+.ib-md-note { font-size: 11px; color: var(--color-text-dim, #999); }
+.ib-md-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.ib-md-btn {
+    padding: 8px 16px; font-size: 13px; font-family: inherit;
+    border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; color: var(--color-text, #333);
+}
+.ib-md-btn:hover { background: var(--color-background, #f5f4f2); }
+.ib-md-btn.primary {
+    background: var(--brand-primary, #8e631f);
+    border-color: var(--brand-primary, #8e631f);
+    color: #fff; font-weight: 700;
+}
+.ib-md-btn.primary:hover { filter: brightness(1.08); background: var(--brand-primary, #8e631f); }
+
 /* ── OPRET / KOBL DRAWER ── */
 .ib-dr-scrim {
     position: fixed;

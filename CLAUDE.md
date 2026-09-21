@@ -9421,6 +9421,35 @@ uforvarende ruller gamle med. En delvis rulning navngiver dem der fejlede.
 **Tests**: 70 → **83 asserts**. **28 mutationer i alt, alle fanget** — heriblandt den
 originale dato-fejl, som fælder tre navngivne asserts.
 
+**Og så blev bekræftelsen til en kladde.** En ja/nej-boks kan kun svare på en tekst
+man ikke kan røre — men man vil tit skrive noget med ("kan I levere onsdag?").
+Driftens ord: *"send og bestil skal lave en kladde som jeg kan rette i og derefter
+sende."*
+
+**"Send & bestil" åbner nu mailen som kladde** med emne og brødtekst redigerbare.
+`POST /api/orders/pending/mail-draft` renderer den server-side uden at sende eller
+skrive noget; `POST /pending` tager `email_subject` + `email_body` og sender DEM i
+stedet for at rendere skabelonen forfra.
+
+- **`renderOrderMailDraft()` bruges af BÅDE kladden og afsendelsen.** To renderinger
+  ville betyde at man retter i én tekst og sender en anden.
+- **Signaturen lægges på i kladden**, og afsendelsen bruger `appendSignature: false`.
+  Det man ser ER det der sendes — også hvis man har skrevet om i signaturen.
+  (`applySignature` er idempotent, så uden flaget ville den blot lade være; men
+  sletter man signaturen, ville den komme igen. Det ville være en overraskelse.)
+- **Svar-mærket (`#po-NN`) er IKKE i kladden.** Ordre-id'et findes først når ordren
+  oprettes, og et mærke i et redigerbart felt kan slettes ved et uheld — så ville
+  leverandørens svar havne i den ufordelte indbakke. `sendMail` sætter det på.
+- **Modtageren vises, men kan ikke rettes her.** En engangsadresse ville ikke stå
+  nogen steder bagefter; feltet rettes i Settings → Indkøb.
+- **Bekræftelsen springes over efter kladden** — man har lige læst og rettet hele
+  mailen. Uden kladde (ældre kaldevej) spørges der stadig.
+
+**Tests**: 83 → **111 asserts** (§2b kladden mod den ægte route, §6b at den rettede
+tekst når serveren, §6c at "Send & bestil" ikke sender). **38 mutationer i alt, alle
+fanget** — heriblandt at ignorere den rettede tekst, at lægge signaturen på igen, og
+at rulle "Send & bestil" tilbage til at sende direkte.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

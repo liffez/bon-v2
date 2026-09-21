@@ -104,15 +104,26 @@ const db = getDb();
 
 // mailService stubbes FØR routen loades — ellers ville den ægte SMTP-sti køre.
 const mailPath = require.resolve('../services/mailService');
+const ægteMail = require('../services/mailService');
 let sidsteMail = null;
+const mailStub = { sidsteRaa: null };
 require.cache[mailPath] = {
     id: mailPath, filename: mailPath, loaded: true, exports: {
         sendFromTemplate: async (args) => { sidsteMail = args; return { threadId: null, messageId: 'x' }; },
+        sendMail: async (args) => { mailStub.sidsteRaa = args; return { threadId: null, messageId: 'y' }; },
+        // Kladden renderes med de ÆGTE funktioner — det er hele pointen at den
+        // viser det samme som afsendelsen ville producere.
+        renderTemplate: ægteMail.renderTemplate,
+        applySignature: ægteMail.applySignature,
     },
 };
 
 db.prepare(`INSERT INTO suppliers (id, name, integration_type, contact_email)
             VALUES (5, 'Serviwet', 'email', 'rikke.kjeldsen@serviwet.dk')`).run();
+// Kladden skal vise hele mailen, altså også signaturen.
+const signatur = 'Venlig hilsen\nRistet Rug';
+db.prepare(`INSERT INTO settings (key, value) VALUES ('mail_signature', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(signatur);
 const siteId = db.prepare(`SELECT id FROM locations LIMIT 1`).get().id;
 
 const express = require('express');
@@ -172,6 +183,75 @@ function post(sti, body) {
     const liste2 = sidsteMail.vars.vareliste;
     ok(liste2.includes('Servietter'), 'uden note bruges varens navn');
     ok(!liste2.includes('INT-0007'), 'det interne nummer udelades også uden note');
+
+    console.log('\n=== §2b Mailen som kladde ===');
+    function postSvar(sti, body) { return post(sti, body); }
+
+    // §2 har lige sendt — nulstil, ellers måler "kladden sender ingenting" intet.
+    sidsteMail = null; mailStub.sidsteRaa = null;
+
+    const kl = await postSvar('/api/orders/pending/mail-draft', {
+        supplier_id: 5,
+        items: [
+            { product_id: 1, product_name: 'Burgerlommer', quantity: 2, unit: 'stk',
+              barcode: 'INT-0001', note: 'Burgerlommer, brune, 11 x 11 cm., pakke af 1.000 stk.' },
+            { product_id: 2, product_name: 'Cornichoner', quantity: 2, unit: 'stk',
+              barcode: '13889531', note: 'Cornichons, 330 g' },
+        ],
+    });
+    eq(kl.status, 200, 'kladden hentes');
+    eq(kl.body.to, 'rikke.kjeldsen@serviwet.dk', 'den viser hvem mailen går til');
+    eq(kl.body.item_count, 2, 'og hvor mange varer');
+    ok(kl.body.body.includes('Burgerlommer, brune, 11 x 11 cm., pakke af 1.000 stk.'),
+       'brødteksten bærer varelisten efter SAMME regel som afsendelsen');
+    ok(!kl.body.body.includes('INT-0001'), 'og udelader vores interne numre');
+    ok(!/#po-/.test(kl.body.subject),
+       'emnet bærer INTET svar-mærke — det kan slettes ved et uheld i et redigerbart felt');
+    ok(sidsteMail === null && mailStub.sidsteRaa === null,
+       'kladden sender ingenting — hverken gennem skabelonen eller råt');
+    ok(kl.body.body.includes(signatur),
+       'kladden bærer signaturen, så den viser HELE mailen');
+
+    // Kladden må ikke skrive noget: ingen ordre, ingen mail.
+    const foerOrdrer = db.prepare('SELECT COUNT(*) n FROM purchase_orders').get().n;
+    await postSvar('/api/orders/pending/mail-draft', { supplier_id: 5, items: [] });
+    eq(db.prepare('SELECT COUNT(*) n FROM purchase_orders').get().n, foerOrdrer,
+       'kladden opretter ingen ordre');
+
+    const udenMail = await postSvar('/api/orders/pending/mail-draft', { supplier_id: 999, items: [] });
+    eq(udenMail.status, 404, 'ukendt leverandør giver en fejl, ikke en tom kladde');
+
+    // Den RETTEDE tekst er den der sendes — ikke skabelonen renderet forfra.
+    sidsteMail = null;
+    await postSvar('/api/orders/pending', {
+        supplier_id: 5, location_id: siteId, send_email: true,
+        email_subject: 'Bestilling — haster',
+        email_body: 'Hej Rikke,\n\nKan I levere onsdag?\n\n• Transportkasser — 4 stk\n\nMvh Leif',
+        items: [{ product_id: 1, product_name: 'Transportkasser', quantity: 4, unit: 'stk',
+                  barcode: 'INT-0009', note: 'Transportkasser, brune' }],
+    });
+    ok(sidsteMail === null, 'rettet kladde går IKKE gennem skabelon-stien');
+    const raa = mailStub.sidsteRaa;
+    ok(raa !== null, 'men mailen blev sendt');
+    ok(!!raa && raa.text.includes('Kan I levere onsdag?'),
+       'det kontoret skrev, er det der sendes');
+    ok(!!raa && !raa.text.includes('Hermed bestilling fra Ristet Rug'),
+       'skabelonens egen tekst er IKKE med — den blev jo rettet væk');
+    eq(raa && raa.subject, 'Bestilling — haster', 'og emnet er kontorets');
+    eq(raa && raa.appendSignature, false,
+       'signaturen lægges ikke på igen — kladden bar den, og den kan være rettet');
+    ok(!!raa && !!raa.context && raa.context.type === 'purchase_order',
+       'svar-mærket sættes på ved afsendelse, hvor ordre-id findes');
+
+    // Uden rettet tekst: skabelonen som før.
+    sidsteMail = null; mailStub.sidsteRaa = null;
+    await postSvar('/api/orders/pending', {
+        supplier_id: 5, location_id: siteId, send_email: true,
+        items: [{ product_id: 1, product_name: 'Servietter', quantity: 1, unit: 'stk',
+                  barcode: '111', note: 'Servietter, 33x33' }],
+    });
+    ok(sidsteMail !== null, 'uden kladde bruges skabelonen som hidtil');
+    eq(mailStub.sidsteRaa, null, 'og den rå sti røres ikke');
 
     console.log('\n=== §3 Mail og kopiér-liste er enige ===');
     for (const [navn, vare] of [['Serviwet-vare', BURGER_INT], ['Hørkram-vare', CORNICHON],
@@ -327,6 +407,39 @@ function post(sti, body) {
     const dlg4 = a4._ibRenderManualDialog(a4._ibGroups['7'], '7');
     eq((dlg4.match(/ib-mo-item/g) || []).length, 4, 'og forhåndsvisningen viser de samme fire');
 
+    console.log('\n=== §6b Kladde-teksten når serveren ===');
+    const kt = gruppeMed(true);
+    await kt._ibConfirmManualOrder('7', true,
+        { subject: 'Bestilling — haster', body: 'Hej Rikke,\n\nKan I levere onsdag?' });
+    eq(kt.__ordre && kt.__ordre.email_subject, 'Bestilling — haster',
+       'det rettede emne sendes med');
+    eq(kt.__ordre && kt.__ordre.email_body, 'Hej Rikke,\n\nKan I levere onsdag?',
+       'og den rettede brødtekst — ellers renderer serveren skabelonen forfra');
+    eq(kt.__confirmTekst, null,
+       'og der spørges ikke igen: man har lige læst og rettet hele mailen');
+
+    // Uden kladde (ældre kaldevej) bæres intet med, og der spørges.
+    const uk = gruppeMed(true);
+    await uk._ibConfirmManualOrder('7', true);
+    eq(uk.__ordre && uk.__ordre.email_subject, undefined, 'uden kladde sendes intet emne med');
+    ok(uk.__confirmTekst !== null, 'og bekræftelsen er der stadig');
+
+    console.log('\n=== §6c "Send & bestil" åbner kladden ===');
+    const mo = gruppeMed(true);
+    mo.__kladdeKald = null;
+    mo.fetchOrderMailDraft = async (arg) => {
+        mo.__kladdeKald = arg;
+        return { to: 'rikke@example.invalid', supplier_name: 'Serviwet', item_count: 1,
+                 subject: 'Bestilling', body: 'Hej Rikke,\n\n• Transportkasser — 1 stk' };
+    };
+    mo._ibMailOrder('7');
+    await new Promise(r => setTimeout(r, 20));
+    ok(mo.__kladdeKald !== null, '"Send & bestil" henter kladden');
+    eq(mo.__ordre, null, 'og sender INGENTING før man har læst og trykket Send');
+    eq(mo.__confirmTekst, null, 'der vises heller ingen ja/nej-boks — kladden ER valget');
+    eq(mo.__kladdeKald && mo.__kladdeKald.items.length, 1,
+       'kladden bygges på det samme udvalg som afsendelsen');
+
     console.log('\n=== §7 Mailen sendes ikke uden varsel ===');
     const b = gruppeMed(true);
     b.__confirmSvar = false;                      // brugeren siger nej
@@ -463,17 +576,33 @@ function post(sti, body) {
 
 /* ── vm-sandkasse: den ÆGTE indkob.js med stubbede kald udad ──── */
 function lavKlient(felter) {
-    const el = () => ({
-        value: '', innerHTML: '', className: '', style: {},
-        querySelector: () => null, querySelectorAll: () => [],
-        addEventListener() {}, setAttribute() {}, getAttribute: () => null,
-        focus() {}, select() {},
-    });
+    // Lige rig nok til at kladde-dialogen kan bygges: den appender et overlay
+    // til body og slår sine felter op med [data-ib-md="..."].
+    const el = () => {
+        const felter = {};
+        return {
+            value: '', innerHTML: '', className: '', style: {},
+            children: [],
+            appendChild(c) { this.children.push(c); return c; },
+            removeChild(c) { this.children = this.children.filter(x => x !== c); return c; },
+            querySelector(sel) {
+                const m = String(sel).match(/data-ib-md="([^"]+)"/);
+                if (!m) return null;
+                if (!felter[m[1]]) felter[m[1]] = { value: '', focus() {}, select() {} };
+                return felter[m[1]];
+            },
+            querySelectorAll: () => [],
+            addEventListener() {}, removeEventListener() {},
+            setAttribute() {}, getAttribute: () => null,
+            focus() {}, select() {},
+        };
+    };
     const ctx = {
         console,
         window: {}, navigator: { clipboard: { writeText: async () => {} } },
         document: { createElement: el, querySelector: () => null, querySelectorAll: () => [],
-                    getElementById: () => null, addEventListener() {}, body: el() },
+                    getElementById: () => null, addEventListener() {}, removeEventListener() {},
+                    body: el() },
         setTimeout, clearTimeout, Promise, JSON, Math, String, Number, Array, Object, Date, parseInt, parseFloat, isNaN, RegExp,
         SupplierOrderLines: S,
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },

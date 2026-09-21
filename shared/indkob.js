@@ -2277,7 +2277,7 @@ async function _ibGotoCart(groupKey) {
     }
 }
 
-async function _ibConfirmManualOrder(groupKey, sendEmail) {
+async function _ibConfirmManualOrder(groupKey, sendEmail, mailTekst) {
     var g = _ibGroups[groupKey];
     if (!g || _ibBusy) return;
 
@@ -2287,9 +2287,10 @@ async function _ibConfirmManualOrder(groupKey, sendEmail) {
         return;
     }
 
-    // En mail ud af huset kan ikke kaldes tilbage. Den skal bekræftes, og
-    // bekræftelsen skal sige HVAD og til HVEM — ellers er den bare et klik mere.
-    if (sendEmail) {
+    // Kommer vi fra kladden, har kontoret lige læst og rettet hele mailen —
+    // så ville en bekræftelse oven i være et klik uden indhold. Uden kladde
+    // (ældre kaldevej) spørges der stadig, og bekræftelsen siger HVAD og til HVEM.
+    if (sendEmail && !mailTekst) {
         var modtager = g.contactEmail || '';
         var navne = items.slice(0, 6).map(function(e) {
             return '• ' + SupplierOrderLines.supplierLabel(_ibOrderItem(e))
@@ -2323,6 +2324,8 @@ async function _ibConfirmManualOrder(groupKey, sendEmail) {
             grocy_location_id: parseInt(groupKey) || null,
             items: lines,
             send_email: sendEmail ? true : false,
+            email_subject: mailTekst ? mailTekst.subject : undefined,
+            email_body: mailTekst ? mailTekst.body : undefined,
         });
 
         var now = new Date().toISOString();
@@ -2526,8 +2529,85 @@ function _ibCopyOrderList(groupKey) {
 }
 
 function _ibMailOrder(groupKey) {
-    // Send & bestil: SMTP-mail + registrér ordre i ét klik
-    _ibConfirmManualOrder(groupKey, true);
+    // "Send & bestil" åbner mailen som KLADDE. En bekræftelse kunne kun svare
+    // ja/nej til en tekst man ikke kunne røre — og man vil tit skrive noget
+    // med ("kan I levere onsdag?"). Selve afsendelsen sker fra kladden.
+    _ibOpenMailDraft(groupKey);
+}
+
+/* ── Ordremailen som kladde ────────────────────────────────── */
+var _ibDraftEl = null;
+
+function _ibCloseMailDraft() {
+    if (_ibDraftEl && _ibDraftEl.parentNode) _ibDraftEl.parentNode.removeChild(_ibDraftEl);
+    _ibDraftEl = null;
+    document.removeEventListener('keydown', _ibDraftKey);
+}
+
+function _ibDraftKey(e) {
+    if (e.key === 'Escape') _ibCloseMailDraft();
+}
+
+async function _ibOpenMailDraft(groupKey) {
+    var g = _ibGroups[groupKey];
+    if (!g || _ibBusy) return;
+
+    var items = _ibOrderSelection(g);
+    if (!items.length) { _ibToast('Ingen varer at bestille'); return; }
+
+    var kladde;
+    try {
+        kladde = await fetchOrderMailDraft({
+            supplier_id: g.supplierId,
+            items: items.map(_ibOrderItem),
+        });
+    } catch (err) {
+        _ibToast(err && err.code === 'NO_EMAIL'
+            ? g.displayName + ' har ingen mailadresse — sæt den i Indstillinger → Indkøb'
+            : 'Kunne ikke hente kladden: ' + ((err && err.message) || ''), true);
+        return;
+    }
+
+    _ibCloseMailDraft();
+    var ov = document.createElement('div');
+    ov.className = 'ib-cb-overlay ib-md-overlay';
+    ov.innerHTML =
+        '<div class="ib-cb-modal ib-md-modal">' +
+          '<div class="ib-md-head">Bestilling til ' + _ibEsc(kladde.supplier_name) + '</div>' +
+          '<div class="ib-md-to">Til <b>' + _ibEsc(kladde.to) + '</b>' +
+            '<span class="ib-md-to-hint">rettes under Indstillinger → Indkøb</span></div>' +
+          '<label class="ib-md-lbl">Emne</label>' +
+          '<input class="ib-md-subject" data-ib-md="subject" value="' + _ibEsc(kladde.subject) + '">' +
+          '<label class="ib-md-lbl">Besked</label>' +
+          '<textarea class="ib-md-body" data-ib-md="body" rows="16"></textarea>' +
+          '<div class="ib-md-note">Et svar-mærke sættes automatisk på emnet, så svaret lander på bestillingen.</div>' +
+          '<div class="ib-md-acts">' +
+            '<button class="ib-md-btn" data-ib-md="cancel">Annullér</button>' +
+            '<button class="ib-md-btn primary" data-ib-md="send">Send bestilling (' +
+              kladde.item_count + ' ' + (kladde.item_count === 1 ? 'vare' : 'varer') + ')</button>' +
+          '</div>' +
+        '</div>';
+    document.body.appendChild(ov);
+    _ibDraftEl = ov;
+
+    // Brødteksten sættes som VÆRDI, ikke som markup — den er fri tekst.
+    var body = ov.querySelector('[data-ib-md="body"]');
+    body.value = kladde.body;
+
+    ov.addEventListener('click', function(e) {
+        var act = e.target.getAttribute && e.target.getAttribute('data-ib-md');
+        if (act === 'cancel' || e.target === ov) { _ibCloseMailDraft(); return; }
+        if (act !== 'send') return;
+
+        var subj = ov.querySelector('[data-ib-md="subject"]').value.trim();
+        var txt  = body.value.trim();
+        if (!txt) { _ibToast('Skriv en besked først', true); body.focus(); return; }
+
+        _ibCloseMailDraft();
+        _ibConfirmManualOrder(groupKey, true, { subject: subj, body: txt });
+    });
+    document.addEventListener('keydown', _ibDraftKey);
+    ov.querySelector('[data-ib-md="subject"]').focus();
 }
 
 /* ── Link/search panel ─────────────────────────────────────── */
