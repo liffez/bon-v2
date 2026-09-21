@@ -51,7 +51,8 @@ Disse er sandheden. Al kode skal passe med dem.
 
 ## Grocy-instans
 
-Under udvikling bruges **grocytest** (`https://grocytest.ristetrug.dk/api`).
+Under udvikling bruges **grocy-test** (`https://grocy-test.ristetrug.dk/api` — med
+bindestreg; `grocytest` uden er den udfasede instans på Linode og svarer 401).
 **Produktion kører på `grocy-hq`** (`https://grocy-hq.ristetrug.dk/api`) — det er dér al
 CO₂-data, faktorer og opskrifter ligger.
 
@@ -60,13 +61,23 @@ database seedes til **3 (Test)** — en ny installation må aldrig som default s
 produktions-Grocy. Skift via Settings → Grocy ("Sæt som aktiv"), ikke via SQL.
 
 Lokationer i `locations`-tabellen: **HQ=grocy-hq** (produktion), Trailer=grocytrailer,
-Test=grocytest. Produktion har desuden en `cafe`-lokation = `grocycafe` = **den gamle
+**Test=grocy-test**. Produktion har desuden en `cafe`-lokation = `grocycafe` = **den gamle
 HQ-instans** (udfaset — læs den ikke som "HQ"). `.env` har nøgler til begge:
 `GROCY_HQ_*` (grocy-hq) og `GROCY_CAFE_*` (grocycafe).
 
-> ⚠️ Historisk fælde: HQ pegede tidligere på `grocycafe`. Både denne fil og
-> `001_core.sql` sagde det længe efter flytningen, så hver frisk dev-DB pegede forkert
-> (401) og CO₂-rapporten viste 0 % dækning. Rettet 16. juli 2026.
+> **Trailer er halvvejs flyttet (#514).** `grocytrailer` (gammel, Linode) svarer 200 med
+> `GROCY_CAFE_KEY`; `grocy-trailer` (ny) 302'er til login, fordi dens nginx-undtagelse for
+> `/api` mangler. Rækken flyttes først når undtagelsen er på plads — ellers byttes noget
+> der virker ud med et login-redirect.
+
+> ⚠️ Historisk fælde, to gange: HQ pegede tidligere på `grocycafe`, og Test pegede på
+> `grocytest`. Begge gange sagde både denne fil og `001_core.sql` det forkerte længe efter
+> flytningen, så hver frisk dev-DB ramte en Grocy der afviser os (401) — og alt
+> Grocy-afhængigt viste tomme lister i stedet for en fejl. HQ rettet 16. juli 2026,
+> Test 21. september 2026 (migration 185).
+>
+> **Sådan ser man forskel:** uden nøgle svarer BEGGE 401, så en hurtig curl afslører intet.
+> Test med nøglen: `curl -H "GROCY-API-KEY: $GROCY_TEST_KEY" https://grocy-test.ristetrug.dk/api/system/info`
 
 **Lokalt login (udvikling/browser-test):** Det rigtige `admin@ristetrug.dk`-password er
 ikke kendt. Brug i stedet en dedikeret lokal test-admin:
@@ -475,7 +486,7 @@ hård browser-refresh (Cmd+Shift+R) efter deploy — JS/CSS kan være cachet.
 | Type | Kommando | Server? | Hvorfor |
 |---|---|---|---|
 | Pure runnere | fx `npm run test:run-optaelling` | ✅ ja | Ingen server, ingen Grocy, ingen DB — kører hvor som helst |
-| Track-runnere | `test:run-*`, `test:inv` m.fl. | ⚠️ nej | Kræver `.env.test` + `test.db` + testserver på 4322 + grocytest |
+| Track-runnere | `test:run-*`, `test:inv` m.fl. | ⚠️ nej | Kræver `.env.test` + `test.db` + testserver på 4322 + grocy-test |
 | UI-tests | `test:ui*` (Playwright) | ❌ **nej** | `@playwright/test` er en **devDependency** og er ikke installeret i drift. Den ville trække ~150 MB Chromium ned på produktionsmaskinen. Kør dem lokalt. |
 
 `npm run test:ui-optaelling` på serveren giver `sh: 1: playwright: not found` — det er
@@ -514,7 +525,7 @@ den nærliggende bevægelse, når der ikke findes en test-skabelon — peger "te
 dermed på driftens database. Præcis dét var sket på Hetzner (#338).
 
 Brug derfor **`.env.test.example`** som udgangspunkt. Den sætter `DB_PATH=./data/test.db`,
-`NODE_ENV=test` og `GROCY_API_URL` mod grocytest — de tre `safety_check` kigger efter.
+`NODE_ENV=test` og `GROCY_API_URL` mod grocy-test — de tre `safety_check` kigger efter.
 
 `npm run test:migrate` er siden #338 garderet med `--require-test-env`, som kalder
 `safety_check` og afbryder (exit 2) hvis `NODE_ENV`/`DB_PATH`/`GROCY_API_URL` ikke peger på

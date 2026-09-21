@@ -199,9 +199,9 @@ INSERT INTO settings (key, value, description) VALUES
 INSERT INTO locations (name, code, grocy_api_url, grocy_api_key, address, is_active) VALUES
     ('HQ',      'hq',      'https://grocy-hq.ristetrug.dk/api',     '', 'Hovedkontor',     1),
     ('Trailer', 'trailer', 'https://grocytrailer.ristetrug.dk/api', '', 'Festival-trailer',1),
-    ('Test',    'test',    'https://grocytest.ristetrug.dk/api',    '', 'Testmiljø',        1);
+    ('Test',    'test',    'https://grocy-test.ristetrug.dk/api',   '', 'Testmiljø',        1);
 
--- Aktiv lokation for en FRISK database = Test (grocytest, id 3). Bevidst: en ny
+-- Aktiv lokation for en FRISK database = Test (grocy-test, id 3). Bevidst: en ny
 -- installation må aldrig som default skrive i produktions-Grocy. Produktion
 -- sætter selv HQ som aktiv via Settings → Grocy ("Sæt som aktiv").
 INSERT INTO settings (key, value, description) VALUES
