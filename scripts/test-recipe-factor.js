@@ -18,6 +18,9 @@
 
 'use strict';
 
+// Isoleret database — et test-script må aldrig røre udviklerens egen (#516).
+require('./helpers/isolated_db');
+
 // ── Mock Grocy-data på den rigtige grocyAdapter (property-access ved kald-tid) ──
 const grocy = require('../services/grocyAdapter');
 

@@ -8,6 +8,9 @@
  * ────────────────────────────────────────────────────────────
  */
 
+// Isoleret database — et test-script må aldrig røre udviklerens egen (#516).
+require('./helpers/isolated_db');
+
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');

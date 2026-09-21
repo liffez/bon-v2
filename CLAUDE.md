@@ -270,6 +270,12 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   `PUBLIC_DIRS` i server.js. Mount aldrig en mappe der også indeholder kode
   eller data (`express.static(__dirname)` lagde engang `data/bon.db` frit)
 - **Standalone scripts bruger `openDb()`** fra `db/compat.js` — aldrig `DatabaseSync` direkte
+- **Test-scripts isolerer databasen** — `require('./helpers/isolated_db');` som FØRSTE
+  linje i `scripts/test-*.js`, før `db/`, `services/` eller `routes/` requires.
+  `grocyAdapter` slår lokationen op gennem `getGrocyConfig()` → `getDb()`, og stien er
+  repo-absolut: uden isolationen kører en test migrationer på udviklerens egen database
+  og fejler af grunde der intet har med dens logik at gøre (#516). Dækket af
+  `npm run test:isolation`
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker

@@ -19,6 +19,9 @@ const {
     buildBatchPlan,
 } = require('../services/production');
 
+// Isoleret database — et test-script må aldrig røre udviklerens egen (#516).
+require('./helpers/isolated_db');
+
 const { produceBatch } = require('../services/grocyAdapter');
 
 let pass = 0, fail = 0;
