@@ -436,7 +436,7 @@ function breakdownRecipe(recipeId, data) {
         const product = productById.get(String(p.product_id));
         const amount = parseFloat(p.amount) || 0;
         if (!product) {
-            ingredients.push({ product_id: null, name: `#${p.product_id}`, amount_per_serving: amount / div,
+            ingredients.push({ line_id: p.id ?? null, product_id: null, name: `#${p.product_id}`, amount_per_serving: amount / div,
                 unit: null, kg: null, factor: null, source: null, contribution: null,
                 mass_kg: null, missing_kg: null, status: 'unknown_product', is_packaging: false });
             continue;
@@ -447,6 +447,7 @@ function breakdownRecipe(recipeId, data) {
         const na = r.status === 'na';
         const known = r.covered_kg + r.missing_kg;   // kendt masse bag linjen (også ned gennem en opskrift)
         ingredients.push({
+            line_id: p.id ?? null,
             product_id: product.id, name: product.name, amount_per_serving: amount / div,
             unit: unitName.get(product.qu_id_stock) || null,
             kg: (na || r.kg == null) ? null : r.kg / div,
@@ -474,6 +475,7 @@ function breakdownRecipe(recipeId, data) {
         // Masse pr. top-serving: skalér underopskriftens covered/missing_kg ned.
         const subScale = (subBase ? servings / subBase : 0) / div;
         sub_recipes.push({
+            line_id: n.id ?? null,
             recipe_id: n.includes_recipe_id, name: r ? r.name : `#${n.includes_recipe_id}`,
             servings_per_serving: servings / div, per_serving: perServing,
             contribution: complete ? (perServing * servings) / div : null, complete,

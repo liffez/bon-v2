@@ -1,0 +1,438 @@
+/* ════════════════════════════════════════════════════════════
+   shared/recipe_editor.css — opskrift-editoren (§4–§12)
+
+   Farverne er HUSETS (shared/tokens.css), ikke mockuppens. Mockuppen bruger
+   #7a5a12; designsystemets brune er --brand-primary (#8e631f). §14: ingen nye
+   farver uden for designsystemet.
+   ════════════════════════════════════════════════════════════ */
+
+.re-wrap { display: flex; gap: var(--space-l); align-items: flex-start; }
+.re-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.re-side { flex: 0 0 300px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 12px; }
+
+.re-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+}
+
+.re-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.re-dim { color: var(--color-text-dim); }
+.re-c { text-align: center; }
+.re-r { text-align: right; }
+
+/* ── Hoved ──────────────────────────────────────────────── */
+
+.re-back {
+    border: 0; background: transparent; cursor: pointer; padding: 0;
+    font: inherit; font-size: var(--font-size-xs); font-weight: 600;
+    color: var(--brand-primary); align-self: flex-start;
+}
+.re-head { display: flex; flex-direction: column; gap: 10px; }
+.re-head-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.re-name {
+    font-size: var(--font-size-2xl); font-weight: 700; color: var(--color-text);
+    border: 1px solid transparent; background: transparent;
+    padding: 2px 8px; margin-left: -8px; width: 320px; border-radius: 6px;
+    font-family: inherit;
+}
+.re-name:hover { border-color: var(--color-border); }
+.re-name:focus { border-color: var(--brand-primary); background: var(--color-surface); outline: none; }
+
+.re-pill {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    border-radius: 4px; padding: 5px 9px;
+    color: var(--brand-primary); background: var(--brand-primary-light);
+}
+.re-based { font-size: var(--font-size-xs); color: var(--color-text-dim); }
+.re-lbl { font-size: var(--font-size-xs); color: var(--color-text-dim); }
+.re-sel {
+    font-size: var(--font-size-s); padding: 8px 10px; font-family: inherit;
+    border: 1px solid var(--color-border); border-radius: 6px;
+    background: var(--color-surface); color: var(--color-text);
+}
+
+/* ── Udbyttesætningen ───────────────────────────────────── */
+
+.re-yield-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.re-yield-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Sætningens led. Ingen boks på brede skærme — rækken er præcis som før. */
+.re-yield-grp { display: contents; }
+.re-yield-lead { font-size: var(--font-size-md); font-weight: 600; }
+.re-yield-note { font-size: var(--font-size-xs); color: var(--color-text-dim); }
+
+.re-inp {
+    font-family: inherit; text-align: center; padding: 9px 6px;
+    border: 1px solid var(--color-border); border-radius: 6px;
+    background: var(--color-surface); color: var(--color-text);
+}
+.re-inp-amt { width: 64px; font-size: var(--font-size-md); font-weight: 600; }
+.re-inp-small { width: 58px; font-size: var(--font-size-m); }
+.re-div { width: 1px; height: 26px; background: var(--color-border); margin: 0 6px; }
+
+.re-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: var(--font-size-xs); padding: 5px 8px; border-radius: 14px;
+    background: var(--brand-primary-light); color: var(--brand-primary);
+}
+.re-chip-x, .re-chip-sw {
+    border: 0; background: transparent; cursor: pointer; font: inherit;
+    color: var(--brand-primary); padding: 0 2px;
+}
+.re-chip-sw { text-decoration: underline; }
+.re-link {
+    border: 0; background: transparent; cursor: pointer; padding: 0;
+    font: inherit; font-weight: 600; color: var(--brand-primary); text-decoration: underline;
+}
+
+/* ── Listen ─────────────────────────────────────────────── */
+
+.re-list-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+.re-row {
+    display: grid; align-items: center; gap: 0;
+    /* Tæt: en opskrift skal kunne overskues i ét blik, ikke scrolles igennem. */
+    padding: 4px 16px; border-top: 1px solid var(--color-background);
+}
+.re-row-head {
+    padding: 10px 16px; border-top: 0; border-bottom: 1px solid var(--color-border);
+    font-size: 11px; letter-spacing: 0.06em; color: var(--color-text-dim); font-weight: 600;
+}
+
+/* R8.1 — 1–3 uafklarede er UNDTAGELSEN og må gerne lyse. */
+.re-row-unres { background: var(--color-sentiment-neu-bg); border-left: 2px dashed var(--color-orange); }
+/* §8.3 — 4+ er en arbejdsliste. En gul væg gør siden ulæselig. */
+.re-row-unres-dim { border-left: 2px solid var(--color-orange); opacity: 0.85; }
+.re-row-pack .re-pname { color: var(--color-text-dim); }
+
+.re-dot { display: block; width: 8px; height: 8px; border-radius: 50%; }
+.re-dot-ok { background: var(--color-green-dark); }
+/* R6.3: åben prik = ikke afklaret. Aldrig lagerstatus. */
+.re-dot-open { background: transparent; border: 2px solid var(--color-orange); width: 6px; height: 6px; }
+
+/* Badget ligger INDE i navnet og flyder efter teksten som et ord mere.
+   Et flex-layout ved siden af gav to fejl: badget lagde sig lodret hen over et
+   to-linjers navn, og en fast kolonne pressede navnet ned i to linjer. */
+.re-pname { font-weight: 500; line-height: 1.35; min-width: 0; }
+.re-name-btn {
+    border: 0; background: transparent; cursor: pointer; padding: 6px 0; font: inherit;
+    text-align: left; display: flex; align-items: center; width: 100%; min-width: 0;
+    color: inherit;
+    /* Klikfladen fylder rækkens højde uden at gøre den højere — en tæt liste
+       må ikke koste et mål man skal sigte efter med en finger. */
+    align-self: stretch;
+}
+.re-ann { margin-left: 6px; font-size: 12px; color: var(--color-text-dim); font-weight: 400; }
+.re-miss { margin-left: 6px; font-size: 12px; color: var(--color-orange); font-weight: 600; }
+
+.re-badge {
+    display: inline-block; vertical-align: 1px; margin-left: 6px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; line-height: 1.3;
+    padding: 1px 5px; border-radius: 3px; white-space: nowrap;
+    background: var(--color-background); color: var(--color-text-dim);
+}
+.re-badge-semi    { background: var(--brand-primary-light); color: var(--brand-primary); }
+/* Ingen ny farve: baggrunden er husets blå, blandet ned. */
+.re-badge-nesting { background: color-mix(in srgb, var(--color-blue) 14%, white); color: var(--color-blue); }
+.re-badge-new     { background: var(--color-sentiment-neu-bg); color: var(--color-sentiment-neu); }
+.re-caret { font-weight: 400; }
+
+/* Tallene er grid-celler på brede skærme; beholderen findes ikke som boks.
+   På mobil bliver den ét felt og tallene én metalinje (R11.2). */
+.re-nums { display: contents; }
+
+.re-qty { display: flex; justify-content: center; gap: 4px; }
+.re-step {
+    width: 30px; height: 30px; border: 1px solid var(--color-border);
+    background: var(--color-background); border-radius: 6px; cursor: pointer;
+    color: var(--color-text-dim); font: inherit;
+}
+.re-qin {
+    width: 72px; text-align: center; font-family: inherit;
+    border: 1px solid var(--color-border); border-radius: 6px; padding: 5px 4px;
+    background: var(--color-surface); color: var(--color-text);
+}
+.re-qin-s { width: 38px; }
+.re-unit { color: var(--color-text-dim); padding-left: 8px; }
+.re-usel {
+    font-family: inherit; font-size: 12px; padding: 4px 2px;
+    border: 1px solid var(--color-orange); border-radius: 4px; background: var(--color-surface);
+}
+
+/* Et manglende tal er noget man kan GØRE noget ved — ikke en tom celle. */
+.re-ask {
+    border: 1px dashed var(--color-orange); background: transparent; cursor: pointer;
+    font: inherit; font-size: 12px; color: var(--color-sentiment-neu); border-radius: 4px; padding: 2px 6px;
+}
+.re-dots {
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--color-text-dim); font-size: 16px; padding: 4px 6px;
+}
+.re-empty { padding: 28px 16px; text-align: center; color: var(--color-text-dim); }
+
+.re-sec {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 16px 6px 16px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--brand-primary);
+}
+.re-sec-note { font-weight: 400; letter-spacing: 0; color: var(--color-text-dim); font-size: 11px; }
+
+/* ── Udfoldning ─────────────────────────────────────────── */
+
+.re-exp { background: var(--color-background); padding: 10px 16px 10px 52px; font-size: var(--font-size-xs); }
+/* Tallene hører til en anden mængde end den der står nu — de må ikke læses
+   som gældende mens det nye svar er på vej. */
+.re-exp-stale .re-exp-row { opacity: 0.45; }
+.re-exp-head { font-size: 11px; font-weight: 600; color: var(--color-text-dim); margin-bottom: 4px; }
+/* Kan udfoldningen ikke regnes om til linjen, skal det siges — ikke skjules
+   bag tal der ligner de rigtige (I3). */
+.re-exp-warn {
+    font-size: 11px; color: var(--color-orange); font-weight: 600;
+    margin: 0 0 6px; padding-bottom: 5px; border-bottom: 1px dotted var(--color-border);
+}
+.re-exp-row { display: flex; justify-content: space-between; padding: 3px 0; }
+.re-exp-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+.re-exp-load, .re-exp-err { color: var(--color-text-dim); }
+
+/* ── Bånd ───────────────────────────────────────────────── */
+
+.re-banner { display: none; }
+.re-banner-on {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 16px; font-size: var(--font-size-xs);
+    background: var(--color-sentiment-neu-bg); border-bottom: 1px solid var(--color-border);
+}
+.re-banner-dim { background: var(--color-background); }
+.re-banner-acts { display: flex; gap: 10px; align-items: center; }
+
+/* ── Tilføj-blokken ─────────────────────────────────────── */
+
+.re-add { border-top: 1px solid var(--color-border); background: var(--color-background); }
+.re-add-inner { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.re-add-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--color-text-dim); }
+.re-add-row { display: flex; align-items: center; gap: 10px; }
+.re-add-search {
+    flex: 1 1 auto; display: flex; align-items: center; gap: 8px;
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: 6px; padding: 0 10px; color: var(--color-text-dim);
+}
+.re-add-search input {
+    flex: 1 1 auto; border: 0; outline: none; padding: 10px 0;
+    font: inherit; background: transparent; color: var(--color-text);
+}
+
+.re-res { display: none; }
+.re-res-on {
+    display: block; background: var(--color-surface);
+    border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden;
+}
+.re-res-h {
+    padding: 8px 12px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--color-text-dim); background: var(--color-background);
+}
+.re-res-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-top: 1px solid var(--color-background); font-size: var(--font-size-xs);
+}
+.re-res-name { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.re-res-blocked { opacity: 0.7; }
+.re-res-new { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--color-border); }
+.re-res-empty { padding: 14px 12px; color: var(--color-text-dim); font-size: var(--font-size-xs); }
+
+/* ── Ny vare ────────────────────────────────────────────── */
+
+.re-new { padding: 14px; }
+.re-new-h { font-weight: 600; margin-bottom: 10px; }
+.re-new-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.re-new-f { display: flex; flex-direction: column; gap: 4px; }
+.re-new-f label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; color: var(--color-text-dim); }
+.re-new-f input, .re-new-f select {
+    font-family: inherit; font-size: var(--font-size-s); padding: 8px;
+    border: 1px solid var(--color-border); border-radius: 6px;
+    background: var(--color-surface); color: var(--color-text);
+}
+.re-new-note { font-size: 12px; color: var(--color-text-dim); margin-top: 10px; }
+.re-new-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* ── Fremgangsmåde ──────────────────────────────────────── */
+
+.re-steps { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.re-steps-h {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--color-text-dim);
+}
+.re-steps-lead { font-size: var(--font-size-xs); color: var(--color-text-dim); font-style: italic; }
+.re-step-row { display: flex; align-items: center; gap: 8px; }
+.re-step-n {
+    width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%;
+    background: var(--brand-primary-light); color: var(--brand-primary);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+}
+.re-step-t {
+    flex: 1 1 auto; font-family: inherit; font-size: var(--font-size-s); padding: 8px;
+    border: 1px solid var(--color-border); border-radius: 6px; min-width: 0;
+    background: var(--color-surface); color: var(--color-text);
+}
+.re-step-m {
+    width: 52px; text-align: center; font-family: inherit; padding: 8px 4px;
+    border: 1px solid var(--color-border); border-radius: 6px;
+    background: var(--color-surface); color: var(--color-text);
+}
+.re-step-x { border: 0; background: transparent; cursor: pointer; color: var(--color-text-dim); font: inherit; }
+.re-steps-f { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; }
+
+/* ── Overblik ───────────────────────────────────────────── */
+
+.re-ov, .re-price, .re-cols { padding: 14px 16px; }
+.re-ov-h {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--color-text-dim); margin-bottom: 10px;
+}
+.re-ov-big {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: var(--font-size-l); font-weight: 600; margin-bottom: 8px;
+}
+.re-ov-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.re-ov-row { display: flex; justify-content: space-between; font-size: var(--font-size-xs); }
+.re-ov-row span:first-child { color: var(--color-text-dim); }
+.re-ov-err { color: var(--color-red); font-size: var(--font-size-xs); margin-bottom: 6px; }
+
+.re-bar { height: 6px; background: var(--color-background); border-radius: 3px; overflow: hidden; }
+.re-bar-fill { height: 100%; }
+.re-bar-ok { background: var(--color-green-dark); }
+.re-bar-under { background: var(--color-orange); }
+.re-bar-over { background: var(--color-blue); }
+.re-bar-lbl { display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; }
+
+.re-ov-warn {
+    margin-top: 12px; padding: 10px; border-radius: 6px;
+    background: var(--color-sentiment-neu-bg); font-size: 12px;
+}
+.re-ov-warn-h { font-weight: 600; margin-bottom: 3px; }
+
+.re-slider { width: 100%; margin: 8px 0 4px; accent-color: var(--brand-primary); }
+.re-price-note { margin-top: 10px; font-size: 12px; color: var(--color-text-dim); }
+
+.re-cols-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.re-colbtn {
+    border: 1px solid var(--color-border); background: var(--color-surface);
+    border-radius: 14px; padding: 4px 10px; cursor: pointer;
+    font: inherit; font-size: 12px; color: var(--color-text-dim);
+}
+.re-colbtn-on { background: var(--brand-primary-light); color: var(--brand-primary); border-color: var(--brand-primary-light); }
+
+/* ── Bundlinjen ─────────────────────────────────────────── */
+
+.re-bottom {
+    position: sticky; bottom: 0; margin-top: 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 16px; background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    font-size: var(--font-size-xs); color: var(--color-text-dim);
+}
+.re-bottom-acts { display: flex; gap: 8px; }
+.re-blocked { color: var(--color-red); }
+
+.re-btn {
+    font-family: inherit; font-size: var(--font-size-s); padding: 9px 14px;
+    border: 1px solid var(--color-border); border-radius: 6px;
+    background: var(--color-surface); color: var(--color-text); cursor: pointer;
+}
+.re-btn-s { padding: 5px 10px; font-size: 12px; }
+.re-btn-ghost { background: transparent; }
+.re-btn-primary { background: var(--brand-primary); border-color: var(--brand-primary); color: var(--color-surface); font-weight: 600; }
+.re-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+/* ── ⋯-menu ─────────────────────────────────────────────── */
+
+.re-menu {
+    position: absolute; z-index: 1200; min-width: 180px;
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.12); overflow: hidden;
+}
+.re-menu-i {
+    display: block; width: 100%; text-align: left; border: 0; background: transparent;
+    cursor: pointer; font: inherit; font-size: var(--font-size-xs); padding: 9px 12px;
+    color: var(--color-text);
+}
+.re-menu-i:hover { background: var(--color-background); }
+
+/* ── Responsivt (§11) ───────────────────────────────────── */
+
+/* 700–1100: én kolonne, overblikket som et vandret bånd. */
+@media (max-width: 1100px) {
+    /* `align-items: flex-start` er rigtigt side om side (overblikket skal ikke
+       strækkes til listens højde), men i én kolonne styrer det BREDDEN: uden
+       `stretch` bliver den max-content, og siden får vandret scroll. */
+    .re-wrap { flex-direction: column; align-items: stretch; }
+    .re-side { flex: 1 1 auto; width: 100%; position: static; flex-direction: row; flex-wrap: wrap; }
+    .re-side > * { flex: 1 1 260px; }
+}
+
+/* < 700: kort pr. linje, metalinje under navnet (R11.2), 44 px mål (R11.1).
+
+   Rækken bliver et navngivet grid i stedet for en tabel-række. Tal-cellerne
+   kan ikke dele en grid-celle, så de ligger i `.re-nums`, som her holder op
+   med at være `display: contents` og bliver det ene felt de flyder i.  */
+@media (max-width: 700px) {
+    .re-lines { padding: 8px 8px 0; display: flex; flex-direction: column; gap: 8px; }
+
+    /* Kort, ikke rækker: en linje skal kunne ses som én ting på en telefon. */
+    .re-row {
+        /* Mængden spænder begge rækker — som i mockuppen. Lagt under navnet
+           blev kortet 116 px højt; her bliver det 64, og en opskrift kan ses
+           uden at scrolle hele vejen. */
+        grid-template-columns: 16px minmax(0, 1fr) auto auto auto !important;
+        grid-template-areas:
+            "dot name qty unit menu"
+            "dot meta qty unit menu";
+        row-gap: 5px; column-gap: 6px; padding: 10px; align-items: center;
+        background: var(--color-surface); border: 1px solid var(--color-border);
+        border-radius: 10px;
+    }
+    .re-row-head { display: none; }
+    .re-row > div:nth-child(1) { grid-area: dot; align-self: center; }
+    .re-row > .re-pname, .re-row > .re-name-btn { grid-area: name; }
+    .re-row > .re-qty { grid-area: qty; justify-content: flex-end; align-self: center; }
+    .re-row > .re-unit { grid-area: unit; padding-left: 0; white-space: nowrap; align-self: center; }
+    .re-row > .re-dots-c { grid-area: menu; align-self: center; }
+
+    /* Gram · kr · CO₂ på én linje under navnet, hver med sin enhed: overskriften
+       er skjult, og «120» alene siger ikke om det er gram eller kroner. */
+    .re-nums {
+        grid-area: meta; display: flex; flex-wrap: wrap; gap: 2px 10px;
+        font-size: 12px; color: var(--color-text-dim); min-width: 0;
+    }
+    .re-nums > .re-r { text-align: left; }
+    .re-nums > .re-r::after { content: attr(data-suffix); }
+
+    /* R11.1 gælder også links i udfoldningen — «Åbn opskrift →» var 13 px. */
+    .re-step, .re-dots, .re-btn, .re-link { min-height: 44px; }
+    .re-exp-foot { align-items: center; }
+    /* Smallere felter, så metalinjen kan stå på ÉN linje: den kræver 168 px,
+       og hver px navnekolonnen taber, taber den med. Højden bliver på 44. */
+    .re-dots { min-width: 36px; }
+    .re-qin { min-height: 44px; width: 58px; }
+    .re-qin-s { width: 34px; }
+    .re-step { width: 34px; }
+    .re-new-grid { grid-template-columns: 1fr; }
+
+    /* Udbyttesætningen bryder mellem led, ikke midt i «Giver [3] portioner». */
+    .re-yield-card { padding: 12px; }
+    .re-yield-row { gap: 8px 10px; }
+    .re-yield-grp { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; }
+    .re-yield-row > .re-div { display: none; }
+    .re-inp, .re-sel { min-height: 44px; }
+
+    /* R11.3: Gem er altid synlig. */
+    .re-bottom {
+        position: sticky; bottom: 0; z-index: 30;
+        flex-direction: column; align-items: stretch; gap: 8px;
+        background: var(--color-surface); border-top: 1px solid var(--color-border);
+        padding: 10px 12px;
+    }
+    .re-bottom-acts { justify-content: stretch; }
+    .re-bottom-acts .re-btn { flex: 1 1 auto; min-height: 44px; }
+}

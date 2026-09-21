@@ -26,6 +26,7 @@ var _rdRecipeMap     = {};       // recipe_id -> recipe
 var _rdProducts      = [];       // raw products array
 var _rdProductMap    = {};       // product_id -> product
 var _rdQuantityUnits = {};       // qu_id -> unit name
+var _rdQuUnitList    = [];       // rå enheds-array — RecipeYield slår navne op i det
 var _rdStock         = {};       // product_id -> eget lager (stock-units)
 var _rdChildrenByParent = {};    // parent_product_id -> [child product_id] (parent/child-lager)
 var _rdQuConversions = [];       // unit conversions (raw)
@@ -45,6 +46,7 @@ var _rdDs = {
     group: '',
     recipeUnit: '',        // userfield recipeunit — hvilken enhed én portion er
     yieldNum: null,        // userfield recipeunitnumber — hvor meget én portion er (null = ikke oplyst)
+    productId: null,       // recipes.product_id — varen opskriften PRODUCERER (null = ingen)
     baseServings: 1,
     currentPortions: 1,
     ingredients: [],       // { id?, product_id, amount, qu_id, ingredient_group, note }
@@ -125,7 +127,10 @@ async function _rdLoadData(background) {
             fetchGrocyQuantityUnitConversions(),
             // Valgmulighederne til Gruppe og Enhed kommer fra Grocys egen
             // feltdefinition. Fejler kaldet, bruges værdierne i brug (se nedenfor).
-            fetchGrocyUserfields().catch(function() { return []; })
+            fetchGrocyUserfields().catch(function() { return []; }),
+            // Varegrupper: editoren skal kunne sætte en på en ny vare. Fejler
+            // kaldet, bliver feltet bare tomt — en manglende gruppe er lovlig.
+            fetchGrocyProductGroups().catch(function() { return []; })
         ]);
 
         var rawRecipes   = results[0];
@@ -136,6 +141,7 @@ async function _rdLoadData(background) {
         var rawNestings  = results[5];
         var rawConvs     = results[6];
         var rawUfDefs    = results[7] || [];
+        _rdProductGroups = results[8] || [];
 
         _rdRecipes = rawRecipes.map(function(r) {
             r._group   = (r.userfields && r.userfields.grupper) || 'Ingen kategori';
@@ -155,6 +161,7 @@ async function _rdLoadData(background) {
 
         _rdQuantityUnits = {};
         rawQus.forEach(function(qu) { _rdQuantityUnits[qu.id] = qu.name; });
+        _rdQuUnitList = rawQus;
 
         _rdStock = {};
         rawStock.forEach(function(s) { _rdStock[s.product_id] = parseFloat(s.amount) || 0; });
@@ -196,6 +203,7 @@ async function _rdLoadData(background) {
 // ════════════════════════════════════════════════════════════
 
 function _rdShowStart() {
+    _rdEditorWidth(false);
     _rdContainer.innerHTML = '' +
         '<div id="rdAlertBox"></div>' +
         '<div class="rd-view rd-visible" id="rdStartView">' +
@@ -323,6 +331,11 @@ function _rdRenderPickerList() {
 function _rdOpenForEdit(recipeId) {
     var recipe = _rdRecipeMap[recipeId];
     if (!recipe) return;
+    // Editoren (spec §4) arbejder på KLADDE-objektet og erstatter den gamle
+    // designer-visning. Den gamle sti står tilbage indtil editoren er
+    // verificeret i drift — en omskrivning man ikke kan slå fra, kan ikke
+    // sammenlignes med det den erstattede.
+    if (window.RecipeEditor && !window.RD_LEGACY) { _rdMountEditor(recipeId); return; }
 
     _rdDs.mode = 'modify';
     _rdDs.originalRecipeId = recipeId;
@@ -334,6 +347,8 @@ function _rdOpenForEdit(recipeId) {
     _rdDs.group = uf.grupper == null ? '' : String(uf.grupper);
     _rdDs.recipeUnit = uf.recipeunit == null ? '' : String(uf.recipeunit);
     _rdDs.yieldNum = _rdOptNum(uf.recipeunitnumber);
+    // Varen opskriften producerer. Grocy giver null eller et id som streng.
+    _rdDs.productId = _rdOptNum(recipe.product_id);
     // Decimaler bevares: parseInt gjorde 2,8 portioner til 2.
     _rdDs.baseServings = _rdOptNum(recipe.base_servings) || 1;
     _rdDs.currentPortions = _rdDs.baseServings;
@@ -360,12 +375,98 @@ function _rdOpenForEdit(recipeId) {
     _rdShowDesigner();
     _rdLoadComposition(recipeId);      // hent kostpris/breakdown (async)
 }
+// ════════════════════════════════════════════════════════════
+// EDITOREN (spec §4) — kladde-baseret, erstatter designer-visningen
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Åbn en opskrift (eller en tom) i editoren.
+ *
+ * Kladden hentes fra `/api/opskrifter/:id/editor`, som leverer PRÆCIS det
+ * objekt `/beregn` tager imod og importen producerer (§15). Editoren ser
+ * derfor ingen forskel på de tre indgange.
+ *
+ * `meta` er stamdata editoren tegner med — designeren har dem allerede fra
+ * sin egen indlæsning, så editoren henter dem ikke igen.
+ */
+async function _rdMountEditor(recipeId) {
+    _rdSwitchView('rdDesignerView');
+    var view = document.getElementById('rdDesignerView');
+    view.innerHTML = '<div class="rd-loading"><div class="rd-spinner"></div><p>Henter opskriften...</p></div>';
+
+    var kladde = null, overview = null;
+    if (recipeId != null) {
+        try {
+            var r = await apiFetch('/opskrifter/' + recipeId + '/editor');
+            kladde = r.draft; overview = r.overview;
+        } catch (e) {
+            view.innerHTML = '<div class="rd-loading"><p>Kunne ikke hente opskriften: ' +
+                esc(e.message) + '</p></div>';
+            return;
+        }
+    }
+
+    _rdEditorWidth(true);
+    window.RecipeEditor.mount(view, {
+        draft: kladde,
+        overview: overview,
+        mode: recipeId == null ? 'new' : 'modify',
+        meta: _rdEditorMeta(recipeId),
+        onExit: function (gemtId) {
+            // Er der gemt, kender listen ikke det nye navn før dataene er
+            // hentet igen — ellers viser pickeren den gamle tekst indtil
+            // siden genindlæses.
+            if (gemtId != null) { _rdLoadData(true); }
+            _rdShowStart();
+        },
+    });
+}
+
+/** Stamdata editoren tegner med. Alt er hentet i forvejen af designeren. */
+function _rdEditorMeta(recipeId) {
+    var grupper = {};
+    _rdRecipes.forEach(function (r) {
+        var g = (r.userfields || {}).grupper;
+        if (g) grupper[g] = 1;
+    });
+
+    var r = recipeId == null ? null : _rdRecipeMap[recipeId];
+    return {
+        groups: Object.keys(grupper).sort(),
+        units: _rdQuUnitList,
+        products: _rdProducts,
+        productGroups: _rdProductGroups,
+        stock: _rdStock,
+        // Emballage (R7.5) afgøres af SERVEREN — `/beregn` sætter
+        // `is_packaging` pr. linje i samme gennemgang som madvægten. Derfor
+        // ingen kopi af `co2Materials`-listen her.
+        erEmballageGruppe: null,
+        productionTypeHint: r ? _rdProductionType(r) : null,
+    };
+}
+
+/**
+ * #329-reglen, aflæst — ikke skrevet af.
+ *
+ * Gruppen `RR produktion Hurtig` betyder at Bon laver varen ved LEVERET
+ * (on_demand); alt andet med en vare laves efter plan (to_stock). Navnet
+ * spejler `HURTIG_GROUP` i `services/ingredientResolver.js`; browseren kan
+ * ikke require den, så en test holder de to i sync.
+ */
+var _RD_HURTIG_GROUP = 'RR produktion Hurtig';
+function _rdProductionType(recipe) {
+    if (!recipe || !recipe.product_id) return null;
+    var g = String((recipe.userfields || {}).grupper || '').trim();
+    return g === _RD_HURTIG_GROUP ? 'on_demand' : 'to_stock';
+}
+
 
 // ═════════════════════════���══════════════════════════════════
 // START NEW
 // ════════════════════════════════════════════════════════════
 
 function _rdStartNew() {
+    if (window.RecipeEditor && !window.RD_LEGACY) { _rdMountEditor(null); return; }
     _rdDs.mode = 'new';
     _rdDs.originalRecipeId = null;
     _rdDs.name = '';
@@ -373,6 +474,7 @@ function _rdStartNew() {
     _rdDs.group = '';
     _rdDs.recipeUnit = '';     // vælges af brugeren — vi opfinder ikke en enhed
     _rdDs.yieldNum = null;     // ... og heller ikke et udbytte
+    _rdDs.productId = null;    // ... og heller ikke en produceret vare
     _rdDs.baseServings = 1;
     _rdDs.currentPortions = 1;
     _rdDs.ingredients = [];
@@ -428,13 +530,22 @@ function _rdShowDesigner() {
                     '<div class="rd-yield-pair">' +
                         '<input type="text" class="rd-meta-input rd-yield-num" id="rdDYield" inputmode="decimal" ' +
                             'placeholder="ikke oplyst" value="' + esc(_rdFmtNum(_rdDs.yieldNum)) + '">' +
-                        '<select class="rd-meta-select" id="rdDUnit">' + _rdOptionsHtml('recipeunit', _rdDs.recipeUnit, '— vælg —') + '</select>' +
+                        '<select class="rd-meta-select" id="rdDUnit" title="En portion måles i kilo, gram, liter eller antal. Timer og Kr bruges p&#229; service-opskrifterne og kan ikke regnes om til et udbytte.">' +
+                            _rdUnitOptionsHtml(_rdDs.recipeUnit) + '</select>' +
                     '</div>' +
                 '</div>' +
                 '<div class="rd-meta-field rd-short">' +
                     '<div class="rd-meta-label">Base antal</div>' +
                     '<input type="text" class="rd-meta-input" id="rdDBaseServings" inputmode="decimal" value="' + esc(_rdFmtNum(_rdDs.baseServings)) + '">' +
                 '</div>' +
+            '</div>' +
+
+            // Producerer vare (#683). Egen række, ikke en fjerde meta-kolonne:
+            // valget skifter produktionstype, lagertræk og kostpris, og
+            // konsekvensen skal have plads til at stå skrevet.
+            '<div class="rd-produces" id="rdProducesRow">' +
+                '<div class="rd-meta-label">Producerer vare</div>' +
+                '<div class="rd-produces-body" id="rdProducesBody"></div>' +
             '</div>' +
 
             // Summary toggle (chips genereres fra _rdCardDefs — ét sted)
@@ -482,6 +593,8 @@ function _rdShowDesigner() {
                             '<button class="rd-ok-btn" id="rdConfirmAdd">Tilf&#248;j</button>' +
                             '<button class="rd-cancel-btn" id="rdCancelAdd">&#10005;</button>' +
                         '</div>' +
+                        '<div class="rd-add-hint">Findes varen ikke i Grocy endnu? ' +
+                            '<button class="rd-add-new" id="rdAddNewProduct" type="button">+ Opret ny vare</button></div>' +
                     '</div>' +
                 '</div>' +
             '</div>' +
@@ -504,6 +617,7 @@ function _rdShowDesigner() {
                         '<button class="rd-ok-btn" id="rdConfirmAddNesting">Tilf&#248;j</button>' +
                         '<button class="rd-cancel-btn" id="rdCancelAddNesting">&#10005;</button>' +
                     '</div>' +
+                    '<div class="rd-nest-hint" id="rdNestHint"></div>' +
                 '</div>' +
             '</div>' +
 
@@ -528,6 +642,7 @@ function _rdShowDesigner() {
 
     // Initial render
     _rdPopulateGroupDropdown();
+    _rdRenderProduces();
     _rdRenderIngredients();
     _rdRenderNestings();
     _rdRenderSummaryCards();
@@ -554,11 +669,14 @@ function _rdBindDesignerEvents() {
     // Meta changes
     document.getElementById('rdDGroup').addEventListener('change', function() {
         _rdDs.group = this.value;
+        // Gruppen afgør om en produceret vare er `on_demand` eller `to_stock`.
+        _rdRenderProduces();
         _rdMarkChanged();
     });
     document.getElementById('rdDUnit').addEventListener('change', function() {
         _rdDs.recipeUnit = this.value;
         _rdUpdatePortionsDisplay();
+        _rdRenderProduces();   // enheden indgår i udbyttet
         _rdMarkChanged();
     });
     var yieldEl = document.getElementById('rdDYield');
@@ -569,6 +687,7 @@ function _rdBindDesignerEvents() {
         if (raw !== '' && !(n > 0)) { this.value = _rdFmtNum(_rdDs.yieldNum); return; }
         _rdDs.yieldNum = n;
         this.value = _rdFmtNum(n);
+        _rdRenderProduces();   // udbyttet står i konsekvens-teksten
         _rdMarkChanged();
     });
     yieldEl.addEventListener('focus', function() { this.select(); });
@@ -660,6 +779,8 @@ function _rdBindDesignerEvents() {
     document.getElementById('rdToggleAddPanel').addEventListener('click', _rdToggleAddPanel);
     document.getElementById('rdConfirmAdd').addEventListener('click', _rdConfirmAdd);
     document.getElementById('rdCancelAdd').addEventListener('click', _rdToggleAddPanel);
+    var addNew = document.getElementById('rdAddNewProduct');
+    if (addNew) addNew.addEventListener('click', _rdCreateIngredientProduct);
 
     // Autocomplete for products
     var acInput = document.getElementById('rdAcInput');
@@ -1349,39 +1470,77 @@ function _rdToggleAddPanel() {
     }
 }
 
-function _rdOnAcInput(q) {
-    var dd = document.getElementById('rdAcDropdown');
+/**
+ * ÉN produkt-vælger, to steder.
+ *
+ * "+ Tilføj ingrediens" og "Producerer vare" gør det samme: find varen — eller
+ * opret den, hvis den ikke findes i Grocy endnu. De var skrevet hver for sig,
+ * og efter én dag havde de allerede hver sit filter. To kopier af det samme
+ * opslag driver fra hinanden; det var præcis sådan `_buildMailVars` blev til
+ * tre uenige udgaver.
+ *
+ * `meta` er det eneste der skiller dem: ingredienserne viser lagerstatus,
+ * produceret vare viser hvem der laver varen i forvejen.
+ */
+function _rdProductDropdown(cfg, q) {
+    var dd = document.getElementById(cfg.dropdownId);
+    var input = document.getElementById(cfg.inputId);
+    if (!dd || !input) return;
     if (!q || q.length < 1) { dd.classList.remove('rd-open'); return; }
-    q = q.toLowerCase();
-    var matches = _rdProducts
-        .filter(function(p) { return p.name && p.name.toLowerCase().indexOf(q) !== -1; })
-        .slice(0, 10);
+
+    var needle = String(q).toLowerCase();
+    // Inaktive varer udelades BEGGE steder. «kål» blev sat inaktiv i en
+    // optælling og gav 13 bons `partial` (#645): en inaktiv vare kan hverken
+    // forbruges som ingrediens eller lægges på lager som produceret vare.
+    var matches = _rdProducts.filter(function(p) {
+        return _rdIsActive(p) && p.name && p.name.toLowerCase().indexOf(needle) !== -1;
+    }).slice(0, 10);
     if (!matches.length) { dd.classList.remove('rd-open'); return; }
 
     dd.innerHTML = matches.map(function(p) {
-        var stockAmt = _rdEffectiveStock(p.id);
-        var unitName = _rdQuantityUnits[p.qu_id_stock] || '';
-        var dotStyle = stockAmt > 0 ? 'color:var(--color-green-dark)' : 'color:var(--color-red)';
         return '<div class="rd-ac-item" data-pid="' + p.id + '">' +
             '<span class="rd-ac-item-name">' + esc(p.name) + '</span>' +
-            '<span class="rd-ac-item-meta"><span style="' + dotStyle + '">&#9679;</span> ' + _rdRound(stockAmt, 1) + ' ' + esc(unitName) + '</span>' +
+            '<span class="rd-ac-item-meta">' + cfg.meta(p) + '</span>' +
         '</div>';
     }).join('');
-    // Position fixed dropdown under input
-    var inputRect = document.getElementById('rdAcInput').getBoundingClientRect();
-    dd.style.top = inputRect.bottom + 'px';
-    dd.style.left = inputRect.left + 'px';
+
+    var rect = input.getBoundingClientRect();
+    dd.style.top = rect.bottom + 'px';
+    dd.style.left = rect.left + 'px';
     dd.style.right = 'auto';
-    dd.style.width = inputRect.width + 'px';
-    dd.style.maxWidth = inputRect.width + 'px';
+    dd.style.width = rect.width + 'px';
+    dd.style.maxWidth = rect.width + 'px';
     dd.classList.add('rd-open');
 
-    // Bind selection
     dd.onclick = function(e) {
         var item = e.target.closest('.rd-ac-item');
         if (!item) return;
-        _rdSelectProduct(parseInt(item.getAttribute('data-pid')));
+        cfg.onPick(parseInt(item.getAttribute('data-pid')));
     };
+}
+
+/** Lagerstatus — det ingredienserne skal vide. */
+function _rdMetaStock(p) {
+    var stockAmt = _rdEffectiveStock(p.id);
+    var unitName = _rdQuantityUnits[p.qu_id_stock] || '';
+    var dotStyle = stockAmt > 0 ? 'color:var(--color-green-dark)' : 'color:var(--color-red)';
+    return '<span style="' + dotStyle + '">&#9679;</span> ' + _rdRound(stockAmt, 1) + ' ' + esc(unitName);
+}
+
+/** Hvem laver varen i forvejen — det "producerer vare" skal vide. */
+function _rdMetaProducer(p) {
+    var unitName = _rdQuantityUnits[p.qu_id_stock] || '';
+    var other = _rdRecipes.filter(function(r) {
+        return Number(r.product_id) === Number(p.id) && Number(r.id) !== Number(_rdDs.originalRecipeId);
+    });
+    return esc(unitName) + (other.length ? ' &middot; laves allerede af ' + esc(other[0].name) : '');
+}
+
+function _rdOnAcInput(q) {
+    _rdProductDropdown({
+        inputId: 'rdAcInput', dropdownId: 'rdAcDropdown',
+        meta: _rdMetaStock, onPick: _rdSelectProduct
+    }, q);
 }
 
 function _rdSelectProduct(pid) {
@@ -1459,13 +1618,30 @@ function _rdRenderNestings() {
             }
         }
 
-        return '<div class="rd-nesting-card">' +
+        // Er underopskriften blevet en vare (#270), hører den hjemme som en
+        // ingrediens-linje. Den bliver ikke omdannet af sig selv — det er en
+        // opskriftsændring, og den skal et menneske tage stilling til.
+        var prod = _rdRecipeProduct(sub);
+        var convert = '';
+        if (prod) {
+            var asStock = _rdNestingAsStock(sub, prod, parseFloat(n.servings) || 0);
+            convert = asStock != null
+                ? '<button class="rd-nest-convert" data-nest-convert="' + i + '" title="' +
+                    esc(sub.name + ' producerer varen ' + prod.name + '. Lægges den ind som ingrediens, trækkes varen i stedet for dens råvarer.') +
+                    '">&#8594; vare-linje</button>'
+                : '<span class="rd-nest-convert rd-nest-convert-off" title="' +
+                    esc(sub.name + ' producerer varen ' + prod.name + ', men udbyttet er ikke oplyst, så mængden kan ikke regnes om. Udfyld "1 portion er" på ' + sub.name + ' først.') +
+                    '">&#8594; vare-linje</span>';
+        }
+
+        return '<div class="rd-nesting-card' + (prod ? ' rd-nesting-card-legacy' : '') + '">' +
             '<span class="rd-nesting-icon">&#x1F4CB;</span>' +
             '<span class="rd-nesting-name">' + esc(name) + costLine + '</span>' +
             '<div class="rd-nesting-amt">' +
                 '<input type="number" class="rd-nesting-input" data-idx="' + i + '" data-display-unit="' + esc(fmt.unit) + '" data-orig-unit="' + esc(unit) + '" value="' + fmt.amount + '" step="0.01">' +
                 '<span class="rd-nesting-unit">' + esc(fmt.unit) + '</span>' +
             '</div>' +
+            convert +
             '<button class="rd-ing-remove" data-nest-idx="' + i + '">&#10005;</button>' +
         '</div>';
     }).join('');
@@ -1483,6 +1659,8 @@ function _rdRenderNestings() {
         }
     };
     container.onclick = function(e) {
+        var conv = e.target.closest('[data-nest-convert]');
+        if (conv) { _rdConvertNestingToLine(parseInt(conv.getAttribute('data-nest-convert'))); return; }
         var btn = e.target.closest('[data-nest-idx]');
         if (btn) {
             _rdRemoveNesting(parseInt(btn.getAttribute('data-nest-idx')));
@@ -1521,6 +1699,8 @@ function _rdToggleAddNestingPanel() {
         document.getElementById('rdNestAmt').value = '1';
         document.getElementById('rdNestUnitLabel').textContent = 'portion';
         document.getElementById('rdNestAcDropdown').classList.remove('rd-open');
+        var h0 = document.getElementById('rdNestHint');
+        if (h0) { h0.innerHTML = ''; h0.className = 'rd-nest-hint'; }
         _rdSelectedNestRecipe = null;
         setTimeout(function() { document.getElementById('rdNestAcInput').focus(); }, 100);
     }
@@ -1536,8 +1716,14 @@ function _rdOnNestAcInput(q) {
     if (!matches.length) { dd.classList.remove('rd-open'); return; }
 
     dd.innerHTML = matches.map(function(r) {
+        // Producerer opskriften en vare (#270), lægges den ind som ingrediens-linje
+        // og ikke som nesting. Mærket viser hvad der sker FØR man vælger.
+        var prod = _rdRecipeProduct(r);
+        var badge = prod
+            ? '<span class="rd-nest-badge rd-nest-badge-vare">&#8594; ' + esc(prod.name) + '</span>'
+            : '<span class="rd-nest-badge">underopskrift</span>';
         return '<div class="rd-ac-item" data-rid="' + r.id + '">' +
-            '<span class="rd-ac-item-name">' + esc(r.name) + '</span>' +
+            '<span class="rd-ac-item-name">' + esc(r.name) + ' ' + badge + '</span>' +
             '<span class="rd-ac-item-meta">' + esc(r._group) + ' &middot; ' + r.base_servings + ' ' + esc(r._unit) + '</span>' +
         '</div>';
     }).join('');
@@ -1554,21 +1740,85 @@ function _rdOnNestAcInput(q) {
     dd.onclick = function(e) {
         var item = e.target.closest('.rd-ac-item');
         if (!item) return;
-        var rid = parseInt(item.getAttribute('data-rid'));
-        _rdSelectedNestRecipe = _rdRecipeMap[rid];
-        if (_rdSelectedNestRecipe) {
-            document.getElementById('rdNestAcInput').value = _rdSelectedNestRecipe.name;
-            document.getElementById('rdNestUnitLabel').textContent = _rdSelectedNestRecipe._unit || 'portion';
-            dd.classList.remove('rd-open');
-            document.getElementById('rdNestAmt').focus();
-        }
+        _rdSelectNestRecipe(parseInt(item.getAttribute('data-rid')));
+        dd.classList.remove('rd-open');
     };
+}
+
+/**
+ * Valget af underopskrift.
+ *
+ * Producerer den en vare (#270), skifter panelet til at tage imod en mængde i
+ * VARENS lager-enhed. Det er det tal man tænker i ("25 g Chili Mayo"), og så
+ * er der hverken noget at regne om eller noget at regne forkert. Udbyttet
+ * vises som oplysning, ikke som mellemregning.
+ */
+function _rdSelectNestRecipe(rid) {
+    _rdSelectedNestRecipe = _rdRecipeMap[rid] || null;
+    var hint = document.getElementById('rdNestHint');
+    if (!_rdSelectedNestRecipe) { if (hint) hint.innerHTML = ''; return; }
+
+    var r = _rdSelectedNestRecipe;
+    var prod = _rdRecipeProduct(r);
+    var inp = document.getElementById('rdNestAcInput');
+    if (inp) inp.value = r.name;
+    var lbl = document.getElementById('rdNestUnitLabel');
+    if (lbl) lbl.textContent = prod ? (_rdQuantityUnits[prod.qu_id_stock] || '') : (r._unit || 'portion');
+
+    if (hint) {
+        if (prod) {
+            var y = _rdNestingAsStock(r, prod, 1);
+            var unit = _rdQuantityUnits[prod.qu_id_stock] || '';
+            hint.innerHTML = '&#8594; l&#230;gges ind som ingrediensen <strong>' + esc(prod.name) +
+                '</strong> &#8212; ikke som underopskrift. R&#229;varerne tr&#230;kkes af "' + esc(r.name) + '" n&#229;r varen laves.' +
+                (y != null ? ' (1 portion af ' + esc(r.name) + ' er ' + _rdFmtNum(_rdRound(y, 3)) + ' ' + esc(unit) + ')' : '');
+            hint.className = 'rd-nest-hint rd-nest-hint-vare';
+        } else {
+            hint.innerHTML = 'L&#230;gges ind som underopskrift. M&#230;ngden er antal portioner af ' + esc(r.name) + '.';
+            hint.className = 'rd-nest-hint';
+        }
+    }
+    var amtEl = document.getElementById('rdNestAmt');
+    if (amtEl) { amtEl.value = prod ? '' : '1'; amtEl.focus(); }
 }
 
 function _rdConfirmAddNesting() {
     if (!_rdSelectedNestRecipe) { _rdShowAlert('Vaelg en opskrift foerst', 'error'); return; }
     var amt = parseFloat(document.getElementById('rdNestAmt').value);
     if (!amt || amt <= 0) { _rdShowAlert('Indtast en maengde', 'error'); return; }
+
+    // #270: producerer opskriften en vare, er det varen der skal på linjen.
+    // Nestings er ikke forbudt — slider-boksene 77/78 er bevidst indlejrede —
+    // men reglen er "har underopskriften en vare, så brug varen".
+    var prodSel = _rdRecipeProduct(_rdSelectedNestRecipe);
+    // Navnet læses FØR panelet lukkes: _rdToggleAddNestingPanel rydder
+    // _rdSelectedNestRecipe når den åbner, og så afhænger kvitteringen af
+    // hvilken tilstand panelet stod i.
+    var subName = _rdSelectedNestRecipe.name;
+    if (prodSel) {
+        var multSel = _rdDs.currentPortions / _rdDs.baseServings;
+        _rdDs.ingredients.push({
+            id: null,
+            recipe_id: _rdDs.originalRecipeId,
+            product_id: prodSel.id,
+            amount: amt / multSel,
+            qu_id: prodSel.qu_id_stock,
+            ingredient_group: null,
+            note: null,
+            only_check_single_unit_in_stock: 0,
+            not_check_stock_fulfillment: 0,
+            variable_amount: null,
+            price_factor: 1,
+            round_up: 0
+        });
+        _rdMarkChanged();
+        _rdToggleAddNestingPanel();
+        _rdPopulateGroupDropdown();
+        _rdRenderIngredients();
+        _rdRecalcSummary();
+        _rdShowAlert(prodSel.name + ' tilføjet som ingrediens (varen laves af "' + subName + '")', 'success');
+        return;
+    }
 
     _rdDs.nestings.push({
         id: null,
@@ -1581,7 +1831,7 @@ function _rdConfirmAddNesting() {
     _rdToggleAddNestingPanel();
     _rdRenderNestings();
     _rdRecalcSummary();
-    _rdShowAlert(_rdSelectedNestRecipe.name + ' tilfojet som underopskrift', 'success');
+    _rdShowAlert(subName + ' tilfojet som underopskrift', 'success');
 }
 
 // ═══════════════════���═════════════════════════════════════���══
@@ -1636,6 +1886,434 @@ function _rdGetConversionFactor(productId, fromQuId, toQuId) {
     if (gr && gr.factor !== 0) return 1.0 / gr.factor;
     return null;
 }
+
+// ════════════════════════════════════════════════════════════
+// PRODUCERET VARE (#683)
+// ════════════════════════════════════════════════════════════
+//
+// `recipes.product_id` er ikke et felt som de andre. Sættes det, skifter tre
+// ting i driften i samme øjeblik, uden at nogen har bedt om dem:
+//
+//   1. PRODUKTIONSTYPEN. `productionTypeOf` (services/ingredientResolver.js)
+//      giver `on_demand` når gruppen er `RR produktion Hurtig`, ellers
+//      `to_stock`. `on_demand` betyder at Bon selv laver varen ved LEVERET.
+//   2. LAGERTRÆKKET (#329). En `to_stock` underopskrift trækker fremover
+//      VAREN, ikke sine råvarer. Hver menu der nester opskriften skifter.
+//   3. KOSTPRISEN (#558). Varens pris kommer fra opskriften i stedet for
+//      lagerprisen — det flytter kostpris og DB på hver ret der bruger varen.
+//
+// #270 rullede de otte konverteringer ud én ad gangen med fingerprint før og
+// efter, netop fordi konsekvensen er så stor. Her sidder den bag en dropdown,
+// og så skal konsekvensen siges FØR der gemmes — ikke opdages ved næste
+// optælling. Derfor findes `_rdComputeProducesImpact`.
+
+// Gruppen der gør en produceret vare til `on_demand`. Spejler HURTIG_GROUP i
+// services/ingredientResolver.js — browserkode kan ikke require'e den. Testen
+// asserterer at de to er ens; driver de fra hinanden, viser designeren noget
+// andet end driften gør (samme greb som _vmFindFactor mod quConvert i #358).
+var RD_HURTIG_GROUP = 'rr produktion hurtig';
+
+/**
+ * Ren funktion: hvad ændrer sig hvis `recipeId` producerer `productId`?
+ *
+ * Alt kommer ind som argumenter, så den kan efterprøves uden en DOM og uden
+ * Grocy. `_rdProducesImpact` er den tynde indpakning der læser modulets state.
+ */
+function _rdComputeProducesImpact(inp) {
+    inp = inp || {};
+    var pid = (inp.productId == null || inp.productId === '') ? null : Number(inp.productId);
+    var out = {
+        productId: pid,
+        productName: '',
+        stockUnit: '',
+        type: null,            // 'on_demand' | 'to_stock' | null
+        otherProducers: [],    // andre opskrifter der producerer SAMME vare
+        winner: null,          // den opskrift kostprisen faktisk regnes efter
+        isWinner: true,
+        nestedIn: [],          // opskrifter der nester DENNE — de skifter lagertræk
+        yieldStock: null,      // udbytte for hele opskriften, i varens lager-enhed
+        yield: null,           // _rdYieldStatus — inkl. hvorfor det evt. ikke kan bestemmes
+        productInactive: false
+    };
+    if (!pid) return out;
+
+    var product = inp.product || null;
+    out.productName = (product && product.name) || ('#' + pid);
+    out.productInactive = !!(product && !_rdIsActive(product));
+    if (product && product.qu_id_stock != null) {
+        var u = (inp.units || []).find(function(x) { return Number(x.id) === Number(product.qu_id_stock); });
+        out.stockUnit = u ? (u.name || '') : '';
+    }
+
+    out.type = String(inp.group || '').trim().toLowerCase() === RD_HURTIG_GROUP
+        ? 'on_demand' : 'to_stock';
+
+    // Flere opskrifter kan producere samme vare (Falaffel har tre). `recipeCost.js`
+    // vælger den med LAVESTE id — derfor er det ikke nok at nævne dem, vi skal
+    // også sige hvilken der vinder. En NY opskrift har endnu intet id og kan
+    // per definition ikke være den laveste.
+    var mine = inp.recipeId == null ? null : Number(inp.recipeId);
+    var producers = (inp.recipes || []).filter(function(r) {
+        return Number(r.product_id) === pid && (mine == null || Number(r.id) !== mine);
+    });
+    out.otherProducers = producers.map(function(r) { return { id: Number(r.id), name: r.name }; });
+    if (producers.length) {
+        var lowest = out.otherProducers.slice().sort(function(a, b) { return a.id - b.id; })[0];
+        out.isWinner = mine != null && mine < lowest.id;
+        out.winner = out.isWinner ? { id: mine, name: inp.recipeName || 'denne opskrift' } : lowest;
+    }
+
+    if (mine != null) {
+        var seen = {};
+        (inp.nestings || []).forEach(function(n) {
+            if (Number(n.includes_recipe_id) !== mine) return;
+            var parent = (inp.recipes || []).find(function(r) { return Number(r.id) === Number(n.recipe_id); });
+            if (!parent || seen[parent.id]) return;
+            seen[parent.id] = true;
+            out.nestedIn.push({ id: Number(parent.id), name: parent.name });
+        });
+    }
+
+    out.yield = _rdYieldStatus({
+        yieldNum: inp.yieldNum, recipeUnit: inp.recipeUnit, baseServings: inp.baseServings
+    }, product, inp.units, inp.conversions);
+    out.yieldStock = out.yield.amount;
+
+    return out;
+}
+
+/**
+ * Udbyttet for HELE opskriften, i varens lager-enhed — OG hvorfor det evt. ikke
+ * kan bestemmes.
+ *
+ * `RecipeYield.yieldInStockUnits` giver op tre forskellige steder, og de kræver
+ * hver sin handling: udfyld tallet · vælg en rigtig enhed · få enheden regnet om
+ * til varens lager-enhed. Sagde advarslen det samme i alle tre tilfælde, ville
+ * den bede folk om at udfylde noget der allerede står der — og en anvisning der
+ * ikke passer, lærer folk at ignorere advarslen (samme svigt som vagthunden i #359).
+ *
+ * Reglen lånes: vi kalder RecipeYields EGNE primitiver i samme rækkefølge frem
+ * for at skrive en udgave til. En parallel implementering ville drive fra
+ * kostprisen og produktionsbatchen, og så ville designeren vise ét tal mens
+ * lageret fik et andet (#360). Testen asserterer at de to altid er enige.
+ *
+ * @returns { ok, amount, reason, unitName, total }
+ *   reason: null | 'ingen_vare' | 'mangler_tal' | 'ukendt_enhed' | 'mangler_omregning'
+ */
+function _rdYieldStatus(vals, product, units, conversions) {
+    var out = { ok: false, amount: null, reason: 'ingen_vare', unitName: _rdStr(vals.recipeUnit), total: null };
+    if (typeof RecipeYield === 'undefined' || !product) return out;
+
+    var per = vals.yieldNum;
+    if (!(per > 0)) { out.reason = 'mangler_tal'; return out; }
+    var base = (vals.baseServings > 0) ? vals.baseServings : 1;
+    out.total = per * base;
+
+    var quId = RecipeYield.unitIdByName(units || [], out.unitName);
+    if (quId == null) { out.reason = 'ukendt_enhed'; return out; }
+
+    var f = RecipeYield.factorToStock(product, quId, conversions || []);
+    if (f == null) { out.reason = 'mangler_omregning'; return out; }
+
+    out.ok = true;
+    out.amount = out.total * f;
+    out.reason = null;
+    return out;
+}
+
+/** Indpakning over modulets state — bruges af rendering og af Gem. */
+function _rdProducesImpact(productId) {
+    return _rdComputeProducesImpact({
+        recipeId: _rdDs.originalRecipeId,
+        recipeName: _rdDs.name,
+        productId: productId,
+        product: productId ? _rdProductMap[productId] : null,
+        group: _rdDs.group,
+        yieldNum: _rdDs.yieldNum,
+        recipeUnit: _rdDs.recipeUnit,
+        baseServings: _rdDs.baseServings,
+        recipes: _rdRecipes,
+        nestings: _rdAllNestings,
+        units: _rdQuUnitList,
+        conversions: _rdQuConversions
+    });
+}
+
+/**
+ * Hvad man skal gøre, når udbyttet ikke kan bestemmes.
+ *
+ * Tre forskellige årsager, tre forskellige handlinger. Den samme tekst til alle
+ * tre ville bede om at udfylde et felt der i to af tilfældene allerede står der.
+ */
+function _rdYieldAdvice(im) {
+    var y = im.yield || {};
+    if (y.reason === 'ukendt_enhed') {
+        return y.unitName
+            ? '"' + y.unitName + '" er ikke en måleenhed, så udbyttet kan ikke regnes. ' +
+              'Vælg kilo, gram, liter eller antal i feltet "1 portion er" ovenfor.'
+            : 'Vælg en enhed i feltet "1 portion er" ovenfor — kilo, gram, liter eller antal.';
+    }
+    if (y.reason === 'mangler_omregning') {
+        // Begge felter ER udfyldt. Det der mangler, er hvad én enhed vejer.
+        return 'Opskriften giver ' + _rdFmtNum(_rdRound(y.total, 3)) + ' ' + y.unitName +
+            ', men ' + im.productName + ' lagerføres i ' + (im.stockUnit || 'en anden enhed') +
+            '. Skriv udbyttet i ' + (im.stockUnit || 'varens egen enhed') + ' ovenfor — ' +
+            'eller få det noteret på varen hvor meget ét ' + y.unitName + ' vejer.';
+    }
+    return 'Udbyttet mangler. Skriv i feltet "1 portion er" ovenfor hvor meget ét hold giver ' +
+        '(fx 1,1 kg). Uden det kan varen ikke laves automatisk.';
+}
+
+/**
+ * Hvad valget betyder, delt i tre.
+ *
+ * Panelet står fremme for enhver der åbner opskriften — også en i køkkenet der
+ * bare skal se hvad der er i den. Derfor er `head` én linje og `warnings` kun
+ * det man kan gøre noget ved; resten hører under en foldet forklaring.
+ * Bekræftelsen ved Gem viser alle tre, for dér træffes beslutningen.
+ */
+function _rdProducesInfo(im) {
+    var head = im.type === 'on_demand'
+        ? 'Laves automatisk når en bon leveres.'
+        : 'Laves efter plan og lægges på lager.';
+    var warnings = [], details = [];
+
+    if (im.yieldStock != null) {
+        details.push('Ét hold giver ' + _rdFmtNum(_rdRound(im.yieldStock, 3)) + ' ' + im.stockUnit + ' af varen.');
+    } else {
+        warnings.push(_rdYieldAdvice(im));
+    }
+    if (im.nestedIn.length) {
+        warnings.push(im.nestedIn.length + ' opskrift' + (im.nestedIn.length === 1 ? '' : 'er') +
+            ' bruger denne som underopskrift og skifter til at trække varen: ' +
+            im.nestedIn.map(function(r) { return r.name; }).join(', ') +
+            '. Åbn dem og se efter at det er dét du vil.');
+    }
+    if (im.otherProducers.length) {
+        warnings.push(im.otherProducers.map(function(r) { return r.name; }).join(', ') +
+            ' laver også ' + im.productName + '. Kostprisen regnes efter ' +
+            (im.isWinner ? 'denne opskrift' : im.winner.name) +
+            '. Skal kun den ene gælde, så fjern varen fra den anden.');
+    }
+    if (im.productInactive) {
+        warnings.push(im.productName + ' er lagt væk og kan ikke lægges på lager. ' +
+            'Hent den frem igen under Lager → Lageroversigt → "Inaktive".');
+    }
+
+    details.push('Opskrifter der bruger ' + im.productName + ' trækker varen fra lageret — ikke dens råvarer.');
+    details.push('Kostprisen på ' + im.productName + ' regnes ud fra denne opskrift.');
+    return { head: head, warnings: warnings, details: details };
+}
+
+// ── Panelet ──────────────────────────────────────────────────
+
+function _rdRenderProduces() {
+    var body = document.getElementById('rdProducesBody');
+    if (!body) return;
+
+    if (!_rdDs.productId) {
+        body.innerHTML =
+            '<div class="rd-produces-pick">' +
+                '<div class="rd-ac-wrapper">' +
+                    '<input type="text" class="rd-ac-input" id="rdProdAcInput" placeholder="S&#248;g vare...">' +
+                    '<div class="rd-ac-dropdown" id="rdProdAcDropdown"></div>' +
+                '</div>' +
+                '<button class="rd-add-btn" id="rdProdNew">+ Opret ny vare</button>' +
+            '</div>' +
+            '<div class="rd-produces-note">Opskriften producerer ingen vare. Menuer der bruger den ' +
+                'nester den som underopskrift og tr&#230;kker dens r&#229;varer.</div>';
+        _rdBindProducesPicker();
+        return;
+    }
+
+    var im = _rdProducesImpact(_rdDs.productId);
+    var info = _rdProducesInfo(im);
+    body.innerHTML =
+        '<div class="rd-produces-pick">' +
+            '<span class="rd-produces-pill">' + esc(im.productName) +
+                (im.stockUnit ? ' <span class="rd-produces-unit">' + esc(im.stockUnit) + '</span>' : '') +
+            '</span>' +
+            '<span class="rd-produces-type rd-produces-' + im.type + '">' +
+                (im.type === 'on_demand' ? 'Laves ved levering' : 'Laves p&#229; lager') +
+            '</span>' +
+            '<button class="rd-produces-clear" id="rdProdClear">&#10005; Fjern</button>' +
+        '</div>' +
+        '<div class="rd-produces-note">' + esc(info.head) + '</div>' +
+        (info.warnings.length
+            ? '<div class="rd-produces-note rd-produces-warn">' +
+                info.warnings.map(function(l) { return '<div>&#9888; ' + esc(l) + '</div>'; }).join('') +
+              '</div>'
+            : '') +
+        '<details class="rd-produces-more">' +
+            '<summary>Hvad betyder det?</summary>' +
+            info.details.map(function(l) { return '<div>' + esc(l) + '</div>'; }).join('') +
+        '</details>';
+
+    var clear = document.getElementById('rdProdClear');
+    if (clear) clear.addEventListener('click', function() {
+        _rdDs.productId = null;
+        _rdMarkChanged();
+        _rdRenderProduces();
+        _rdRenderNestings();
+    });
+}
+
+function _rdBindProducesPicker() {
+    var inp = document.getElementById('rdProdAcInput');
+    if (inp) {
+        var deb = null;
+        inp.addEventListener('input', function() {
+            clearTimeout(deb);
+            deb = setTimeout(function() { _rdOnProdAcInput(inp.value); }, 150);
+        });
+    }
+    var neu = document.getElementById('rdProdNew');
+    if (neu) neu.addEventListener('click', _rdCreateProducedProduct);
+}
+
+function _rdOnProdAcInput(q) {
+    _rdProductDropdown({
+        inputId: 'rdProdAcInput', dropdownId: 'rdProdAcDropdown',
+        meta: _rdMetaProducer, onPick: _rdSetProducedProduct
+    }, q);
+}
+
+function _rdSetProducedProduct(pid) {
+    if (!_rdProductMap[pid]) return;
+    _rdDs.productId = pid;
+    _rdMarkChanged();
+    _rdRenderProduces();
+    _rdRenderNestings();
+}
+
+// ── Opret ny vare — genbruger shared/product_create.js ────────
+//
+// Ikke en ny formular. Tre steder der kan oprette et produkt med hver sit sæt
+// defaults (lager-enhed, produktgruppe, lokation) er præcis dét #358 og #657
+// gentagne gange er faldet over.
+//
+// Én indgang, to kaldesteder: ingrediensen og den producerede vare. De skal
+// kunne det samme — at skulle forlade designeren for at oprette en ingrediens,
+// mens den producerede vare kunne oprettes på stedet, var en vilkårlig forskel.
+function _rdOpenProductCreate(opts) {
+    opts = opts || {};
+    if (typeof initProductCreate !== 'function') {
+        _rdShowAlert('Produktoprettelse er ikke tilgængelig her', 'error');
+        return;
+    }
+    var ov = document.createElement('div');
+    ov.className = 'rd-pc-overlay';
+    ov.innerHTML =
+        '<div class="rd-pc-panel">' +
+            '<div class="rd-pc-head">' +
+                '<span>' + esc(opts.title || 'Opret vare') + '</span>' +
+                '<button class="rd-pc-close" type="button">&#10005;</button>' +
+            '</div>' +
+            '<div class="rd-pc-mount"></div>' +
+        '</div>';
+    document.body.appendChild(ov);
+
+    var close = function() {
+        if (typeof cleanupProductCreate === 'function') cleanupProductCreate();
+        ov.remove();
+    };
+    ov.querySelector('.rd-pc-close').addEventListener('click', close);
+    if (typeof closeOnOutsideClick === 'function') {
+        closeOnOutsideClick(ov, close, ov.querySelector('.rd-pc-panel'));
+    }
+
+    initProductCreate(ov.querySelector('.rd-pc-mount'), {
+        onCreated: function(productId, name) {
+            close();
+            // Varen findes nu i Grocy, men ikke i designerens hukommelse.
+            _rdLoadData(true).then(function() {
+                if (opts.onCreated) opts.onCreated(parseInt(productId), name);
+            });
+        }
+    });
+}
+
+/** "+ Opret ny vare" fra ingrediens-panelet: opret og vælg, så kun mængden mangler. */
+function _rdCreateIngredientProduct() {
+    _rdOpenProductCreate({
+        title: 'Opret vare — ingrediens i "' + (_rdDs.name || 'denne opskrift') + '"',
+        onCreated: function(productId, name) {
+            _rdSelectProduct(productId);
+            _rdShowAlert(name + ' oprettet — skriv mængden', 'success');
+        }
+    });
+}
+
+/** "+ Opret ny vare" fra "producerer vare". */
+function _rdCreateProducedProduct() {
+    _rdOpenProductCreate({
+        title: 'Opret vare — produceres af "' + (_rdDs.name || 'denne opskrift') + '"',
+        onCreated: function(productId, name) {
+            _rdSetProducedProduct(productId);
+            _rdShowAlert(name + ' oprettet og valgt som produceret vare', 'success');
+        }
+    });
+}
+
+// ── Underopskrift der ER en vare (#270) ──────────────────────
+
+/** Varen en opskrift producerer — eller null. */
+function _rdRecipeProduct(recipe) {
+    var pid = recipe && _rdOptNum(recipe.product_id);
+    return pid ? (_rdProductMap[pid] || null) : null;
+}
+
+/**
+ * Mængden i varens lager-enhed for `servings` portioner af `recipe`.
+ * null = udbyttet kan ikke bestemmes, og så omregnes der ikke — vi gætter aldrig.
+ */
+function _rdNestingAsStock(recipe, product, servings) {
+    if (typeof RecipeYield === 'undefined' || !recipe || !product) return null;
+    return RecipeYield.plannedYieldStock(recipe, product, _rdQuUnitList, _rdQuConversions, servings);
+}
+
+/** Omdan en nesting til en ingrediens-linje på den vare opskriften producerer. */
+function _rdConvertNestingToLine(idx) {
+    var n = _rdDs.nestings[idx];
+    if (!n) return;
+    var sub = _rdRecipeMap[n.includes_recipe_id];
+    var product = _rdRecipeProduct(sub);
+    if (!product) { _rdShowAlert('Underopskriften producerer ingen vare', 'error'); return; }
+
+    var amt = _rdNestingAsStock(sub, product, parseFloat(n.servings) || 0);
+    if (amt == null) {
+        _rdShowAlert('Udbyttet på "' + sub.name + '" kan ikke bestemmes — udfyld "1 portion er" på den først', 'error');
+        return;
+    }
+    var unit = _rdQuantityUnits[product.qu_id_stock] || '';
+    if (!confirm(sub.name + ' bliver til en ingrediens-linje:\n\n' +
+        _rdFmtNum(_rdRound(amt, 4)) + ' ' + unit + ' ' + product.name + '\n\n' +
+        'Underopskriften fjernes. Råvarerne trækkes fremover af "' + sub.name + '" når varen laves.')) return;
+
+    if (n.id) _rdDs.removedNestIds.push(n.id);
+    _rdDs.nestings.splice(idx, 1);
+    _rdDs.ingredients.push({
+        id: null,
+        recipe_id: _rdDs.originalRecipeId,
+        product_id: product.id,
+        amount: amt,
+        qu_id: product.qu_id_stock,
+        ingredient_group: null,
+        note: null,
+        only_check_single_unit_in_stock: 0,
+        not_check_stock_fulfillment: 0,
+        variable_amount: null,
+        price_factor: 1,
+        round_up: 0
+    });
+    _rdMarkChanged();
+    _rdRenderNestings();
+    _rdRenderIngredients();
+    _rdRecalcSummary();
+    _rdShowAlert(sub.name + ' lagt ind som vare-linje', 'success');
+}
+
+
 // ════════════════════════════════════════════════════════════
 // SAVE — diff mod det åbnede (#680)
 // ════════════════════════════════════════════════════════════
@@ -1700,6 +2378,45 @@ function _rdOptionsHtml(field, current, emptyLabel) {
         }).join('');
 }
 
+/**
+ * <option>-liste til "1 portion er"-enheden, delt i to.
+ *
+ * Grocys preset-liste rummer `Timer` og `Kr`, og de ER i brug — på
+ * `x- Service`-opskrifterne (Servicepersonale, Rabat, Engangsbeløb), hvor
+ * "1 portion" er en time eller en krone. De må derfor ikke fjernes: en enhed
+ * der forsvinder fordi listen ikke kender den, bliver skrevet som tom ved
+ * næste Gem (#680). Men de er ikke måleenheder, og de skal ikke stå side om
+ * side med kilo.
+ *
+ * Skellet er ikke en håndskrevet liste: en enhed hører i første gruppe hvis
+ * `RecipeYield` kan slå navnet op blandt Grocys egne `quantity_units` — altså
+ * præcis når udbyttet kan regnes om. Derfor forklarer grupperingen også
+ * hvorfor advarslen kommer, når man vælger noget fra den anden.
+ */
+function _rdUnitOptionsHtml(current) {
+    var seen = {}, alle = [];
+    function add(v) { if (v !== '' && !seen[v]) { seen[v] = true; alle.push(v); } }
+    (_rdUfOptions.recipeunit || []).forEach(add);
+    _rdRecipes.forEach(function(r) { add(_rdStr(r.userfields && r.userfields.recipeunit)); });
+    add(_rdStr(current));   // opskriftens egen skal altid kunne vises
+
+    var maal = [], andet = [];
+    alle.forEach(function(v) {
+        var kendt = typeof RecipeYield !== 'undefined' &&
+            RecipeYield.unitIdByName(_rdQuUnitList, v) != null;
+        (kendt ? maal : andet).push(v);
+    });
+
+    var cur = _rdStr(current);
+    var opt = function(v) {
+        return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>';
+    };
+    var html = '<option value=""' + (cur === '' ? ' selected' : '') + '>— vælg —</option>';
+    if (maal.length)  html += '<optgroup label="Måleenheder">' + maal.map(opt).join('') + '</optgroup>';
+    if (andet.length) html += '<optgroup label="Ikke en måleenhed">' + andet.map(opt).join('') + '</optgroup>';
+    return html;
+}
+
 // Fotografi af opskriften som Grocy har den — i samme form som _rdCurrentValues.
 function _rdCaptureOrig(recipeId) {
     var r = _rdRecipeMap[recipeId];
@@ -1712,6 +2429,7 @@ function _rdCaptureOrig(recipeId) {
         name: _rdStr(r.name),
         description: r.description,
         base_servings: _rdOptNum(r.base_servings),
+        product_id: _rdOptNum(r.product_id),
         grupper: _rdStr(uf.grupper),
         recipeunit: _rdStr(uf.recipeunit),
         recipeunitnumber: _rdOptNum(uf.recipeunitnumber),
@@ -1726,6 +2444,7 @@ function _rdCurrentValues() {
         name: String(_rdDs.name || '').trim(),
         description: _rdDs.description,
         base_servings: _rdDs.baseServings,
+        product_id: _rdDs.productId,
         grupper: _rdStr(_rdDs.group),
         recipeunit: _rdStr(_rdDs.recipeUnit),
         recipeunitnumber: _rdDs.yieldNum,
@@ -1748,6 +2467,8 @@ function _rdBuildSavePlan(orig, cur) {
     if (cur.name !== String(orig.name || '').trim()) plan.recipe.name = cur.name;
     if (_rdText(cur.description) !== _rdText(orig.description)) plan.recipe.description = cur.description || null;
     if (!_rdNumEq(cur.base_servings, orig.base_servings)) plan.recipe.base_servings = cur.base_servings;
+    // Produceret vare. `null` rydder feltet i Grocy — opskriften producerer da ingenting.
+    if (!_rdNumEq(cur.product_id, orig.product_id)) plan.recipe.product_id = cur.product_id;
 
     if (cur.grupper !== _rdStr(orig.grupper)) plan.userfields.grupper = cur.grupper;
     if (cur.recipeunit !== _rdStr(orig.recipeunit)) plan.userfields.recipeunit = cur.recipeunit;
@@ -1778,6 +2499,35 @@ function _rdBuildSavePlan(orig, cur) {
         }
     });
     return plan;
+}
+
+/**
+ * Bekræftelse når `product_id` ændrer sig.
+ *
+ * Ikke en spærring — en spærring ville bare føre til at feltet blev sat et
+ * andet sted. Men konsekvensen skal have været på skærmen inden, for den
+ * viser sig ellers først ved næste optælling (#305/#319's fejlklasse).
+ */
+function _rdConfirmProducesChange(newProductId) {
+    var lines;
+    if (!newProductId) {
+        var prevId = _rdOrig && _rdOrig.product_id;
+        var prevName = prevId ? ((_rdProductMap[prevId] || {}).name || '#' + prevId) : 'varen';
+        lines = [
+            '"' + _rdDs.name + '" producerer ikke længere ' + prevName + '.',
+            '',
+            '· Opskrifter der bruger den nester den fremover som underopskrift og trækker dens råvarer.',
+            '· Kostprisen på ' + prevName + ' kommer igen fra lagerprisen, ikke fra denne opskrift.',
+            '· ' + prevName + ' bliver ikke længere lavet automatisk.'
+        ];
+    } else {
+        var im = _rdProducesImpact(newProductId);
+        var info = _rdProducesInfo(im);
+        lines = ['"' + _rdDs.name + '" kommer til at producere ' + im.productName + '.', '', '· ' + info.head]
+            .concat(info.warnings.map(function(l) { return '· ⚠ ' + l; }))
+            .concat(info.details.map(function(l) { return '· ' + l; }));
+    }
+    return confirm(lines.join('\n') + '\n\nGem?');
 }
 
 function _rdPlanIsEmpty(p) {
@@ -1848,6 +2598,10 @@ async function _rdSaveRecipe() {
         return;
     }
 
+    // Produceret vare er ikke et felt som de andre — den flytter produktionstype,
+    // lagertræk og kostpris i samme øjeblik (#683). Sig det før, ikke efter.
+    if ('product_id' in plan.recipe && !_rdConfirmProducesChange(plan.recipe.product_id)) return;
+
     try {
         _rdShowAlert('Gemmer...', 'info');
 
@@ -1870,6 +2624,7 @@ async function _rdSaveRecipe() {
             .filter(function(nn) { return nn.recipe_id == _rdDs.originalRecipeId; })
             .map(function(nn) { return _rdShallowCopy(nn); });
         _rdOrig = _rdCaptureOrig(_rdDs.originalRecipeId);   // næste Gem sammenligner med det nu gemte
+        _rdRenderProduces();
         _rdRenderIngredients();
         _rdRenderNestings();
         _rdLoadComposition(_rdDs.originalRecipeId);   // frisk kostpris efter gem (fulfillment-cache ryddet af skrivningen)
@@ -1902,6 +2657,9 @@ async function _rdSaveAsNew() {
             desired_servings: baseServings,
             not_check_shoppinglist: 0,
             type: 'normal',
+            // En kopi arver ALDRIG den producerede vare. To opskrifter der
+            // producerer samme vare er præcis den fælde `buildProducedByIndex`
+            // advarer om (laveste id vinder) — vælg varen bevidst bagefter.
             product_id: null
         });
 
@@ -1969,7 +2727,9 @@ async function _rdSaveAsNew() {
         _rdDs.nestings = _rdAllNestings
             .filter(function(nn) { return nn.recipe_id == newId; })
             .map(function(nn) { return _rdShallowCopy(nn); });
+        _rdDs.productId = null;              // kopien producerer ingenting (se POST ovenfor)
         _rdOrig = _rdCaptureOrig(newId);
+        _rdRenderProduces();
         _rdRenderIngredients();
         _rdRenderNestings();
         _rdComp = null;                    // ny opskrift → hent frisk kostpris
@@ -1986,7 +2746,20 @@ async function _rdSaveAsNew() {
 // HELPERS — Navigation
 // ═══════��════════════════════════���═══════════════════════════
 
+/**
+ * Editoren har to kolonner og er bredere end den gamle designer.
+ *
+ * Loftet sidder på SIDENS container (`max-width`), så et barn kan ikke bryde
+ * ud af det selv. Klassen ejes her og ikke i editoren: editoren skal ikke
+ * kende den side den er monteret i — og så kan den heller ikke glemme at rydde
+ * op efter sig.
+ */
+function _rdEditorWidth(on) {
+    if (_rdContainer) _rdContainer.classList.toggle('re-mounted', !!on);
+}
+
 function _rdSwitchView(id) {
+    if (id !== 'rdDesignerView') _rdEditorWidth(false);
     var views = _rdContainer.querySelectorAll('.rd-view');
     for (var i = 0; i < views.length; i++) { views[i].classList.remove('rd-visible'); }
     var target = document.getElementById(id);

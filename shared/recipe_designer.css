@@ -1024,3 +1024,197 @@
 .rd-ing-cost { font-size: 11.5px; color: var(--color-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rd-ing-share-bar { height: 3px; background: var(--color-border-light, #f2efe9); border-radius: 2px; margin-top: 3px; overflow: hidden; }
 .rd-ing-share-bar > i { display: block; height: 100%; background: var(--brand-primary, #8e631f); }
+
+/* ── Producerer vare (#683) ───────────────────────────────────
+   Egen række under meta-rækken. Valget skifter produktionstype,
+   lagertræk og kostpris, så konsekvensen skal have plads til at
+   stå skrevet — ikke gemmes i et tooltip. */
+.rd-produces {
+    margin-bottom: 18px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-background, #f5f4f2);
+}
+.rd-produces-body { margin-top: 2px; }
+.rd-produces-pick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.rd-produces-pick .rd-ac-wrapper { flex: 1 1 220px; min-width: 0; }
+.rd-produces-pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: var(--brand-primary, #8e631f);
+    color: #fff;
+    font-weight: 600;
+    font-size: 13.5px;
+}
+.rd-produces-unit { font-size: 11.5px; opacity: 0.8; font-weight: 500; }
+.rd-produces-type {
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+.rd-produces-on_demand { background: rgba(74,122,176,0.14); color: #2f5580; }
+.rd-produces-to_stock  { background: rgba(142,99,31,0.12); color: var(--brand-primary, #8e631f); }
+.rd-produces-clear {
+    margin-left: auto;
+    padding: 6px 10px;
+    border: 1px solid var(--color-border);
+    background: #fff;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    min-height: 34px;
+}
+.rd-produces-clear:hover { border-color: var(--color-red, #bc181b); color: var(--color-red, #bc181b); }
+.rd-produces-note {
+    margin-top: 8px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--color-text-dim);
+}
+.rd-produces-note > div + div { margin-top: 2px; }
+.rd-produces-note.rd-produces-warn {
+    color: var(--color-text, #2a2520);
+    border-left: 3px solid #d79b1f;
+    padding-left: 10px;
+}
+
+/* Underopskrift der ER en vare (#270) */
+.rd-nest-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: var(--color-border-light, #f2efe9);
+    color: var(--color-text-dim);
+    vertical-align: middle;
+}
+.rd-nest-badge-vare { background: rgba(74,122,176,0.16); color: #2f5580; }
+.rd-nest-hint {
+    margin-top: 8px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--color-text-dim);
+}
+.rd-nest-hint-vare {
+    border-left: 3px solid #4a7ab0;
+    padding-left: 10px;
+    color: var(--color-text, #2a2520);
+}
+.rd-nesting-card-legacy { border-left: 3px solid #d79b1f; }
+.rd-nest-convert {
+    padding: 5px 10px;
+    border: 1px solid var(--color-border);
+    background: #fff;
+    border-radius: 7px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: #2f5580;
+    cursor: pointer;
+    white-space: nowrap;
+    min-height: 32px;
+}
+.rd-nest-convert:hover { border-color: #4a7ab0; background: rgba(74,122,176,0.08); }
+.rd-nest-convert-off {
+    display: inline-block;
+    color: var(--color-text-dim);
+    opacity: 0.6;
+    cursor: help;
+}
+
+/* "Opret ny vare" — shared/product_create.js monteret i et lag ovenpå */
+.rd-pc-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 900;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 16px;
+    overflow-y: auto;
+}
+.rd-pc-panel {
+    background: #fff;
+    border-radius: 12px;
+    width: min(760px, 100%);
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.rd-pc-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--color-border);
+    font-weight: 700;
+}
+.rd-pc-head > span { flex: 1; min-width: 0; }
+.rd-pc-close {
+    border: none;
+    background: transparent;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    padding: 4px 8px;
+}
+.rd-pc-mount { overflow-y: auto; padding: 4px 0; }
+
+/* Forklaringen foldes: panelet står fremme for enhver der åbner opskriften,
+   også en i køkkenet der bare skal se hvad der er i den. */
+.rd-produces-more {
+    margin-top: 6px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--color-text-dim);
+}
+.rd-produces-more > summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--brand-primary, #8e631f);
+    list-style: none;
+    padding: 2px 0;
+    min-height: 24px;
+}
+.rd-produces-more > summary::-webkit-details-marker { display: none; }
+.rd-produces-more > summary::before { content: '▸ '; }
+.rd-produces-more[open] > summary::before { content: '▾ '; }
+.rd-produces-more > div { margin-top: 2px; }
+
+/* "Findes varen ikke i Grocy endnu?" — samme vej ud som ved produceret vare. */
+.rd-add-hint {
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: var(--color-text-dim);
+}
+.rd-add-new {
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--brand-primary, #8e631f);
+    cursor: pointer;
+    padding: 4px 2px;
+    text-decoration: underline;
+}

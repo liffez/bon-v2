@@ -252,6 +252,7 @@ app.use('/api/reports',      require('./routes/reports'));
 // Opskrifter & priser — ét modul, to mounts (recipes + item-prices)
 const recipesOverviewRouter = require('./routes/recipes_overview');
 app.use('/api/recipes',      recipesOverviewRouter);
+app.use('/api/opskrifter',   require('./routes/opskrifter'));   // opskrift-editoren (#683 / designer-spec §13)
 app.use('/api/item-prices',  recipesOverviewRouter.itemPricesRouter);
 app.use('/api/cashflow',     require('./routes/cashflow'));
 app.use('/api/crm',                require('./routes/crm'));
