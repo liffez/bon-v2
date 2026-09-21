@@ -1015,6 +1015,12 @@ function _ibRenderGroup(key) {
         h += '<div class="ib-bs-tog" data-ib="toggle-ordered" data-group="' + key + '">';
         h += '<span class="ib-bs-chev' + (showOrd ? ' open' : '') + '">›</span>';
         h += '<span>' + orderedItems.length + ' vare' + (orderedItems.length !== 1 ? 'r' : '') + ' bestilt — ' + (showOrd ? 'skjul' : 'vis') + '</span>';
+        // Går en bestilling galt, skal den kunne rulles tilbage i ÉN handling.
+        // Fortryd pr. vare lå bag denne kollapsede sektion: med 12 varer var det
+        // 12 klik bag noget man først skulle finde — og indtil da kunne varerne
+        // ikke bestilles igen.
+        h += '<button class="ib-bs-undo" data-ib="undo-order-all" data-group="' + key + '"'
+           + ' title="Sætter varerne tilbage på bestillingslisten">Fortryd alle</button>';
         if (g.totalUnreadMail > 0) {
             h += '<span class="ib-mail-badge" title="' + g.totalUnreadMail + ' ulæst mail">' + mailIcon(12) + ' ' + g.totalUnreadMail + '</span>';
         } else if (g.pendingOrders && g.pendingOrders.some(function(po) { return po.sent_via === 'email'; })) {
@@ -1905,6 +1911,10 @@ function _ibHandleClick(e) {
             _ibGenerateIntBarcode(parseInt(productId));
             break;
 
+        case 'undo-order-all':
+            _ibUndoOrderAll(btn.getAttribute('data-group'));
+            break;
+
         case 'undo-order':
             _ibUndoOrder(productId);
             break;
@@ -2368,6 +2378,77 @@ async function _ibUndoOrder(productId) {
         await _ibReloadShoppingList();
     } catch (err) {
         _ibToast('Fejl: ' + (err.message || 'Kunne ikke fortryde'), true);
+    } finally {
+        _ibBusy = false;
+    }
+}
+
+/* Ruller en hel gruppes bestilte varer tilbage på listen.
+ *
+ * Bekræftelsen siger EKSPLICIT at mailen ikke kaldes tilbage. Uden den linje
+ * ville "Fortryd" læses som "annullér bestillingen hos leverandøren", og så
+ * ville man tro man havde afbestilt noget der er på vej.
+ */
+async function _ibUndoOrderAll(groupKey) {
+    var g = _ibGroups[groupKey];
+    if (!g || _ibBusy) return;
+
+    var bestilte = g.items.filter(function(e) { return e.isOrdered; });
+    if (!bestilte.length) { _ibToast('Ingen bestilte varer'); return; }
+
+    // Ligger der bestillinger fra flere dage, skal det siges — ellers ruller
+    // man uforvarende gamle med tilbage.
+    //
+    // ordered_at er UTC. `.slice(0,10)` ville give UTC-DATOEN, som mellem
+    // midnat og kl. 02 dansk tid peger på I GÅR (#133) — set i en test der
+    // tilfældigvis løb over midnat. Grupper derfor på den LOKALE dato.
+    var datoer = {};
+    bestilte.forEach(function(e) {
+        var d = parseServerDate((e.item.userfields || {}).ordered_at || '');
+        if (d && !isNaN(d.getTime())) {
+            datoer[d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()] = d;
+        }
+    });
+    var noegler = Object.keys(datoer).sort(function(a, b) { return datoer[a] - datoer[b]; });
+    var naarTekst = noegler.length > 1
+        ? '\n\nBemærk: de er bestilt på ' + noegler.length + ' forskellige dage (' +
+          _ibFmtDate(datoer[noegler[0]].toISOString()) + '–' +      // utc-ok: _ibFmtDate viser lokal tid
+          _ibFmtDate(datoer[noegler[noegler.length - 1]].toISOString()) + ').'
+        : (noegler.length === 1
+            ? '\n\nBestilt ' + _ibFmtDate(datoer[noegler[0]].toISOString()) + '.'   // utc-ok: do.
+            : '');
+
+    if (!window.confirm(
+        'Fortryd ' + bestilte.length + ' bestilt' + (bestilte.length === 1 ? ' vare' : 'e varer') +
+        ' hos ' + g.displayName + '?' + naarTekst +
+        '\n\nDe kommer tilbage på bestillingslisten, så de kan bestilles igen.' +
+        '\nEn mail der allerede er sendt, kaldes IKKE tilbage.')) {
+        return;
+    }
+
+    _ibBusy = true;
+    var fejlede = [];
+    try {
+        for (var i = 0; i < bestilte.length; i++) {
+            var entry = bestilte[i];
+            for (var j = 0; j < entry.allItems.length; j++) {
+                try {
+                    await updateShoppingListItem(entry.allItems[j].id, {
+                        userfields: { ordered_at: '', ordered_qty: '', ordered_supplier: '', ordered_varenr: '' }
+                    });
+                } catch (e1) {
+                    fejlede.push(entry.product.name);
+                    break;   // resten af DENNE vares rækker springes over
+                }
+            }
+        }
+        // En delvis rulning siges højt — ellers ser listen rigtig ud mens
+        // nogle varer stadig står som bestilt.
+        _ibToast(fejlede.length
+            ? (bestilte.length - fejlede.length) + ' af ' + bestilte.length + ' fortrudt — disse fejlede: ' + fejlede.join(', ')
+            : bestilte.length + ' varer er tilbage på listen',
+            fejlede.length > 0);
+        await _ibReloadShoppingList();
     } finally {
         _ibBusy = false;
     }

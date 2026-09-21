@@ -717,6 +717,27 @@ body.zone-office .ib-toolbar { top: 0; }
     transition: background .1s;
 }
 .ib-bs-tog:hover { background: var(--color-background, #f5f4f2); }
+/* Fortryd hele gruppens bestilling. Ligger på headeren — IKKE inde i den
+   kollapsede sektion — fordi den skal kunne nås når en bestilling er gået
+   galt, uden først at folde noget ud. Diskret: den er en nødudgang, ikke
+   hovedhandlingen. */
+.ib-bs-undo {
+    margin-left: auto;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    color: var(--color-text-dim, #777);
+    background: #fff;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ib-bs-undo:hover {
+    color: var(--ib-red, #bc181b);
+    border-color: var(--ib-red, #bc181b);
+    background: #fff;
+}
 .ib-bs-chev {
     font-size: 14px;
     transition: transform .15s;

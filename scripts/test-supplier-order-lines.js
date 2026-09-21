@@ -22,6 +22,10 @@
 // ============================================================
 'use strict';
 
+// Datoen i bekræftelsen formateres i LOKAL tid. Uden en pinnet tidszone ville
+// §8's midnats-tilfælde bestå eller fejle efter hvor maskinen står.
+process.env.TZ = 'Europe/Copenhagen';
+
 const path = require('path');
 const os   = require('os');
 const fs   = require('fs');
@@ -349,6 +353,108 @@ function post(sti, body) {
     eq(d.__confirmTekst, null, 'registrering UDEN mail spørger ikke');
     ok(d.__ordre !== null, 'men registrerer stadig');
 
+    console.log('\n=== §8 En fejlbestilling kan rulles tilbage ===');
+    function medBestilte(antal, datoer) {
+        const c = lavKlient();
+        const items = [];
+        for (let i = 0; i < antal; i++) {
+            const d = datoer ? datoer[i % datoer.length] : '2026-09-21';
+            items.push({
+                product: { id: 100 + i, name: 'Vare ' + (i + 1) },
+                qty: 1, needUnit: 'stk', matched: true, isOrdered: true, _marked: false,
+                selectedBarcode: { barcode: 'NR-' + i, note: 'Vare ' + (i + 1) },
+                item: { userfields: { ordered_at: d + 'T09:00:00Z', ordered_varenr: 'NR-' + i } },
+                barcodes: [], allItems: [{ id: 900 + i }],
+            });
+        }
+        c._ibGroups = { '7': { supplierId: 5, displayName: 'Serviwet', items,
+                               integrationType: 'email', contactEmail: 'rikke@example.invalid' } };
+        c._ibProducts = {}; c._ibBarcodes = [];
+        c.__rullet = [];
+        c.updateShoppingListItem = async (id, body) => { c.__rullet.push({ id, body }); };
+        return c;
+    }
+
+    // Knappen skal ligge på HEADEREN, ikke inde i den kollapsede sektion —
+    // ellers skal man først finde og folde noget ud for at komme til den.
+    const kilde = fs.readFileSync(path.join(__dirname, '..', 'shared', 'indkob.js'), 'utf8');
+    const header = kilde.slice(kilde.indexOf("data-ib=\"toggle-ordered\""),
+                               kilde.indexOf("class=\"ib-bs-section"));
+    ok(header.includes('data-ib="undo-order-all"'),
+       'fortryd-alle sidder på headeren, uden for den kollapsede sektion');
+
+    const u = medBestilte(12);
+    await u._ibUndoOrderAll('7');
+    eq(u.__rullet.length, 12, 'alle 12 varer rulles tilbage i ÉN handling');
+    ok(u.__rullet.every(r => r.body.userfields.ordered_varenr === ''),
+       'bestilt-markeringen ryddes — det er den der holder varen ude af listen');
+    ok(u.__rullet.every(r => r.body.userfields.ordered_at === ''),
+       'og tidsstemplet med');
+
+    const n = medBestilte(5);
+    n.__confirmSvar = false;
+    await n._ibUndoOrderAll('7');
+    eq(n.__rullet.length, 0, 'siger man nej, rulles intet tilbage');
+    ok(/kaldes IKKE tilbage/i.test(String(n.__confirmTekst)),
+       'bekræftelsen siger at MAILEN ikke annulleres — ellers tror man man har afbestilt');
+    ok(/5 bestilte varer/.test(String(n.__confirmTekst)), 'og hvor mange det gælder');
+
+    // Flere datoer i samme gruppe: man må ikke uforvarende rulle gamle med.
+    const fl = medBestilte(4, ['2026-09-18', '2026-09-21']);
+    fl.__confirmSvar = false;
+    await fl._ibUndoOrderAll('7');
+    ok(/forskellige dage/i.test(String(fl.__confirmTekst)),
+       'bestillinger fra flere dage nævnes i bekræftelsen');
+
+    // ordered_at er UTC. 22:30Z er kl. 00:30 dansk DAGEN EFTER, så en
+    // gruppering på ISO-strengens første 10 tegn viser i går (#133). Tidspunktet
+    // er pinnet — ellers ville denne assert bestå 22 timer i døgnet.
+    const midnat = lavKlient();
+    midnat._ibGroups = { '7': { displayName: 'Serviwet', contactEmail: 'x@y.invalid', items: [{
+        product: { id: 1, name: 'Vare' }, qty: 1, needUnit: 'stk',
+        matched: true, isOrdered: true, selectedBarcode: { barcode: 'NR-1', note: 'Vare' },
+        item: { userfields: { ordered_at: '2026-09-21T22:30:00.000Z', ordered_varenr: 'NR-1' } },
+        barcodes: [], allItems: [{ id: 901 }],
+    }] } };
+    midnat._ibProducts = {}; midnat._ibBarcodes = [];
+    midnat.updateShoppingListItem = async () => {};
+    midnat.__confirmSvar = false;
+    await midnat._ibUndoOrderAll('7');
+    ok(/22\. sep/.test(String(midnat.__confirmTekst)),
+       'bestilt 22:30 UTC vises som 22. sep (dansk), ikke 21.');
+    ok(!/21\. sep/.test(String(midnat.__confirmTekst)),
+       'og i går nævnes ikke');
+
+    // Dansk dato skifter kl. 02 i UTC. 23:00Z og 01:00Z er derfor 01:00 og
+    // 03:00 dansk SAMME nat — én dansk dag, to UTC-datoer. Med .slice(0,10)
+    // ville de tælle som "forskellige dage".
+    const sammeAften = lavKlient();
+    const lav2 = (id, iso) => ({
+        product: { id, name: 'Vare ' + id }, qty: 1, needUnit: 'stk',
+        matched: true, isOrdered: true, selectedBarcode: { barcode: 'NR-' + id, note: 'Vare' },
+        item: { userfields: { ordered_at: iso, ordered_varenr: 'NR-' + id } },
+        barcodes: [], allItems: [{ id: 900 + id }],
+    });
+    sammeAften._ibGroups = { '7': { displayName: 'Serviwet', contactEmail: 'x@y.invalid',
+        items: [lav2(1, '2026-09-21T23:00:00.000Z'), lav2(2, '2026-09-22T01:00:00.000Z')] } };
+    sammeAften._ibProducts = {}; sammeAften._ibBarcodes = [];
+    sammeAften.updateShoppingListItem = async () => {};
+    sammeAften.__confirmSvar = false;
+    await sammeAften._ibUndoOrderAll('7');
+    ok(!/forskellige dage/i.test(String(sammeAften.__confirmTekst)),
+       'to bestillinger samme danske nat er ÉN dag, selvom UTC-datoen skifter imellem dem');
+
+    // En delvis rulning må ikke se ud som en hel.
+    const d2 = medBestilte(3);
+    let kald = 0;
+    d2.updateShoppingListItem = async (id, body) => {
+        kald++; if (kald === 2) throw new Error('Grocy nede');
+        d2.__rullet.push({ id, body });
+    };
+    await d2._ibUndoOrderAll('7');
+    ok(/fejlede/i.test(String(d2.__toast)), 'en delvis rulning siges højt');
+    ok(String(d2.__toast).includes('Vare 2'), 'og navngiver den der ikke kom med');
+
     server.close();
     console.log(`\n${pass} PASS · ${fail} FAIL`);
     try { fs.unlinkSync(TEST_DB); } catch (_) {}
@@ -366,17 +472,23 @@ function lavKlient(felter) {
     const ctx = {
         console,
         window: {}, navigator: { clipboard: { writeText: async () => {} } },
-        document: { createElement: el, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
+        document: { createElement: el, querySelector: () => null, querySelectorAll: () => [],
+                    getElementById: () => null, addEventListener() {}, body: el() },
         setTimeout, clearTimeout, Promise, JSON, Math, String, Number, Array, Object, Date, parseInt, parseFloat, isNaN, RegExp,
         SupplierOrderLines: S,
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
         __kopieret: null, __ordre: null, __oprettet: null,
-        __confirmTekst: null, __confirmSvar: true,
+        __confirmTekst: null, __confirmSvar: true, __toast: null,
     };
     ctx.confirm = (t) => { ctx.__confirmTekst = t; return ctx.__confirmSvar; };
     ctx.window = ctx;
     ctx.navigator.clipboard.writeText = async (t) => { ctx.__kopieret = t; };
+    ctx.getSelection = () => ({ rangeCount: 0, isCollapsed: true, toString: () => '' });
     vm.createContext(ctx);
+    // utils.js FØRST — indkob.js bruger dens helpers (parseServerDate,
+    // grocyProductActive), og siderne loader dem i samme rækkefølge.
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'utils.js'), 'utf8'),
+                    ctx, { filename: 'utils.js' });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'indkob.js'), 'utf8'),
                     ctx, { filename: 'indkob.js' });
 
@@ -391,7 +503,7 @@ function lavKlient(felter) {
     ctx._ibRender              = () => {};
     ctx._ibEnrichSnapshots     = () => {};
     ctx.updateProductBarcode   = async (id, body) => { ctx.__opdateret = { id, body }; };
-    ctx._ibToast               = () => {};
+    ctx._ibToast               = (t) => { ctx.__toast = t; };
     // Panelets felter, når testen vil gennem den rigtige gem-sti. Uden dem
     // returnerer _ibSaveFreeVarenr tidligt (intet input = intet at gemme).
     ctx._ibContainer = felter ? {

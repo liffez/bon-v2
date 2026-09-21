@@ -9396,6 +9396,31 @@ ikke — den går ikke ud af huset.
 tre flader, §7 bekræftelsen). **20 mutationer i alt, alle fanget** — heriblandt at
 genindføre drifts-fejlen (mailen sender alt matchet) og at ignorere brugerens nej.
 
+**En fejlbestilling kunne ikke rulles tilbage.** Efter afsendelse sættes
+`ordered_*`-userfields på varerne, og de forsvinder fra "klar til bestilling". Gik
+bestillingen galt — som den gjorde — kunne varerne ikke bestilles igen. Der FANDTES
+en Fortryd-knap pr. vare, men den lå bag den kollapsede sektion *"N varer bestilt —
+vis"*: med 12 varer var det 12 klik bag noget man først skulle finde.
+
+**"Fortryd alle"** ligger nu på sektions-headeren, altså uden for det foldede. Den
+ruller hele gruppen tilbage i én handling, og bekræftelsen siger eksplicit at
+**mailen ikke kaldes tilbage** — uden den linje ville "Fortryd" læses som "afbestil
+hos leverandøren". Ligger der bestillinger fra flere dage, nævnes det, så man ikke
+uforvarende ruller gamle med. En delvis rulning navngiver dem der fejlede.
+
+> ⚠️ **#133 ramte i selve bekræftelsen.** Dato-grupperingen brugte
+> `ordered_at.slice(0, 10)` — altså UTC-datoen — så en bestilling lavet kl. 00:30
+> dansk stod som "bestilt i går". Fanget fordi en testkørsel tilfældigvis løb over
+> midnat. Grupper på den **lokale** dato (`parseServerDate` + `getDate()`), og lad
+> `_ibFmtDate` få et tidsstempel, ikke en afskåret datostreng.
+>
+> Testen **pinner tidszonen** (`process.env.TZ = 'Europe/Copenhagen'`) og bruger
+> 22:30Z (= 00:30 dansk næste dag) samt 23:00Z + 01:00Z (= samme danske nat, to
+> UTC-datoer). Uden pinning ville asserten bestå 22 timer i døgnet.
+
+**Tests**: 70 → **83 asserts**. **28 mutationer i alt, alle fanget** — heriblandt den
+originale dato-fejl, som fælder tre navngivne asserts.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
