@@ -241,9 +241,18 @@ function buildLine(linje, beregnet, ctx) {
         section: linje.section || '',
         annotation: svindTekst(linje),
 
-        // Mængde. `amount` er i LAGER-enhed for varer, i portioner for nestings
-        // — samme konvention som `recipes_pos.amount` (jf. CLAUDE.md).
-        amount: tal(type === 'nesting' ? linje.servings : linje.amount),
+        // Mængde, som den LÆSES: «2 Antal», ikke «0,0133 kg». Serveren regner
+        // om til linjens egen enhed (den opskriften er skrevet i) — samme tal
+        // som den almindelige opskriftsvisning giver. Kladden bærer stadig
+        // lager-enheden; den røres ikke her.
+        //
+        // `display_factor` SKAL med ud: feltet er redigerbart, og uden den
+        // kan en kalder ikke komme tilbage til lager-enheden. Et gæt på 1
+        // ville gemme 2 kg hvor køkkenet skrev 2 stk (#352).
+        amount: type === 'nesting' ? tal(linje.servings)
+              : (b && b.display_amount != null ? tal(b.display_amount) : tal(linje.amount)),
+        amount_stock: type === 'nesting' ? null : tal(linje.amount),
+        display_factor: (b && b.display_factor != null) ? tal(b.display_factor) : null,
         unit: enhed,
         // R6.2: stepper dér hvor man TÆLLER. En nesting i «stk» tælles lige så
         // meget som en vare i stk; en i «portion» gør ikke (portion er ikke en

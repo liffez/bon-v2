@@ -297,6 +297,98 @@ console.log('\n── §4 Madvægt, emballage og nestings ───────�
         'kontrol: Chili Mayos erklærede udbytte er IKKE et skøn');
 }
 
+// ── §10 Mængden læses i linjens egen enhed ────────────────────
+// Grocy-opskriften er skrevet i «2 Antal» eller «50 Gram»; `amount` er i
+// LAGER-enhed. Den almindelige opskriftsvisning har altid regnet om til
+// linjens enhed, mens editoren viste råtallet — så de to sagde forskellige
+// ting om den samme linje («2 Antal» mod «0,0133 kg»).
+console.log('\n── §10 Linjens egen enhed ────────────────────────────────');
+{
+    const g = grocyData();
+    const quNavn = new Map(SNAP.quantity_units.map(u => [String(u.id), u.name]));
+    const vare = new Map(SNAP.products.map(p => [String(p.id), p]));
+
+    // En ægte linje hvor enheden afviger fra lager-enheden — og hvor de to
+    // ikke kan forveksles. Kilo→Liter ville ikke duge: falder koden tilbage
+    // på lager-enheden, laver auto-format 0,4 kg om til «400 g», og en assert
+    // der tillader «g» kan så ikke se forskel. Kilo→Antal kan den.
+    const tælle = SNAP.quantity_units.find(u => /^antal$/i.test(u.name));
+    const afvig = SNAP.recipes_pos.find(p => {
+        const v = vare.get(String(p.product_id));
+        return v && v.qu_id_stock != null && p.qu_id != null
+            && String(p.qu_id) !== String(v.qu_id_stock)
+            && tælle && String(p.qu_id) === String(tælle.id)
+            && Number(p.amount) > 0;
+    });
+    ok(!!afvig, 'fixturen har en linje der tælles i stk, men lagerføres i kilo');
+
+    const k = {
+        recipe_id: null, name: 'ZZT enhed', base_servings: 1, yield: {},
+        lines: [{ product_id: afvig.product_id, amount: afvig.amount, qu_id: afvig.qu_id }],
+    };
+    const r = await draftLag.computeDraft(k, g);
+    const l = r.lines[0];
+
+    ok(l.unit === quNavn.get(String(afvig.qu_id)),
+        `enheden er linjens egen: ${l.unit} (lager-enheden er ${quNavn.get(String(vare.get(String(afvig.product_id)).qu_id_stock))})`);
+    ok(l.display_amount != null && l.display_factor != null,
+        `tallet og faktoren følges ad (${l.display_amount} · ×${l.display_factor})`);
+    ok(nær(l.amount_stock, afvig.amount, 1e-9),
+        'lager-enheden er uberørt — kun VISNINGEN er regnet om');
+
+    // Round-trip: det er DEN invariant der holder #352 ude. Retter nogen
+    // feltet, skal `tastet / factor` give lager-enheden igen.
+    ok(nær(l.display_amount / l.display_factor, l.amount_stock, 1e-6),
+        `vist ÷ faktor giver lager-enheden igen (${l.display_amount} / ${l.display_factor} = ${l.display_amount / l.display_factor})`);
+
+    // Alle afvigende linjer i fixturen, ikke kun én — invarianten må ikke
+    // holde ved et tilfælde.
+    const alle = SNAP.recipes_pos.filter(p => {
+        const v = vare.get(String(p.product_id));
+        return v && v.qu_id_stock != null && p.qu_id != null && Number(p.amount) > 0;
+    }).slice(0, 40);
+    const rAlle = await draftLag.computeDraft({
+        recipe_id: null, name: 'ZZT alle', base_servings: 1, yield: {},
+        lines: alle.map(p => ({ product_id: p.product_id, amount: p.amount, qu_id: p.qu_id })),
+    }, g);
+    // Tolerancen er visningens egen: `display_amount` er afrundet til to
+    // decimaler, så en lager-mængde på 0,3333 vises som 0,33. Rører nogen
+    // feltet, er 0,33 dét de bekræfter — det er ærligt. Uberørt gemmes
+    // 0,3333 videre, fordi kladden bærer lager-enheden.
+    const brudt = rAlle.lines.filter(x => x.display_factor != null
+        && Math.abs(x.display_amount / x.display_factor - x.amount_stock)
+           > 0.005 / x.display_factor + 1e-9);
+    ok(brudt.length === 0,
+        `round-trip holder på alle ${rAlle.lines.length} linjer (brudt: ${brudt.map(x => x.name).join(', ') || 'ingen'})`);
+    const omregnet = rAlle.lines.filter(x => x.display_factor != null && x.display_factor !== 1);
+    ok(omregnet.length >= 10,
+        `${omregnet.length} af dem regnes faktisk om — ellers målte asserten ovenfor ingenting`);
+
+    // Uden `qu_id` (en kladde fra før feltet fandtes, eller en ny linje):
+    // lager-enheden, som før.
+    const uden = await draftLag.computeDraft({
+        recipe_id: null, name: 'ZZT uden', base_servings: 1, yield: {},
+        lines: [{ product_id: afvig.product_id, amount: afvig.amount }],
+    }, g);
+    const lu = uden.lines[0];
+    const stockNavn = quNavn.get(String(vare.get(String(afvig.product_id)).qu_id_stock));
+    // Lager-enheden — eller dens mindre søskende, for 0,4 kg vises som 400 g
+    // (det gør den almindelige visning også). Men ALDRIG linjens enhed, som
+    // vi netop ikke har fået at vide.
+    ok(lu.unit !== quNavn.get(String(afvig.qu_id)),
+        `uden enhed bruges IKKE linjens egen (${lu.unit} mod ${quNavn.get(String(afvig.qu_id))})`);
+    ok(nær(lu.display_amount / lu.display_factor, lu.amount_stock, 1e-6),
+        `og round-trip holder stadig (${lu.display_amount} ${lu.unit} ÷ ${lu.display_factor})`);
+    ok(nær(lu.amount_stock, afvig.amount, 1e-9), 'og dens mængde er den samme');
+    void stockNavn;
+
+    // `/editor` skal bære enheden med ud, ellers er hele kæden brudt ved
+    // første led.
+    const gemt = draftLag.draftFromSaved(SNAP.recipes_pos[0].recipe_id, g);
+    const medQu = (gemt.lines || []).filter(x => x.qu_id != null);
+    ok(medQu.length > 0, `en gemt opskrift bærer sine linjers enhed med ud (${medQu.length} linjer)`);
+}
+
 // ── §5 Pr. portion ────────────────────────────────────────────
 console.log('\n── §5 Pr. portion — sanity-checket i overblikket ─────────');
 {

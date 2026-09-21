@@ -1131,12 +1131,30 @@ function linjeFraKey(key) {
     return v ? S.draft.lines[v.draft_index] : null;
 }
 
+/**
+ * Faktoren fra det tal der STÅR I FELTET til lager-enheden.
+ *
+ * Feltet viser linjens egen enhed («2 Antal»), mens kladden bærer lager-enheden
+ * (0,0133 kg). Serveren sender faktoren med, fordi den er den samme som
+ * visningen blev regnet med — regnede browseren den selv, kunne de to skride
+ * fra hinanden, og et rettet tal ville blive gemt i en anden enhed end det
+ * blev tastet i (#352, faktor 1000 galt).
+ *
+ * Mangler faktoren — en ny linje serveren ikke har set endnu — er feltet og
+ * kladden i samme enhed, og 1 er rigtigt. Vi gætter aldrig på noget andet.
+ */
+function visFaktor(key) {
+    const v = S.lines && (S.lines.lines || []).find(x => x.key === key);
+    const f = v && v.display_factor;
+    return (f != null && isFinite(f) && f > 0) ? f : 1;
+}
+
 function sætMængde(key, v) {
     const l = linjeFraKey(key);
     if (!l) return;
     const n = num(v);
     if (l.includes_recipe_id != null) l.servings = n;
-    else l.amount = n;
+    else l.amount = n == null ? null : n / visFaktor(key);
     if (l.section) S.lastSection = l.section;
     genhentUdfoldning(key);
     planlægBeregn();
@@ -1146,9 +1164,15 @@ function sætMængde(key, v) {
 function justérMængde(key, delta) {
     const l = linjeFraKey(key);
     if (!l) return;
-    const felt = l.includes_recipe_id != null ? 'servings' : 'amount';
-    const nu = num(l[felt]) || 0;
-    l[felt] = Math.max(0, nu + delta);
+    if (l.includes_recipe_id != null) {
+        l.servings = Math.max(0, (num(l.servings) || 0) + delta);
+    } else {
+        // ± tæller i det man SER. En stepper står på en linje der tælles i
+        // stk, så «+1» skal give ét stykke mere — ikke ét kilo.
+        const f = visFaktor(key);
+        const vist = (num(l.amount) || 0) * f;
+        l.amount = Math.max(0, vist + delta) / f;
+    }
     tegnListe(); genhentUdfoldning(key); planlægBeregn(); tegnBund();
 }
 
@@ -1234,8 +1258,15 @@ async function hentUdfoldning(key) {
     // Mængden sendes med, så serveren kan skalere. Faktoren regnes ALDRIG her:
     // den er den samme som kostprisen og lagertrækket bruger, og en kopi i
     // browseren ville kunne skride fra dem uden at nogen så det.
+    //
+    // Og den sendes i LAGER-enhed — det er dén serveren skalerer med
+    // (`mængde / udbytte-i-lager-enhed`). `v.amount` er tallet som det LÆSES,
+    // altså «30 Gram» hvor lageret siger 0,03 kg; sendt råt ville Chili Mayo
+    // blive foldet ud tusind gange for stort.
+    const brug = v.type === 'nesting' ? v.amount
+               : (v.amount_stock != null ? v.amount_stock : v.amount);
     const q = '?kind=' + (v.type === 'nesting' ? 'nesting' : 'semi') +
-              '&bruger=' + encodeURIComponent(v.amount == null ? '' : v.amount);
+              '&bruger=' + encodeURIComponent(brug == null ? '' : brug);
     try {
         const r = await api('/api/opskrifter/' + rid + '/indhold' + q);
         S.expandData[key] = r;
@@ -1293,8 +1324,21 @@ function medTrin(d) {
    Events
    ══════════════════════════════════════════════════════════════ */
 
+// Lytterne hænger på rod-elementet, som overlever et skift af opskrift.
+// Uden at fjerne dem først ville hvert mount lægge et sæt mere oveni, og så
+// fyrer ÉT klik lige så mange gange som antallet af opskrifter man har åbnet.
+// For en toggle er det ødelæggende og næsten usynligt: ved den 2., 4., 6.
+// opskrift ender den hvor den startede, og pillerne og udfoldningen ser ud
+// til slet ikke at virke — meldt fra drift, og først til at reproducere når
+// man tæller mounts. AbortController rydder alle tre i ét greb.
+let bindAfbryd = null;
+
 function bind() {
     const el = S.el;
+
+    if (bindAfbryd) bindAfbryd.abort();
+    bindAfbryd = new AbortController();
+    const sig = { signal: bindAfbryd.signal };
 
     el.addEventListener('input', (e) => {
         const t = e.target;
@@ -1314,7 +1358,7 @@ function bind() {
         if (t.dataset.act === 'amount') { sætMængde(t.dataset.key, t.value); return; }
         if (t.dataset.act === 'step' || t.dataset.act === 'step-min') { trinRørt(); return; }
         if (t.dataset.act === 'plain') { plainRørt(t.value); return; }
-    });
+    }, sig);
 
     el.addEventListener('change', (e) => {
         const t = e.target;
@@ -1330,7 +1374,7 @@ function bind() {
             byggLinjer(); tegnListe(); planlægBeregn(); tegnBund();
             return;
         }
-    });
+    }, sig);
 
     el.addEventListener('click', (e) => {
         const b = e.target.closest('button');
@@ -1383,7 +1427,7 @@ function bind() {
             if (rid) window.open('/kitchen/recipes.html?recipe=' + rid, '_blank', 'noopener');
             return;
         }
-    });
+    }, sig);
 
     tegnBund();
 }

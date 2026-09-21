@@ -41,7 +41,7 @@ const recipeCost = require('./recipeCost');
 const co2Engine = require('./co2Engine');
 const { isPackagingGroup } = require('./co2Materials');
 const RecipeYield = require('../shared/recipe_yield');
-const { autoFormatAmount } = require('./quConvert');
+const { autoFormatAmount, convertAndFormat } = require('./quConvert');
 
 /** Id'er over denne grænse er kladdens egne — de findes ikke i Grocy. */
 const SENTINEL_BASE = 1000000;
@@ -171,7 +171,12 @@ function buildInputs(draft, g) {
             recipe_id: draftId,
             product_id: pid,
             amount: num(l.amount) || 0,
-            qu_id: p && p.qu_id_stock != null ? p.qu_id_stock : null,
+            // Kladdens egen enhed vinder. Faldt vi altid tilbage på varens
+            // lager-enhed, ville et Gem skrive kilo ind på en linje køkkenet
+            // har skrevet i stk — og visningen i opskrift-browseren ændre sig
+            // uden at nogen havde bedt om det.
+            qu_id: l.qu_id != null ? Number(l.qu_id)
+                 : (p && p.qu_id_stock != null ? p.qu_id_stock : null),
             ingredient_group: l.section || null,
             note: l.note || null,
             _i: i,                                   // se kommentaren ved egneNest
@@ -442,7 +447,34 @@ async function computeDraft(draft, g) {
     // op selv, kunne en cachet browser vise en anden enhed end den mængden er
     // regnet i — og så står der et rigtigt tal med en forkert etiket.
     const enhedNavn = new Map((built.data.units || []).map(u => [String(u.id), u.name]));
+    const enhedMap = new Map((built.data.units || []).map(u => [Number(u.id), u]));
+    const vareVed = new Map(built.data.products.map(p => [String(p.id), p]));
     const navnR = new Map(built.data.recipes.map(r => [Number(r.id), r.name]));
+
+    /**
+     * Linjens mængde som et MENNESKE læser den — «2 Antal», ikke «0,0133 kg».
+     *
+     * `amount` er i lager-enhed; `qu_id` på linjen siger hvilken enhed
+     * opskriften er skrevet i. Den almindelige opskriftsvisning har altid
+     * regnet om til den, og editoren viste råtallet — så de to sagde
+     * forskellige ting om den samme linje.
+     *
+     * Faktoren følger MED ud. Feltet er redigerbart, så en kalder skal kunne
+     * komme tilbage til lager-enheden med `tastet / factor`; gætter den på 1,
+     * genskaber den #352 (en rettet mængde gemt i en anden enhed end den blev
+     * tastet i, faktor 1000 galt).
+     */
+    function visning(p) {
+        const vare = vareVed.get(String(p.product_id));
+        if (!vare || vare.qu_id_stock == null || p.qu_id == null) return null;
+        return convertAndFormat(Number(p.amount) || 0, {
+            productId: p.product_id,
+            fromQuId: Number(vare.qu_id_stock),
+            toQuId: Number(p.qu_id),
+            conversions: built.data.conversions || [],
+            unitMap: enhedMap,
+        });
+    }
 
     const linjer = [
         ...built.egnePos.map((p) => {
@@ -453,8 +485,19 @@ async function computeDraft(draft, g) {
                 kind: 'product',
                 is_packaging: v.packaging_lines.has(p.id),
                 product_id: p.product_id,
-                qu_id_stock: p.qu_id == null ? null : Number(p.qu_id),
-                unit: p.qu_id == null ? null : (enhedNavn.get(String(p.qu_id)) || null),
+                qu_id_stock: vareVed.get(String(p.product_id))
+                    ? Number(vareVed.get(String(p.product_id)).qu_id_stock) : null,
+                // `unit` er den enhed MÆNGDEN står i på skærmen. Den er ikke
+                // altid lager-enheden — se `visning()`.
+                ...(() => {
+                    const v = visning(p);
+                    return v
+                        ? { unit: v.unit, display_amount: v.amount, display_factor: v.factor,
+                            stock_unit: enhedNavn.get(String(
+                                (vareVed.get(String(p.product_id)) || {}).qu_id_stock)) || null }
+                        : { unit: p.qu_id == null ? null : (enhedNavn.get(String(p.qu_id)) || null),
+                            display_amount: null, display_factor: null, stock_unit: null };
+                })(),
                 name: navnP.get(String(p.product_id)) || ('#' + p.product_id),
                 amount_stock: p.amount,
                 section: p.ingredient_group || '',
@@ -573,8 +616,15 @@ function draftFromSaved(recipeId, g) {
         yield: { amount: uf.recipeunitnumber, unit: uf.recipeunit, product_id: r.product_id },
         // `id` skal med: diffen kender en linje på den, og uden id ville hvert
         // Gem slette alt og oprette det forfra (#680's fejl i en ny forklædning).
+        // `qu_id` er linjens EGEN enhed — den Grocy-opskriften er skrevet i
+        // («2 Antal», «50 Gram»), ikke varens lager-enhed. `amount` er og
+        // bliver i lager-enhed; qu_id siger kun hvordan tallet skal LÆSES.
+        // Uden den her ville editoren vise 0,0133 kg hvor køkkenet skrev
+        // «2 stk» — og den almindelige opskriftsvisning ville sige noget
+        // andet end editoren om den samme linje.
         lines: (g.pos || []).filter(p => Number(p.recipe_id) === Number(recipeId))
             .map(p => ({ id: p.id, product_id: p.product_id, amount: p.amount,
+                         qu_id: p.qu_id == null ? null : Number(p.qu_id),
                          section: p.ingredient_group, note: p.note }))
             .concat((g.nestings || []).filter(n => Number(n.recipe_id) === Number(recipeId))
                 .map(n => ({ id: n.id, includes_recipe_id: n.includes_recipe_id, servings: n.servings }))),

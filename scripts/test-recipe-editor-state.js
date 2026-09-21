@@ -25,6 +25,7 @@ const vm = require('vm');
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { console.log('  \x1b[32m✓\x1b[0m', m); pass++; } else { console.log('  \x1b[31m✗\x1b[0m', m); fail++; } };
+const nær = (a, b, eps = 1e-9) => a != null && b != null && Math.abs(a - b) < eps;
 
 /* ── DOM-attrap ───────────────────────────────────────────────
    Kun det editoren rører. `addEventListener` på roden fanges, så vi kan
@@ -39,8 +40,17 @@ function lavEl(id) {
         appendChild() {}, remove() {}, removeAttribute() {}, setAttribute() {},
         scrollIntoView() {}, focus() {}, closest: () => null,
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
-        addEventListener(t, f) { (this._lyttere[t] = this._lyttere[t] || []).push(f); },
-        _fyr(t, ev) { (this._lyttere[t] || []).forEach(f => f(ev)); },
+        // Understøtter `{signal}` som browseren gør — ellers kan testen ikke
+        // se om lytterne hober sig op ved gentagne mounts.
+        addEventListener(t, f, o) {
+            const rec = { f };
+            (this._lyttere[t] = this._lyttere[t] || []).push(rec);
+            if (o && o.signal) o.signal.addEventListener('abort', () => {
+                this._lyttere[t] = this._lyttere[t].filter(x => x !== rec);
+            });
+        },
+        _fyr(t, ev) { (this._lyttere[t] || []).slice().forEach(r => r.f(ev)); },
+        _antal(t) { return (this._lyttere[t] || []).length; },
     };
     return e;
 }
@@ -50,7 +60,7 @@ const byId = (id) => (els[id] || (els[id] = lavEl(id)));
 
 const fetches = [];
 const sandbox = {
-    console, setTimeout, clearTimeout, JSON, Math, Date, Number, String, Object, Array, Set, Map,
+    console, setTimeout, clearTimeout, JSON, Math, Date, Number, String, Object, Array, Set, Map, AbortController,
     document: {
         getElementById: byId,
         querySelector: () => null, querySelectorAll: () => [],
@@ -236,6 +246,93 @@ console.log('\n── §5 Ingen pille uden kolonne ─────────�
         'og en gemt, ukendt kolonne skrives ikke tilbage');
     ok(S.columns.gram === false, 'mens en gemt KENDT kolonne stadig respekteres');
     sandbox.localStorage.getItem = () => null;
+}
+
+// ── §6 Mængden redigeres i det man SER ────────────────────────
+// Feltet viser linjens egen enhed («2 Antal»), kladden bærer lager-enheden
+// (0,0133 kg). Uden konverteringen tilbage ville et rettet tal blive gemt
+// i en anden enhed end det blev tastet i — #352, faktor 1000 galt.
+console.log('\n── §6 Et rettet tal gemmes i lager-enhed ─────────────────');
+{
+    // Serveren siger: 0,03 kg vises som «30 Gram», faktor 1000.
+    const draft = kladde(26, 'Italieneren', '<p>x</p>');
+    draft.lines = [{ id: 9, product_id: 34, amount: 0.03, qu_id: 5 }];
+    const ov = { lines: [{ draft_index: 0, name: 'Chili Mayo', unit: 'Gram',
+                           amount_stock: 0.03, display_amount: 30, display_factor: 1000,
+                           weight_g: 30 }] };
+    await RE.mount(byId('rod'), { draft, meta: META, overview: ov, mode: 'modify' });
+
+    const vist = S.lines.lines[0];
+    ok(vist.amount === 30, `feltet viser 30, ikke 0,03 (fik ${vist.amount})`);
+    ok(vist.amount_stock === 0.03, 'men linjen husker lager-enheden ved siden af');
+
+    // Brugeren taster 45 i feltet.
+    S.el._fyr('input', { target: { id: '', dataset: { act: 'amount', key: vist.key }, value: '45' } });
+    ok(nær(S.draft.lines[0].amount, 0.045, 1e-9),
+        `45 Gram gemmes som 0,045 kg — ikke 45 (fik ${S.draft.lines[0].amount})`);
+
+    // ± tæller i det man ser: ét gram mere, ikke ét kilo.
+    klik({ dataset: { act: 'inc', key: vist.key } });
+    ok(nær(S.draft.lines[0].amount, 0.046, 1e-9),
+        `«+» giver ét gram mere (fik ${S.draft.lines[0].amount} kg)`);
+    klik({ dataset: { act: 'dec', key: vist.key } });
+    ok(nær(S.draft.lines[0].amount, 0.045, 1e-9), 'og «−» tager det igen');
+
+    // En linje serveren ikke har set endnu: feltet og kladden er samme enhed.
+    const ny = kladde(null, 'ZZT ny', '');
+    ny.lines = [{ product_id: 34, amount: 2 }];
+    await RE.mount(byId('rod'), { draft: ny, meta: META, overview: { lines: [
+        { draft_index: 0, name: 'Chili Mayo', unit: 'Kilo', amount_stock: 2 }] }, mode: 'new' });
+    S.el._fyr('input', { target: { id: '', dataset: { act: 'amount', key: S.lines.lines[0].key }, value: '5' } });
+    ok(S.draft.lines[0].amount === 5,
+        `uden en faktor fra serveren gemmes tallet som tastet (fik ${S.draft.lines[0].amount})`);
+
+    // Udfoldningen skaleres af serveren og skal have LAGER-enheden med.
+    // Sendt råt ville «30 Gram» folde halvfabrikatet tusind gange for stort ud.
+    const medSemi = kladde(26, 'Italieneren', '<p>x</p>');
+    medSemi.lines = [{ id: 9, semi_recipe_id: 110, product_id: 34, amount: 0.03, qu_id: 5 }];
+    await RE.mount(byId('rod'), { draft: medSemi, meta: META, overview: {
+        lines: [{ draft_index: 0, name: 'Chili Mayo', unit: 'Gram', semi_recipe_id: 110,
+                  amount_stock: 0.03, display_amount: 30, display_factor: 1000 }] }, mode: 'modify' });
+    fetches.length = 0;
+    klik({ dataset: { act: 'expand', key: S.lines.lines[0].key } });
+    await new Promise(r => setTimeout(r, 0));
+    const kald = fetches.find(f => /\/indhold/.test(f.sti));
+    ok(!!kald, 'udfoldningen henter indholdet');
+    const brug = kald && decodeURIComponent((kald.sti.match(/bruger=([^&]*)/) || [])[1] || '');
+    ok(brug === '0.03', `og beder om 0,03 (lager-enhed) — ikke 30 (fik ${brug})`);
+}
+
+// ── §7 Lytterne hober sig ikke op ─────────────────────────────
+// Rod-elementet overlever et skift af opskrift. Blev lytterne ikke fjernet
+// først, fyrede ét klik lige så mange gange som antallet af opskrifter man
+// havde åbnet — og en toggle endte hvor den startede ved hver ANDEN. Det er
+// dét der i drift så ud som om kolonne-pillerne og udfoldningen «ikke virker»:
+// de virkede, bare to gange.
+console.log('\n── §7 Ét klik er ét klik, uanset hvor mange opskrifter ───');
+{
+    const rod = byId('rod');
+    const resultater = [];
+    for (let n = 1; n <= 5; n++) {
+        await RE.mount(rod, { draft: kladde(n, 'R' + n, '<p>x</p>'), meta: META, overview: {}, mode: 'modify' });
+        const før = !!S.columns.gram;
+        klik({ dataset: { act: 'col', col: 'gram' } });
+        resultater.push({ mount: n, lyttere: rod._antal('click'), skiftede: før !== !!S.columns.gram });
+    }
+    const døde = resultater.filter(r => !r.skiftede);
+    ok(døde.length === 0,
+        `pillen skifter ved hvert mount (døde klik ved mount: ${døde.map(r => r.mount).join(', ') || 'ingen'})`);
+    ok(resultater.every(r => r.lyttere === 1),
+        `og der er præcis én click-lytter hele vejen (${resultater.map(r => r.lyttere).join(',')})`);
+
+    // Samme for udfoldningen — den er en toggle på samme måde.
+    const medSub = kladde(7, 'Med halvfabrikat', '<p>x</p>');
+    medSub.lines = [{ semi_recipe_id: 110, product_id: 9, amount: 1 }];
+    const ovSub = { lines: [{ draft_index: 0, name: 'Chili Mayo', semi_recipe_id: 110, unit: 'Kilo', amount_stock: 1 }] };
+    await RE.mount(rod, { draft: medSub, meta: META, overview: ovSub, mode: 'modify' });
+    await RE.mount(rod, { draft: medSub, meta: META, overview: ovSub, mode: 'modify' });  // lige antal
+    klik({ dataset: { act: 'expand', key: 'i0' } });
+    ok(S.expanded.has('i0'), 'og udfoldningen åbner ved ét klik, også efter to mounts');
 }
 
 console.log(fail ? `\n\x1b[31m${pass} PASS · ${fail} FAIL\x1b[0m\n`
