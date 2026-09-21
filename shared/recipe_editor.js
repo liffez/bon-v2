@@ -333,10 +333,13 @@ function tegn() {
               '<div class="re-add" id="reAdd"></div>' +
             '</div>' +
             '<div class="re-card re-steps" id="reSteps"></div>' +
+            // Bundlinjen hører til LISTEN, ikke til siden: den handler om de
+            // ændringer man laver i venstre kolonne. Som søskende til .re-wrap
+            // strakte den sig hen under overblikket og lovede mere end den er.
+            '<div class="re-bottom" id="reBottom"></div>' +
           '</div>' +
           '<aside class="re-side" id="reSide"></aside>' +
-        '</div>' +
-        '<div class="re-bottom" id="reBottom"></div>';
+        '</div>';
 
     tegnHoved();
     tegnUdbytte();
@@ -941,10 +944,26 @@ function tegnOverblik(fejl) {
     const w = o.weight || {};
     const pct = o.target_weight_pct;
 
+    // Svindet. Madvægten ER udbyttet når det er erklæret — men så passer den
+    // ikke med linjerne ovenfor, og uden denne linje ligner det en fejl.
+    // Ved Rødløg - Syltet hældes 1833 g lage fra; ved udblødte ærter kommer
+    // der 1100 g vand TIL. Begge dele skal kunne læses af tallet.
+    const portioner = o.servings || 1;
+    const indPrPortion = (w.food_from_yield && w.input_g != null)
+        ? w.input_g / portioner : null;
+    const svind = (indPrPortion != null && ps.weight_g != null
+                   && Math.abs(indPrPortion - ps.weight_g) >= 1) ? indPrPortion : null;
+
     let h = '<div class="re-card re-ov">' +
       '<div class="re-ov-h">OVERBLIK · PR. PORTION</div>' +
       '<div class="re-ov-big"><span>Mad</span><span>' +
-        vægtTal(ps.weight_g, w, 0) + '</span></div>';
+        vægtTal(ps.weight_g, w, 0) + '</span></div>' +
+      (svind == null ? '' :
+        '<div class="re-ov-note" title="Madvægten er opskriftens erklærede udbytte — det der pakkes og lægges på lageret. Råvarerne vejer noget andet, fordi der svinder eller kommer væde til.">' +
+          'råvarer ind ' + nf(svind, 0) + ' g · ' +
+          (svind > ps.weight_g ? nf(svind - ps.weight_g, 0) + ' g hældes fra'
+                               : nf(ps.weight_g - svind, 0) + ' g kommer til') +
+        '</div>');
 
     // Målvægt: mål, faktisk, afstand — samme form som mål-DB (R10.3).
     if (pct != null) {

@@ -325,13 +325,45 @@ function weights(built, g) {
         food += skøn;
     }
 
+    // Opskriften vejer sit UDBYTTE, ikke summen af sine råvarer — præcis samme
+    // regel som en nesting følger tyve linjer oppe, og som ingredientResolver og
+    // opskrift-vieweren har brugt siden yield-modellen (20. juli). Editoren
+    // modsagde indtil nu sig selv: en underopskrift vejede sit udbytte, mens
+    // opskriften selv vejede sine råvarer.
+    //
+    // Ved syltning hældes lagen fra: Rødløg - Syltet er 2833 g ind og 1000 g
+    // brugbar vare ud. Det er de 1000 g der pakkes, vejes og lægges på lageret.
+    // Ærter går den anden vej — de suger vand, 1000 g ind og 2100 g ud.
+    const råvarerG = food;
+    const egenVare = built.draftRecipe.product_id
+        ? byId.get(String(built.draftRecipe.product_id)) : null;
+    let udbytteG = null;
+    if (egenVare) {
+        const stock = RecipeYield.yieldInStockUnits(
+            built.draftRecipe, egenVare, g.units, built.data.conversions);
+        if (stock != null && stock > 0) {
+            // Kun en MASSE kan være en madvægt. Er varens lager-enhed «antal»
+            // uden en vej til kilo, ved vi ikke hvad udbyttet vejer — og så
+            // er råvaresummen det bedste vi har.
+            const kg = co2Engine.stockToKg(egenVare, stock, built.data.conversions, kiloId);
+            if (kg != null && kg > 0) udbytteG = kg * 1000;
+        }
+    }
+    if (udbytteG != null) food = udbytteG;
+
     return {
         food_g: Math.round(food * 100) / 100,
         packaging_g: Math.round(pack * 100) / 100,
         batch_g: Math.round((food + pack) * 100) / 100,
-        complete: missing.length === 0,
+        // Kom madvægten fra det erklærede udbytte? Så er den et MÅLT tal, ikke
+        // et mindstetal — også selvom en enkelt råvare ikke kunne vejes.
+        complete: udbytteG != null || missing.length === 0,
         missing,
-        estimated: estimeret,
+        // Råvaresummen. Afviger den fra madvægten, er forskellen svindet —
+        // og den skal kunne ses, ellers ligner et erklæret udbytte en fejl.
+        input_g: Math.round(råvarerG * 100) / 100,
+        food_from_yield: udbytteG != null,
+        estimated: udbytteG != null ? [] : estimeret,
         per_line_g: perLinje,
         estimated_lines: estimatLinjer,
         packaging_lines: emballageLinjer,
@@ -480,6 +512,9 @@ async function computeDraft(draft, g) {
 
     const y = draft.yield || {};
     const målvægt = num(draft.target_weight_g);
+    // Ét tal, to forbrugere (overblikkets «Mad» og målvægt-bjælken). Regnet
+    // hver for sig kunne de — og gjorde de — blive uenige.
+    const madPrPortion = servings ? Math.round(v.food_g / servings * 100) / 100 : null;
 
     return {
         recipe_id: built.draftId,
@@ -494,17 +529,26 @@ async function computeDraft(draft, g) {
         },
         weight: { food_g: v.food_g, packaging_g: v.packaging_g, batch_g: v.batch_g,
                   complete: v.complete, missing: v.missing,
+                  // Råvaresummen + hvorvidt madvægten kom fra udbyttet. Uden de
+                  // to kan skærmen ikke vise svindet, og et erklæret udbytte
+                  // ville ligne et tal der ikke passer med linjerne.
+                  input_g: v.input_g, food_from_yield: v.food_from_yield,
                   // Navnene på de underopskrifter hvis vægt er summen af deres
                   // råvarer. Tom liste = hele madvægten er erklærede udbytter.
                   estimated: v.estimated },
         target_weight_g: målvægt,
-        target_weight_pct: (målvægt && målvægt > 0 && v.food_g)
-            ? Math.round(v.food_g / målvægt * 1000) / 10 : null,
+        // Målvægten er hvad ÉN portion bør veje (normen står pr. Grocy-kategori:
+        // «04 Slider → 140 g»). Den skal derfor måles mod portionens vægt, ikke
+        // mod hele holdets. Målt på «Skære Slider Brød» (64 portioner) sagde
+        // bjælken 6400 % om en opskrift der rammer målet præcist — og tallet
+        // stod lige under «Mad», som ER pr. portion. Samme kort, to grundlag.
+        target_weight_pct: (målvægt && målvægt > 0 && madPrPortion)
+            ? Math.round(madPrPortion / målvægt * 1000) / 10 : null,
         cost: kost,
         co2: co2,
         lines: linjer,
         per_serving: {
-            weight_g: servings ? Math.round(v.food_g / servings * 100) / 100 : null,
+            weight_g: madPrPortion,
             cost: kost.per_serving,
             co2: co2.per_serving,
         },

@@ -204,6 +204,71 @@ console.log('\n── §4 Madvægt, emballage og nestings ───────�
     const res2 = await draftLag.computeDraft(medMål, g);
     ok(nær(res2.target_weight_pct, 200, 0.2), `målvægt-bjælken regner mad ÷ mål (${res2.target_weight_pct} %)`);
 
+    // Målvægten er hvad ÉN portion bør veje — normen står pr. Grocy-kategori
+    // («04 Slider → 140 g»), ikke pr. hold. Bjælken stod lige under «Mad», som
+    // ER pr. portion, og regnede alligevel på HELE holdet: «Skære Slider Brød»
+    // (64 portioner) rammer sit mål præcist og fik 6400 %.
+    const mange = Object.assign({}, k, { base_servings: 8 });
+    const resMange = await draftLag.computeDraft(mange, g);
+    const målPrPortion = resMange.per_serving.weight_g;   // ét hold ÷ 8
+    const res8 = await draftLag.computeDraft(
+        Object.assign({}, mange, { target_weight_g: målPrPortion }), g);
+    ok(nær(res8.target_weight_pct, 100, 0.2),
+        `8 portioner der rammer målet præcist giver 100 %, ikke 800 % (fik ${res8.target_weight_pct})`);
+    ok(nær(resMange.per_serving.weight_g, res.weight.food_g / 8, 0.01),
+        'og «Mad» er fortsat portionens vægt — de to tal deler ét regnestykke');
+
+
+    // ── Opskriften vejer sit EGET udbytte, ikke summen af sine råvarer ──
+    // Yield-modellen (20. juli) gjaldt indtil nu kun nestings. En opskrift der
+    // producerer en vare gav sin RÅVARESUM som madvægt, så editoren modsagde
+    // sig selv: Rødløg - Sylt stod til 2.826 g mad mod 1.000 g erklæret.
+    // Lagen hældes fra; det er kun løgene der kan bruges.
+    const producerer = Object.assign({}, k, {
+        yield: { amount: 1, unit: 'kg', product_id: kiloVare.id },
+    });
+    const rp = await draftLag.computeDraft(producerer, g);
+    ok(nær(rp.weight.food_g, 1000, 0.01),
+        `madvægten er det erklærede udbytte 1.000 g, ikke råvaresummen (fik ${rp.weight.food_g})`);
+    ok(nær(rp.weight.input_g, res.weight.food_g, 0.01),
+        `råvaresummen bæres med som input_g (${rp.weight.input_g} g), så svindet kan vises`);
+    ok(rp.weight.food_from_yield === true,
+        'og skærmen får at vide HVOR tallet kom fra — ellers kan den ikke sige «råvarer ind»');
+    ok(nær(rp.per_serving.weight_g, 1000, 0.01),
+        'overblikkets «Mad» pr. portion følger udbyttet med (1 portion)');
+
+    // Kontrolprøve: uden en produceret vare er råvaresummen fortsat svaret.
+    ok(rp.weight.food_g !== res.weight.food_g && res.weight.food_from_yield === false,
+        'kontrol: uden produceret vare bærer råvaresummen vægten som før');
+
+    // Et ERKLÆRET udbytte er et målt tal. Mangler en linje sin vægt, er
+    // madvægten stadig komplet — «≥» ville lyve om et tal vi kender (I3).
+    // En ny vare i «antal» har ingen omregning i Grocy — dens vægt er ukendt.
+    const nyVare = { new_product: { name: 'ZZT ukendt', qu_id_stock: 2 }, amount: 1, section: 'Fyld' };
+    const hul = Object.assign({}, producerer, { lines: k.lines.concat([nyVare]) });
+    const rh = await draftLag.computeDraft(hul, g);
+    ok(rh.weight.complete === true,
+        'en uafklaret linje gør IKKE det erklærede udbytte til et mindstetal');
+    const hulUden = Object.assign({}, k, { lines: k.lines.concat([nyVare]) });
+    ok((await draftLag.computeDraft(hulUden, g)).weight.complete === false,
+        'kontrol: uden udbytte er den samme linje stadig et hul (≥)');
+
+    // Kun en MASSE kan være en madvægt. Varens lager-enhed er «antal» uden en
+    // vej til kilo — så ved vi ikke hvad udbyttet VEJER, og råvaresummen er
+    // det bedste vi har. Vi opfinder aldrig et tal.
+    const antalId = (SNAP.quantity_units.find(u => /antal/i.test(u.name)) || {}).id;
+    const stkVare = { id: 999001, name: 'ZZT stk-vare', qu_id_stock: antalId,
+                      qu_id_purchase: antalId, product_group_id: 1, active: 1 };
+    const gStk = grocyData({ products: SNAP.products.concat([stkVare]) });
+    const stk = Object.assign({}, k, {
+        yield: { amount: 12, unit: 'antal', product_id: stkVare.id },
+    });
+    const rs = await draftLag.computeDraft(stk, gStk);
+    ok(nær(rs.weight.food_g, res.weight.food_g, 0.01),
+        `et udbytte i «antal» uden vej til kilo giver ingen madvægt — råvaresummen bruges (fik ${rs.weight.food_g})`);
+    ok(rs.weight.food_from_yield === false,
+        'og det siges, så skærmen ikke skriver «råvarer ind» om det samme tal');
+
     // Nesting vejer sit udbytte. Chili Mayo: 1 portion = 1,1 kg.
     const nest = {
         recipe_id: null, name: 'ZZT nest', base_servings: 1,
