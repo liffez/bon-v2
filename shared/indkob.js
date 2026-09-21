@@ -1042,7 +1042,7 @@ function _ibRenderGroup(key) {
 
     // Manual order dialog
     if (g.integrationType === 'email' || g.integrationType === 'manual') {
-        h += _ibRenderManualDialog(g, key, readyItems);
+        h += _ibRenderManualDialog(g, key);
     }
 
     // Production dialog
@@ -1615,6 +1615,23 @@ async function _ibUpdateVarenr(productId, barcodeId, varenr, note, msgEl) {
     }
 }
 
+/* HVILKE varer bestillingen omfatter — én regel for alle tre flader.
+ *
+ * Har man markeret noget, er det DET man bestiller. Ellers alt der er klar.
+ * Reglen er dialogens egen, for den er det man SER lige før afsendelse.
+ *
+ * Fladerne var uenige: dialogen viste de markerede, mens mailen og kopiér-
+ * listen sendte `_marked || matched` — altså ALT der var koblet, uanset
+ * markering. Markerede man én vare, viste forhåndsvisningen én og mailen
+ * sendte hele listen. Det ramte en rigtig leverandør 21. september 2026.
+ */
+function _ibOrderSelection(g) {
+    if (!g || !g.items) return [];
+    var klar = g.items.filter(function(e) { return !e.isOrdered && e.matched; });
+    var markeret = g.items.filter(function(e) { return !e.isOrdered && e._marked; });
+    return markeret.length ? markeret : klar;
+}
+
 /* Listens entry → varen som LEVERANDØREN ser den. Forhåndsvisningen, kopiér-
    listen og ordrelinjen til mailen skal beskrive den SAMME bestilling; tre
    kopier af denne mapping ville før eller siden vise hver sit. */
@@ -1630,10 +1647,9 @@ function _ibOrderItem(e) {
 }
 
 /* ── Manual order dialog ───────────────────────────────────── */
-function _ibRenderManualDialog(g, key, readyItems) {
+function _ibRenderManualDialog(g, key) {
     var isOpen = _ibMoOpen === key;
-    var markedItems = readyItems.filter(function(e) { return e._marked; });
-    var itemsToShow = markedItems.length ? markedItems : readyItems;
+    var itemsToShow = _ibOrderSelection(g);
 
     var h = '<div class="ib-mo-dlg' + (isOpen ? ' open' : '') + '" data-mo-group="' + key + '">';
     h += '<div class="ib-mo-title">Registrér bestilling — ' + _ibEsc(g.displayName) + '</div>';
@@ -2255,10 +2271,28 @@ async function _ibConfirmManualOrder(groupKey, sendEmail) {
     var g = _ibGroups[groupKey];
     if (!g || _ibBusy) return;
 
-    var items = g.items.filter(function(e) { return !e.isOrdered && (e._marked || e.matched); });
+    var items = _ibOrderSelection(g);
     if (!items.length) {
         _ibToast('Ingen varer at bestille');
         return;
+    }
+
+    // En mail ud af huset kan ikke kaldes tilbage. Den skal bekræftes, og
+    // bekræftelsen skal sige HVAD og til HVEM — ellers er den bare et klik mere.
+    if (sendEmail) {
+        var modtager = g.contactEmail || '';
+        var navne = items.slice(0, 6).map(function(e) {
+            return '• ' + SupplierOrderLines.supplierLabel(_ibOrderItem(e))
+                 + ' — ' + SupplierOrderLines.quantityText(_ibOrderItem(e));
+        }).join('\n');
+        if (items.length > 6) navne += '\n• … og ' + (items.length - 6) + ' mere';
+        if (!window.confirm(
+            'Send bestilling til ' + g.displayName + '?\n\n' +
+            items.length + ' ' + (items.length === 1 ? 'vare' : 'varer') +
+            (modtager ? ' til ' + modtager : '') + ':\n\n' + navne +
+            '\n\nMailen sendes med det samme og kan ikke kaldes tilbage.')) {
+            return;
+        }
     }
 
     _ibBusy = true;
@@ -2393,7 +2427,7 @@ function _ibCopyOrderList(groupKey) {
     var g = _ibGroups[groupKey];
     if (!g) return;
 
-    var items = g.items.filter(function(e) { return !e.isOrdered && (e._marked || e.matched); });
+    var items = _ibOrderSelection(g);
 
     // Samme regel som bestillingsmailen (shared/supplier_order_lines.js):
     // leverandørens egen betegnelse, og vores interne numre udeladt. De to

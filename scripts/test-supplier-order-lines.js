@@ -214,14 +214,15 @@ function post(sti, body) {
     // Forhåndsvisningen er dét man ser lige før "Send & bestil". Viste den
     // noget andet end mailen sender, kunne man ikke stole på den.
     kontekst.mailIcon = () => '';
-    const dlg = kontekst._ibRenderManualDialog(kontekst._ibGroups['7'], '7', [entry]);
+    const dlg = kontekst._ibRenderManualDialog(kontekst._ibGroups['7'], '7');
     ok(!dlg.includes('INT-0001'), 'forhåndsvisningen viser ikke vores interne nummer');
     ok(dlg.includes('Burgerlommer, brune, 11 x 11 cm., pakke af 1.000 stk.'),
        'forhåndsvisningen viser leverandørens betegnelse');
     const dlgNr = kontekst._ibRenderManualDialog(
-        { displayName: 'Hørkram', contactEmail: null, contactPhone: null }, '2',
-        [{ product: { id: 9, name: 'Cornichoner' }, qty: 2, needUnit: 'stk',
-           selectedBarcode: { barcode: '13889531', note: 'Cornichons, 330 g' } }]);
+        { displayName: 'Hørkram', contactEmail: null, contactPhone: null,
+          items: [{ product: { id: 9, name: 'Cornichoner' }, qty: 2, needUnit: 'stk',
+                    matched: true, isOrdered: false,
+                    selectedBarcode: { barcode: '13889531', note: 'Cornichons, 330 g' } }] }, '2');
     ok(dlgNr.includes('Nr. 13889531') && dlgNr.includes('Cornichons, 330 g'),
        'forhåndsvisningen beholder leverandørens eget nummer');
 
@@ -283,6 +284,71 @@ function post(sti, body) {
     eq(k4.__oprettet && k4.__oprettet.note, 'Nitrilhandsker',
        'tom tekst falder tilbage på varens navn');
 
+    console.log('\n=== §6 Hvilke varer bestillingen omfatter ===');
+    function gruppeMed(markeret) {
+        const c = lavKlient();
+        const lav = (id, navn, mrk) => ({
+            product: { id, name: navn }, qty: 1, needUnit: 'stk',
+            matched: true, isOrdered: false, _marked: !!mrk,
+            selectedBarcode: { id: id, barcode: 'NR-' + id, note: navn + ' (leverandørens navn)' },
+            barcodes: [], allItems: [],
+        });
+        const items = [lav(1, 'Transportkasser', markeret), lav(2, 'Servietter', false),
+                       lav(3, 'Burgerlommer', false), lav(4, 'Nitrilhandsker', false)];
+        c._ibGroups = { '7': { supplierId: 5, displayName: 'Serviwet', items,
+                               integrationType: 'email', contactEmail: 'rikke@example.invalid' } };
+        c._ibProducts = {}; c._ibBarcodes = [];
+        c.mailIcon = () => '';
+        return c;
+    }
+
+    // Drifts-scenariet: ÉN vare markeret. Før gik hele listen afsted.
+    const m = gruppeMed(true);
+    await m._ibConfirmManualOrder('7', true);
+    eq(m.__ordre && m.__ordre.items.length, 1,
+       'én markeret vare ⇒ mailen sender ÉN, ikke hele listen');
+    eq(m.__ordre && m.__ordre.items[0].product_id, 1, 'og det er den markerede');
+
+    const dlgEn = m._ibRenderManualDialog(m._ibGroups['7'], '7');
+    eq((dlgEn.match(/ib-mo-item/g) || []).length, 1,
+       'forhåndsvisningen viser det SAMME antal som mailen sender');
+
+    m._ibCopyOrderList('7');
+    eq(m.__kopieret.split('\n').length - 1, 1, 'kopiér-listen ligeså');
+
+    // Intet markeret ⇒ alt der er klar.
+    const a4 = gruppeMed(false);
+    await a4._ibConfirmManualOrder('7', true);
+    eq(a4.__ordre && a4.__ordre.items.length, 4, 'intet markeret ⇒ alle klar-varer med');
+    const dlg4 = a4._ibRenderManualDialog(a4._ibGroups['7'], '7');
+    eq((dlg4.match(/ib-mo-item/g) || []).length, 4, 'og forhåndsvisningen viser de samme fire');
+
+    console.log('\n=== §7 Mailen sendes ikke uden varsel ===');
+    const b = gruppeMed(true);
+    b.__confirmSvar = false;                      // brugeren siger nej
+    await b._ibConfirmManualOrder('7', true);
+    eq(b.__ordre, null, 'siger man nej, sendes INTET');
+    ok(b.__confirmTekst !== null, 'der blev spurgt');
+    ok(String(b.__confirmTekst).includes('rikke@example.invalid'),
+       'bekræftelsen siger hvem mailen går til');
+    ok(/\b1 vare\b/.test(String(b.__confirmTekst)),
+       'og hvor mange varer — det var dét der gik galt');
+    ok(String(b.__confirmTekst).includes('Transportkasser'),
+       'varerne nævnes ved navn, så man kan se hvad der sendes');
+    ok(/kan ikke kaldes tilbage/i.test(String(b.__confirmTekst)),
+       'og at den ikke kan fortrydes');
+
+    const c3 = gruppeMed(true);
+    c3.__confirmSvar = true;
+    await c3._ibConfirmManualOrder('7', true);
+    ok(c3.__ordre !== null, 'siger man ja, sendes den');
+
+    // "Bekræft bestilt" går ikke ud af huset og skal ikke spørge.
+    const d = gruppeMed(true);
+    await d._ibConfirmManualOrder('7', false);
+    eq(d.__confirmTekst, null, 'registrering UDEN mail spørger ikke');
+    ok(d.__ordre !== null, 'men registrerer stadig');
+
     server.close();
     console.log(`\n${pass} PASS · ${fail} FAIL`);
     try { fs.unlinkSync(TEST_DB); } catch (_) {}
@@ -305,7 +371,9 @@ function lavKlient(felter) {
         SupplierOrderLines: S,
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
         __kopieret: null, __ordre: null, __oprettet: null,
+        __confirmTekst: null, __confirmSvar: true,
     };
+    ctx.confirm = (t) => { ctx.__confirmTekst = t; return ctx.__confirmSvar; };
     ctx.window = ctx;
     ctx.navigator.clipboard.writeText = async (t) => { ctx.__kopieret = t; };
     vm.createContext(ctx);

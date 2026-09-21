@@ -9373,6 +9373,29 @@ Målt i browseren: 34 px → 222 px synlig, 1 → 7 rækker.
 **Tests**: `npm run test:tilfoej-vare` — 27 asserts, den ÆGTE `shared/indkob.js` i en
 vm-sandkasse. **Mutations-testet: 9 mutationer, alle fanget.**
 
+**Og en tredje, alvorligere: mailen sendte hele listen uden at spørge.**
+
+De tre flader var enige om HVORDAN en linje ser ud, men ikke om HVILKE linjer der er
+med. Dialogen viste de markerede varer; mailen og kopiér-listen brugte
+`_marked || matched` — altså ALT der var koblet, uanset markering. Markerede man én
+vare, viste forhåndsvisningen én og mailen sendte hele listen. Det ramte en rigtig
+leverandør 21. september 2026.
+
+`_ibOrderSelection(g)` er nu den ene regel, og den er dialogens: **har man markeret
+noget, er det dét man bestiller — ellers alt der er klar.** `readyItems`-parameteren
+på `_ibRenderManualDialog` er fjernet; en ubrugt parameter der ligner et udvalg er
+præcis dét der lod fladerne skride fra hinanden.
+
+**"Send & bestil" spørger nu først.** En mail ud af huset kan ikke kaldes tilbage, så
+bekræftelsen siger hvem den går til, hvor mange varer, og navngiver dem (de første
+seks). `window.confirm` er bevidst valgt frem for en pæn modal: den blokerer tråden,
+så der ikke kan nå at ske noget imens. **"Bekræft bestilt"** (uden mail) spørger
+ikke — den går ikke ud af huset.
+
+**Tests**: `npm run test:bestillingslinjer` 55 → **70 asserts** (§6 udvalget på alle
+tre flader, §7 bekræftelsen). **20 mutationer i alt, alle fanget** — heriblandt at
+genindføre drifts-fejlen (mailen sender alt matchet) og at ignorere brugerens nej.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
