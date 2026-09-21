@@ -536,7 +536,104 @@ Bekræft desuden i Grocy-instansen: findes userfield til målvægt, eller skal d
 | Å6 | Overblikket på iPad (vandret bånd) er utestet — tallene skal være synlige mens man skriver |
 | Å7 | Prislister: catering · festival · store · produktion · waiste. Default-valg mangler stadig |
 | Å8 | ~~Udfoldningen skalerer ikke~~ — **løst (B8)**: `GET /api/opskrifter/:id/indhold?kind=&bruger=` skalerer på serveren. Dækket af `test:opskrift-udfold` |
-| Å9 | Målvægt: feltet er i editoren, men gemmes ikke endnu (PR B). Blokeret af at `_rdCalcSubRecipeWeightGrams` summerer en underopskrifts INPUT i stedet for dens UDBYTTE |
+| Å9 | ~~Målvægt gemmes ikke~~ — **løst**: norm pr. Grocy-kategori (`recipe_db_targets.target_weight_g`, migration 187) + afvigelse pr. opskrift (`recipe_target_weights`). Dækket af `test:opskrift-maalvaegt` |
+
+---
+
+## 18. Efter første drifttest (21. september 2026)
+
+Fire ting kom retur fra drift. Den anden var den alvorlige.
+
+### 18.1 Fremgangsmåden var usynlig — og blev slettet
+
+34 af opskrifterne i grocy-hq har rigtig arbejdsbeskrivelse i Grocys ene
+fritekstfelt, uden numre. `parseDescription` læste den korrekt til `plain`,
+men `tegnTrin` renderede **kun** trin-listen. På Balsamico + løg stod der
+derfor «+ Tilføj trin» på en opskrift med fem linjers fremgangsmåde.
+
+Værre: `toStore` kasserede `plain` i det øjeblik der fandtes ét trin.
+
+```
+før:   <p>løgene skæres i ringe…</p><p>2 timer i ovnen ved 120°</p>
+efter: <p>1. Køl ned [30 min]</p>      ← ét tilføjet trin
+```
+
+Et passivt Gem var harmløst (`toStore` kaldes slet ikke når intet er rørt),
+men **det første trin man tilføjede, tog beskrivelsen med sig** — uden at
+man nogensinde havde set den. Samme fejlklasse som #305/#319: handlingen ser
+uskyldig ud, tabet er tavst.
+
+- Teksten vises nu i et redigerbart felt over trin-listen, mærket «Som den
+  står i Grocy», med **Lav om til trin** (ét linjeskift = ét trin).
+- `toStore` sætter teksten FORAN trinene. Round-trip er stabilt: ved næste
+  læsning bliver den til `lead`, som allerede er en del af modellen.
+- At **rydde** feltet er stadig brugerens eget valg — ellers kunne man ikke
+  omskrive en rodet beskrivelse til rene trin.
+- `S.stepsEdited` bærer nu både `steps` og `plain`; de tre steder der satte
+  den, overskrev hinandens felt.
+
+Dækket af `test:opskrift-trin` §10. Mutations-testet: rulles rettelsen
+tilbage, falder 3 navngivne asserts.
+
+### 18.2 Vægt fra en underopskrift uden erklæret udbytte
+
+Slider-boksen stod med `—` i GRAM på alle tre nestings, mens kostprisen lige
+ved siden af skrev `≥ 11,87`. Vi har allerede et sprog for «mindst så meget»;
+vægten brugte det bare ikke.
+
+Reglen fandtes i huset i forvejen — `ingredientResolver` skriver den selv:
+
+> *Erklæret yield vinder over summen af input. Findes intet yield, falder vi
+> tilbage på summen — den er stadig bedre end ingenting, men den overvurderer
+> alt hvor der hældes fra eller svinder.*
+
+Editoren var den eneste flade der gav op. `subRecipeInputGrams` summerer nu
+underopskriftens egne råvarer (rekursivt, emballage udeladt, stak-baseret
+cyklusværn jf. #354) når udbyttet ikke kan bestemmes.
+
+**Tallet markeres som et skøn** (`~137 g`, forklaring i tooltip) og
+underopskrifterne nævnes ved navn i `weight.estimated`. For en slider ER
+summen reelt vægten; for Balsamico + løg er den 57 % for høj (1566 g ind,
+1000 g ud). `≥` og `~` betyder ikke det samme, og `~` vinder når begge
+gælder: et skøn der kan være for højt, er ikke et mindstetal.
+
+Målt på slider-boksen: `—` → `~414 g` mad, og de tre sliders står med
+137/138/140 g.
+
+### 18.3 Målvægt — en norm pr. kategori (Å9)
+
+«Hvad sigter vi på at en sandwich vejer» er ikke en egenskab ved ÉN opskrift.
+`recipe_db_targets` bærer allerede præcis den slags norm pr. Grocy-kategori
+(DB%-målet), så målvægten hører samme sted: ét sted at vedligeholde.
+
+- **Migration 187**: `target_weight_g` på `recipe_db_targets` (tabellen
+  genskabes, så `target_pct` kan være NULL — en kategori må have den ene norm
+  uden den anden) + `recipe_target_weights` til afvigelsen pr. opskrift.
+- **Kun afvigelsen gemmes.** Er tallet det samme som normen, fjernes rækken —
+  ellers ville en senere ændring af normen ikke slå igennem, og opskriften
+  ville stå med et tal ingen huskede at have sat.
+- Editorens felt viser normen som **placeholder** med tooltip, aldrig som
+  værdi: en hjælpetekst og en indtastning må ikke se ens ud. Tomt felt betyder
+  «brug normen igen», ikke «ingen målvægt».
+- Normerne redigeres i ⚙-popoveren i **Opskrifter & priser**, ved siden af
+  DB%-målet. De to er uafhængige: et gem af den ene rører ikke den anden.
+- `målvægtÆndret()` tæller den som en ændring — `diffRecipe` kan ikke se den,
+  og uden det var feltet dødt: man kunne taste, se bjælken flytte sig, og stå
+  med en grå Gem-knap.
+
+Dækket af `test:opskrift-maalvaegt` (18 asserts, skema fra de rigtige
+migrations). Mutations-testet: fire regler, alle fanget.
+
+### 18.4 Margen og tavse konsolfejl
+
+`#recipeDesignerContainer` havde `padding: 0`, så indholdet klistrede til
+venstre kant. Nu `0 20px`.
+
+Samtidig: `gem()`s `finally { tegnBund() }` kører EFTER `onExit` har
+afmonteret editoren, så hvert gem kastede to `Cannot set properties of null`.
+Fejlen er pre-eksisterende (findes i den committede udgave), men den slags
+støj skjuler de ægte fejl. Alle seks tegnere har nu en vagt:
+findes elementet ikke, er der intet at tegne på.
 
 ---
 

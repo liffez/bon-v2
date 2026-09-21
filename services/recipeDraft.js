@@ -211,6 +211,63 @@ function buildPackagingLookup(products, groups) {
     };
 }
 
+/**
+ * En underopskrifts madvægt i gram ud fra dens EGNE råvarer, skaleret.
+ *
+ * Bruges kun når udbyttet ikke kan bestemmes. Det er husets etablerede
+ * fald-tilbage — `ingredientResolver` skriver det selv:
+ *
+ *   «Erklæret yield vinder over summen af input. Findes intet yield, falder
+ *    vi tilbage på summen — den er stadig bedre end ingenting, men den
+ *    overvurderer alt hvor der hældes fra eller svinder.»
+ *
+ * Editoren var den eneste flade der gav op og skrev «—», mens den lige ved
+ * siden af skrev «≥ 11,87» for en ufuldstændig kostpris. Tallet markeres
+ * derfor som et SKØN (`estimated`), ikke som en måling: for en slider er
+ * summen reelt vægten, for en syltet løg er den 57 % for høj.
+ *
+ * Emballage tælles ikke med — madvægten er mad (R7.5).
+ *
+ * Stak, ikke sæt: en opskrift der optræder i to grene skal tælles begge
+ * gange; kun en ægte cyklus stoppes (#354).
+ */
+function subRecipeInputGrams(recipeId, servings, built, g, erEmballage, kiloId, stack) {
+    const rid = Number(recipeId);
+    if (stack.has(rid)) return null;              // cyklus — ikke et tal vi kan stå inde for
+    const sub = built.data.recipes.find(r => Number(r.id) === rid);
+    if (!sub) return null;
+
+    const base = num(sub.base_servings) > 0 ? num(sub.base_servings) : 1;
+    const mult = num(servings) > 0 ? num(servings) / base : 1 / base;
+    const byId = new Map(built.data.products.map(x => [String(x.id), x]));
+
+    stack.add(rid);
+    let gram = 0, ukendt = false;
+
+    for (const pos of built.data.pos) {
+        if (Number(pos.recipe_id) !== rid) continue;
+        const prod = byId.get(String(pos.product_id));
+        if (!prod || erEmballage(prod)) continue;
+        const kg = co2Engine.stockToKg(prod, num(pos.amount) * mult,
+                                       built.data.conversions, kiloId);
+        if (kg == null) { ukendt = true; continue; }
+        gram += kg * 1000;
+    }
+
+    for (const n of built.data.nestings) {
+        if (Number(n.recipe_id) !== rid) continue;
+        const dyb = subRecipeInputGrams(n.includes_recipe_id, num(n.servings) * mult,
+                                        built, g, erEmballage, kiloId, stack);
+        if (dyb == null) { ukendt = true; continue; }
+        gram += dyb;
+    }
+
+    stack.delete(rid);
+    // Intet kendt og intet at gå efter: sig det, frem for at kalde 0 for en vægt.
+    if (gram <= 0 && ukendt) return null;
+    return gram > 0 ? gram : null;
+}
+
 function weights(built, g) {
     const kiloId = co2Engine.findKiloId(g.units || []);
     const erEmballage = buildPackagingLookup(built.data.products, g.groups);
@@ -218,6 +275,10 @@ function weights(built, g) {
 
     let food = 0, pack = 0;
     const missing = [];
+    // Linjer hvor vægten er summen af underopskriftens råvarer, ikke et
+    // erklæret udbytte. Overblikket viser dem med ~ — tallet er et skøn.
+    const estimeret = [];
+    const estimatLinjer = new Set();
     // Gram pr. linje — samme gennemgang som totalen, så de to ikke kan blive
     // uenige. Nulstilles aldrig: en linje uden kendt vægt står som null, ikke 0.
     const perLinje = new Map();
@@ -247,9 +308,21 @@ function weights(built, g) {
             : null;
         const kg = (stock != null && subProd)
             ? co2Engine.stockToKg(subProd, stock, built.data.conversions, kiloId) : null;
-        if (kg == null) { missing.push(sub.name); perLinje.set(n.id, null); continue; }
-        perLinje.set(n.id, Math.round(kg * 1000 * 100) / 100);
-        food += kg * 1000;
+        if (kg != null) {
+            perLinje.set(n.id, Math.round(kg * 1000 * 100) / 100);
+            food += kg * 1000;
+            continue;
+        }
+        // Intet erklæret udbytte — summen af underopskriftens egne råvarer er
+        // et skøn, og et skøn er bedre end et tomt felt. Det MARKERES, så et
+        // overslag aldrig kan forveksles med noget der er vejet.
+        const skøn = subRecipeInputGrams(n.includes_recipe_id, n.servings,
+                                         built, g, erEmballage, kiloId, new Set());
+        if (skøn == null) { missing.push(sub.name); perLinje.set(n.id, null); continue; }
+        perLinje.set(n.id, Math.round(skøn * 100) / 100);
+        estimatLinjer.add(n.id);
+        estimeret.push(sub.name);
+        food += skøn;
     }
 
     return {
@@ -258,7 +331,9 @@ function weights(built, g) {
         batch_g: Math.round((food + pack) * 100) / 100,
         complete: missing.length === 0,
         missing,
+        estimated: estimeret,
         per_line_g: perLinje,
+        estimated_lines: estimatLinjer,
         packaging_lines: emballageLinjer,
     };
 }
@@ -352,6 +427,7 @@ async function computeDraft(draft, g) {
                 amount_stock: p.amount,
                 section: p.ingredient_group || '',
                 weight_g: v.per_line_g.get(p.id) ?? null,
+                weight_estimated: false,
                 cost: k.cost ?? null,
                 unit_cost: k.unit_cost ?? null,
                 // Prisen kommer fra opskriften bag varen, ikke fra et køb (#558).
@@ -389,7 +465,10 @@ async function computeDraft(draft, g) {
                     return { unit: pu.exact ? pu.unit : null, portion_per: pu.per };
                 })(),
                 // Halvfabrikatet vejer sit UDBYTTE, ikke summen af sine råvarer.
+                // Er udbyttet ikke erklæret, ER tallet summen — og så siger
+                // flaget det, så et skøn ikke kan læses som en måling.
                 weight_g: v.per_line_g.get(n.id) ?? null,
+                weight_estimated: v.estimated_lines.has(n.id),
                 cost: k.cost ?? null,
                 cost_source: 'sub_recipe',
                 co2e: co2Hold(co2Sub.get(n.id)),
@@ -414,7 +493,10 @@ async function computeDraft(draft, g) {
             stock_unit: k ? k.yield_unit : null,
         },
         weight: { food_g: v.food_g, packaging_g: v.packaging_g, batch_g: v.batch_g,
-                  complete: v.complete, missing: v.missing },
+                  complete: v.complete, missing: v.missing,
+                  // Navnene på de underopskrifter hvis vægt er summen af deres
+                  // råvarer. Tom liste = hele madvægten er erklærede udbytter.
+                  estimated: v.estimated },
         target_weight_g: målvægt,
         target_weight_pct: (målvægt && målvægt > 0 && v.food_g)
             ? Math.round(v.food_g / målvægt * 1000) / 10 : null,

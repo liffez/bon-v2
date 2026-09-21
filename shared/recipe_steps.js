@@ -240,7 +240,15 @@
         const plainEns = tekstEns(e.plain === undefined ? parsed.plain : e.plain, parsed.plain);
         const harTrin = trinRørt && e.steps.length > 0;
         if (!harTrin && plainEns && noteEns && leadEns) return parsed.raw;
-        if (harTrin) return serializeSteps(e.steps, nyNote, nyLead);
+        if (harTrin) {
+            // Den fri tekst må ALDRIG forsvinde fordi der kom et trin til.
+            // Fem linjers arbejdsbeskrivelse fra Grocy blev tidligere kasseret
+            // her — usynligt, fordi editoren heller ikke viste den. Den står nu
+            // foran trinene; ryddes feltet, er det brugerens eget valg.
+            const p = e.plain === undefined ? parsed.plain : e.plain;
+            const foran = String(p == null ? '' : p).trim() ? serializePlain(p) : '';
+            return foran + serializeSteps(e.steps, nyNote, nyLead);
+        }
 
         const hale = String(nyNote == null ? '' : nyNote).trim();
         return serializePlain(e.plain === undefined ? parsed.plain : e.plain) +

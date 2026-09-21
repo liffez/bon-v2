@@ -323,8 +323,13 @@ console.log('\nV3 · Indstillingen læses fra databasen, og vrøvl kan ikke væl
             ok(/min="7"/.test(popHtml) && /max="1095"/.test(popHtml),
                'og med grænserne, så feltet kan sige fra inden man trykker gem');
             ok(/data-act="save-window"/.test(popHtml), 'og en knap der gemmer');
-            ok(popHtml.includes('Mål for DB% pr. kategori'),
+            // Mål INDHOLDET, ikke overskriftens ordlyd: da målvægten kom til,
+            // hed sektionen pludselig «Mål pr. kategori», og en test der
+            // hænger på teksten fælder en ændring der ikke er en fejl.
+            ok(/data-cat="/.test(popHtml),
                'DB-målene er der stadig — popoveren fik et felt, den mistede ikke et');
+            ok(/data-vcat="/.test(popHtml),
+               'og målvægten står ved siden af, som sin egen kolonne');
         }
     }
 

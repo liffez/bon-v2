@@ -25,8 +25,10 @@ const recipeDraft = require('../services/recipeDraft');
 const recipeSearch = require('../services/recipeSearch');
 const RecipeLines = require('../shared/recipe_lines');
 const { writeRecipe, WriterError } = require('../services/recipeWriter');
+const { målvægtFor, gemMålvægt } = require('../services/recipeTargets');
 
 const router = express.Router();
+
 
 /**
  * Gem gennem den fælles writer.
@@ -55,7 +57,21 @@ async function gem(req, res, origId) {
 
     try {
         const r = await writeRecipe(kladde, orig, { defaultLocationId });
+        // Målvægten bor i Bon og skrives EFTER Grocy: fejler opskriften, skal
+        // der ikke stå en norm på noget der ikke blev gemt. Og den må aldrig
+        // vælte et gem der lykkedes — derfor try/catch med et synligt spor.
+        let målvægtFejl = null;
+        if (kladde.target_weight_g !== undefined) {
+            try {
+                gemMålvægt(getDb(), r.recipeId, kladde.group,
+                           kladde.target_weight_g, req.session?.userId);
+            } catch (e) {
+                målvægtFejl = e.message;
+                console.error('[opskrifter] målvægt kunne ikke gemmes:', e.message);
+            }
+        }
         res.json({
+            target_weight_error: målvægtFejl,
             recipe_id: r.recipeId,
             wrote: r.wrote,
             change_count: r.changeCount,
@@ -215,6 +231,7 @@ router.get('/:id/editor', handle(async (req, res) => {
     const kladde = recipeDraft.draftFromSaved(id, g);
     if (!kladde) return res.status(404).json({ error: 'opskriften findes ikke' });
 
+    Object.assign(kladde, målvægtFor(getDb(), id, kladde.group));
     res.json({ draft: kladde, overview: await recipeDraft.computeDraft(kladde, g) });
 }));
 

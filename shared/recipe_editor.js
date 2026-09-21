@@ -83,6 +83,22 @@ function num(v) {
  * Vi skriver `≥` foran i stedet for at vise det som færdigt — og for
  * dækningsbidraget vender det, fordi en for lav kostpris gør avancen for høj.
  */
+/**
+ * Et vægttal i overblikket.
+ *
+ * `≥` betyder «mindst så meget» — noget mangler helt. `~` betyder «omtrent»:
+ * en underopskrift uden erklæret udbytte er talt som summen af sine råvarer,
+ * og den sum er for høj alle steder hvor der hældes fra eller svinder. De to
+ * må ikke forveksles, og `~` vinder når begge gælder: et skøn der kan være
+ * for højt, er ikke et mindstetal.
+ */
+function vægtTal(v, w, dec) {
+    if (v == null || !isFinite(v)) return '—';
+    const skøn = (w.estimated || []).length > 0;
+    if (skøn) return '~' + nf(v, dec) + ' g';
+    return minTal(v, w.complete, dec, 'g');
+}
+
 function minTal(v, complete, dec, enhed, retning) {
     if (v == null || !isFinite(v)) return '—';
     const tegn = complete ? '' : (retning === 'ned' ? '≤ ' : '≥ ');
@@ -170,15 +186,33 @@ function byggLinjer() {
  * knappen bliver aktiv uden grund — men den kan aldrig sige 0 hvor der ER en
  * ændring, og det er den vej der ville tabe arbejde.
  */
+/**
+ * Er målvægten ændret?
+ *
+ * Den bor i Bon, ikke i Grocy, så `diffRecipe` kan ikke se den — og uden
+ * dette ville feltet være dødt: man kunne taste et tal, se bjælken flytte
+ * sig, og så stå med en grå Gem-knap.
+ *
+ * Kun en AFVIGELSE tæller. At arve gruppens norm er ikke noget man har
+ * gjort, og et Gem må ikke skrive en afvigelse man aldrig har bedt om.
+ */
+function målvægtÆndret() {
+    if (!S.orig) return false;
+    const egen = (d) => (d && d.target_weight_source === 'recipe' && d.target_weight_g != null)
+        ? Number(d.target_weight_g) : null;
+    return egen(S.orig) !== egen(S.draft);
+}
+
 function antalÆndringer() {
     if (!S.orig) return -1;                 // ny opskrift: intet at sammenligne med
+    const ekstra = målvægtÆndret() ? 1 : 0;
     if (typeof RecipeDiff !== 'undefined' && RecipeDiff.diffRecipe) {
         try {
             const p = RecipeDiff.diffRecipe(S.orig, medTrin(S.draft));
-            return p.changeCount + (p.newProducts ? p.newProducts.length : 0);
+            return p.changeCount + (p.newProducts ? p.newProducts.length : 0) + ekstra;
         } catch (e) { /* falder igennem til reserven */ }
     }
-    return JSON.stringify(S.orig) === JSON.stringify(medTrin(S.draft)) ? 0 : 1;
+    return (JSON.stringify(S.orig) === JSON.stringify(medTrin(S.draft)) ? 0 : 1) + ekstra;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -323,7 +357,9 @@ function tegnHoved() {
     const valgt = S.draft.group || '';
     const harValgt = !valgt || grupper.some(g => g === valgt);
 
-    document.getElementById('reHead').innerHTML =
+    const _el_reHead = document.getElementById('reHead');
+    if (!_el_reHead) return;              // afmonteret — intet at tegne på
+    _el_reHead.innerHTML =
         '<button class="re-back" id="reBack">← Tilbage</button>' +
         '<div class="re-head-row">' +
           '<label class="re-sr" for="reName">Opskriftens navn</label>' +
@@ -352,7 +388,9 @@ function tegnUdbytte() {
     const valgtEnhed = y.unit || '';
     const kendt = !valgtEnhed || enheder.some(e => e.name === valgtEnhed);
 
-    document.getElementById('reYield').innerHTML =
+    const _el_reYield = document.getElementById('reYield');
+    if (!_el_reYield) return;              // afmonteret — intet at tegne på
+    _el_reYield.innerHTML =
       '<div class="re-card re-yield-card">' +
         // Sætningens tre led er pakket hver for sig. På brede skærme er
         // beholderne `display: contents` — altså ingen boks, og rækken er
@@ -386,8 +424,22 @@ function tegnUdbytte() {
           '<span class="re-div"></span>' +
           '<span class="re-yield-grp">' +
           '<label class="re-lbl" for="reTarget">Målvægt</label>' +
-          '<input id="reTarget" class="re-inp re-inp-small" type="text" inputmode="decimal" value="' +
-                 esc(S.draft.target_weight_g == null ? '' : String(S.draft.target_weight_g).replace('.', ',')) + '">' +
+          // Normen for gruppen er en HJÆLPETEKST, ikke en værdi: står den i
+          // feltet, ser den ud som noget nogen har sat på denne ret, og så
+          // ville en senere ændring af normen ikke slå igennem. Kun en
+          // afvigelse står som tekst — og bærer dermed også sit eget ansvar.
+          (function () {
+              const egen = S.draft.target_weight_source === 'recipe';
+              const norm = S.draft.target_weight_category_g;
+              const værdi = egen && S.draft.target_weight_g != null
+                  ? String(S.draft.target_weight_g).replace('.', ',') : '';
+              return '<input id="reTarget" class="re-inp re-inp-small" type="text" inputmode="decimal"' +
+                  (norm != null ? ' placeholder="' + esc(nf(norm, 0)) + '"' +
+                                  ' title="' + esc(nf(norm, 0)) + ' g er standarden for ' +
+                                  esc(S.draft.group || 'gruppen') +
+                                  ' — skriv et tal her hvis netop denne ret afviger"' : '') +
+                  ' value="' + esc(værdi) + '">';
+          })() +
           '<span class="re-lbl">g mad</span>' +
           '</span>' +
         '</div>' +
@@ -459,6 +511,7 @@ function tegnListe() {
     // end det man skrev. Mens feltet har fokus, er det brugerens råtekst der
     // gælder — kladden har allerede fået sin værdi af `sætMængde`.
     const el = document.getElementById('reLines');
+    if (!el) return;                      // afmonteret — intet at tegne på
     const a = document.activeElement;
     const fokus = (a && el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SELECT') && a.dataset.act)
         ? { act: a.dataset.act, key: a.dataset.key || '', raa: a.value,
@@ -483,7 +536,9 @@ function tegnListe() {
 
 function tegnKolonneHoved() {
     const c = S.columns;
-    document.getElementById('reColHead').innerHTML =
+    const _el_reColHead = document.getElementById('reColHead');
+    if (!_el_reColHead) return;              // afmonteret — intet at tegne på
+    _el_reColHead.innerHTML =
         '<div class="re-row re-row-head" style="grid-template-columns:' + gridSkabelon() + '">' +
           '<div></div><div>PRODUKT</div><div class="re-c">MÆNGDE</div><div></div>' +
           (c.gram  ? '<div class="re-r">GRAM</div>' : '') +
@@ -573,7 +628,9 @@ function tegnLinje(l, g) {
     // Suffikset står på cellen, ikke i teksten: kolonneoverskriften er skjult
     // på mobil, og «120» alene siger ikke om det er gram eller kroner.
     h += '<div class="re-nums">';
-    if (c.gram)  h += '<div class="re-r re-dim" data-suffix=" g">' + (l.weight_g == null ? '—' : nf(l.weight_g, 0)) + '</div>';
+    if (c.gram)  h += '<div class="re-r re-dim" data-suffix=" g"' +
+        (l.weight_estimated ? ' title="Summen af underopskriftens råvarer — den har intet erklæret udbytte, så svind er ikke trukket fra"' : '') +
+        '>' + (l.weight_g == null ? '—' : (l.weight_estimated ? '~' : '') + nf(l.weight_g, 0)) + '</div>';
     if (c.cost)  h += '<div class="re-r" data-suffix=" kr">' + celleTal(l, 'cost') + '</div>';
     if (c.co2)   h += '<div class="re-r re-dim" data-suffix=" kg CO₂e">' + celleTal(l, 'co2') + '</div>';
     if (c.stock) h += '<div class="re-r re-dim" data-suffix=" på lager">' + lagerCelle(l) + '</div>';
@@ -696,7 +753,9 @@ function tegnUdfoldning(l) {
 
 function tegnTilføj() {
     const sektioner = sektionsliste();
-    document.getElementById('reAdd').innerHTML =
+    const _el_reAdd = document.getElementById('reAdd');
+    if (!_el_reAdd) return;              // afmonteret — intet at tegne på
+    _el_reAdd.innerHTML =
       '<div class="re-add-inner">' +
         '<div class="re-add-lbl">TILFØJ TIL OPSKRIFTEN</div>' +
         '<div class="re-add-row">' +
@@ -815,15 +874,39 @@ function felt(id, lbl, v, mode, ph) {
 function tegnTrin() {
     const RS = (typeof RecipeSteps !== 'undefined') ? RecipeSteps : null;
     const el = document.getElementById('reSteps');
+    if (!el) return;                      // afmonteret — intet at tegne på
     if (!RS) { el.innerHTML = ''; return; }
 
     const p = S.stepsParsed || (S.stepsParsed = RS.parseDescription(S.draft.description || ''));
     const trin = S.stepsEdited && S.stepsEdited.steps ? S.stepsEdited.steps : p.steps;
     const total = RS.totalMinutes(trin);
 
+    /**
+     * Den fri tekst fra Grocy SKAL kunne ses.
+     *
+     * Feltet i Grocy er ét fritekstfelt, og 34 af opskrifterne har rigtig
+     * arbejdsbeskrivelse i det uden numre. Viste vi kun trin-listen, stod der
+     * «+ Tilføj trin» på en opskrift der havde fem linjers fremgangsmåde —
+     * usynlig, uredigerbar, og indtil nu slettet af det første trin man
+     * tilføjede. `plain` er allerede parset; den manglede bare et sted at stå.
+     */
+    const plain = (S.stepsEdited && S.stepsEdited.plain !== undefined)
+        ? S.stepsEdited.plain : (p.mode === 'raw' ? p.plain : '');
+    const harPlain = String(plain || '').trim() !== '';
+
     el.innerHTML =
       '<div class="re-steps-h"><span>FREMGANGSMÅDE</span>' +
         (total ? '<span class="re-dim">Samlet tid ' + total + ' min</span>' : '') + '</div>' +
+      (harPlain
+        ? '<div class="re-steps-plain">' +
+            '<textarea class="re-plain" data-act="plain" rows="' +
+              Math.min(12, Math.max(3, String(plain).split('\n').length)) + '" ' +
+              'aria-label="Fremgangsmåde fra Grocy">' + esc(plain) + '</textarea>' +
+            '<div class="re-steps-plainf"><span class="re-dim">Som den står i Grocy</span>' +
+              '<button class="re-btn re-btn-ghost" data-act="plain2steps">Lav om til trin</button>' +
+            '</div>' +
+          '</div>'
+        : '') +
       (p.lead ? '<div class="re-steps-lead">' + esc(p.lead) + '</div>' : '') +
       trin.map((t, i) =>
         '<div class="re-step-row"><span class="re-step-n">' + (i + 1) + '</span>' +
@@ -861,7 +944,7 @@ function tegnOverblik(fejl) {
     let h = '<div class="re-card re-ov">' +
       '<div class="re-ov-h">OVERBLIK · PR. PORTION</div>' +
       '<div class="re-ov-big"><span>Mad</span><span>' +
-        minTal(ps.weight_g, w.complete, 0, 'g') + '</span></div>';
+        vægtTal(ps.weight_g, w, 0) + '</span></div>';
 
     // Målvægt: mål, faktisk, afstand — samme form som mål-DB (R10.3).
     if (pct != null) {
@@ -874,7 +957,7 @@ function tegnOverblik(fejl) {
 
     h += '<div class="re-ov-rows">';
     h += ovRow('Emballage', minTal(w.packaging_g, w.complete, 0, 'g'));
-    h += ovRow('Batchvægt', minTal(w.batch_g, w.complete, 0, 'g'));
+    h += ovRow('Batchvægt', vægtTal(w.batch_g, w, 0));
     if (o.yield && o.yield.stock_amount != null) {
         h += ovRow('Udbytte', nf(o.yield.stock_amount, 2) + ' ' + esc(o.yield.stock_unit || ''));
     }
@@ -959,7 +1042,9 @@ function tegnBund() {
     // I4: 0 ændringer ⇒ intet at skrive, så knappen skal ikke kunne trykkes.
     const gemSlået = blok > 0 || (S.mode === 'modify' && n === 0) || S.busy;
 
-    document.getElementById('reBottom').innerHTML =
+    const _el_reBottom = document.getElementById('reBottom');
+    if (!_el_reBottom) return;              // afmonteret — intet at tegne på
+    _el_reBottom.innerHTML =
       '<span class="re-bottom-txt">' + esc(dele.join(' · ')) +
         (blok ? ' · <strong class="re-blocked">' + blok +
                 (blok === 1 ? ' linje mangler enhed' : ' linjer mangler enhed') + '</strong>' : '') +
@@ -1112,7 +1197,13 @@ async function gem(somNy) {
             : '/api/opskrifter/' + S.draft.recipe_id + '/gem';
         const r = await api(sti, { method: 'POST', body: JSON.stringify(medTrin(S.draft)) });
         if (typeof window.toast === 'function') {
-            window.toast(r.change_count ? ('Gemt — ' + r.change_count + ' ændringer') : 'Ingen ændringer at gemme');
+            // `change_count` tæller kun det der gik til Grocy. Målvægten bor i
+            // Bon, så en ændring af den alene ville ellers kvittere med
+            // «ingen ændringer» — og så tror man den ikke blev gemt.
+            window.toast(r.target_weight_error ? ('Gemt, men målvægten kunne ikke gemmes: ' + r.target_weight_error)
+                : r.change_count ? ('Gemt — ' + r.change_count + ' ændringer')
+                : målvægtÆndret() ? 'Målvægt gemt'
+                : 'Ingen ændringer at gemme');
         }
         if (S.onExit) S.onExit(r.recipe_id);
     } catch (e) {
@@ -1149,10 +1240,18 @@ function bind() {
         if (t.id === 'reSearch') { søg(t.value); return; }
         if (t.id === 'reYAmt') { S.draft.yield.amount = num(t.value); planlægBeregn(); tegnBund(); return; }
         if (t.id === 'reYServ') { S.draft.base_servings = num(t.value) || 1; planlægBeregn(); tegnBund(); return; }
-        if (t.id === 'reTarget') { S.draft.target_weight_g = num(t.value); planlægBeregn(); tegnBund(); return; }
+        if (t.id === 'reTarget') {
+            // Tomt felt = «brug gruppens norm igen», ikke «ingen målvægt».
+            const v = num(t.value);
+            S.draft.target_weight_g = v != null ? v : S.draft.target_weight_category_g;
+            S.draft.target_weight_source = v != null ? 'recipe'
+                : (S.draft.target_weight_category_g != null ? 'category' : null);
+            planlægBeregn(); tegnBund(); return;
+        }
         if (t.id === 'reDbTarget') { S.priceTarget = Number(t.value); tegnOverblik(); return; }
         if (t.dataset.act === 'amount') { sætMængde(t.dataset.key, t.value); return; }
         if (t.dataset.act === 'step' || t.dataset.act === 'step-min') { trinRørt(); return; }
+        if (t.dataset.act === 'plain') { plainRørt(t.value); return; }
     });
 
     el.addEventListener('change', (e) => {
@@ -1213,6 +1312,7 @@ function bind() {
         }
         if (a === 'new-cancel') { S.newLine = null; tegnResultater(); return; }
         if (a === 'new-add')    { tilføjNyVare(); return; }
+        if (a === 'plain2steps'){ plainTilTrin(); return; }
         if (a === 'step-add')   { tilføjTrin(); return; }
         if (a === 'step-del')   { fjernTrin(Number(b.dataset.i)); return; }
         if (a === 'open-recipe') {
@@ -1345,13 +1445,44 @@ function trinRørt() {
     const p = S.stepsParsed || (S.stepsParsed = RS.parseDescription(S.draft.description || ''));
     const tekster = [...S.el.querySelectorAll('[data-act="step"]')];
     const minutter = [...S.el.querySelectorAll('[data-act="step-min"]')];
-    S.stepsEdited = { steps: tekster.map((t, i) => ({
+    S.stepsEdited = Object.assign({}, S.stepsEdited || {}, { steps: tekster.map((t, i) => ({
         text: t.value, minutes: num(minutter[i] ? minutter[i].value : null),
-    })) };
+    })) });
     const h = S.el.querySelector('.re-steps-h .re-dim');
     const total = RS.totalMinutes(S.stepsEdited.steps);
     if (h) h.textContent = total ? ('Samlet tid ' + total + ' min') : '';
     tegnBund();
+}
+
+/**
+ * Fri tekst er rørt. Ingen gentegning — så ville markøren hoppe i textarea'et
+ * ved hvert tastetryk (samme fælde som mængdefeltet havde).
+ */
+function plainRørt(værdi) {
+    const nu = S.stepsEdited || {};
+    S.stepsEdited = Object.assign({}, nu, { plain: værdi });
+    tegnBund();
+}
+
+/**
+ * Teksten er allerede fremgangsmåden — den mangler bare numre. Ét linjeskift
+ * bliver ét trin, og `plain` ryddes: teksten ER blevet til trinene, så den må
+ * ikke stå to steder.
+ */
+function plainTilTrin() {
+    const RS = (typeof RecipeSteps !== 'undefined') ? RecipeSteps : null;
+    if (!RS) return;
+    const p = S.stepsParsed || (S.stepsParsed = RS.parseDescription(S.draft.description || ''));
+    const tekst = (S.stepsEdited && S.stepsEdited.plain !== undefined)
+        ? S.stepsEdited.plain : p.plain;
+    const linjer = String(tekst || '').split('\n').map(l => l.trim()).filter(Boolean);
+    if (!linjer.length) return;
+    const nu = (S.stepsEdited && S.stepsEdited.steps) || p.steps;
+    S.stepsEdited = {
+        steps: (nu || []).concat(linjer.map(t => ({ text: t, minutes: null }))),
+        plain: '',
+    };
+    tegnTrin(); tegnBund();
 }
 
 function tilføjTrin() {
@@ -1359,7 +1490,8 @@ function tilføjTrin() {
     if (!RS) return;
     const p = S.stepsParsed || (S.stepsParsed = RS.parseDescription(S.draft.description || ''));
     const nu = (S.stepsEdited && S.stepsEdited.steps) || p.steps;
-    S.stepsEdited = { steps: nu.concat([{ text: '', minutes: null }]) };
+    S.stepsEdited = Object.assign({}, S.stepsEdited || {},
+        { steps: nu.concat([{ text: '', minutes: null }]) });
     tegnTrin(); tegnBund();
 }
 
@@ -1369,7 +1501,7 @@ function fjernTrin(i) {
     const p = S.stepsParsed || (S.stepsParsed = RS.parseDescription(S.draft.description || ''));
     const nu = ((S.stepsEdited && S.stepsEdited.steps) || p.steps).slice();
     nu.splice(i, 1);
-    S.stepsEdited = { steps: nu };
+    S.stepsEdited = Object.assign({}, S.stepsEdited || {}, { steps: nu });
     tegnTrin(); tegnBund();
 }
 

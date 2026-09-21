@@ -243,7 +243,48 @@ console.log('\n── §8 undefined betyder ikke rørt ────────�
     const f = RS.parseDescription('<p>Fri tekst</p>');
     ok(RS.toStore(f, {}) === f.raw, 'fri tekst uden edits er urørt');
     ok(RS.toStore(f, { steps: [{ text: 'Nu et trin', minutes: null }] }).includes('<p>1. Nu et trin</p>'),
-        'får fri tekst trin, skrives den om til trin');
+        'får fri tekst trin, kommer trinnet med');
+}
+
+// ── §10 Den fri tekst må ikke forsvinde ───────────────────────
+// 34 af opskrifterne i grocy-hq har rigtig arbejdsbeskrivelse i Grocys ene
+// fritekstfelt, uden numre. Editoren viste kun trin-listen, så teksten var
+// usynlig — og `toStore` kasserede den i samme øjeblik der kom ét trin.
+// Fem linjers arbejdsbeskrivelse kunne altså forsvinde uden at nogen havde
+// set den. Det er den fejlklasse der bider hårdest: handlingen ser uskyldig
+// ud, tabet er tavst.
+console.log('\n── §10 Fri tekst overlever et tilføjet trin ──────────────');
+{
+    const raw = '<p>løgene skæres i ringe og koges bløde i vand.</p>' +
+                '<p>2 timer i ovnen ved 120°</p>';
+    const p = RS.parseDescription(raw);
+
+    const medTrin = RS.toStore(p, { steps: [{ text: 'Køl ned', minutes: 30 }] });
+    ok(medTrin.includes('løgene skæres i ringe'),
+        'første linje står der stadig efter et tilføjet trin');
+    ok(medTrin.includes('2 timer i ovnen ved 120°'),
+        'og anden linje — HELE teksten, ikke bare begyndelsen');
+    ok(medTrin.includes('<p>1. Køl ned [30 min]</p>'), 'trinnet er kommet til');
+
+    // Round-trip: teksten skal kunne læses tilbage. Står den foran trinene,
+    // bliver den til `lead` — og den er allerede en del af modellen, så
+    // næste Gem kan skrive den tilbage uændret.
+    const p2 = RS.parseDescription(medTrin);
+    ok(p2.mode === 'steps' && p2.steps.length === 1, 'læses tilbage som ét trin');
+    ok((p2.lead || '').includes('løgene skæres') && (p2.lead || '').includes('2 timer'),
+        'teksten er blevet overskriften — den er stadig i modellen, ikke tabt');
+    ok(RS.toStore(p2, {}) === medTrin, 'og et gem uden ændringer skriver den uændret tilbage (I4)');
+
+    // At RYDDE teksten er stadig brugerens eget valg — ellers kunne man ikke
+    // omskrive en rodet beskrivelse til rene trin.
+    const ryddet = RS.toStore(p, { steps: [{ text: 'Køl ned', minutes: 30 }], plain: '' });
+    ok(!ryddet.includes('løgene skæres') && ryddet.includes('1. Køl ned'),
+        'ryddes feltet bevidst, forsvinder teksten — det er et valg, ikke en bivirkning');
+
+    // Kontrolprøve: uden trin må feltet ikke røres overhovedet.
+    ok(RS.toStore(p, {}) === raw, 'kontrol: urørt er byte-identisk');
+    ok(RS.toStore(p, { steps: [] }) === raw,
+        'kontrol: et TOMT trin-array rører heller ikke teksten');
 }
 
 // ── §9 Samlet tid ─────────────────────────────────────────────

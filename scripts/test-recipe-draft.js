@@ -218,7 +218,18 @@ console.log('\n── §4 Madvægt, emballage og nestings ───────�
         yield: { amount: 1, unit: 'kg' },
         lines: [{ includes_recipe_id: 77, servings: 1 }] };   // slider-boks, intet udbytte
     const ru = await draftLag.computeDraft(udenUdbytte, g);
-    ok(ru.weight.complete === false, 'nesting uden bestemmeligt udbytte gør vægten til et mindstetal');
+    // Uden erklæret udbytte falder vi tilbage på summen af underopskriftens
+    // egne råvarer — husets etablerede regel (ingredientResolver). Editoren
+    // skrev tidligere «—» og lod dermed en slider-boks stå helt uden madvægt.
+    ok(ru.weight.food_g > 0, `summen af råvarer bærer vægten når udbyttet mangler (fik ${ru.weight.food_g})`);
+    ok(ru.weight.estimated.length === 1,
+        'og den nævnes ved navn, så man kan se HVILKET tal der er et skøn');
+    ok(ru.lines[0].weight_estimated === true,
+        'linjen markerer sit skøn — ellers kunne ~ fjernes uden at noget fejlede');
+    // Kontrolprøve: et ERKLÆRET udbytte må aldrig markeres som skøn, ellers
+    // målte asserten ovenfor blot at flaget altid er sat.
+    ok(rn.lines[0].weight_estimated === false,
+        'kontrol: Chili Mayos erklærede udbytte er IKKE et skøn');
 }
 
 // ── §5 Pr. portion ────────────────────────────────────────────
@@ -335,12 +346,17 @@ console.log('\n── §N Halvfabrikat på en linje ─────────�
     ok(!nær(sub.reduce((a, l) => a + (l.cost || 0), 0), o.cost.total),
         'kontrol: halvfabrikaterne alene rækker IKKE — ellers målte asserten ovenfor ingenting');
 
-    // De to slags «ved ikke» er uafhængige, og det skal de være: en opskrift
-    // uden erklæret udbytte kan ikke vejes, men den kan udmærket prisslættes.
-    ok(sub.every(l => l.weight_g === null),
-        'uden et erklæret udbytte er vægten ukendt — null, ikke 0 (yield-modellen)');
-    ok(o.weight.complete === false && o.weight.missing.length === 3,
-        'og de nævnes ved navn, så man kan se HVAD der mangler i Grocy (#372)');
+    // Uden erklæret udbytte vejer en slider det dens råvarer vejer. Tallet er
+    // et skøn — for en slider er summen reelt vægten, for en syltet løg er den
+    // 57 % for høj (1566 g ind, 1000 g ud) — så det MARKERES frem for at blive
+    // vist som en måling.
+    ok(sub.every(l => l.weight_g > 0),
+        'de tre sliders har en vægt — summen af deres råvarer (' +
+        sub.map(l => Math.round(l.weight_g)).join(' + ') + ' g)');
+    ok(sub.every(l => l.weight_estimated === true),
+        'og hver af dem er markeret som skøn, ikke som en måling');
+    ok(o.weight.estimated.length === 3,
+        'overblikket nævner alle tre ved navn, så man kan se HVAD der mangler i Grocy (#372)');
     ok(o.cost.total > 0 && sub.every(l => l.cost != null),
         'kontrol: kostprisen er kendt alligevel — de to slags «ved ikke» blandes ikke sammen');
 }

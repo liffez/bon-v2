@@ -252,6 +252,10 @@ function buildLine(linje, beregnet, ctx) {
 
         // Tal fra motorerne — aldrig regnet her
         weight_g: b ? b.weight_g : null,
+        // Vægten er summen af underopskriftens råvarer, ikke et erklæret
+        // udbytte. Visningen sætter ~ på den, så et skøn ikke kan læses
+        // som en måling.
+        weight_estimated: !!(b && b.weight_estimated),
         cost: b ? b.cost : null,
         co2e: b ? b.co2e : null,
         cost_source: b ? b.cost_source : null,

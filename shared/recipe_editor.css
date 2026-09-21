@@ -263,6 +263,19 @@
     font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--color-text-dim);
 }
 .re-steps-lead { font-size: var(--font-size-xs); color: var(--color-text-dim); font-style: italic; }
+
+/* Fri tekst fra Grocy. Den skal LIGNE et felt man må rette i — ikke en note
+   man kun kan læse; det var netop usynligheden der gjorde at den kunne
+   slettes uden at nogen opdagede det. */
+.re-steps-plain { display: flex; flex-direction: column; gap: 5px; }
+.re-plain {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    border: 1px solid var(--color-border); border-radius: 6px;
+    padding: 9px 11px; font: inherit; font-size: var(--font-size-s);
+    line-height: 1.5; background: #fff; color: var(--color-text);
+}
+.re-plain:focus { outline: none; border-color: var(--brand-primary); }
+.re-steps-plainf { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; }
 .re-step-row { display: flex; align-items: center; gap: 8px; }
 .re-step-n {
     width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%;

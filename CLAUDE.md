@@ -165,6 +165,7 @@ bon-v2/
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
 │   ├── bonDiscount.js        ← Rabatreglen ét sted: varer ja, levering/gebyrer/emballage nej (bonens total, rapporter, drift, e-conomic)
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
+│   ├── recipeTargets.js      ← Målvægt: norm pr. Grocy-kategori + afvigelse pr. opskrift (kun afvigelsen gemmes)
 │   ├── stamdataLog.js        ← Spor på stamdata-ændringer i Grocy: hvem ændrede hvad fra hvilken skærm (#666) — kun beslutninger, navne frem for id'er
 │   ├── stockCountLog.js      ← Optællingen som objekt (#673): linjer pr. vare × fysisk enhed med udfald, serverens faktor, samtidigheds-opslag
 │   ├── supplierPrices.js     ← Leverandørpriser pr. varenummer — læst/skrevet i Grocy (stregkodens last_price), pris pr. lager-enhed + manuelt overslag som internt varenummer (#657)
@@ -8948,6 +8949,62 @@ ting (rullet tilbage bagefter).
 > derfor ikke nå grocytest. Og `Hvidløg - i tern` er inaktiv i Grocy men bruges i
 > opskrift 98 — præcis den tilstand der gav 13 bons `partial` i #645. Begge er stamdata.
 
+
+### Efter første drifttest: fire ting fra editoren (21. september 2026)
+
+**Fremgangsmåden var usynlig — og blev slettet.** 34 opskrifter i grocy-hq har rigtig
+arbejdsbeskrivelse i Grocys ene fritekstfelt, uden numre. `parseDescription` læste den
+korrekt til `plain`, men `tegnTrin` renderede **kun** trin-listen, så der stod
+«+ Tilføj trin» på en opskrift med fem linjers fremgangsmåde. Og `toStore` kasserede
+`plain` i det øjeblik der fandtes ét trin:
+
+```
+før:   <p>løgene skæres i ringe…</p><p>2 timer i ovnen ved 120°</p>
+efter: <p>1. Køl ned [30 min]</p>      ← ét tilføjet trin
+```
+
+Et passivt Gem var harmløst, men **det første trin man tilføjede, tog beskrivelsen med
+sig** — uden at man nogensinde havde set den. Samme fejlklasse som #305/#319.
+Teksten vises nu i et redigerbart felt med «Lav om til trin», og `toStore` sætter den
+foran trinene. Round-trip er stabilt: den bliver til `lead`, som allerede er i modellen.
+At **rydde** feltet er stadig brugerens eget valg.
+
+**Vægt fra en underopskrift uden erklæret udbytte.** Slider-boksen stod med `—` i GRAM,
+mens kostprisen ved siden af skrev `≥ 11,87`. Reglen fandtes i huset —
+`ingredientResolver`: *«Erklæret yield vinder over summen af input. Findes intet yield,
+falder vi tilbage på summen»* — editoren var den eneste flade der gav op.
+`subRecipeInputGrams` summerer nu råvarerne (rekursivt, emballage udeladt, stak-baseret
+cyklusværn jf. #354), og **tallet markeres som et skøn** (`~414 g`, navnene i
+`weight.estimated`). `≥` og `~` betyder ikke det samme: for en slider ER summen vægten,
+for Balsamico + løg er den 57 % for høj (1566 g ind, 1000 g ud), så `~` vinder når begge
+gælder — et skøn der kan være for højt, er ikke et mindstetal.
+
+**Målvægt — en norm pr. kategori (migration 187).** «Hvad sigter vi på at en sandwich
+vejer» er ikke en egenskab ved ÉN opskrift. `recipe_db_targets` bærer allerede den slags
+norm pr. Grocy-kategori (DB%-målet), så målvægten hører samme sted; tabellen genskabes
+så `target_pct` kan være NULL, for en kategori må have den ene norm uden den anden.
+`recipe_target_weights` bærer afvigelsen pr. opskrift — og **kun** afvigelsen: er tallet
+det samme som normen, fjernes rækken, ellers ville en senere ændring af normen ikke slå
+igennem. Editorens felt viser normen som **placeholder**, aldrig som værdi, og tomt felt
+betyder «brug normen igen». Normerne redigeres i ⚙-popoveren i Opskrifter & priser ved
+siden af DB%-målet; de to er uafhængige.
+
+> ⚠️ `målvægtÆndret()` tæller den som en ændring — `diffRecipe` kender kun Grocy-felter,
+> og uden den var feltet dødt: man kunne taste, se bjælken flytte sig, og stå med en grå
+> Gem-knap.
+
+**Margen og tavse konsolfejl.** `#recipeDesignerContainer` havde `padding: 0`.
+Samtidig kastede hvert gem to `Cannot set properties of null`, fordi `gem()`s
+`finally { tegnBund() }` kører EFTER `onExit` har afmonteret editoren. Fejlen er
+pre-eksisterende, men den slags støj skjuler de ægte — alle seks tegnere har nu en vagt.
+
+**Tests:** `test:opskrift-trin` 74 → **83** · `test:opskrift-kladde` 70 → **74** ·
+nyt `test:opskrift-maalvaegt` (**18**). **Mutations-testet: 8 nye mutationer, alle
+fanget.** Browser-verificeret mod grocy-test med rigtige museklik hele vejen: teksten
+overlever et tilføjet trin (efterprøvet mod Grocys egen række, rullet tilbage),
+`~`-skønnet på de tre sliders, placeholder mod værdi, normerne i ⚙-popoveren hvor
+DB%-målet ikke tørres af. Dev-DB, `.env` og testdata slettet efter brug.
+
 ---
 
 ## Næste opgave
@@ -9352,6 +9409,10 @@ GET    /api/grocy/recipes                                routes/grocy.js → gro
 GET    /api/grocy/recipes/fulfillment                    routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes/:id/ingredients                routes/grocy.js → grocyAdapter
 GET    /api/opskrifter/:id/indhold?kind=&bruger=        routes/opskrifter.js (udfold en underopskrift, skaleret til det linjen bruger)
+GET    /api/opskrifter/:id/editor                        routes/opskrifter.js (gemt opskrift som kladde + tal + målvægt m. kilde)
+GET    /api/recipes/targets                              routes/recipes_overview.js (DB%-mål OG målvægt pr. Grocy-kategori)
+PUT    /api/recipes/targets                              routes/recipes_overview.js (bulk — de to normer er uafhængige)
+PATCH  /api/recipes/targets/:category                    routes/recipes_overview.js (sæt én af dem; den anden står uberørt)
 GET    /api/grocy/products                               routes/grocy.js → grocyAdapter
 GET    /api/grocy/stock                                  routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes-nestings                       routes/grocy.js → grocyAdapter

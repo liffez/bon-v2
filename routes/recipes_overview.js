@@ -537,7 +537,8 @@ itemPricesRouter.put('/', handle(async (req, res) => {
 router.get('/targets', handle(async (req, res) => {
     const db = getDb();
     const targets = db.prepare(`
-        SELECT category, target_pct, updated_at FROM recipe_db_targets ORDER BY category
+        SELECT category, target_pct, target_weight_g, updated_at
+          FROM recipe_db_targets ORDER BY category
     `).all();
 
     // Saml unikke kategorier fra Grocy (inkl. dem uden mål)
@@ -624,19 +625,43 @@ router.put('/targets', handle((req, res) => {
 
     const db = getDb();
     const userId = req.session?.userId || null;
+    // De to normer er uafhængige: en kategori kan have en målvægt uden et
+    // DB%-mål. `undefined` betyder «ikke nævnt» og lader værdien stå; `null`
+    // betyder «ryddet». De to må ikke forveksles — ellers ville et gem af
+    // DB%-målet tørre målvægten af.
     const upsert = db.prepare(`
-        INSERT INTO recipe_db_targets (category, target_pct, updated_at, updated_by_user_id)
-        VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+        INSERT INTO recipe_db_targets (category, target_pct, target_weight_g, updated_at, updated_by_user_id)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
         ON CONFLICT(category) DO UPDATE SET
-            target_pct = excluded.target_pct,
+            target_pct      = COALESCE(excluded.target_pct, recipe_db_targets.target_pct),
+            target_weight_g = COALESCE(excluded.target_weight_g, recipe_db_targets.target_weight_g),
             updated_at = CURRENT_TIMESTAMP,
             updated_by_user_id = excluded.updated_by_user_id
     `);
+    const ryd = db.prepare(`UPDATE recipe_db_targets SET target_pct = CASE WHEN ? THEN NULL ELSE target_pct END,
+                                   target_weight_g = CASE WHEN ? THEN NULL ELSE target_weight_g END,
+                                   updated_at = CURRENT_TIMESTAMP
+                             WHERE category = ?`);
+
+    const tal = (v) => (v === undefined || v === null || v === '' ? null
+                        : (Number.isFinite(Number(v)) ? Number(v) : null));
+
+    const findes = db.prepare('SELECT 1 FROM recipe_db_targets WHERE category = ?');
 
     let count = 0;
     for (const t of targets) {
-        if (!t.category || !Number.isFinite(Number(t.target_pct))) continue;
-        upsert.run(String(t.category), Number(t.target_pct), userId);
+        if (!t.category) continue;
+        const pct = tal(t.target_pct);
+        const vægt = tal(t.target_weight_g);
+        // Begge tomme og ingen række i forvejen: der er intet at gemme og
+        // intet at rydde. Skærmen sender ALLE kategorier hver gang, så uden
+        // dette ville et gem efterlade en tom række pr. Grocy-kategori.
+        if (pct == null && vægt == null && !findes.get(String(t.category))) continue;
+        upsert.run(String(t.category), pct, vægt, userId);
+        // Eksplicit rydning: feltet var nævnt, men tomt.
+        const rydPct  = t.target_pct !== undefined && pct == null ? 1 : 0;
+        const rydVægt = t.target_weight_g !== undefined && vægt == null ? 1 : 0;
+        if (rydPct || rydVægt) ryd.run(rydPct, rydVægt, String(t.category));
         count++;
     }
 
@@ -648,25 +673,38 @@ router.put('/targets', handle((req, res) => {
 
 router.patch('/targets/:category', handle((req, res) => {
     const category = String(req.params.category);
-    const { target_pct } = req.body || {};
-    const pctNum = Number(target_pct);
-    if (!Number.isFinite(pctNum)) {
-        return res.status(400).json({ error: 'target_pct påkrævet' });
+    const body = req.body || {};
+    const harPct  = body.target_pct !== undefined;
+    const harVægt = body.target_weight_g !== undefined;
+    if (!harPct && !harVægt) {
+        return res.status(400).json({ error: 'target_pct eller target_weight_g påkrævet' });
     }
+
+    const tal = (v) => (v === null || v === '' ? null
+                        : (Number.isFinite(Number(v)) ? Number(v) : undefined));
+    const pct  = harPct  ? tal(body.target_pct) : undefined;
+    const vægt = harVægt ? tal(body.target_weight_g) : undefined;
+    if (pct === undefined && harPct)  return res.status(400).json({ error: 'target_pct skal være et tal' });
+    if (vægt === undefined && harVægt) return res.status(400).json({ error: 'target_weight_g skal være et tal' });
+    if (vægt != null && vægt <= 0) return res.status(400).json({ error: 'målvægt skal være over 0' });
 
     const db = getDb();
     const userId = req.session?.userId || null;
+    // Kun det der er NÆVNT røres — den anden norm står uberørt.
     db.prepare(`
-        INSERT INTO recipe_db_targets (category, target_pct, updated_at, updated_by_user_id)
-        VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+        INSERT INTO recipe_db_targets (category, target_pct, target_weight_g, updated_at, updated_by_user_id)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
         ON CONFLICT(category) DO UPDATE SET
-            target_pct = excluded.target_pct,
+            target_pct      = ${harPct  ? '?' : 'recipe_db_targets.target_pct'},
+            target_weight_g = ${harVægt ? '?' : 'recipe_db_targets.target_weight_g'},
             updated_at = CURRENT_TIMESTAMP,
             updated_by_user_id = excluded.updated_by_user_id
-    `).run(category, pctNum, userId);
+    `).run(category, harPct ? pct : null, harVægt ? vægt : null, userId,
+           ...(harPct ? [pct] : []), ...(harVægt ? [vægt] : []));
 
-    broadcast('recipe_targets_updated', { targets: [{ category, target_pct: pctNum }] });
-    res.json({ ok: true, category, target_pct: pctNum });
+    const række = db.prepare('SELECT category, target_pct, target_weight_g FROM recipe_db_targets WHERE category = ?').get(category);
+    broadcast('recipe_targets_updated', { targets: [række] });
+    res.json(Object.assign({ ok: true }, række));
 }));
 
 // ─── DELETE /api/recipes/targets/:category ────────────────────

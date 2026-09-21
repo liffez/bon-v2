@@ -109,6 +109,7 @@
     "test:opskrift-linjer": "node scripts/test-recipe-breakdown.js",
     "test:opskrift-soeg": "node scripts/test-recipe-search.js",
     "test:opskrift-visning": "node scripts/test-recipe-lines.js",
+    "test:opskrift-maalvaegt": "node --experimental-sqlite scripts/test-recipe-maalvaegt.js",
     "test:opskrift-udfold": "node scripts/test-recipe-udfold.js",
     "test:opskrift-editor": "node scripts/test-recipe-search.js && node scripts/test-recipe-lines.js && node scripts/test-recipe-draft.js && node scripts/test-recipe-breakdown.js && node scripts/test-recipe-steps.js && node scripts/test-recipe-writer.js && node scripts/test-recipe-udfold.js",
     "test:grocy-userfields": "node scripts/test-grocy-userfields.js",
