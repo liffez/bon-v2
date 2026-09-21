@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
 const { createBon, todayISO } = require('../db/helpers');
-const { checkOrderTiming } = require('../services/orderCutoff');
+const { checkOrderTiming, isValidDeliveryDate, isValidDeliveryTime } = require('../services/orderCutoff');
 const { resolveOrderCompany, appendWishesLine } = require('../services/orderCompanyResolver');
 const { broadcast } = require('../shared/sse');
 const { verifyLoboRequest, applyWebhookEvent, calibrateLoboSignature } = require('../services/lobo_webhook');
@@ -130,6 +130,22 @@ async function handleBestilling(data) {
       f2: data.f2, f7_date: data.f7_date, f7_time: data.f7_time
     });
     return;
+  }
+
+  // 2a. Format på leveringstidspunktet (#644)
+  //
+  // Samme hul som den nye webhook havde: feltet blev kun tjekket for at være
+  // der. `f7_date` mappes direkte til `delivery_date`, og en ulæselig dato
+  // giver en bon der er halvt synlig — og går samtidig uden om deadline,
+  // fordi cut-off-guarden nedenfor bevidst fejler ÅBENT på noget den ikke
+  // kan læse. Derfor FØR den.
+  if (!isValidDeliveryDate(data.f7_date)) {
+    return { rejected: 'invalid_date',
+      message: 'Leveringsdatoen kunne ikke læses (forventet format: 2026-09-21).' };
+  }
+  if (!isValidDeliveryTime(data.f7_time)) {
+    return { rejected: 'invalid_time',
+      message: 'Leveringstidspunktet kunne ikke læses (forventet format: 11:30).' };
   }
 
   // 2b. Deadline — samme regel som den nuværende formular håndhæves med

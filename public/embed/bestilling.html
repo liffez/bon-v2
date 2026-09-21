@@ -1651,8 +1651,14 @@ document.getElementById('order-form').addEventListener('submit', async e => {
     }
   } catch (err) {
     btn.classList.remove('loading'); btn.disabled = false;
-    const subject = encodeURIComponent('Bestilling ' + (data.delivery_date || '') + ' – ' + (data.first_name || '') + ' ' + (data.last_name || ''));
-    const body = encodeURIComponent(JSON.stringify(data, null, 2));
+    // Samme mailto som de tre spærre-notitser (ferielukket, lukket ugedag,
+    // deadline). Denne sti byggede tidligere sin egen med
+    // `JSON.stringify(data, null, 2)` i mailkroppen — kunden ville sende os en
+    // klump rå JSON. Nu er det en læsbar bestilling, og de fire udveje er ens.
+    const mailto = buildEnquiryMailto(
+      'Bestilling ' + (data.delivery_date || '') + ' – ' + [data.first_name, data.last_name].filter(Boolean).join(' '),
+      'Jeg forsøgte at bestille via formularen, men den kunne ikke gennemføres.'
+    );
     const errorDiv = document.getElementById('webhook-error');
     if (errorDiv) {
       const overskrift = err.userMessage
@@ -1663,7 +1669,7 @@ document.getElementById('order-form').addEventListener('submit', async e => {
         : 'Din bestilling blev ikke sendt. Prøv igen, eller';
       errorDiv.innerHTML = `<strong>${overskrift}</strong><br>
         ${forklaring}
-        <a href="mailto:${FALLBACK_EMAIL}?subject=${subject}&body=${body}" style="color:inherit;font-weight:700;">send os en email direkte →</a>`;
+        <a href="${escapeHtml(mailto)}" style="color:inherit;font-weight:700;">send os en email direkte →</a>`;
       errorDiv.style.display = 'block';
     }
     postHeight();
