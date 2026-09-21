@@ -284,7 +284,12 @@ function buildProducedByIndex(recipes) {
  *   complete,        // true når intet MANGLER (advarsler tæller ikke med)
  * })
  */
-function computeAll(data) {
+/**
+ * Fælles opslagsstruktur for computeAll og breakdownRecipe. Holdes ét sted:
+ * bygger de to hver sin, kan de nå at blive uenige om fx hvilken opskrift der
+ * producerer en vare — og så viser panelet noget andet end tabelrækken.
+ */
+function buildCtx(data) {
     const posBy = new Map();
     for (const p of (data.pos || [])) {
         if (!posBy.has(p.recipe_id)) posBy.set(p.recipe_id, []);
@@ -297,18 +302,232 @@ function computeAll(data) {
     }
     const productById = new Map((data.products || []).map(p => [String(p.id), p]));
     const recipeById  = new Map((data.recipes || []).map(r => [String(r.id), r]));
+    const producedBy  = buildProducedByIndex(data.recipes || []).index;
 
-    const producedBy = buildProducedByIndex(data.recipes || []).index;
+    return { posBy, nestBy, productById, recipeById, producedBy,
+             units: data.units || [], conversions: data.conversions || [],
+             prices: data.priceByProduct || new Map(),
+             priceDetails: data.priceDetailByProduct || new Map() };
+}
 
-    const ctx = { posBy, nestBy, productById, recipeById, producedBy,
-                  units: data.units || [], conversions: data.conversions || [],
-                  prices: data.priceByProduct || new Map(),
-                  priceDetails: data.priceDetailByProduct || new Map() };
-
+function computeAll(data) {
+    const ctx = buildCtx(data);
     const memo = new Map();
     const out = new Map();
     for (const r of (data.recipes || [])) out.set(r.id, compute(r.id, ctx, memo, new Set()));
     return out;
+}
+
+/**
+ * ÉN opskrift, linje for linje — til drill-down-panelet og til editoren.
+ *
+ * Tvillingen til `co2Engine.breakdownRecipe`, og bygget efter samme regel:
+ * summen af linjerne ER totalen. Det er ikke en præntation, men en invariant
+ * testen håndhæver — fordi et panel hvis linjer ikke lægger sammen til
+ * overskriften, er værre end intet panel.
+ *
+ * Ét niveau ad gangen: denne opskrifts direkte ingredienser + dens
+ * underopskrifter. Drill-down sker ved at kalde igen for barnets id.
+ *
+ * @returns {{ recipe_id, name, base_servings, total, cost_per_unit,
+ *             yield_amount, yield_unit, complete, missing, warnings,
+ *             ingredients: [...], sub_recipes: [...] }}
+ */
+/**
+ * Hvilke produkter skal der en PRIS på, før én opskrift kan regnes?
+ *
+ * Samme vandring som `compute` — egne linjer, underopskrifter, og opskriften
+ * bag et produceret gode — men uden at regne noget. Panelet kan dermed hente
+ * priser for netop dét det skal bruge i ÉT opslag, i stedet for enten hele
+ * produktkataloget (100+ Grocy-kald på en klik-sti) eller kun de direkte
+ * ingredienser (som ville give et Rødløg - Sylt uden pris).
+ *
+ * Børn af en forælder-vare tages med af prisopslaget selv (`getProductUnitCostDetails`).
+ *
+ * @returns string[] — produkt-id'er, uden dubletter
+ */
+function productIdsFor(recipeId, data) {
+    const ctx = buildCtx(data);
+    const set = new Set();
+    const setØ = new Set();   // besøgte opskrifter — værn mod cykler
+    const gå = (rid) => {
+        if (setØ.has(String(rid))) return;
+        setØ.add(String(rid));
+        for (const p of (ctx.posBy.get(rid) || [])) {
+            const pid = String(p.product_id);
+            set.add(pid);
+            const producer = ctx.producedBy.get(pid);
+            if (producer && Number(producer.id) !== Number(rid)) gå(producer.id);
+        }
+        for (const n of (ctx.nestBy.get(rid) || [])) gå(n.includes_recipe_id);
+    };
+    gå(recipeId);
+    return [...set];
+}
+
+function breakdownRecipe(recipeId, data) {
+    const ctx = buildCtx(data);
+    const memo = new Map();
+    const helhed = compute(recipeId, ctx, memo, new Set());
+    const recipe = ctx.recipeById.get(String(recipeId)) || {};
+    const unitName = new Map((data.units || []).map(u => [u.id, u.name_short || u.name]));
+
+    const ingredients = [];
+    for (const p of (ctx.posBy.get(recipeId) || [])) {
+        const product = ctx.productById.get(String(p.product_id));
+        const amount = parseFloat(p.amount) || 0;   // ALTID i lager-enhed
+        if (!product) {
+            ingredients.push({
+                line_id: p.id ?? null,
+                product_id: p.product_id, name: `#${p.product_id}`,
+                amount_stock: amount, unit: null, unit_cost: null, cost: null,
+                source: null, producer_recipe_id: null, missing: true,
+                ingredient_group: p.ingredient_group || '',
+            });
+            continue;
+        }
+        // SAMME opslag som totalen — ikke et der ligner.
+        const r = lineUnitCost(product, recipeId, ctx, memo, new Set([recipeId]));
+        ingredients.push({
+            line_id: p.id ?? null,
+            product_id: product.id,
+            name: product.name || `#${product.id}`,
+            amount_stock: amount,
+            unit: unitName.get(product.qu_id_stock) || null,
+            unit_cost: r.unit_cost,
+            // En linje med mængde 0 bidrager ikke, uanset pris — som i totalen.
+            cost: (r.unit_cost == null || amount <= 0) ? null : amount * r.unit_cost,
+            source: r.source,
+            producer_recipe_id: r.producer_recipe_id,
+            missing: r.unit_cost == null,
+            warnings: [...r.warnings.keys()],
+            ingredient_group: p.ingredient_group || '',
+        });
+    }
+
+    const sub_recipes = [];
+    for (const n of (ctx.nestBy.get(recipeId) || [])) {
+        const sub = compute(n.includes_recipe_id, ctx, memo, new Set());
+        const subRecipe = ctx.recipeById.get(String(n.includes_recipe_id)) || {};
+        const subBase = parseFloat(subRecipe.base_servings) || 1;
+        const servings = parseFloat(n.servings) || 0;
+        // `sub.cost` gælder opskriften som indtastet = base_servings portioner.
+        const scale = servings / subBase;
+        sub_recipes.push({
+            line_id: n.id ?? null,
+            recipe_id: n.includes_recipe_id,
+            name: subRecipe.name || `#${n.includes_recipe_id}`,
+            servings, base_servings: subBase,
+            per_serving: subBase ? sub.cost / subBase : null,
+            cost: sub.cost * scale,
+            complete: sub.complete,
+            missing: [...sub.missing_price],
+        });
+    }
+
+    const total = helhed.cost;
+    const medPct = (arr) => arr.map(x => ({
+        ...x, pct: (total > 0 && x.cost != null) ? (x.cost / total) * 100 : null,
+    }));
+
+    return {
+        recipe_id: recipeId,
+        name: recipe.name || null,
+        base_servings: parseFloat(recipe.base_servings) || 1,
+        total,
+        cost_per_unit: helhed.cost_per_unit,
+        yield_amount: helhed.yield_amount,
+        yield_unit: helhed.yield_unit,
+        complete: helhed.complete,
+        missing: [...helhed.missing_price],
+        warnings: [...helhed.warnings.values()].map(w => ({ ...w, text: describeWarning(w) })),
+        ingredients: medPct(ingredients),
+        sub_recipes: medPct(sub_recipes),
+    };
+}
+
+function lineUnitCost(product, recipeId, ctx, memo, stack) {
+    const missing = new Set();
+    const warnings = new Map();
+    const pid  = String(product.id);
+    const name = product.name || `#${product.id}`;
+    const stockPrice = _pos(ctx.prices.get(pid));
+
+    let unitCost = null, source = null, producerId = null;
+
+    // ── Produceret gode: OPSKRIFTEN VINDER ALTID (#558) ───────────────────
+    // Et gode vi selv laver har ingen købspris. Står der alligevel en, er den
+    // et artefakt: `setInventory()` sender ingen pris, så Grocy bærer den
+    // forrige videre fra optælling til optælling.
+    //
+    // Det er også dét der lukker hullet i gaten (#269): FØR konverteringen
+    // arves prisen fra opskriften, EFTER arves den også. Springet flytter ikke
+    // kostprisen — hverken ved konverteringen eller næste gang nogen tæller op.
+    const producer = ctx.producedBy.get(pid);
+    if (producer && Number(producer.id) !== Number(recipeId)) {
+        producerId = Number(producer.id);
+        const y   = yieldInStockUnits(producer, product, ctx.units, ctx.conversions);
+        const sub = (y && y > 0) ? compute(producer.id, ctx, memo, stack) : null;
+        const fromRecipe = (sub && sub.cost > 0) ? sub.cost / y : null;
+
+        if (fromRecipe != null) {
+            unitCost = fromRecipe;
+            source = 'recipe';
+            sub.missing_price.forEach(x => missing.add(x));
+            sub.warnings.forEach((w, k) => warnings.set(k, w));
+
+            if (stockPrice != null) {
+                const dev = (stockPrice - fromRecipe) / fromRecipe * 100;
+                if (Math.abs(dev) > WARN_STOCK_VS_RECIPE_PCT) {
+                    warnings.set(`produced:${pid}`, {
+                        kind: 'produced_stock_price_differs',
+                        product_id: pid, product: name,
+                        stock_price: stockPrice, recipe_cost: fromRecipe,
+                        deviation_pct: dev,
+                    });
+                }
+            }
+        } else if (stockPrice != null) {
+            // Opskriften KAN ikke regnes — intet erklæret udbytte (#372), eller
+            // ingen af dens råvarer har en pris. Så er lagerprisen det eneste
+            // tal der findes, og vi bruger det. Men reglen ovenfor gælder ikke
+            // her, og det skal kunne ses frem for at ligne en almindelig købt vare.
+            warnings.set(`fallback:${pid}`, {
+                kind: 'produced_recipe_cost_unavailable',
+                product_id: pid, product: name,
+                stock_price: stockPrice,
+                reason: (y && y > 0) ? 'ingen priser p\u00e5 opskriftens r\u00e5varer'
+                                     : 'intet erkl\u00e6ret udbytte p\u00e5 opskriften',
+            });
+        }
+    }
+
+    // ── Købt vare: uændret. Lagerprisen ER hvad varen kostede. ───────────
+    if (unitCost == null && stockPrice != null) {
+        unitCost = stockPrice;
+        source = 'purchase';
+        const d = ctx.priceDetails.get(pid);
+        // Et manuelt overslag er ikke en målt pris (#657). Kostprisen er komplet,
+        // men den hviler på et gæt — og det skal kunne ses, ellers ligner den et
+        // tal vi har betalt.
+        if (d && d.source === 'estimate') {
+            warnings.set(`estimate:${pid}`, {
+                kind: 'estimated_price',
+                product_id: pid, product: name, price: stockPrice,
+            });
+        } else if (d && d.warn) {
+            warnings.set(`price:${pid}`, {
+                kind: 'last_vs_avg',
+                product_id: pid, product: name,
+                last_price: d.last_price, avg_price: d.avg_price,
+                deviation_pct: d.deviation_pct,
+                window_days: d.window_days || null,
+            });
+        }
+    }
+
+    if (unitCost == null) missing.add(name);
+    return { unit_cost: unitCost, source, producer_recipe_id: producerId, missing, warnings };
 }
 
 function compute(recipeId, ctx, memo, stack) {
@@ -330,86 +549,11 @@ function compute(recipeId, ctx, memo, stack) {
         if (!product) { missing_price.add(`#${p.product_id}`); continue; }
         if (amount <= 0) continue;
 
-        const pid  = String(product.id);
-        const name = product.name || `#${product.id}`;
-        const stockPrice = _pos(ctx.prices.get(pid));
-
-        let unitCost = null;
-
-        // ── Produceret gode: OPSKRIFTEN VINDER ALTID (#558) ───────────────
-        // Et gode vi selv laver har ingen købspris. Står der alligevel en, er
-        // den et artefakt: `setInventory()` sender ingen pris, så Grocy bærer
-        // den forrige videre fra optælling til optælling. Rødløg - Sylt stod
-        // til 34,99 mens råvarerne kostede 17,81 — 96 % ved siden af.
-        //
-        // Det er også dét der lukker hullet i gaten (#269): FØR konverteringen
-        // arves prisen fra opskriften, EFTER arves den også. Springet flytter
-        // ikke kostprisen — hverken ved konverteringen eller næste gang nogen
-        // tæller op. Gaten kan ikke længere være grøn ved springet og forkert
-        // bagefter.
-        const producer = ctx.producedBy.get(pid);
-        if (producer && Number(producer.id) !== Number(recipeId)) {
-            const y   = yieldInStockUnits(producer, product, ctx.units, ctx.conversions);
-            const sub = (y && y > 0) ? compute(producer.id, ctx, memo, stack) : null;
-            const fromRecipe = (sub && sub.cost > 0) ? sub.cost / y : null;
-
-            if (fromRecipe != null) {
-                unitCost = fromRecipe;
-                sub.missing_price.forEach(x => missing_price.add(x));
-                sub.warnings.forEach((w, k) => warnings.set(k, w));
-
-                if (stockPrice != null) {
-                    const dev = (stockPrice - fromRecipe) / fromRecipe * 100;
-                    if (Math.abs(dev) > WARN_STOCK_VS_RECIPE_PCT) {
-                        warnings.set(`produced:${pid}`, {
-                            kind: 'produced_stock_price_differs',
-                            product_id: pid, product: name,
-                            stock_price: stockPrice, recipe_cost: fromRecipe,
-                            deviation_pct: dev,
-                        });
-                    }
-                }
-            } else if (stockPrice != null) {
-                // Opskriften KAN ikke regnes — intet erklæret udbytte (#372),
-                // eller ingen af dens råvarer har en pris. Så er lagerprisen
-                // det eneste tal der findes, og vi bruger det. Men reglen
-                // ovenfor gælder ikke her, og det skal kunne ses frem for at
-                // ligne en almindelig købt vare.
-                warnings.set(`fallback:${pid}`, {
-                    kind: 'produced_recipe_cost_unavailable',
-                    product_id: pid, product: name,
-                    stock_price: stockPrice,
-                    reason: (y && y > 0) ? 'ingen priser på opskriftens råvarer'
-                                         : 'intet erklæret udbytte på opskriften',
-                });
-            }
-        }
-
-        // ── Købt vare: uændret. Lagerprisen ER hvad varen kostede. ─────────
-        if (unitCost == null && stockPrice != null) {
-            unitCost = stockPrice;
-            const d = ctx.priceDetails.get(pid);
-            // Et manuelt overslag er ikke en målt pris (#657). Kostprisen er
-            // komplet, men den hviler på et gæt — og det skal kunne ses, ellers
-            // ligner den et tal vi har betalt.
-            if (d && d.source === 'estimate') {
-                warnings.set(`estimate:${pid}`, {
-                    kind: 'estimated_price',
-                    product_id: pid, product: name, price: stockPrice,
-                });
-            } else if (d && d.warn) {
-                warnings.set(`price:${pid}`, {
-                    kind: 'last_vs_avg',
-                    product_id: pid, product: name,
-                    last_price: d.last_price, avg_price: d.avg_price,
-                    deviation_pct: d.deviation_pct,
-                    window_days: d.window_days || null,
-                });
-            }
-        }
-
-        if (unitCost == null) { missing_price.add(name); continue; }
-        cost += amount * unitCost;
+        const r = lineUnitCost(product, recipeId, ctx, memo, stack);
+        r.warnings.forEach((w, k) => warnings.set(k, w));
+        r.missing.forEach(x => missing_price.add(x));
+        if (r.unit_cost == null) continue;
+        cost += amount * r.unit_cost;
     }
 
     for (const n of (ctx.nestBy.get(recipeId) || [])) {
@@ -503,6 +647,7 @@ function describeWarning(w) {
 }
 
 module.exports = {
+    breakdownRecipe, buildCtx, lineUnitCost, productIdsFor,
     computeAll, unitCostFromRow, unitCostDetail, yieldInStockUnits, unitIdByName,
     parentPriceFromChildren, describeWarning, buildProducedByIndex,
     WARN_LAST_VS_AVG_PCT, WARN_STOCK_VS_RECIPE_PCT,

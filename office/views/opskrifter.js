@@ -537,7 +537,11 @@ function _opsToggleTargetPop() {
 function _opsRenderTargetPop(pop) {
     const td = _opsState.targetsData || { categories: [], targets: [] };
     const targetMap = {};
-    for (const t of td.targets) targetMap[t.category] = t.target_pct;
+    const vægtMap = {};
+    for (const t of td.targets) {
+        targetMap[t.category] = t.target_pct;
+        vægtMap[t.category] = t.target_weight_g;
+    }
 
     const allCats = Array.from(new Set([
         ...td.categories,
@@ -562,9 +566,15 @@ function _opsRenderTargetPop(pop) {
         </div>
         <button class="ops-btn-primary ops-pop-wide" data-act="save-window">Gem og genberegn</button>
 
-        <h4>Mål for DB% pr. kategori</h4>
+        <h4>Mål pr. kategori</h4>
+        <div class="ops-window-hint" title="Målvægten er hvad vi sigter på at én portion vejer — en huskeliste for en slags mad, ikke for den enkelte opskrift. Opskrift-editoren viser den som forslag, og en enkelt ret kan afvige.">
+            DB% er dækningsbidraget. Målvægt er hvad én portion bør veje.
+        </div>
         ${allCats.length === 0 ? '<div style="color:#6a6359;font-size:11px">Ingen kategorier fundet i Grocy</div>' : ''}
         <div class="ops-pop-scroll">
+        <div class="ops-target-row ops-target-head">
+            <span></span><span>DB%</span><span>Målvægt</span>
+        </div>
         ${allCats.map(cat => `
             <div class="ops-target-row">
                 <span>${_opsEsc(cat)}</span>
@@ -573,6 +583,12 @@ function _opsRenderTargetPop(pop) {
                            data-cat="${_opsEsc(cat)}"
                            value="${targetMap[cat] != null ? targetMap[cat] : ''}"
                            placeholder="—"> %
+                </span>
+                <span>
+                    <input type="number" min="1" step="5"
+                           data-vcat="${_opsEsc(cat)}"
+                           value="${vægtMap[cat] != null ? vægtMap[cat] : ''}"
+                           placeholder="—"> g
                 </span>
             </div>
         `).join('')}
@@ -616,14 +632,20 @@ function _opsRenderTargetPop(pop) {
         }
     });
     pop.querySelector('[data-act="save-targets"]')?.addEventListener('click', async () => {
-        const inputs = pop.querySelectorAll('input[data-cat]');
+        // Begge normer nævnes ALTID pr. kategori — også som tom. Uden det
+        // kunne serveren ikke se forskel på «ikke rørt» og «ryddet», og et
+        // gem ville efterlade et tal man netop havde slettet.
         const targets = [];
-        for (const input of inputs) {
-            const v = input.value.trim();
-            if (v === '') continue;
-            const num = parseFloat(v);
-            if (!Number.isFinite(num)) continue;
-            targets.push({ category: input.dataset.cat, target_pct: num });
+        for (const input of pop.querySelectorAll('input[data-cat]')) {
+            const cat = input.dataset.cat;
+            const vInput = pop.querySelector('input[data-vcat="' + CSS.escape(cat) + '"]');
+            const tal = (el) => {
+                const v = (el && el.value || '').trim();
+                if (v === '') return null;
+                const n = parseFloat(v.replace(',', '.'));
+                return Number.isFinite(n) ? n : null;
+            };
+            targets.push({ category: cat, target_pct: tal(input), target_weight_g: tal(vInput) });
         }
         try {
             await putRecipeTargets(targets);

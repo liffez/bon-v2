@@ -42,8 +42,9 @@ function unitCostOf(d) {
 }
 const itemPriceBackfill = require('../services/itemPriceBackfill');
 const { refreshRecipeCosts, classifyCachedCost } = require('../services/recipeCostRefresh');
+const recipeCost = require('../services/recipeCost');
 const { describeWarning, clampWindowDays, PRICE_WINDOW_DAYS_DEFAULT,
-        MIN_PRICE_WINDOW_DAYS, MAX_PRICE_WINDOW_DAYS } = require('../services/recipeCost');
+        MIN_PRICE_WINDOW_DAYS, MAX_PRICE_WINDOW_DAYS } = recipeCost;
 const { getRecipeCostWindowDays, invalidateRecipeCostWindowCache } = require('../db/helpers');
 const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
@@ -536,7 +537,8 @@ itemPricesRouter.put('/', handle(async (req, res) => {
 router.get('/targets', handle(async (req, res) => {
     const db = getDb();
     const targets = db.prepare(`
-        SELECT category, target_pct, updated_at FROM recipe_db_targets ORDER BY category
+        SELECT category, target_pct, target_weight_g, updated_at
+          FROM recipe_db_targets ORDER BY category
     `).all();
 
     // Saml unikke kategorier fra Grocy (inkl. dem uden mål)
@@ -623,19 +625,43 @@ router.put('/targets', handle((req, res) => {
 
     const db = getDb();
     const userId = req.session?.userId || null;
+    // De to normer er uafhængige: en kategori kan have en målvægt uden et
+    // DB%-mål. `undefined` betyder «ikke nævnt» og lader værdien stå; `null`
+    // betyder «ryddet». De to må ikke forveksles — ellers ville et gem af
+    // DB%-målet tørre målvægten af.
     const upsert = db.prepare(`
-        INSERT INTO recipe_db_targets (category, target_pct, updated_at, updated_by_user_id)
-        VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+        INSERT INTO recipe_db_targets (category, target_pct, target_weight_g, updated_at, updated_by_user_id)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
         ON CONFLICT(category) DO UPDATE SET
-            target_pct = excluded.target_pct,
+            target_pct      = COALESCE(excluded.target_pct, recipe_db_targets.target_pct),
+            target_weight_g = COALESCE(excluded.target_weight_g, recipe_db_targets.target_weight_g),
             updated_at = CURRENT_TIMESTAMP,
             updated_by_user_id = excluded.updated_by_user_id
     `);
+    const ryd = db.prepare(`UPDATE recipe_db_targets SET target_pct = CASE WHEN ? THEN NULL ELSE target_pct END,
+                                   target_weight_g = CASE WHEN ? THEN NULL ELSE target_weight_g END,
+                                   updated_at = CURRENT_TIMESTAMP
+                             WHERE category = ?`);
+
+    const tal = (v) => (v === undefined || v === null || v === '' ? null
+                        : (Number.isFinite(Number(v)) ? Number(v) : null));
+
+    const findes = db.prepare('SELECT 1 FROM recipe_db_targets WHERE category = ?');
 
     let count = 0;
     for (const t of targets) {
-        if (!t.category || !Number.isFinite(Number(t.target_pct))) continue;
-        upsert.run(String(t.category), Number(t.target_pct), userId);
+        if (!t.category) continue;
+        const pct = tal(t.target_pct);
+        const vægt = tal(t.target_weight_g);
+        // Begge tomme og ingen række i forvejen: der er intet at gemme og
+        // intet at rydde. Skærmen sender ALLE kategorier hver gang, så uden
+        // dette ville et gem efterlade en tom række pr. Grocy-kategori.
+        if (pct == null && vægt == null && !findes.get(String(t.category))) continue;
+        upsert.run(String(t.category), pct, vægt, userId);
+        // Eksplicit rydning: feltet var nævnt, men tomt.
+        const rydPct  = t.target_pct !== undefined && pct == null ? 1 : 0;
+        const rydVægt = t.target_weight_g !== undefined && vægt == null ? 1 : 0;
+        if (rydPct || rydVægt) ryd.run(rydPct, rydVægt, String(t.category));
         count++;
     }
 
@@ -647,25 +673,38 @@ router.put('/targets', handle((req, res) => {
 
 router.patch('/targets/:category', handle((req, res) => {
     const category = String(req.params.category);
-    const { target_pct } = req.body || {};
-    const pctNum = Number(target_pct);
-    if (!Number.isFinite(pctNum)) {
-        return res.status(400).json({ error: 'target_pct påkrævet' });
+    const body = req.body || {};
+    const harPct  = body.target_pct !== undefined;
+    const harVægt = body.target_weight_g !== undefined;
+    if (!harPct && !harVægt) {
+        return res.status(400).json({ error: 'target_pct eller target_weight_g påkrævet' });
     }
+
+    const tal = (v) => (v === null || v === '' ? null
+                        : (Number.isFinite(Number(v)) ? Number(v) : undefined));
+    const pct  = harPct  ? tal(body.target_pct) : undefined;
+    const vægt = harVægt ? tal(body.target_weight_g) : undefined;
+    if (pct === undefined && harPct)  return res.status(400).json({ error: 'target_pct skal være et tal' });
+    if (vægt === undefined && harVægt) return res.status(400).json({ error: 'target_weight_g skal være et tal' });
+    if (vægt != null && vægt <= 0) return res.status(400).json({ error: 'målvægt skal være over 0' });
 
     const db = getDb();
     const userId = req.session?.userId || null;
+    // Kun det der er NÆVNT røres — den anden norm står uberørt.
     db.prepare(`
-        INSERT INTO recipe_db_targets (category, target_pct, updated_at, updated_by_user_id)
-        VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+        INSERT INTO recipe_db_targets (category, target_pct, target_weight_g, updated_at, updated_by_user_id)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
         ON CONFLICT(category) DO UPDATE SET
-            target_pct = excluded.target_pct,
+            target_pct      = ${harPct  ? '?' : 'recipe_db_targets.target_pct'},
+            target_weight_g = ${harVægt ? '?' : 'recipe_db_targets.target_weight_g'},
             updated_at = CURRENT_TIMESTAMP,
             updated_by_user_id = excluded.updated_by_user_id
-    `).run(category, pctNum, userId);
+    `).run(category, harPct ? pct : null, harVægt ? vægt : null, userId,
+           ...(harPct ? [pct] : []), ...(harVægt ? [vægt] : []));
 
-    broadcast('recipe_targets_updated', { targets: [{ category, target_pct: pctNum }] });
-    res.json({ ok: true, category, target_pct: pctNum });
+    const række = db.prepare('SELECT category, target_pct, target_weight_g FROM recipe_db_targets WHERE category = ?').get(category);
+    broadcast('recipe_targets_updated', { targets: [række] });
+    res.json(Object.assign({ ok: true }, række));
 }));
 
 // ─── DELETE /api/recipes/targets/:category ────────────────────
@@ -746,31 +785,39 @@ router.get('/:id/composition', handle(async (req, res) => {
         return u ? (u.name_short || u.name || '') : '';
     };
 
-    // Denne opskrifts direkte ingredienser
     const posForRecipe = allPos.filter(p => String(p.recipe_id) === String(id));
+    const alleOpskrifter = [...recipesMap.values()];
+    const grunddata = { recipes: alleOpskrifter, pos: allPos, nestings, products, units, conversions };
+
+    // Prisen hentes for netop dét denne opskrift trækker på — egne linjer,
+    // underopskrifter og opskriften bag et produceret gode. Hele kataloget ville
+    // være 100+ Grocy-kald på en klik-sti; kun de direkte ingredienser ville
+    // efterlade et Rødløg - Sylt uden pris. Forældre-arven (fx `kål`, som kun
+    // børnene har en pris på) ligger inde i kaldet.
+    const prisDetaljer = await grocyAdapter
+        .getProductUnitCostDetails(6, { productIds: recipeCost.productIdsFor(id, grunddata) })
+        .catch(() => new Map());
+    const priceByProduct = new Map();
+    for (const [pid, d] of prisDetaljer) { const c = unitCostOf(d); if (c != null) priceByProduct.set(pid, c); }
+
+    // Kostprisen pr. linje kommer fra SAMME funktion som totalen (#558).
+    // Indtil den gjorde det, brugte panelet lagerprisen for et gode vi selv
+    // laver, mens totalen brugte opskriftens kostpris — to tal om samme vare.
+    const bd = recipeCost.breakdownRecipe(id, {
+        ...grunddata, priceByProduct, priceDetailByProduct: prisDetaljer,
+    });
+    const bdLinje = new Map(bd.ingredients.map(i => [String(i.product_id), i]));
 
     // Produkt-detaljer pr. ingrediens, parallelt. Bruges KUN til lagertallet i
-    // panelet; prisen kommer fra `getProductUnitCostDetails` nedenfor.
-    // Nødvendigt fordi `/objects/stock` kun har varer der ER på lager, og en
-    // udsolgt vare (fx Æbler) stadig skal vises med sin beholdning på 0.
+    // panelet; prisen kommer fra `breakdownRecipe` ovenfor. Nødvendigt fordi
+    // `/objects/stock` kun har varer der ER på lager, og en udsolgt vare (fx
+    // Æbler) stadig skal vises med sin beholdning på 0.
     const ingProductIds = [...new Set(posForRecipe.map(p => String(p.product_id)))];
     const detailsList = await Promise.all(
         ingProductIds.map(pid => grocyAdapter.getProductDetails(pid).catch(() => null))
     );
     const detailsMap = new Map();
     ingProductIds.forEach((pid, i) => detailsMap.set(pid, detailsList[i]));
-
-    // Forældre-varer (fx `kål`) har ingen egen pris — kun børnene har. Totalen
-    // bruger gennemsnittet af børnene, så uden samme regel her stod husets
-    // største linje i Frisk Grønt som "—" mens den indgik i totalen med 9,63 kr.
-    // Kun de FÅ børn der faktisk skal bruges hentes; hele produktkataloget
-    // ville være 100+ kald på en klik-sti.
-    // Prisen hentes for netop denne opskrifts ingredienser — ikke for hele
-    // kataloget. Forældre-arven (fx `kål`, som kun børnene har en pris på)
-    // ligger inde i kaldet, så den er den samme her som i totalen.
-    const prisDetaljer = await grocyAdapter
-        .getProductUnitCostDetails(6, { productIds: ingProductIds })
-        .catch(() => new Map());
 
     // Direkte ingredienser (recipes_pos)
     const ingredients = posForRecipe.map(pos => {
@@ -784,15 +831,13 @@ router.get('/:id/composition', handle(async (req, res) => {
             unitMap,
         });
         const producingId = producingByProduct.get(String(pos.product_id));
-        // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
-        // last_price/avg_price bevares uanset lager, så udsolgte varer også får en pris.
-        const d = detailsMap.get(String(pos.product_id));
+        const linje = bdLinje.get(String(pos.product_id));
         const pris = prisDetaljer.get(String(pos.product_id));
-        const unitCost = unitCostOf(pris);
-        const prisArvet = unitCost != null && pris.source === 'parent_avg';
-        const prisOverslag = unitCost != null && pris.source === 'estimate';
-        const amountStock = parseFloat(pos.amount) || 0;
+        const d = detailsMap.get(String(pos.product_id));
         const stockAmount = d ? (Number(d.stock_amount) || 0) : null;
+        // Arvet/overslag gælder kun en KØBT pris. Kommer tallet fra opskriften
+        // (`source: 'recipe'`), siger prisdetaljens ophav intet om det.
+        const købt = linje && linje.source === 'purchase';
         return {
             product_id: pos.product_id,
             name: pos.product_name || prod.name || ('Produkt #' + pos.product_id),
@@ -802,35 +847,35 @@ router.get('/:id/composition', handle(async (req, res) => {
             stock: stockAmount,
             stock_unit: unitName(stockQuId),
             in_stock: stockAmount == null ? null : stockAmount > 0,
-            cost: unitCost != null ? r2(amountStock * unitCost) : null,
+            cost: (linje && linje.cost != null) ? r2(linje.cost) : null,
             // Prisen er arvet fra børnene (gennemsnit) — værd at sige, for
             // Spidskål og Hvidkål koster ikke det samme.
-            cost_inherited: prisArvet || undefined,
+            cost_inherited: (købt && pris && pris.source === 'parent_avg') || undefined,
             // Prisen er et manuelt overslag, ikke noget vi har betalt (#657).
-            cost_estimated: prisOverslag || undefined,
+            cost_estimated: (købt && pris && pris.source === 'estimate') || undefined,
+            // Prisen kommer fra opskriften bag varen, ikke fra et køb (#558).
+            cost_from_recipe: (linje && linje.source === 'recipe') || undefined,
             // Klikbar kun hvis produktet har sin EGEN opskrift (og ikke er den vi står på).
             producing_recipe_id: (producingId && producingId !== id) ? producingId : null,
         };
     });
 
     // Underopskrifter (recipes_nestings)
+    const bdSub = new Map(bd.sub_recipes.map(x => [Number(x.recipe_id), x]));
     const sub_recipes = nestings
         .filter(n => String(n.recipe_id) === String(id))
         .map(n => {
             const sub = recipesMap.get(n.includes_recipe_id);
             if (!sub) return null;
             const uf = sub.userfields || {};
-            const servings = parseFloat(n.servings) || 1;
-            // Bidrag til kostprisen: underopskriftens kostpris pr. portion × antal portioner.
-            const subBase = parseInt(sub.base_servings) || 1;
-            const subTotal = bonCost.has(sub.id) ? bonCost.get(sub.id).cost : costMap.get(String(sub.id));
+            const b = bdSub.get(Number(n.includes_recipe_id));
             return {
                 recipe_id: sub.id,
                 name: sub.name,
-                servings,
+                servings: parseFloat(n.servings) || 1,
                 unit: uf.recipeunit || 'stk',
                 category: uf.grupper || null,
-                cost: (subTotal != null) ? r2((subTotal / subBase) * servings) : null,
+                cost: (b && b.cost != null) ? r2(b.cost) : null,
             };
         })
         .filter(Boolean);
@@ -850,6 +895,10 @@ router.get('/:id/composition', handle(async (req, res) => {
         total_cost_missing: bonCost.get(recipe.id)?.missing || [],
         total_cost_warnings: (bonCost.get(recipe.id)?.warnings || [])
             .map(w => ({ ...w, text: describeWarning(w) })),
+        // Tallet regnet NU. `total_cost` er rækken man klikkede på (sidste
+        // natlige kørsel); afviger de to, er cachen forældet — og så lægger
+        // linjerne herunder ikke sammen til overskriften. Det skal kunne ses.
+        total_cost_computed: r2(bd.total),
         ingredients,
         sub_recipes,
     });

@@ -13,6 +13,9 @@
     <link rel="stylesheet" href="/shared/kitchen_topbar.css">
     <link rel="stylesheet" href="/shared/recipe_viewer.css">
     <link rel="stylesheet" href="/shared/recipe_designer.css">
+    <link rel="stylesheet" href="/shared/recipe_editor.css">
+    <!-- Designerens "Opret ny vare" monterer shared/product_create.js (#683) -->
+    <link rel="stylesheet" href="/shared/product_create.css">
     <link rel="stylesheet" href="/shared/production_batch.css">
     <link rel="stylesheet" href="/shared/help-system.css">
     <style>
@@ -56,6 +59,11 @@
             max-width: 900px;
             display: none;
         }
+        /* Editoren har to kolonner — liste og overblik. 900 px var den gamle
+           designers mål (én kolonne), og klemte navne-kolonnen ned på 156 px,
+           så badget måtte bryde om på hvert halvfabrikat. 1280 er samme
+           læsbarhedsgrænse som dashboardets `.content`. */
+        #recipeDesignerContainer.re-mounted { max-width: 1280px; padding: 0 20px; }
         .tab-bar a { cursor: pointer; }
     </style>
 </head>
@@ -81,6 +89,12 @@
 <script src="/shared/recipe_yield.js"></script>
 <script src="/shared/production_batch.js"></script>
 <script src="/shared/recipe_viewer.js"></script>
+<script src="/shared/product_create.js"></script>
+<!-- Editoren: linjemodel og trin-serialisering skal loades FØR den -->
+<script src="/shared/recipe_lines.js"></script>
+<script src="/shared/recipe_steps.js"></script>
+<script src="/shared/recipe_diff.js"></script>
+<script src="/shared/recipe_editor.js"></script>
 <script src="/shared/recipe_designer.js"></script>
 <script>
     var _designerInitialized = false;

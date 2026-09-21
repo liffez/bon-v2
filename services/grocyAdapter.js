@@ -289,7 +289,26 @@ async function createRecipe(body) {
 async function updateRecipe(id, body) {
     const result = await grocyPut(`/objects/recipes/${id}`, body);
     _cache.delete('recipes');
-    invalidateRecipeCost(id);
+    // Et ændret `product_id` flytter ikke kun DENNE opskrifts kostpris: varens
+    // pris kommer nu fra opskriften i stedet for lagerprisen (#558), og det
+    // rammer hver eneste opskrift der bruger varen. Ryddes kun én række, viser
+    // Opskrifter & priser gamle tal på alle de andre.
+    if (body && Object.prototype.hasOwnProperty.call(body, 'product_id')) invalidateAllRecipeCosts();
+    else invalidateRecipeCost(id);
+    return result;
+}
+
+/**
+ * Slet opskrift.
+ *
+ * Bruges af `services/recipeWriter.js`s fortrydelse: fejler skrivningen midt i
+ * en NY opskrift, ryddes den vi netop oprettede — aldrig en der lå der i
+ * forvejen. Grocy sletter uden at kny, også når noget peger på opskriften.
+ */
+async function deleteRecipe(id) {
+    const result = await grocyDelete(`/objects/recipes/${id}`);
+    _cache.delete('recipes');
+    invalidateAllRecipeCosts();   // opskriften kan have været en vares producent (#558)
     return result;
 }
 
@@ -1747,6 +1766,7 @@ module.exports = {
     // Write — recipes
     createRecipe,
     updateRecipe,
+    deleteRecipe,
     updateRecipeUserfields,
     // Write — recipe positions (ingredients)
     createRecipePos,

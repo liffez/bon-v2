@@ -177,6 +177,7 @@ bon-v2/
 │   ├── deliveryBoxes.js      ← Hvor mange kolli buddet skal bære: talt fra bonnens transportkasse-linjer (`bons.boxes` er tom i drift). Delt af popout, pris, ruter og det gemte estimat (#687)
 │   ├── bonDiscount.js        ← Rabatreglen ét sted: varer ja, levering/gebyrer/emballage nej (bonens total, rapporter, drift, e-conomic)
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
+│   ├── recipeTargets.js      ← Målvægt: norm pr. Grocy-kategori + afvigelse pr. opskrift (kun afvigelsen gemmes)
 │   ├── stamdataLog.js        ← Spor på stamdata-ændringer i Grocy: hvem ændrede hvad fra hvilken skærm (#666) — kun beslutninger, navne frem for id'er
 │   ├── stockCountLog.js      ← Optællingen som objekt (#673): linjer pr. vare × fysisk enhed med udfald, serverens faktor, samtidigheds-opslag
 │   ├── supplierPrices.js     ← Leverandørpriser pr. varenummer — læst/skrevet i Grocy (stregkodens last_price), pris pr. lager-enhed + manuelt overslag som internt varenummer (#657)
@@ -571,10 +572,45 @@ en sikkerhedssnor for fremtidige ændringer — ikke en erstatning for at kigge 
 
 ---
 
-## Grocy userfields (skal oprettes manuelt i Grocy)
+## Grocy userfields
 
 Disse userfields skal eksistere i Grocy for at systemet fungerer korrekt.
-Oprettes under Grocy → Manage master data → Userfields.
+
+> **De behøver ikke oprettes i hånden længere (#683, 21. september 2026).**
+> `scripts/ensure-grocy-userfields.js` bærer erklæringen og opretter det der
+> mangler. En migration kan ikke gøre det — userfields er stamdata i Grocy, og
+> de findes **pr. instans**, så HQ, trailer og test kan drive fra hinanden uden
+> at nogen opdager det. Målt 21/9: HQ og test var enige (92 hver), men kun fordi
+> test lige var overskrevet med en kopi; den udfasede `cafe` manglede 8 — dem
+> der er kommet til med CO₂-modulet, e-conomic og løn-linjen.
+>
+> ```bash
+> npm run grocy:userfields -- --location hq            # hvad mangler?
+> npm run grocy:userfields -- --diff hq,test           # driver de fra hinanden?
+> npm run grocy:userfields -- --location test --apply  # opret det manglende
+> ```
+>
+> Scriptet **opretter kun det der mangler**. Det rører aldrig et felt der
+> findes — heller ikke typen: feltet har værdier i sig, og en typeændring er en
+> beslutning om dem. Det sletter aldrig noget, og det holder sig til de fire
+> entiteter Bon selv skriver i (`products`, `recipes`, `product_barcodes`,
+> `shopping_list`); `userentity-*`, `equipment` og `chores` tilhører andre apps.
+> `--location` er påkrævet — et script der gætter instans kan skrive i den forkerte.
+>
+> `npm run test:grocy-userfields` slår hvert erklæret navn op i kodebasen, så en
+> tastefejl i listen eller et felt der er holdt op med at blive brugt bliver set.
+>
+> ⚠️ **To skrivemåder for samme type findes i drift.** 24 felter står som
+> `text_single_line` med underscores — det er ikke en gyldig Grocy-type, men
+> Grocy har gemt den. Scriptet normaliserer ved sammenligning, så to enige
+> instanser ikke melder falsk drift. De eksisterende felter rettes ikke:
+> værdierne læses som tekst uanset, og en typeændring ville være et indgreb i
+> data for en kosmetisk gevinst i Grocys UI.
+>
+> `preset-checklist`-felter (`grupper`, `recipeunit`) oprettes med **tomme**
+> valgmuligheder — dem skal et menneske fylde i Grocy, og scriptet siger det.
+
+Kan også oprettes i hånden under Grocy → Manage master data → Userfields.
 
 ### product_barcodes (entity: product_barcodes)
 
@@ -7458,9 +7494,12 @@ sådan #349 og #353 opstod.
 - **`productionTypeOf(recipeRaw)`** i [services/ingredientResolver.js](services/ingredientResolver.js)
   giver `'on_demand'` · `'to_stock'` · `null` (opskriften producerer ingen vare), og
   **`buildProductionPolicy(rawRecipeMap)`** slår det op pr. `product_id`. Har en vare
-  flere producenter — Falaffel har tre — og er bare **én** af dem Hurtig, er varen
+  flere producenter og er bare **én** af dem Hurtig, er varen
   `on_demand`: det er dén mulighed der afgør hvad trækket må gøre, og samme valg
-  `planAutoBatches` allerede traf. `autoBatch.js`, `grocyAdapter.planConsume`,
+  `planAutoBatches` allerede traf.
+  (Eksemplet var Falaffel med tre producenter. Målt 20. september 2026 har **ingen**
+  vare mere end én producent, og Falaffel-opskrifterne har slet ingen — reglen er
+  uændret, eksemplet er historisk.) `autoBatch.js`, `grocyAdapter.planConsume`,
   `tjek-dagen.js` og `audit-blend-batches.js` importerer nu politikken.
 - **Vagten i `resolveConsumeItems`:** er en underopskrift `to_stock`, trækkes **varen** —
   aldrig dens råvarer. Råvarerne blev trukket dengang varen blev produceret; trak menuen
@@ -7487,9 +7526,11 @@ sådan #349 og #353 opstod.
 **Rapporten viser også det den IKKE kan se.** Første kørsel i drift gav 13 `to_stock` +
 3 `on_demand` — og driften spurgte hvor dressingerne var. Svaret: Senneps Mayo (6 menuer),
 Frisk Grønt (26), Løvstikke Mayo (8), Skære Slider Brød (12), Trøffel Mayo, Yoghurt
-dressing, Balsamico + løg og Æggesalat har **ingen `Produces product`** i Grocy, så
-`productionTypeOf` giver `null` og de er usynlige for de tre første lister pr.
-konstruktion. Rapporten har derfor en fjerde: **"nestet uden vare"**, grupperet efter
+dressing, Balsamico + løg og Æggesalat havde **ingen `Produces product`** i Grocy, så
+`productionTypeOf` gav `null` og de var usynlige for de tre første lister pr.
+konstruktion. (**Alle otte har fået en vare siden** — målt 20. september 2026 er der 20
+producerende opskrifter. Listen her er den der udløste den fjerde rapport-sektion, ikke
+en aktuel opgørelse.) Rapporten har derfor en fjerde: **"nestet uden vare"**, grupperet efter
 Grocy-gruppen og med antal menuer, tungeste først. Uden den kan man ikke skelne *"alt er
 konverteret"* fra *"jeg kigger kun på de konverterede"* — og det er netop dét der gør
 resten troværdigt.
@@ -7888,7 +7929,9 @@ fejlen forplantede sig til margin-analysen på hver ret der bruger dem.
   Et tavst fald tilbage ville ligne en almindelig købt vare.
 
 > ⚠️ **Flere opskrifter kan producere samme vare, og kun én bestemmer prisen.**
-> Falaffel har tre: to i `RR Produktion` og én i `xgamle opskrifter`.
+> Eksemplet var Falaffel med tre — to i `RR Produktion` og én i `xgamle opskrifter`.
+> **Målt 20. september 2026 er det ryddet op: ingen vare har mere end én producent.**
+> Reglen er uændret; eksemplet er historisk.
 > `buildProducedByIndex` vælger **laveste opskrift-id** — deterministisk, så to kørsler
 > ikke giver hver sit tal, men laveste id er også den **ældste**. Er en udgået opskrift
 > ikke frigjort fra sit produkt, er det altså DEN der sætter kostprisen på hver eneste
@@ -8628,6 +8671,446 @@ producerer en vare.
 
 ---
 
+### Opskrift-designeren kan den nuværende produktionsmodel (#683, 20. september 2026)
+
+> Spec: `docs/CLAUDE_HURTIG_PRODUKTION.md` + `docs/CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md` §8.
+> Fase F-1 af epic #660 — designeren er importens editor (moderspec §4.6), så importen
+> kunne ikke starte før den kendte modellen #270 indførte.
+
+Designeren er bygget til menu-opskrifter fra før #270 og kunne hverken give en opskrift
+en produceret vare eller lægge en underopskrift ind som den vare den er blevet. Det
+ramte en håndbygget produktionsopskrift allerede i dag.
+
+**`recipes.product_id` er ikke et felt som de andre.** Sættes det, skifter tre ting i
+driften i samme øjeblik, uden at nogen har bedt om dem:
+
+| Hvad | Hvor | Konsekvens |
+|---|---|---|
+| produktionstypen | `productionTypeOf` ([services/ingredientResolver.js](services/ingredientResolver.js)) | gruppen `RR produktion Hurtig` ⇒ `on_demand`: Bon laver varen ved LEVERET (#267) |
+| lagertrækket | `resolveConsumeItems`' vagt (#329) | en `to_stock` underopskrift trækker fremover **varen**, ikke sine råvarer |
+| kostprisen | `buildProducedByIndex` ([services/recipeCost.js](services/recipeCost.js)) | varens pris kommer fra opskriften i stedet for lagerprisen (#558) |
+
+#270 rullede de otte konverteringer ud én ad gangen med fingerprint før og efter, netop
+fordi konsekvensen er så stor. Her sidder den bag en dropdown — så **konsekvensen skal
+siges før der gemmes**, ikke opdages ved næste optælling. Det er samme fejlklasse som
+#305/#319 (memory `project_silent_sideeffect_failures`), og det var hovedarbejdet i
+opgaven; selve feltet er en halv time.
+
+- **`_rdComputeProducesImpact` er en ren funktion** der svarer på hvad der ændrer sig:
+  produktionstype, hvilke opskrifter der nester denne (de skifter lagertræk), om varen
+  allerede laves af en anden opskrift (og hvem der så vinder kostprisen), om udbyttet kan
+  bestemmes, og om varen er inaktiv. `_rdProducesInfo` deler svaret i `head` · `warnings`
+  · `details`.
+- **Panelet er kort, fordi det ses af enhver der åbner opskriften** — også en i køkkenet
+  der bare skal se hvad der er i den. Én linje fremme (*"Laves automatisk når en bon
+  leveres."*), advarslerne fremme fordi man kan gøre noget ved dem, og forklaringen under
+  en foldet *"Hvad betyder det?"*. Bekræftelsen ved Gem viser alle tre — dér træffes
+  beslutningen.
+- **Hver advarsel bærer sin egen handling.** `RecipeYield.yieldInStockUnits` giver op
+  tre forskellige steder, og de kræver hver sit:
+
+  | Årsag | Hvad der mangler | Handlingen |
+  |---|---|---|
+  | `mangler_tal` | `recipeunitnumber` er tom | skriv tallet i "1 portion er" |
+  | `ukendt_enhed` | enheden er ikke en af Grocys (`Timer`, `Kr`) | vælg kilo/gram/liter/antal |
+  | `mangler_omregning` | ingen omregning fra enheden til varens lager-enhed | skriv udbyttet i lager-enheden — eller få noteret hvad ét stk. vejer |
+
+  Første udgave sagde *"udfyld 1 portion er"* i alle tre. I de to sidste ER feltet
+  udfyldt — set live på Kyllingen BBQ-Salat (`1 antal`) mod Mayo - Vegansk (Kilo, ingen
+  omregning). **En anvisning der ikke passer, lærer folk at ignorere advarslen** — samme
+  svigt som vagthunden i #359, der bad om at sætte en bon til LEVERET som allerede var det.
+  `_rdYieldStatus` navngiver derfor årsagen, og `_rdYieldAdvice` siger den matchende
+  handling. Samme princip på de øvrige: en inaktiv vare peger på *Lager → Lageroversigt →
+  "Inaktive"* (#615), og to opskrifter om samme vare siger *"fjern varen fra den anden"*.
+
+  > `_rdYieldStatus` kalder **RecipeYields egne primitiver** (`unitIdByName`,
+  > `factorToStock`) i samme rækkefølge frem for at regne selv. En test kører 240
+  > kombinationer og asserterer at de to altid giver samme tal — en parallel udgave ville
+  > drive fra kostprisen og produktionsbatchen, og så viser designeren ét tal mens lageret
+  > får et andet (#360).
+
+- **`RD_HURTIG_GROUP` spejler `HURTIG_GROUP`** i `ingredientResolver.js`; browserkode kan
+  ikke require'e den. Testen asserterer at de to er ens — driver de fra hinanden, viser
+  designeren én produktionstype mens lagertrækket bruger en anden. Samme greb som
+  `_vmFindFactor` mod `quConvert` (#358).
+- **Kun aktive varer kan vælges.** «kål» blev sat inaktiv i en optælling og gav 13 bons
+  `partial` (#645); en inaktiv vare må ikke kunne blive det en opskrift producerer.
+- **`Gem som ny` arver ALDRIG varen.** To opskrifter der producerer samme vare er præcis
+  `buildProducedByIndex`-fælden (laveste id vinder), og en kopi ville lave den i stilhed.
+- **ÉN produkt-vælger, to steder.** "+ Tilføj ingrediens" og "Producerer vare" gør det
+  samme: find varen — eller opret den, hvis den ikke findes i Grocy endnu. Første udgave
+  byggede en anden vælger ved siden af den der allerede var, og **efter én dag havde de
+  allerede hver sit filter** (ingredienserne tog inaktive varer med, den nye gjorde ikke).
+  Det var præcis sådan `_buildMailVars` blev til tre uenige udgaver. `_rdProductDropdown`
+  er nu opslaget, og `meta` er det eneste der skiller dem: lagerstatus mod hvem der laver
+  varen i forvejen. En test kræver at de to lister **de samme varer** for samme søgning.
+- **Inaktive varer udelades begge steder** (#645) — en inaktiv vare kan hverken forbruges
+  som ingrediens eller lægges på lager som produceret vare. Det var kun den nye der
+  filtrerede; nu begge.
+- **`+ Opret ny vare` monterer `shared/product_create.js`**, ikke en ny formular, og ligger
+  **begge steder**. At skulle forlade designeren for at oprette en ingrediens, mens den
+  producerede vare kunne oprettes på stedet, var en vilkårlig forskel — og ingrediensen er
+  det almindelige tilfælde. Efter oprettelsen hentes varen ind i designerens hukommelse og
+  **vælges**, så kun mængden mangler. Tre steder der kan oprette et produkt med hver sit sæt
+  defaults (lager-enhed, produktgruppe, lokation) er dét #358 og #657 gentagne gange er
+  faldet over.
+  > ⚠️ #666's stamdata-spor dækker `PUT /products/:id`, ikke `POST /products`. Opretter
+  > designeren en vare, efterlader den **intet spor** i Bon.
+
+**Underopskrift som vare-linje (#270).** Reglen er *"har underopskriften en vare, så brug
+varen"* — ikke *"nestings er forbudt"*: slider-boksene 77/78 er bevidst indlejrede, og
+deres børn producerer ingen vare.
+
+- Listen mærker `→ Chili Mayo` mod `underopskrift` **før** man vælger, og panelet
+  forklarer hvad der sker. At gøre det rigtige i stilhed er ikke nok.
+- **Mængden tastes i varens lager-enhed** ("25 g Chili Mayo") — det er det tal man tænker
+  i, og så er der hverken noget at regne om eller noget at regne forkert. Udbyttet vises
+  som oplysning.
+- En eksisterende nesting til en opskrift der **er blevet** en vare får `→ vare-linje`.
+  Dén omregning kræver udbyttet (`RecipeYield.plannedYieldStock` — samme regel som
+  kostprisen og produktionsbatchen bruger), og knappen er **slået fra med en begrundelse**
+  når udbyttet ikke kan bestemmes. Vi gætter aldrig.
+  > Vagten er **inert i drift i dag** — målt: 6 nestings, ingen af dem til en producerende
+  > opskrift. Den findes for den halv-konverterede tilstand, ikke for i dag.
+
+**"1 portion er"-enheden er delt i to.** Grocys preset-liste rummer `Timer` og `Kr`, og
+de **er i brug** — på `x- Service`-opskrifterne (Servicepersonale, Rabat, Engangsbeløb,
+Rabat - afgift), hvor én portion er en time eller en krone. De må derfor ikke fjernes: en
+enhed der forsvinder fordi listen ikke kender den, bliver skrevet som tom ved næste Gem
+(#680). Men de er ikke måleenheder. `_rdUnitOptionsHtml` grupperer derfor i
+**Måleenheder** og **Ikke en måleenhed**, og skellet er ikke en håndskrevet liste: en
+enhed hører i første gruppe hvis `RecipeYield.unitIdByName` kan slå navnet op blandt
+Grocys egne `quantity_units` — altså præcis når udbyttet kan regnes om. Grupperingen
+forklarer dermed også hvorfor advarslen kommer.
+
+**To ting rettet undervejs:**
+
+- **`updateRecipe` ryddede kun opskriftens egen række i `recipe_cost_cache`.** Men et
+  ændret `product_id` flytter kostprisen på hver opskrift der bruger varen (#558), så
+  Opskrifter & priser ville vise gamle tal på alle de andre. Rydder nu hele cachen når
+  `product_id` er i bodyen.
+- **`_rdConfirmAddNesting` læste `_rdSelectedNestRecipe.name` EFTER
+  `_rdToggleAddNestingPanel()`**, som rydder valget når den *åbner*. Det holdt kun fordi
+  den i praksis altid blev kaldt for at *lukke*. Navnet læses nu først.
+
+**Tests:** `npm run test:designer-gem` — 73 + 6 asserts (§1-værnet holder uændret på alle
+12 navngivne opskrifter, nu også med det nye felt). Cache-rettelsen har sin egen suite
+(`scripts/test-produceret-vare-cache.js`) der rammer den ÆGTE `updateRecipe` mod en
+temp-DB af de rigtige migrations med kun HTTP-laget stubbet — et spejl af reglen ville
+kunne drive fra adapteren uden at én eneste assert faldt.
+**Mutations-testet: 28 mutationer, alle fanget.** Browser-verificeret mod grocy-test med
+rigtige museklik: nesting → `2,2 Kilo Chili Mayo` (2 portioner × 1,1 kg — udbyttet er
+broen) → Gem → `recipes_pos` i Grocy; produceret vare valgt → bekræftelsen med den fulde
+konsekvens → `recipes/68.product_id`. Alt rullet tilbage.
+
+> ⚠️ **Browser-panelet skalerede koordinater med ~1,46** (bad om 763,444 → siden fik
+> 1113,649), så de første klik ramte ved siden af **uden at fejle**. Klik via `ref` går
+> uden om problemet; ellers mål forholdet med en capture-lytter først.
+
+**Måling af drift 20. september (grocy-test = kopi af HQ):** 20 opskrifter producerer en
+vare. Ingen mangler et bestemmeligt udbytte, ingen peger på en inaktiv vare, og **ingen
+vare har to producenter**. `Falaffel` (vare 148, aktiv) produceres af **ingen** opskrift,
+selvom `97 Falaffel- stegning` og `137 Falaffel- stegning-styk` ligger i `RR Produktion`;
+samme for `Humus` (8) / `Humus RR` (184) mod `65 Humus Produktion`. Det er stamdata, ikke
+kode.
+
+**Udestår (PR B / egne opgaver):**
+
+- **Målvægt** (#683's tredje punkt) — besluttet: i Bon pr. opskrift, som `recipe_db_targets`
+  allerede gør for DB%-målet. Grocy har intet felt der kan bære 350 g, og målet er ikke en
+  del af opskriften (§2).
+- **`_rdCalcSubRecipeWeightGrams` summerer en underopskrifts INPUT**, mens
+  `ingredientResolver` og `recipe_viewer` siden yield-modellen (20. juli) bruger dens
+  UDBYTTE. Rødkål: 2,75 kg batch mod 1 kg udbytte. Holder man en salat op mod 350 g med en
+  dressing i, måler man lagen med — så målvægten kan ikke bygges uden at rette det først.
+- **#683's kommentar:** stamdata-spor på opskrifter (#666 dækker kun produkter) og en
+  advarsel når udbyttet ændres på en opskrift der producerer en vare.
+
+### Opskrift-designeren blev en editor der også kan bære importen (#683, 21. september 2026)
+
+> Spec: `docs/CLAUDE_OPSKRIFT_DESIGNER.md` (§17b har status, beslutninger og fund).
+> Fase F-1 af epic #660 — designeren ER importens editor (§4.6), så importen kunne
+> ikke starte før den kendte modellen #270 indførte.
+
+Editoren arbejder på **kladde-objektet** fra §13 og intet andet. Det er præcis det
+`GET /api/opskrifter/:id/editor` leverer, det `/beregn` tager imod, og det importen
+producerer — så skærmen ser ingen forskel på en opskrift der kommer fra Grocy, fra en
+tom side eller fra en indsat tekst. Kun bundlinjen skifter.
+
+**Den regner ingenting.** Alle tal kommer fra `recipeCost` og `co2Engine` gennem
+`/beregn`. En tabel hvis linjer ikke lægger sammen til overskriften er værre end ingen
+tabel (#360's fejlklasse), og det er efterprøvet: linjernes kostpris summerer til
+totalen på hver eneste opskrift i fixturen.
+
+**Reglerne bor på serveren, ikke i browseren** — det er hovedvalget:
+
+| Regel | Hvor | Hvorfor ikke i browseren |
+|---|---|---|
+| #270 «har underopskriften en vare, så brug varen» | `services/recipeSearch.js` | En gemt opskrift bærer intet halvfabrikat-mærke; i Grocy ER det bare en varelinje. Browseren ville få en anden kopi end kostprisen (#558) |
+| Hvilke linjer er emballage (R7.5) | `/beregn`'s `is_packaging` | Samme gennemgang som madvægten. Ingen kopi af `co2Materials`-listen |
+| Enheden ved siden af mængden | `/beregn`'s `unit` | Etiketten skal komme samme sted fra som tallet |
+| Sektionsforslag | `RecipeLines.sectionTemplate` | Udledes af hvad gruppen FAKTISK gør (7 af 7 slidere bruger «Emballage»), ikke af en liste nogen har fundet på |
+
+**To fejl fundet undervejs, begge af den tavse slags:**
+
+- **En ny vare faldt ud af beregningen uden en lyd.** Nøglen blev dannet af et
+  løbenummer og slået op med kladdens indeks; de faldt kun sammen hvis alle linjer før
+  også var nye varer. Ellers forsvandt linjen, og totalen blev for lille — uden fejl.
+  Samme fejlklasse som #305/#319.
+- **`/beregn`s linjer kunne ikke kobles tilbage til kladden.** Svaret lægger nestings
+  efter varelinjer, så en positionsbaseret kobling hænger tal på den forkerte linje.
+  `draft_index` bæres nu med.
+
+**I4 (#680) holder på den nye vej — målt, ikke antaget:** kladden hentet fra `/editor`
+og sendt uændret til `/gem` giver `wrote: false`, og Grocy er byte-identisk bagefter.
+En ændret mængde flytter præcis én ting.
+
+> ⚠️ **Den gamle designer-vej står tilbage** bag `window.RD_LEGACY`. En omskrivning man
+> ikke kan slå fra, kan ikke sammenlignes med det den erstattede. Ryd den når editoren
+> er godkendt i drift.
+
+**Udfoldningen viser det linjen BRUGER, ikke opskriftens hold.** 2,75 kg rødkål i
+batchen siger intet når linjen bruger 25 g af udbyttet. `GET /api/opskrifter/:id/indhold?kind=&bruger=`
+skalerer — og **faktoren regnes på serveren**, fordi den er den samme som de to
+motorer allerede bruger: nesting = `portioner / base_servings` (`recipeCost.compute`),
+halvfabrikat = `mængde / udbytte-i-lager-enhed` (`lineUnitCost` → `RecipeYield.yieldInStockUnits`).
+En kopi i browseren kunne skride fra lagertrækket uden at nogen så det.
+
+- **Kan faktoren ikke bestemmes** — manglende udbytte (#372), ingen produceret vare,
+  ingen mængde tastet endnu — står opskriftens EGNE tal med grunden skrevet ud.
+  Aldrig et gæt der ligner en måling (I3).
+- **Ændrer man antallet, bliver en åben udfoldning forældet med det samme**: rækkerne
+  dæmpes, hovedet siger «opdaterer …», og svaret hentes igen (350 ms). Ruten henter
+  bevidst ingen priser, så en genhentning er billig.
+- `test:opskrift-udfold` (24) låser det. **Mutations-testet: 6 mutationer, alle fanget** —
+  heriblandt at skalere halvfabrikatet med `base_servings` i stedet for udbyttet (4 falder)
+  og at springe enhedskonverteringen over (3). §2 er beviset for at de to regler er
+  ægte forskellige: SAMME opskrift, samme faktor 0,25 — den ene via 64 portioner,
+  den anden via 3,84 kg.
+
+> ⚠️ **Mængdefeltet blev skrevet om MENS man tastede.** `tegnListe()` er et rent
+> `innerHTML`-skift, og beregningen kalder den 280 ms efter sidste tastetryk. Man
+> mistede feltet — og værre: kladden bærer det TOLKEDE tal, så «0,» blev tegnet som
+> «0», og næste ciffer landede i et andet tal end man skrev. Fokus, markør **og**
+> brugerens råtekst bevares nu over en gentegning. Fejlen er pre-eksisterende; den
+> blev fundet fordi udfoldningen nu afhænger af antallet.
+
+> ⚠️ **Navne-kolonnen var 156 px — badget kunne ikke stå ved siden af navnet.**
+> Den egentlige årsag lå i sidens container: `#recipeDesignerContainer` har
+> `max-width: 900px` fra den gamle designer (én kolonne). Editoren har to — liste
+> plus overblik — så listen fik 578 px og navnet 156, mens der stod 466 px tomt på
+> en 1366-skærm. Et loft på forælderen kan et barn ikke bryde ud af, så bredden er
+> hævet til **1280** (samme læsbarhedsgrænse som dashboardets `.content`) mens
+> editoren er monteret. Navnet får nu 536 px, og badget står efter navnet på hver
+> eneste linje. `_rdEditorWidth()` i `recipe_designer.js` ejer klassen: editoren
+> skal ikke kende den side den er monteret i, og så kan den heller ikke glemme at
+> rydde op. **Én funktion, tre kaldesteder** — `_rdSwitchView` alene rakte ikke,
+> for `_rdShowStart` tegner sine views uden at gå igennem den.
+>
+> Badget ligger nu **inde i navnet** som `inline-block` og flyder efter teksten som
+> et ord mere. Som flex-søskende havde det to fejl: `align-items: center` lagde det
+> lodret hen over et to-linjers navn, og en fast kolonne ved siden af pressede
+> navnet ned i to linjer. Rækkerne er samtidig strammet fra ~62 til 43 px
+> (`padding: 4px`) — en opskrift skal kunne overskues i ét blik. Klikfladen på
+> navnet strækkes til rækkens højde (`align-self: stretch`), så tætheden ikke
+> koster et mål man skal sigte efter; den lander på 34 px, under de 44 px et
+> touch-mål helst har.
+
+**Udfoldningen viser gram og ml, ikke fire decimaler.** 0,0081 kg er både ulæseligt
+og bredt. `quConvert.autoFormatAmount` — den regel råvare-modalen allerede bruger —
+køres på serveren i `expandUsage`, så udfoldningen taler samme sprog som resten af
+huset uden en kopi der kan skride. **Lager-enheden bliver stående ved siden af**
+(`amount`/`unit` mod `display_amount`/`display_unit`): det er DEN kostprisen og
+lagertrækket regner i (B7), og et felt med to betydninger er præcis dét #352 kostede.
+Mængdefeltet i listen er urørt — dér ER tallet lager-enheden.
+
+**Tests:** `test:opskrift-udfold` 24 → **35**. §6 måler begge veje (kg→g, l→ml),
+at tallet ikke rundes væk, at lager-enheden står uberørt, og at svaret er
+**identisk** med `autoFormatAmount`'s — en parallel udgave ville ellers kunne
+drive. Mutations-testet: ingen formatering fælder 5, display der overskriver
+lager-enheden 5, en egen regel uden liter 2, uformateret hoved 1.
+
+**En nesting måles i opskriftens egen enhed.** De to userfields siger det allerede —
+«1 portion er 1 antal» — og køkkenet tæller i stk, ikke i portioner. `RecipeYield.portionUnit()`
+er reglen, og **serveren sender enheden** (B5): er forholdet ikke 1:1, sender den ingen, og
+browseren bliver ved «portion» frem for at lyve om tallet i feltet. Ren visning — `servings`
+gemmes uændret, så #352 ikke kan gentage sig. Linjen får samtidig stepper, fordi stk ER en
+tælleenhed (R6.2); det afgøres nu af enheden og ikke af linjens type. Målt i grocy-hq: alle
+fem nestede opskrifter står som «1 portion er 1 antal».
+
+**iPad og mobil.** Mockuppens tre forslag er bygget (artboard D): kort pr. linje, mængden til
+højre i kortet, overblikket som fast bundbjælke (R11.3). Fire fejl lå i vejen:
+
+> ⚠️ **`.re-wrap { align-items: flex-start }` gav vandret scroll i én kolonne.** Side om side er
+> det rigtigt — overblikket skal ikke strækkes til listens højde. I column-retning styrer det
+> BREDDEN, og uden `stretch` bliver den max-content: `.re-main` blev 391 px i en 375 px skærm.
+> Ramte både iPad og mobil.
+
+> ⚠️ **`display: inline` på grid-items samler dem ikke til én linje.** Gram/kr/CO₂ fik hver sin
+> implicitte række og stod under hinanden. To grid-items kan ikke dele en celle, så tallene
+> ligger nu i `.re-nums` med `display: contents` — ingen boks på desktop (gridet er præcis som
+> før), ét felt på mobil. Samme greb på udbyttesætningens tre led (`.re-yield-grp`), så linjen
+> bryder MELLEM led og ikke midt i «Giver [3] portioner». Én rendering-vej, ikke to der kan drive.
+
+> ⚠️ **Et tal uden kolonneoverskrift siger ingenting.** Overskriften er skjult på mobil, så
+> «120» kunne være gram eller kroner. Enheden står som `data-suffix` på cellen og vises med
+> `::after` i mobil-media — desktop er urørt.
+
+Mængden spænder begge rækker, så kortet blev 64 px i stedet for 116. Felterne er smallere på
+mobil (58 px mod 72), fordi metalinjen kræver 168 px og hver px navnet taber, taber den med.
+Målt på 375 px: **0 vandret scroll, 0 touch-mål under 44 px** (også «Åbn opskrift →», som var
+13 px). På et 13-tegns navn ombryder badget under navnet — dér ER der ikke plads, og det er
+den rigtige opførsel på en telefon.
+
+**Tests:** `test:opskrift-soeg` (75) · `test:opskrift-visning` (116) ·
+`test:opskrift-kladde` (70) · `test:opskrift-linjer` (48) · `test:opskrift-trin` (74) ·
+`test:opskrift-writer` (40) · `test:opskrift-udfold` (35) · `test:designer-gem` (73 + 6).
+**Mutations-testet: 60 mutationer, alle fanget.** Browser-verificeret mod grocy-test med
+rigtige museklik hele vejen: halvfabrikat-badges, udfoldning, søgning uden dublet, ny
+vare der blokerer gem indtil enheden vælges, ⋯-menu, og et gem der skriver præcis én
+ting (rullet tilbage bagefter).
+
+> ⚠️ **Fundet, ikke rettet:** `locations`-rækken for `test` peger på `grocytest`
+> (**401**); den levende instans er `grocy-test` med bindestreg. Hver frisk dev-DB kan
+> derfor ikke nå grocytest. Og `Hvidløg - i tern` er inaktiv i Grocy men bruges i
+> opskrift 98 — præcis den tilstand der gav 13 bons `partial` i #645. Begge er stamdata.
+
+
+### Efter første drifttest: fire ting fra editoren (21. september 2026)
+
+**Fremgangsmåden var usynlig — og blev slettet.** 34 opskrifter i grocy-hq har rigtig
+arbejdsbeskrivelse i Grocys ene fritekstfelt, uden numre. `parseDescription` læste den
+korrekt til `plain`, men `tegnTrin` renderede **kun** trin-listen, så der stod
+«+ Tilføj trin» på en opskrift med fem linjers fremgangsmåde. Og `toStore` kasserede
+`plain` i det øjeblik der fandtes ét trin:
+
+```
+før:   <p>løgene skæres i ringe…</p><p>2 timer i ovnen ved 120°</p>
+efter: <p>1. Køl ned [30 min]</p>      ← ét tilføjet trin
+```
+
+Et passivt Gem var harmløst, men **det første trin man tilføjede, tog beskrivelsen med
+sig** — uden at man nogensinde havde set den. Samme fejlklasse som #305/#319.
+Teksten vises nu i et redigerbart felt med «Lav om til trin», og `toStore` sætter den
+foran trinene. Round-trip er stabilt: den bliver til `lead`, som allerede er i modellen.
+At **rydde** feltet er stadig brugerens eget valg.
+
+**Vægt fra en underopskrift uden erklæret udbytte.** Slider-boksen stod med `—` i GRAM,
+mens kostprisen ved siden af skrev `≥ 11,87`. Reglen fandtes i huset —
+`ingredientResolver`: *«Erklæret yield vinder over summen af input. Findes intet yield,
+falder vi tilbage på summen»* — editoren var den eneste flade der gav op.
+`subRecipeInputGrams` summerer nu råvarerne (rekursivt, emballage udeladt, stak-baseret
+cyklusværn jf. #354), og **tallet markeres som et skøn** (`~414 g`, navnene i
+`weight.estimated`). `≥` og `~` betyder ikke det samme: for en slider ER summen vægten,
+for Balsamico + løg er den 57 % for høj (1566 g ind, 1000 g ud), så `~` vinder når begge
+gælder — et skøn der kan være for højt, er ikke et mindstetal.
+
+**Målvægt — en norm pr. kategori (migration 187).** «Hvad sigter vi på at en sandwich
+vejer» er ikke en egenskab ved ÉN opskrift. `recipe_db_targets` bærer allerede den slags
+norm pr. Grocy-kategori (DB%-målet), så målvægten hører samme sted; tabellen genskabes
+så `target_pct` kan være NULL, for en kategori må have den ene norm uden den anden.
+`recipe_target_weights` bærer afvigelsen pr. opskrift — og **kun** afvigelsen: er tallet
+det samme som normen, fjernes rækken, ellers ville en senere ændring af normen ikke slå
+igennem. Editorens felt viser normen som **placeholder**, aldrig som værdi, og tomt felt
+betyder «brug normen igen». Normerne redigeres i ⚙-popoveren i Opskrifter & priser ved
+siden af DB%-målet; de to er uafhængige.
+
+> ⚠️ `målvægtÆndret()` tæller den som en ændring — `diffRecipe` kender kun Grocy-felter,
+> og uden den var feltet dødt: man kunne taste, se bjælken flytte sig, og stå med en grå
+> Gem-knap.
+
+**Margen og tavse konsolfejl.** `#recipeDesignerContainer` havde `padding: 0`.
+Samtidig kastede hvert gem to `Cannot set properties of null`, fordi `gem()`s
+`finally { tegnBund() }` kører EFTER `onExit` har afmonteret editoren. Fejlen er
+pre-eksisterende, men den slags støj skjuler de ægte — alle seks tegnere har nu en vagt.
+
+**Tests:** `test:opskrift-trin` 74 → **83** · `test:opskrift-kladde` 70 → **74** ·
+nyt `test:opskrift-maalvaegt` (**18**). **Mutations-testet: 8 nye mutationer, alle
+fanget.** Browser-verificeret mod grocy-test med rigtige museklik hele vejen: teksten
+overlever et tilføjet trin (efterprøvet mod Grocys egen række, rullet tilbage),
+`~`-skønnet på de tre sliders, placeholder mod værdi, normerne i ⚙-popoveren hvor
+DB%-målet ikke tørres af. Dev-DB, `.env` og testdata slettet efter brug.
+
+---
+
+### Efter anden drifttest: seks fund i editoren (21. september 2026)
+
+**«Pillerne virker ikke» — de virkede to gange.** `mount` lagde et nyt sæt
+lyttere på rod-elementet uden at fjerne det forrige, så ét klik fyrede lige så
+mange gange som antallet af opskrifter man havde åbnet siden sideindlæsning.
+For en **toggle** er det ødelæggende og næsten usynligt: ved den 2., 4., 6.
+opskrift ender den hvor den startede. Det ramte kolonne-pillerne OG
+udfoldningen af et halvfabrikat — begge meldt som «virker ikke», begge toggles.
+
+> ⚠️ **Den slags kan ikke reproduceres ved at klikke tilfældigt.** Jeg kunne
+> ikke finde den før jeg holdt op med at lede efter en død knap og begyndte at
+> **tælle mounts**; mine egne forsøg havde et ulige antal. `AbortController`
+> rydder lytterne i ét greb ved næste mount.
+
+**Tilstanden fulgte med til den næste opskrift.** `S.stepsParsed` og
+`S.stepsEdited` blev sat løbende uden at være erklæret i tilstands-objektet, så
+`mount` — der ryddede op felt for felt — glemte dem. Lav fritekst om til trin
+på «Rødkål», gå tilbage, åbn «Langtids stegt Gris»: den viste Rødkålens
+fremgangsmåde med «1 ændring siden sidste gem», og et Gem ville have skrevet
+den ind i Grisens opskrift. Fem af elleve felter kunne bære over.
+Tilstanden er nu `friskTilstand()` og nulstilles med `Object.assign` — **et
+felt der kun findes når det er sat, er et felt der bliver glemt.**
+To bevidste undtagelser: timeren stoppes FØR nulstillingen, og `calcSeq`
+bevares og øges (nulstillet til 0 kunne et svar fra den forrige opskrift
+stadig være «nyt nok» og overskrive tallene).
+
+**Mængden stod i lager-enhed.** Editoren viste «0,0133 kg» hvor køkkenet havde
+skrevet «2 stk», mens `kitchen/recipes.html`s opskriftsvisning hele tiden har
+vist «2 Antal». `recipes_pos.qu_id` er linjens EGEN enhed; `amount` er og
+bliver i lager-enhed. Kladden bar den slet ikke — `draftFromSaved` udelod
+feltet, og `buildInputs` satte det til varens `qu_id_stock`.
+`/beregn` sender nu `display_amount` + `unit` + **`display_factor`** pr. linje
+(via `convertAndFormat`, samme funktion som råvare-modalen), og feltet
+redigeres i den enhed: `tastet / factor` giver lager-enheden igen.
+
+> ⚠️ **Faktoren SKAL følge med fra serveren.** Regnede browseren den selv,
+> kunne de to skride fra hinanden, og et rettet tal ville blive gemt i en anden
+> enhed end det blev tastet i — #352, faktor 1000 galt. Samme fælde fangede
+> undervejs at udfoldningen sendte mængden til `/indhold` i visnings-enhed;
+> serveren skalerer med lager-enheden, så Chili Mayo ville være foldet tusind
+> gange for stort ud. Eksisterende linjers `qu_id` er sikker ved Gem —
+> `posPut` sender kun felter der har ændret sig.
+
+**± gemmes til man går i tallet.** To knapper ved hver anden linje gør en liste
+man LÆSER til en række kontroller. `visibility` og ikke `display`, så pladsen
+bliver stående (cellerne er 104 px begge veje). Tre ting skulle med, og de to
+sidste fandtes kun ved at klikke: `preventDefault` på mousedown (ellers flytter
+klikket fokus væk, knappen skjules, og klikket når aldrig frem) · `byggLinjer()`
+før gentegning · og at ± **skriver tallet i feltet selv**, fordi gentegningen
+bevarer brugerens råtekst mens feltet har fokus.
+
+**«Sæt svind» er fjernet.** Menupunktet skrev `waste_pct`, annotationen blev
+vist — men feltet findes hverken i kladden, på serveren eller i Grocy, så noten
+forsvandt ved næste Gem. Samme klasse som allergen-pillen nedenfor. Læseren
+(`svindTekst`) bliver stående: importen producerer annotationen (I2), og den
+skal kunne vises den dag feltet har et sted at bo. Spec'ens R6.1/R6.5 er rettet.
+
+**«Allergener»-pillen er fjernet.** Den tændte, men der findes ingen
+allergen-kolonne — ordet stod to steder i filen, begge i pillen selv. Og
+datagrundlaget bærer den ikke: 21 af 225 varer i Grocy har `hk_allergens`,
+scrapet råt («Mozzarella → Ælk»). En kontrol der ikke gør noget er værre end
+ingen; en der viser forkerte allergener er farlig.
+
+> **Ingen test havde nogensinde monteret `recipe_editor.js`** — det er derfor
+> de to første fejl slap gennem 537 asserts. `scripts/test-recipe-editor-state.js`
+> (43) kører den rigtige fil i en vm-sandkasse med en DOM der er netop rig nok
+> til at de ÆGTE klik-handlere kan fyre, og måler ikke hvad skærmen viser, men
+> **hvad der ville blive sendt til serveren**. To gange fangede browseren noget
+> testen ikke kunne se, fordi den målte kladden og ikke feltet; begge huller er
+> lukket.
+
+**Langsomheden er ikke editoren.** `/api/opskrifter/:id/editor` tager 3 ms med
+varm cache og **9,4 s koldt** — kostpris-opslaget spørger Grocys `stock_log` ét
+kald pr. produkt (225 stk, seks ad gangen). Ét samlet kald tager 195 ms. Egen
+opgave: **#695**.
+
+---
+
 ### Antal kasser: kolonnen var tom, tallet lå på bonnen (20. september 2026)
 
 Bud-popoutet meldte **"Mangler: Antal kasser"** på en bon der havde både
@@ -9219,6 +9702,11 @@ PATCH  /api/settings/:key                                routes/settings.js
 GET    /api/grocy/recipes                                routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes/fulfillment                    routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes/:id/ingredients                routes/grocy.js → grocyAdapter
+GET    /api/opskrifter/:id/indhold?kind=&bruger=        routes/opskrifter.js (udfold en underopskrift, skaleret til det linjen bruger)
+GET    /api/opskrifter/:id/editor                        routes/opskrifter.js (gemt opskrift som kladde + tal + målvægt m. kilde)
+GET    /api/recipes/targets                              routes/recipes_overview.js (DB%-mål OG målvægt pr. Grocy-kategori)
+PUT    /api/recipes/targets                              routes/recipes_overview.js (bulk — de to normer er uafhængige)
+PATCH  /api/recipes/targets/:category                    routes/recipes_overview.js (sæt én af dem; den anden står uberørt)
 GET    /api/grocy/products                               routes/grocy.js → grocyAdapter
 GET    /api/grocy/stock                                  routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes-nestings                       routes/grocy.js → grocyAdapter

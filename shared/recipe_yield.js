@@ -108,6 +108,30 @@
         return helt * (p / b);
     }
 
+    /**
+     * Hvad ÉR én portion af denne opskrift?
+     *
+     * De to userfields siger det allerede: «1 portion er 1 antal». Er tallet
+     * præcis 1, betyder «1 portion» og «1 antal» det samme, og enheden kan stå
+     * ved mængden i stedet for det abstrakte «portion» — køkkenet tæller i stk
+     * og kg, ikke i portioner.
+     *
+     * Er tallet IKKE 1 — «1 portion er 3 antal» — ville enheden lyve om det der
+     * står i feltet, og vi bliver ved «portion». Reglen er ren VISNING: det der
+     * gemmes er fortsat `servings`, så ingen omregning kan skride (#352).
+     *
+     * @returns { unit, per, exact } — `unit` er null når feltet ikke kan bruges
+     */
+    function portionUnit(recipe) {
+        const uf = (recipe && recipe.userfields) || {};
+        const navn = String(uf.recipeunit == null ? '' : uf.recipeunit).trim();
+        const per = num(uf.recipeunitnumber);
+        if (!navn || !Number.isFinite(per) || per <= 0) {
+            return { unit: null, per: null, exact: false };
+        }
+        return { unit: navn, per, exact: Math.abs(per - 1) < 1e-9 };
+    }
+
     /** Navnet på produktets lager-enhed, til visning ved indtastningsfeltet. */
     function stockUnitName(product, units) {
         if (!product || product.qu_id_stock == null) return '';
@@ -115,5 +139,6 @@
         return u ? (u.name_short || u.name || '') : '';
     }
 
-    return { num, unitIdByName, factorToStock, yieldInStockUnits, plannedYieldStock, stockUnitName, UNIT_ALIASES };
+    return { num, unitIdByName, factorToStock, yieldInStockUnits, plannedYieldStock,
+             portionUnit, stockUnitName, UNIT_ALIASES };
 });

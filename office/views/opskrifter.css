@@ -739,14 +739,23 @@
     flex: 0 0 auto;
 }
 .ops-pop-actions .ops-btn-primary { flex: 1; }
+/* To normer pr. kategori (DB% og målvægt). Grid frem for space-between, så
+   de to talkolonner står under hinanden og kan læses som kolonner — ellers
+   flyder de med kategorinavnets længde. */
 .ops-target-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
     padding: 2px 0;
     font-size: 12px;
 }
+.ops-target-row > span:not(:first-child) { justify-self: end; white-space: nowrap; }
+.ops-target-head {
+    font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--color-text-dim, #6a6359); padding-bottom: 3px;
+}
+.ops-target-head > span:not(:first-child) { padding-right: 16px; }
 .ops-target-row input {
     width: 54px;
     text-align: right;
