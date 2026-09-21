@@ -251,7 +251,12 @@ function _logFillByExPill(bonId) {
     if (alt.cost_dkk == null) return;
 
     btn.innerHTML = '💰 By-ex ' + alt.cost_dkk + ' kr';
-    var kasser = r.boxes != null ? r.boxes + ' kasser' : 'std';
+    // Prisen afhænger af kasse-antallet, så det skal fremgå OM tallet er talt
+    // fra bonnens transportkasse-linjer eller skønnet ud fra arbejdsmængden.
+    // Et gæt der ser ud som en optælling er værre end et gæt man kan se.
+    var kasser = r.boxes != null
+        ? r.boxes + ' kasser' + (r.boxes_source === 'estimated' ? ', skønnet' : '')
+        : 'std';
     if (alt.suitable) {
         btn.title = 'Kundepris ex moms (' + kasser + '). Klik for By-expressens egen pris + margin.';
     } else {

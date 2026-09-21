@@ -18,6 +18,7 @@ const { transaction } = require('../db/compat');
 const { logChange } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { getVehicleById, estimateCost } = require('./booking_template');
+const { boxCountSql } = require('./deliveryBoxes');
 const { getDistance } = require('./routing');
 const { getHqCoords, getSafetyMargin, shiftTime } = require('./delivery_calc');
 
@@ -119,12 +120,17 @@ async function logBookingEvent({ bonId, vehicleId, reference = null, status = 'b
     const vehicle = getVehicleById(vehicleId);
     if (!vehicle) throw new Error(`Vehicle ${vehicleId} ikke fundet`);
 
+    // Kasse-antallet tælles i queryen: kolonnen bons.boxes er tom i drift, og
+    // tallet ligger på bonnens transportkasse-linjer (services/deliveryBoxes.js).
+    // Subqueryens parametre står i SELECT-listen og skal derfor bindes FØR bonId.
+    const box = boxCountSql('b');
     const bon = db.prepare(`
-        SELECT id, bon_number, delivery_vehicle_id, delivery_cost_estimated,
-               boxes, pax, delivery_type, delivery_time, pickup_time,
-               delivery_address_id
-        FROM bons WHERE id = ?
-    `).get(bonId);
+        SELECT b.id, b.bon_number, b.delivery_vehicle_id, b.delivery_cost_estimated,
+               ${box.sql} AS boxes,
+               b.pax, b.delivery_type, b.delivery_time, b.pickup_time,
+               b.delivery_address_id
+        FROM bons b WHERE b.id = ?
+    `).get(...box.args, bonId);
     if (!bon) throw new Error(`Bon ${bonId} ikke fundet`);
 
     // Beregn ny pickup_time uden for transaction (async ORS-kald hvis nødvendigt).
@@ -171,6 +177,8 @@ async function logBookingEvent({ bonId, vehicleId, reference = null, status = 'b
         // Opdater bonnen — vehicle_id sættes altid (sidste valgte vehicle)
         // delivery_method synkroniseres fra vehicle.type så lister/filtre stadig virker
         // Estimat skrives kun hvis bonnen ikke allerede har faktisk pris
+        // bon.boxes er her det TALTE antal (se queryen ovenfor), så leverandørens
+        // kasse-tillæg fyrer — og det gemte estimat matcher det popoutet viste.
         const estimated = estimateCost(vehicle, bon);
         const newMethod = deliveryMethodFromVehicleType(vehicle.type);
         if (bon.delivery_vehicle_id !== vehicleId) {

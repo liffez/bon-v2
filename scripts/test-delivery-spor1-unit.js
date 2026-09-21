@@ -253,7 +253,10 @@ const v1 = { booking_fields_json: JSON.stringify([
 const vars1 = { bon_id: '3467', total_boxes: '4' };
 assertEqual(
     renderFields(v1, vars1),
-    [{ label: 'Test', value: '3467 · 4', missing: false, step: null }],
+    // maxlen/length/over kom til med tegngrænserne (se test-booking-textlimit.js).
+    // Additivt: et felt uden maxlen opfører sig præcis som før.
+    [{ label: 'Test', value: '3467 · 4', missing: false, step: null,
+       maxlen: null, length: 8, over: false }],
     'Rendrer fields korrekt'
 );
 

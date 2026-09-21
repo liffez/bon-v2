@@ -1280,6 +1280,24 @@
         <strong>Kalender</strong>: intern bemanding, ingen ekstern booking (Volvo, egen cykel).<br>
         <strong>API</strong>: automatisk bestilling (klar når API-credentials modtages).
       </p>
+      <!-- ── TRANSPORTKASSER (delivery_box_recipes) ──────────────────── -->
+      <div class="st-card" style="margin-bottom:22px;padding:14px;border:1px solid var(--color-border);border-radius:8px;background:#fff">
+        <label class="st-label" style="margin:0 0 4px">Hvad tæller som en kasse</label>
+        <p style="font-size:12.5px;color:#888;margin:0 0 12px">
+          Opskrifter her tælles som <strong>kolli</strong> på bonens varelinjer og bliver til
+          <code>{total_boxes}</code> og <code>{total_boxes_text}</code> i bud-bestillingen.
+          Antallet driver også leverandørernes kasse-tillæg i prisen.<br>
+          Emballage der ligger <em>i</em> kassen (RR-bokse, salatbokse) hører ikke til —
+          buddet bærer kasser. Receptionsskinner er bevidst ikke med.
+        </p>
+        <div id="dbx-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="dbx-add-select" class="st-input" style="max-width:340px;font-size:13px"></select>
+          <button type="button" class="st-btn-secondary" onclick="dbxAddSelected()">+ Tilføj</button>
+          <span id="dbx-status" style="font-size:12px;color:var(--color-text-dim)"></span>
+        </div>
+      </div>
+
       <div id="dv-content"></div>
 
       <!-- Editor (vises kun når en vehicle er valgt) -->
@@ -1361,6 +1379,11 @@
             <div style="margin-top:8px;font-size:12px;color:#888">
               Tip: variabler er inden i krøllede parenteser, fx <code>{customer_name}</code>.
               Manglende felter på en bon vises som <code>[mangler]</code> i preview.
+              <br>
+              Har leverandørens felt en tegngrænse, sæt en linje med
+              <code>{{max:120}}</code> lige over den blok det gælder (en blok = linjerne
+              frem til næste tomme linje). Popoutet viser så en tæller ved blokken og
+              markerer den rødt hvis den er for lang — teksten afkortes aldrig.
             </div>
           </div>
 
@@ -6060,6 +6083,113 @@ async function doWageImport() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+// TRANSPORTKASSER — hvad der tælles som kolli
+//
+// settings.delivery_box_recipes (migration 180): JSON-array af Grocy
+// recipe-id. Summen af linjernes antal bliver {total_boxes} i bud-popoutet
+// og driver leverandørernes kasse-tillæg i prisen.
+//
+// Opskrifterne UDPEGES frem for at gættes ud fra navnet: et match på
+// "%transportkasse%" ville ramme enhver ny vare nogen kalder noget i den
+// retning. Se services/deliveryBoxes.js.
+// ═══════════════════════════════════════════════════════════
+
+var _dbxSelected = [];     // array af recipe-id (number)
+var _dbxRecipeMap = {};    // id → navn
+var _dbxRecipes = [];      // alle Grocy-opskrifter (tom hvis Grocy er nede)
+
+async function dbxInit() {
+  var raw = allSettings['delivery_box_recipes'];
+  _dbxSelected = _ucParse(raw).map(Number).filter(function(n) { return !isNaN(n) && n > 0; });
+
+  // Grocy kan være nede. Så viser vi stadig de gemte id'er — en regel man
+  // ikke kan se er en regel man ikke kan rette.
+  try { _dbxRecipes = await getGrocyRecipesCached() || []; }
+  catch (e) { _dbxRecipes = []; }
+  _dbxRecipeMap = {};
+  _dbxRecipes.forEach(function(r) { _dbxRecipeMap[Number(r.id)] = r.name; });
+  _dbxRender();
+}
+
+function _dbxRender() {
+  var list = document.getElementById('dbx-list');
+  var sel  = document.getElementById('dbx-add-select');
+  if (!list || !sel) return;
+
+  if (_dbxSelected.length === 0) {
+    // Tom liste er ikke "ingen regel" — den betyder at INTET tælles, og at
+    // {total_boxes} melder [mangler] på hver eneste bon. Det skal siges.
+    list.innerHTML = '<span style="font-size:13px;color:#b04030">'
+      + '⚠ Ingen opskrifter valgt — antal kasser står tomt i alle bud-bestillinger</span>';
+  } else {
+    list.innerHTML = _dbxSelected.map(function(id) {
+      var name = _dbxRecipeMap[id];
+      var ukendt = !name;
+      return '<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;'
+        + 'background:' + (ukendt ? '#fdf3f2' : 'var(--brand-primary-light)') + ';'
+        + 'border:1px solid ' + (ukendt ? '#e0b4b0' : 'var(--color-border)') + ';border-radius:14px;font-size:13px"'
+        + (ukendt ? ' title="Findes ikke i Grocy — enten slettet, eller Grocy kunne ikke hentes"' : '') + '>'
+        + esc(name || 'Ukendt opskrift')
+        + ' <span style="color:var(--color-text-dim);font-size:11px">#' + id + '</span>'
+        + '<button type="button" onclick="dbxRemove(' + id + ')" style="border:none;background:none;'
+        + 'cursor:pointer;font-size:14px;line-height:1;color:var(--color-text-dim);padding:0" title="Fjern">×</button>'
+      + '</span>';
+    }).join('');
+  }
+
+  if (_dbxRecipes.length === 0) {
+    sel.innerHTML = '<option value="">— Grocy kunne ikke hentes —</option>';
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  var available = _dbxRecipes
+    .filter(function(r) { return _dbxSelected.indexOf(Number(r.id)) === -1; })
+    .sort(function(a, b) { return (a.name || '').localeCompare(b.name || '', 'da'); });
+  sel.innerHTML = '<option value="">— vælg opskrift —</option>'
+    + available.map(function(r) {
+        return '<option value="' + Number(r.id) + '">' + esc(r.name)
+             + (r.category ? ' (' + esc(r.category) + ')' : '') + '</option>';
+      }).join('');
+}
+
+async function dbxAddSelected() {
+  var sel = document.getElementById('dbx-add-select');
+  if (!sel || !sel.value) return;
+  var id = Number(sel.value);
+  if (!id || _dbxSelected.indexOf(id) !== -1) return;
+  _dbxSelected.push(id);
+  await _dbxSave();
+  _dbxRender();
+}
+
+async function dbxRemove(id) {
+  _dbxSelected = _dbxSelected.filter(function(x) { return x !== Number(id); });
+  await _dbxSave();
+  _dbxRender();
+}
+
+async function _dbxSave() {
+  var status = document.getElementById('dbx-status');
+  if (status) status.textContent = 'Gemmer…';
+  try {
+    var json = JSON.stringify(_dbxSelected);
+    await saveSetting('delivery_box_recipes', json);
+    allSettings['delivery_box_recipes'] = json;
+    if (status) {
+      // Serveren rydder sin 60s-cache på PATCH, så ændringen gælder næste
+      // bud-bestilling — ikke først om et minut.
+      status.textContent = 'Gemt — gælder næste bud-bestilling';
+      setTimeout(function() {
+        if (status.textContent.indexOf('Gemt') === 0) status.textContent = '';
+      }, 5000);
+    }
+  } catch (e) {
+    if (status) status.textContent = 'Fejl: ' + (e.message || e);
+  }
+}
+
 async function loadDeliveryVehicles() {
     const c = document.getElementById('dv-content');
     if (!c) return;
@@ -6073,6 +6203,9 @@ async function loadDeliveryVehicles() {
         _dvVehicles = vehicles || [];
         _dvVariables = vars || [];
         _dvRender();
+        // Egen fejlhåndtering: transportkasse-listen henter fra Grocy, og et
+        // hik dér må ikke rive hele vogn-oversigten med sig.
+        dbxInit();
     } catch (err) {
         c.innerHTML = '<div style="color:#b04030;padding:14px">Fejl: ' + esc(err.message || 'kunne ikke hente') + '</div>';
     }
@@ -6206,7 +6339,12 @@ function _dvParseFields(json) {
         return arr.map(f => ({
             label: String(f && f.label != null ? f.label : ''),
             template: String(f && f.template != null ? f.template : ''),
-            step: f && f.step ? String(f.step) : ''
+            step: f && f.step ? String(f.step) : '',
+            // maxlen SKAL med her. Uden den ville grænsen forsvinde første gang
+            // nogen åbner vognen og trykker Gem — en indstilling der falder bort
+            // fordi editoren ikke kendte den.
+            maxlen: f && Number.isInteger(Number(f.maxlen)) && Number(f.maxlen) > 0
+                ? String(Number(f.maxlen)) : ''
         }));
     } catch (e) {
         console.warn('[settings] Ugyldig booking_fields_json:', e.message);
@@ -6229,7 +6367,7 @@ function _dvRenderFields() {
         const isFirst = idx === 0;
         const isLast = idx === _dvFields.length - 1;
         return '<div class="dv-field-row" data-idx="' + idx + '"' +
-            ' style="display:grid;grid-template-columns:24px 130px 130px 1fr 24px;gap:6px;align-items:center;background:#fafaf8;padding:6px;border:1px solid var(--color-border);border-radius:5px">' +
+            ' style="display:grid;grid-template-columns:24px 120px 120px 1fr 72px 24px;gap:6px;align-items:center;background:#fafaf8;padding:6px;border:1px solid var(--color-border);border-radius:5px">' +
             '<div style="display:flex;flex-direction:column;gap:2px">' +
                 '<button type="button" class="st-btn-secondary st-btn-sm" title="Op" onclick="dvMoveField(' + idx + ',-1)"' + (isFirst ? ' disabled' : '') + ' style="padding:0 2px;font-size:10px;line-height:1">▲</button>' +
                 '<button type="button" class="st-btn-secondary st-btn-sm" title="Ned" onclick="dvMoveField(' + idx + ',1)"' + (isLast ? ' disabled' : '') + ' style="padding:0 2px;font-size:10px;line-height:1">▼</button>' +
@@ -6237,12 +6375,13 @@ function _dvRenderFields() {
             '<input type="text" class="st-input dv-field-step" placeholder="Step (valgfri)" value="' + esc(f.step) + '" data-idx="' + idx + '" style="font-size:12px">' +
             '<input type="text" class="st-input dv-field-label" placeholder="Label *" value="' + esc(f.label) + '" data-idx="' + idx + '" style="font-size:12px">' +
             '<input type="text" class="st-input dv-field-template" placeholder="{variabel} eller fri tekst" value="' + esc(f.template) + '" data-idx="' + idx + '" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">' +
+            '<input type="text" inputmode="numeric" class="st-input dv-field-maxlen" placeholder="max tegn" title="Leverandørens felt-grænse. Popoutet tæller og markerer — det afkorter aldrig." value="' + esc(f.maxlen) + '" data-idx="' + idx + '" style="font-size:12px;text-align:center">' +
             '<button type="button" title="Fjern" onclick="dvRemoveField(' + idx + ')" style="background:none;border:none;color:#b04030;font-size:16px;cursor:pointer;padding:0">×</button>' +
         '</div>';
     }).join('');
 
     // Bind input handlers
-    c.querySelectorAll('.dv-field-label, .dv-field-template, .dv-field-step').forEach(inp => {
+    c.querySelectorAll('.dv-field-label, .dv-field-template, .dv-field-step, .dv-field-maxlen').forEach(inp => {
         inp.addEventListener('input', _dvOnFieldInput);
         inp.addEventListener('focus', _dvOnFieldFocus);
     });
@@ -6253,6 +6392,7 @@ function _dvOnFieldInput(e) {
     if (Number.isNaN(idx) || !_dvFields[idx]) return;
     if (e.target.classList.contains('dv-field-label'))    _dvFields[idx].label = e.target.value;
     if (e.target.classList.contains('dv-field-template')) _dvFields[idx].template = e.target.value;
+    if (e.target.classList.contains('dv-field-maxlen'))   _dvFields[idx].maxlen = e.target.value;
     if (e.target.classList.contains('dv-field-step'))     _dvFields[idx].step = e.target.value;
 }
 
@@ -6450,7 +6590,8 @@ async function dvSaveVehicle() {
         .map(f => ({
             label: (f.label || '').trim(),
             template: (f.template || ''),
-            step: (f.step || '').trim()
+            step: (f.step || '').trim(),
+            maxlen: (f.maxlen || '').trim()
         }))
         .filter(f => f.label || f.template || f.step);
     const missingLabel = cleanedFields.find(f => !f.label);
@@ -6464,6 +6605,9 @@ async function dvSaveVehicle() {
     const serialized = cleanedFields.map(f => {
         const out = { label: f.label, template: f.template };
         if (f.step) out.step = f.step;
+        // Kun et helt, positivt tal er en grænse — vrøvl gemmes ikke.
+        const m = Number(f.maxlen);
+        if (Number.isInteger(m) && m > 0) out.maxlen = m;
         return out;
     });
     data.booking_fields_json = serialized.length > 0 ? JSON.stringify(serialized) : null;

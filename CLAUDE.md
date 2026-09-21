@@ -51,7 +51,8 @@ Disse er sandheden. Al kode skal passe med dem.
 
 ## Grocy-instans
 
-Under udvikling bruges **grocytest** (`https://grocytest.ristetrug.dk/api`).
+Under udvikling bruges **grocy-test** (`https://grocy-test.ristetrug.dk/api` — med
+bindestreg; `grocytest` uden er den udfasede instans på Linode og svarer 401).
 **Produktion kører på `grocy-hq`** (`https://grocy-hq.ristetrug.dk/api`) — det er dér al
 CO₂-data, faktorer og opskrifter ligger.
 
@@ -60,13 +61,23 @@ database seedes til **3 (Test)** — en ny installation må aldrig som default s
 produktions-Grocy. Skift via Settings → Grocy ("Sæt som aktiv"), ikke via SQL.
 
 Lokationer i `locations`-tabellen: **HQ=grocy-hq** (produktion), Trailer=grocytrailer,
-Test=grocytest. Produktion har desuden en `cafe`-lokation = `grocycafe` = **den gamle
+**Test=grocy-test**. Produktion har desuden en `cafe`-lokation = `grocycafe` = **den gamle
 HQ-instans** (udfaset — læs den ikke som "HQ"). `.env` har nøgler til begge:
 `GROCY_HQ_*` (grocy-hq) og `GROCY_CAFE_*` (grocycafe).
 
-> ⚠️ Historisk fælde: HQ pegede tidligere på `grocycafe`. Både denne fil og
-> `001_core.sql` sagde det længe efter flytningen, så hver frisk dev-DB pegede forkert
-> (401) og CO₂-rapporten viste 0 % dækning. Rettet 16. juli 2026.
+> **Trailer er halvvejs flyttet (#514).** `grocytrailer` (gammel, Linode) svarer 200 med
+> `GROCY_CAFE_KEY`; `grocy-trailer` (ny) 302'er til login, fordi dens nginx-undtagelse for
+> `/api` mangler. Rækken flyttes først når undtagelsen er på plads — ellers byttes noget
+> der virker ud med et login-redirect.
+
+> ⚠️ Historisk fælde, to gange: HQ pegede tidligere på `grocycafe`, og Test pegede på
+> `grocytest`. Begge gange sagde både denne fil og `001_core.sql` det forkerte længe efter
+> flytningen, så hver frisk dev-DB ramte en Grocy der afviser os (401) — og alt
+> Grocy-afhængigt viste tomme lister i stedet for en fejl. HQ rettet 16. juli 2026,
+> Test 21. september 2026 (migration 185).
+>
+> **Sådan ser man forskel:** uden nøgle svarer BEGGE 401, så en hurtig curl afslører intet.
+> Test med nøglen: `curl -H "GROCY-API-KEY: $GROCY_TEST_KEY" https://grocy-test.ristetrug.dk/api/system/info`
 
 **Lokalt login (udvikling/browser-test):** Det rigtige `admin@ristetrug.dk`-password er
 ikke kendt. Brug i stedet en dedikeret lokal test-admin:
@@ -163,6 +174,7 @@ bon-v2/
 │   ├── companyMatcher.js     ← matchCompany (CVR → EAN → e-mail → navnelighed), similarity, normalizeName
 │   ├── crmActivity.js        ← logActivity/validateActivity — ÉN kilde til at skrive en crm_activities-række
 │   ├── orderCompanyResolver.js ← Hvilket firma en web-/formular-bestilling lander på (#567+#607) — delt af web-orders + webhooks
+│   ├── deliveryBoxes.js      ← Hvor mange kolli buddet skal bære: talt fra bonnens transportkasse-linjer (`bons.boxes` er tom i drift). Delt af popout, pris, ruter og det gemte estimat (#687)
 │   ├── bonDiscount.js        ← Rabatreglen ét sted: varer ja, levering/gebyrer/emballage nej (bonens total, rapporter, drift, e-conomic)
 │   ├── economicCustomerLookup.js ← Find et Bon-firmas kunde i e-conomic (EAN → CVR → navn) — delt af faktureringen + Firma 360°
 │   ├── recipeTargets.js      ← Målvægt: norm pr. Grocy-kategori + afvigelse pr. opskrift (kun afvigelsen gemmes)
@@ -259,6 +271,20 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   `PUBLIC_DIRS` i server.js. Mount aldrig en mappe der også indeholder kode
   eller data (`express.static(__dirname)` lagde engang `data/bon.db` frit)
 - **Standalone scripts bruger `openDb()`** fra `db/compat.js` — aldrig `DatabaseSync` direkte
+- **Lagertræk skriver ned HVOR det gik hen** — `bons.inventory_deducted_location_id`
+  (migration 186). Alt der skriver til Grocy følger `settings.default_grocy_location_id`;
+  peger den på Test, trækkes lageret DÉR, bonen markeres som trukket, og trækket kan ikke
+  gentages (idempotens-vagten). Kolonnen er IKKE `bons.location_id` — den er bonens egen
+  lokation. `autoConsumeBonInventory()` returnerer synkront `{ started, location }`, så en
+  kalder kan advare uden at gentage reglerne; ruten viser `grocy_warning` ved LEVERET når
+  lokationen ikke er drift (`isNonDriftLocation`, i dag `test` og `cafe` — trailer og
+  festival er legitime). Ingen spærring. Vagthunden rapporterer dem bagefter (#535)
+- **Test-scripts isolerer databasen** — `require('./helpers/isolated_db');` som FØRSTE
+  linje i `scripts/test-*.js`, før `db/`, `services/` eller `routes/` requires.
+  `grocyAdapter` slår lokationen op gennem `getGrocyConfig()` → `getDb()`, og stien er
+  repo-absolut: uden isolationen kører en test migrationer på udviklerens egen database
+  og fejler af grunde der intet har med dens logik at gøre (#516). Dækket af
+  `npm run test:isolation`
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker
@@ -475,7 +501,7 @@ hård browser-refresh (Cmd+Shift+R) efter deploy — JS/CSS kan være cachet.
 | Type | Kommando | Server? | Hvorfor |
 |---|---|---|---|
 | Pure runnere | fx `npm run test:run-optaelling` | ✅ ja | Ingen server, ingen Grocy, ingen DB — kører hvor som helst |
-| Track-runnere | `test:run-*`, `test:inv` m.fl. | ⚠️ nej | Kræver `.env.test` + `test.db` + testserver på 4322 + grocytest |
+| Track-runnere | `test:run-*`, `test:inv` m.fl. | ⚠️ nej | Kræver `.env.test` + `test.db` + testserver på 4322 + grocy-test |
 | UI-tests | `test:ui*` (Playwright) | ❌ **nej** | `@playwright/test` er en **devDependency** og er ikke installeret i drift. Den ville trække ~150 MB Chromium ned på produktionsmaskinen. Kør dem lokalt. |
 
 `npm run test:ui-optaelling` på serveren giver `sh: 1: playwright: not found` — det er
@@ -514,7 +540,7 @@ den nærliggende bevægelse, når der ikke findes en test-skabelon — peger "te
 dermed på driftens database. Præcis dét var sket på Hetzner (#338).
 
 Brug derfor **`.env.test.example`** som udgangspunkt. Den sætter `DB_PATH=./data/test.db`,
-`NODE_ENV=test` og `GROCY_API_URL` mod grocytest — de tre `safety_check` kigger efter.
+`NODE_ENV=test` og `GROCY_API_URL` mod grocy-test — de tre `safety_check` kigger efter.
 
 `npm run test:migrate` er siden #338 garderet med `--require-test-env`, som kalder
 `safety_check` og afbryder (exit 2) hvis `NODE_ENV`/`DB_PATH`/`GROCY_API_URL` ikke peger på
@@ -9006,6 +9032,274 @@ overlever et tilføjet trin (efterprøvet mod Grocys egen række, rullet tilbage
 DB%-målet ikke tørres af. Dev-DB, `.env` og testdata slettet efter brug.
 
 ---
+
+### Efter anden drifttest: seks fund i editoren (21. september 2026)
+
+**«Pillerne virker ikke» — de virkede to gange.** `mount` lagde et nyt sæt
+lyttere på rod-elementet uden at fjerne det forrige, så ét klik fyrede lige så
+mange gange som antallet af opskrifter man havde åbnet siden sideindlæsning.
+For en **toggle** er det ødelæggende og næsten usynligt: ved den 2., 4., 6.
+opskrift ender den hvor den startede. Det ramte kolonne-pillerne OG
+udfoldningen af et halvfabrikat — begge meldt som «virker ikke», begge toggles.
+
+> ⚠️ **Den slags kan ikke reproduceres ved at klikke tilfældigt.** Jeg kunne
+> ikke finde den før jeg holdt op med at lede efter en død knap og begyndte at
+> **tælle mounts**; mine egne forsøg havde et ulige antal. `AbortController`
+> rydder lytterne i ét greb ved næste mount.
+
+**Tilstanden fulgte med til den næste opskrift.** `S.stepsParsed` og
+`S.stepsEdited` blev sat løbende uden at være erklæret i tilstands-objektet, så
+`mount` — der ryddede op felt for felt — glemte dem. Lav fritekst om til trin
+på «Rødkål», gå tilbage, åbn «Langtids stegt Gris»: den viste Rødkålens
+fremgangsmåde med «1 ændring siden sidste gem», og et Gem ville have skrevet
+den ind i Grisens opskrift. Fem af elleve felter kunne bære over.
+Tilstanden er nu `friskTilstand()` og nulstilles med `Object.assign` — **et
+felt der kun findes når det er sat, er et felt der bliver glemt.**
+To bevidste undtagelser: timeren stoppes FØR nulstillingen, og `calcSeq`
+bevares og øges (nulstillet til 0 kunne et svar fra den forrige opskrift
+stadig være «nyt nok» og overskrive tallene).
+
+**Mængden stod i lager-enhed.** Editoren viste «0,0133 kg» hvor køkkenet havde
+skrevet «2 stk», mens `kitchen/recipes.html`s opskriftsvisning hele tiden har
+vist «2 Antal». `recipes_pos.qu_id` er linjens EGEN enhed; `amount` er og
+bliver i lager-enhed. Kladden bar den slet ikke — `draftFromSaved` udelod
+feltet, og `buildInputs` satte det til varens `qu_id_stock`.
+`/beregn` sender nu `display_amount` + `unit` + **`display_factor`** pr. linje
+(via `convertAndFormat`, samme funktion som råvare-modalen), og feltet
+redigeres i den enhed: `tastet / factor` giver lager-enheden igen.
+
+> ⚠️ **Faktoren SKAL følge med fra serveren.** Regnede browseren den selv,
+> kunne de to skride fra hinanden, og et rettet tal ville blive gemt i en anden
+> enhed end det blev tastet i — #352, faktor 1000 galt. Samme fælde fangede
+> undervejs at udfoldningen sendte mængden til `/indhold` i visnings-enhed;
+> serveren skalerer med lager-enheden, så Chili Mayo ville være foldet tusind
+> gange for stort ud. Eksisterende linjers `qu_id` er sikker ved Gem —
+> `posPut` sender kun felter der har ændret sig.
+
+**± gemmes til man går i tallet.** To knapper ved hver anden linje gør en liste
+man LÆSER til en række kontroller. `visibility` og ikke `display`, så pladsen
+bliver stående (cellerne er 104 px begge veje). Tre ting skulle med, og de to
+sidste fandtes kun ved at klikke: `preventDefault` på mousedown (ellers flytter
+klikket fokus væk, knappen skjules, og klikket når aldrig frem) · `byggLinjer()`
+før gentegning · og at ± **skriver tallet i feltet selv**, fordi gentegningen
+bevarer brugerens råtekst mens feltet har fokus.
+
+**«Sæt svind» er fjernet.** Menupunktet skrev `waste_pct`, annotationen blev
+vist — men feltet findes hverken i kladden, på serveren eller i Grocy, så noten
+forsvandt ved næste Gem. Samme klasse som allergen-pillen nedenfor. Læseren
+(`svindTekst`) bliver stående: importen producerer annotationen (I2), og den
+skal kunne vises den dag feltet har et sted at bo. Spec'ens R6.1/R6.5 er rettet.
+
+**«Allergener»-pillen er fjernet.** Den tændte, men der findes ingen
+allergen-kolonne — ordet stod to steder i filen, begge i pillen selv. Og
+datagrundlaget bærer den ikke: 21 af 225 varer i Grocy har `hk_allergens`,
+scrapet råt («Mozzarella → Ælk»). En kontrol der ikke gør noget er værre end
+ingen; en der viser forkerte allergener er farlig.
+
+> **Ingen test havde nogensinde monteret `recipe_editor.js`** — det er derfor
+> de to første fejl slap gennem 537 asserts. `scripts/test-recipe-editor-state.js`
+> (43) kører den rigtige fil i en vm-sandkasse med en DOM der er netop rig nok
+> til at de ÆGTE klik-handlere kan fyre, og måler ikke hvad skærmen viser, men
+> **hvad der ville blive sendt til serveren**. To gange fangede browseren noget
+> testen ikke kunne se, fordi den målte kladden og ikke feltet; begge huller er
+> lukket.
+
+**Langsomheden er ikke editoren.** `/api/opskrifter/:id/editor` tager 3 ms med
+varm cache og **9,4 s koldt** — kostpris-opslaget spørger Grocys `stock_log` ét
+kald pr. produkt (225 stk, seks ad gangen). Ét samlet kald tager 195 ms. Egen
+opgave: **#695**.
+
+---
+
+### Antal kasser: kolonnen var tom, tallet lå på bonnen (20. september 2026)
+
+Bud-popoutet meldte **"Mangler: Antal kasser"** på en bon der havde både
+transportkasser og receptionsskinner på sig. Det var ikke noget særligt ved
+den bon: `{total_boxes}` læste kolonnen `bons.boxes` råt, og den er tom på
+**alle 3.288 bons** i drift. Feltet meldte `[mangler]` på hver eneste bon,
+uanset indhold — der findes ingen skærm der sætter kolonnen.
+
+Tallet lå på bonnen hele tiden som emballage-linjer: **444 af 509
+leverings-bons i 2026** har en transportkasse-linje, gennemsnitligt 3,3 stk.
+
+**Og det kostede penge.** By-expressens formel har `included_boxes: 2,
+extra_box_cost: 50`. Med `boxes = 0` fyrede tillægget aldrig, så popoutet
+viste 154 kr hvor logistik-rækkens `/calculate` — det ENESTE sted der
+allerede udledte et kasse-antal — viste 254. To priser for samme bon, og den
+lave var den man bestilte efter. Samme fejlklasse som #305/#319: en tavs nul
+der ligner et svar.
+
+- **`services/deliveryBoxes.js`** er reglen: `getBoxRecipeIds` (cachet
+  setting), `countBoxesFromLines` (ren), `boxesForBon` (bon fra `getBon`) og
+  `boxCountSql` (subquery til queries uden `bon_lines`).
+- **Migration 180**: `settings.delivery_box_recipes` = `[47, 96]`
+  (Transportkasse + Transportkasse m låg). Opskrifterne **udpeges**, de gættes
+  ikke ud fra navnet — samme mønster som `unit_count_extra_recipes` (113) og
+  `economic_amount_line_recipes` (144). Et match på `%transportkasse%` ville
+  ramme enhver ny vare nogen kalder noget i den retning.
+- **Skinner og RR-bokse tæller ikke med** (beslutning 20. sep.): de ligger i
+  kassen, og buddet bærer kasser. RR Boks står med 47.485 stk i drift og ville
+  gøre kolli-tallet meningsløst.
+- **Vi udleder ikke et tal når linjerne mangler.** `boxesForBon` giver `null`,
+  feltet melder `[mangler]`, og vi påstår ikke "0 kolli" over for buddet.
+  Ét sted er det anderledes: **`/calculate`** SKAL kunne prissætte, så den
+  falder tilbage på `ceil(arbejdsmængde / pax_per_box)` og siger det med
+  `boxes_source: 'counted' | 'estimated'`. Logistik-rækkens tooltip skriver
+  "4 kasser" mod "2 kasser, skønnet" — et gæt der ser ud som en optælling er
+  værre end et gæt man kan se.
+- **`bons.boxes` beholder forrangen** hvis nogen HAR sat den. I praksis dødt,
+  men et tal et menneske har skrevet skal vinde over en optælling.
+
+**Fire andre læsere af den døde kolonne rettet i samme greb** — ellers ville
+popoutet sige "4 kasser" mens de øvrige skærme sagde noget andet:
+
+| Sted | Var |
+|---|---|
+| `buildBookingPayload` → `estimateCost` | popoutets pris uden kasse-tillæg |
+| `delivery_log.logBookingEvent` | `delivery_cost_estimated` gemt uden tillæg |
+| `/overview` + `/routes` + `/courier/today` | logistik viste altid "std"; rute-kapacitetstjekket kunne aldrig fyre (By-expressen: 4 kassers kapacitet mod 3,3 i snit) |
+| `/calculate` | regnede på `ceil(enheder/16)` mens popoutet talte linjer |
+
+> ⚠️ **Subqueryens parametre står i SELECT-listen og skal bindes FØR resten.**
+> `boxCountSql` returnerer `{sql, args}`, og kaldet er
+> `.all(...box.args, bonId)`. Får man rækkefølgen galt, svarer SQLite
+> `column index out of range` — i drift, ikke i en test, for **ingen test
+> ramte `/overview` eller `/routes` over HTTP** før denne. De gør de nu.
+
+**Tests**: `npm run test:kasser` — 45 asserts. Regressionen er drifts-scenariet
+(transportkasse-linjer + tom kolonne), og endpointene rammes ægte med routeren
+monteret in-process. **Mutations-testet: 10 mutationer, alle fanget** af hver
+sin navngivne assert. Regression grøn: spor1-unit 105, spor1 65, spor2-unit 42,
+spor2-routes 24, spor2-courier 29, lobo 21, migrate 6. Browser-verificeret mod
+en frisk lokal DB: "Antal kolli: 4" og ≈ 244 kr hvor der før stod `[mangler]`
+og 144 kr; en bon uden kasse-linjer melder stadig `[mangler]`; `/overview`,
+`/routes` og `/calculate` er enige om de 4. Testdata ryddet.
+
+**Settings → Leveringsmetoder → "Hvad tæller som en kasse"** (efterspurgt i
+drift): chips med × og en dropdown over Grocys opskrifter. Uden den kunne
+listen kun ændres med SQL, og en regel man ikke kan se er en regel man ikke
+kan rette.
+
+To ting gør den brugbar frem for bare gemt:
+- **En tom liste advarer** (*"⚠ Ingen opskrifter valgt — antal kasser står
+  tomt i alle bud-bestillinger"*) i stedet for at se ud som "ingen regel".
+  Tom betyder at `{total_boxes}` melder `[mangler]` på hver eneste bon.
+- **Grocy nede → id'erne vises alligevel**, rødligt og med deres nummer, og
+  dropdownen slås fra frem for at stå tom og forvirre. Et hik i Grocy må ikke
+  gøre reglen usynlig — og det må ikke rive vogn-oversigten med sig, så
+  `dbxInit()` har sin egen fejlhåndtering.
+
+Ændringen gælder **næste bud-bestilling**: `PATCH /api/settings/:key` rydder
+`deliveryBoxes`' 60s-cache. Efterprøvet i browseren begge veje — med RR Boks
+på listen tæller en bon med 2 transportkasser + 7 bokse **9**, uden den **2**.
+
+
+### Taxa manglede adressen, og beskedfeltet tager 120 tegn (20. september 2026)
+
+To ting meldt fra drift i samme ombæring som kasse-tællingen ovenfor.
+
+**Adressen manglede helt.** Taxas samlede skabelon havde INGEN adresse-variabel —
+kun `lever til {company_name}`. Taxaen fik altså firmanavnet og ingen adresse.
+Variablerne har eksisteret hele tiden (`{delivery_address}` m.fl.); de var bare
+aldrig sat ind i netop den skabelon, som kontoret har skrevet i hånden i Settings.
+
+**Beskedfeltet hos taxa.nu tager 120 tegn**, og blokken med start/lever/kontakt
+lander på **111** med almindelige data — ni fra grænsen. Et langt kontaktnavn
+sprænger den, og kontoret kunne ikke se det ved at kigge på en kodeblok.
+
+- **`{{max:N}}` i skabelonen**: en linje der kun indeholder markøren sætter
+  grænsen for blokken under sig (en blok = linjerne frem til næste tomme linje).
+  Markøren fjernes fra den tekst der kopieres — den er en instruktion, ikke
+  indhold. `renderTemplateBlocks` i [services/booking_template.js](services/booking_template.js)
+  returnerer `text_blocks: [{text, length, maxlen, over, missing}]` ved siden af
+  `clipboard_text`.
+- **Vi afkorter ALDRIG.** Popoutet viser tælleren (`111/120`), markerer blokken
+  rød når den er over, og skriver det i mangler-banneret. Hvad der skal ud er
+  kontorets valg — et telefonnummer klippet væk i stilhed er værre end en tekst
+  man selv forkorter.
+- **Blokke er klikbare**: hver blok er sin egen kopi-knap, for kontoret kopierer
+  blok for blok ind i leverandørens formular. **Tælleren bor uden for blokkens
+  span**, så den hverken følger med ved klik eller ved en musemarkering.
+  "Kopiér hele teksten" bruger payloadets egen tekst, ikke DOM'ens `textContent`,
+  af samme grund.
+- **Whitespace bevares præcist.** Kontoret har selv valgt hvor luften skal være,
+  og vi samler ikke teksten på ny med vores egne separatorer.
+- **`maxlen` på felter** (`booking_fields_json`) giver samme tæller i
+  felt-for-felt-visningen. Additivt: et felt uden `maxlen` opfører sig som før.
+- **Migration 181** sætter begge dele på Taxa: markøren før besked-blokken og
+  adressen som egen blok før datoen (111 + 36 = 147 ville have sprængt grænsen,
+  så den kunne ikke komme ind i blokken). Skabelonen er kontorets egen tekst, så
+  migrationen **overskriver den ikke** — den sætter kun det ind der mangler, og
+  kun når ankeret optræder præcis én gang. Har nogen skrevet skabelonen om, sker
+  der ingenting. `booking_template` seedes i øvrigt ikke af nogen migration, så
+  på en frisk dev-DB er 181 en no-op; det er drift den retter.
+
+> ⚠️ **`_dvParseFields` i Settings tabte `maxlen`.** Editoren mappede kun
+> label/template/step, så grænsen ville være forsvundet første gang nogen åbnede
+> vognen og trykkede Gem — en indstilling der falder bort fordi editoren ikke
+> kendte den. Feltet er nu med hele vejen: parse → input-række → serialisering.
+> Låst fast af en test, fordi den slags kun viser sig ved et tilfældigt gem.
+
+**Tests**: `npm run test:tegngraense` — 66 asserts. Blok-parsingen, felternes
+`maxlen`, migrationen (inkl. at den lader en omskrevet skabelon være), og
+popoutets rendering i vm-sandkasse — hvor en attrap registrerer klik-handlerne,
+så vi måler hvad et klik **faktisk kopierer** og ikke kun hvordan markup'en ser
+ud. **Mutations-testet: 9 mutationer, alle fanget.** To slap igennem første runde
+og blev lukket: en assert der ikke kunne skelne tællerens placering, og en linje
+kode der viste sig uopnåelig (den blanke linje nulstiller altid grænsen) og
+derfor er fjernet frem for at få en test skrevet om sig.
+
+Browser-verificeret mod driftsskabelonen med rigtige museklik: markøren væk,
+tæller over blokken, adressen som egen blok, klik kopierer præcis blokken uden
+tælleren, langt kontaktnavn → rødt med banner, "Kopiér hele teksten" uden
+tællere og med telefonnummeret intakt, og `maxlen` overlever et gem gennem
+Settings. Testdata ryddet.
+
+**Efterspil fra drifttesten (samme dag).** To ting kom retur:
+
+- **Tælleren stod ved siden af blokkens sidste linje** og så dermed ud som en
+  del af den. Grænsen gælder hele blokken, så tælleren står nu på sin egen
+  linje **over** den. Den bor fortsat uden for blokkens span og har
+  `user-select: none`, så den hverken følger med ved klik eller ved en
+  musemarkering — begge dele efterprøvet i browseren.
+- **`{total_boxes}` gav et bart "1"** (`start: B4296, 1 hos Ristet Rug`), som
+  ikke siger noget til den der skal køre. Ny **`{total_boxes_text}`** er samme
+  tal med ordet på, **bøjet**: `1 kasse` / `4 kasser`. Bøjningen hører i koden —
+  `{total_boxes} kasser` i skabelonen ville give "1 kasser". **Migration 182**
+  bytter variablen ud i Taxas skabelon.
+
+  Det rene tal bevares som `{total_boxes}` og bruges uændret af By-expressens
+  felt **"Antal kolli"**: et formularfelt der spørger om et antal skal have `4`,
+  ikke "4 kasser".
+
+**Og så blev der gjort plads** (migration 183 + 184, begge drift-forslag):
+`kontakt: ` → `tlf ` sparer 5 tegn, `lever til ` → `lever: ` sparer 3. Begge
+siger det samme i den telegramstil blokken allerede har (`start:`), og kolon
+går igen. Blokken går fra 117–119 til **109–111 af de 120**:
+
+| | 1 kasse | 12 kasser |
+|---|---|---|
+| før | 117 | 119 |
+| efter `tlf` | 112 | 114 |
+| efter `lever:` | **109** | **111** |
+
+Det giver plads til et kontaktnavn på **34 tegn** mod 23 i dag. Et virkelig
+langt navn sprænger stadig grænsen — det er dét tælleren er til for.
+
+Begge migrationer matcher **hele ankeret** (`kontakt: {delivery_contact_name}`,
+`lever til {company_name}`), ikke bare ordene: et `kontakt:` eller `lever til`
+foran fri tekst er kontorets egen formulering og skal stå.
+
+Testen voksede 66 → **93 asserts**; 17 mutationer i alt, alle fanget.
+
+> ⚠️ **En pre-eksisterende natte-bug faldt ud undervejs.**
+> `test-delivery-spor2-courier.js` byggede sin dato med
+> `new Date().toISOString().slice(0,10)` (UTC), mens serverens `/courier/today`
+> bruger `todayISO()` (Europe/Copenhagen). Mellem midnat og kl. 02 oprettede
+> testen ruter på den ene dag og spurgte efter den anden — alle 29 asserts
+> faldt. Den blev synlig fordi arbejdet løb over midnat; jf. #133 og
+> memory `project_utc_today_bug`. Rettet til `todayISO()`.
+
 
 ## Næste opgave
 

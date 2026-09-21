@@ -12,6 +12,9 @@
 // ============================================================
 
 'use strict';
+// Isoleret database — et test-script må aldrig røre udviklerens egen (#516).
+require('./helpers/isolated_db');
+
 const path = require('path');
 const Module = require('module');
 

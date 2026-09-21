@@ -62,7 +62,7 @@ const { getDb } = require('../db/database');
 // vagthunden holder op med at se dem. Den fejl er ramt fem gange før (#133), og
 // her rammer den netop dét stykke der skal fange manglende lagertræk.
 // todayISO()/offsetISO() er forankret i Europe/Copenhagen.
-const { todayISO, offsetISO, bonOwnsStockCostSql } = require('../db/helpers');
+const { todayISO, offsetISO, bonOwnsStockCostSql, NON_DRIFT_LOCATION_CODES } = require('../db/helpers');
 
 const DAYS = Math.max(1, parseInt(process.env.INVENTORY_CHECK_DAYS, 10) || 3);
 
@@ -241,6 +241,24 @@ function findPartial(db, days) {
     `).all(offsetISO(-days));
 }
 
+// Trukket i en Grocy der ikke er drift (#535). Datogrænsen er med vilje IKKE
+// den samme som de øvrige: et træk i den forkerte Grocy kan ikke gentages, og
+// skaden bliver ikke mindre af at være en uge gammel — derfor hele vinduet
+// bagud, men stadig kun bons der ER trukket (ellers hører de til findUndeducted).
+function findWrongLocation(db, days) {
+    const koder = NON_DRIFT_LOCATION_CODES.map(c => `'${c}'`).join(',');
+    return db.prepare(`
+        SELECT b.id, b.bon_number, b.delivery_date, b.inventory_deducted_at,
+               b.inventory_deduct_status, l.name AS location_name, l.code AS location_code
+        FROM bons b
+        JOIN locations l ON b.inventory_deducted_location_id = l.id
+        WHERE b.inventory_deducted = 1
+          AND LOWER(l.code) IN (${koder})
+          AND b.delivery_date >= ?
+        ORDER BY b.delivery_date, b.id
+    `).all(offsetISO(-days * 10));
+}
+
 async function main() {
     const db = getDb();
 
@@ -255,6 +273,7 @@ async function main() {
     const partial = findPartial(db, DAYS);
     const nothing = findNothingToDeduct(db, DAYS);
     const gated   = findGatedByEventPrep(db, DAYS);
+    const forkert = findWrongLocation(db, DAYS);
 
     // Nævnes altid, også når alt er i orden — ellers kan man ikke se forskel på
     // "ingen problemer" og "kontrollen kigger det forkerte sted".
@@ -269,7 +288,7 @@ async function main() {
               + gated.map(r => `#${r.bon_number}`).join(', '));
     }
 
-    if (rows.length === 0 && partial.length === 0) {
+    if (rows.length === 0 && partial.length === 0 && forkert.length === 0) {
         logLine(`[deduct-check] OK — alle leverede bons (seneste ${DAYS} dage) har trukket lager.`);
         return 0;
     }
@@ -307,6 +326,13 @@ async function main() {
               + `eller en consume-fejl. Tjek serverlog + scripts/dry-run-consume.js. `
               + `(Bons uden opskriftskobling er sorteret fra — de kan aldrig trække noget.)`);
     }
+    if (forkert.length) {
+        logLine(`[deduct-check] ⚠ ${forkert.length} bon(s) har trukket lager i en Grocy der IKKE er drift: `
+              + forkert.map(r => `#${r.bon_number} (${r.delivery_date} → ${r.location_name})`).join(', '));
+        logLine(`[deduct-check] Produktions-lageret er derfor FOR HØJT for de varer. Trækket kan ikke gentages `
+              + `(flaget er sat), så de skal trækkes manuelt i produktions-Grocy. Tjek Settings → Grocy: `
+              + `hvilken lokation er aktiv?`);
+    }
     if (partial.length) {
         logLine(`[deduct-check] ⚠ ${partial.length} leveret bon(s) har trukket lager DELVIST — mindst ét produkt `
               + `fejlede: ` + partial.map(fmtPartial).join(', '));
@@ -338,13 +364,20 @@ async function main() {
                       + `\n\nLageret er FOR HØJT for de produkter der fejlede. Trækket kan ikke bare gentages `
                       + `(det ville dobbelt-trække dem der lykkedes) — ret de enkelte produkter i Grocy.\n\n`;
             }
-            body += `Denne mail sendes af scripts/check-inventory-deduct.js (cron). Se issue #305 + #359.`;
+            if (forkert.length) {
+                body += `${forkert.length} bon(s) har trukket lager i en Grocy der ikke er drift:\n\n`
+                      + forkert.map(r => `  • #${r.bon_number} (${r.delivery_date}) → ${r.location_name}`).join('\n')
+                      + `\n\nProduktions-lageret er FOR HØJT for de varer, og trækket kan ikke gentages `
+                      + `(flaget er sat). Træk dem manuelt i produktions-Grocy, og kontrollér hvilken `
+                      + `lokation der er aktiv under Settings → Grocy.\n\n`;
+            }
+            body += `Denne mail sendes af scripts/check-inventory-deduct.js (cron). Se issue #305 + #359 + #535.`;
 
-            const subject = rows.length && partial.length
-                ? `⚠ Lagertræk: ${rows.length} fejlede, ${partial.length} delvise`
-                : rows.length
-                    ? `⚠ Lagertræk fejlede på ${rows.length} bon(s)`
-                    : `⚠ Lagertræk kun delvist gennemført på ${partial.length} bon(s)`;
+            const dele = [];
+            if (rows.length)    dele.push(`${rows.length} fejlede`);
+            if (partial.length) dele.push(`${partial.length} delvise`);
+            if (forkert.length) dele.push(`${forkert.length} i forkert Grocy`);
+            const subject = `⚠ Lagertræk: ${dele.join(', ')}`;
 
             await sendMail({ to, subject, text: body, smtpPrefix: 'smtp_kontakt' });
             logLine(`[deduct-check] alarm-mail sendt til ${to}.`);
@@ -361,7 +394,7 @@ async function main() {
 
 // Eksportér helpers til test uden at køre main().
 module.exports = { findUndeducted, findPartial, findNothingToDeduct, findGatedByEventPrep,
-                   failedProductNames };
+                   findWrongLocation, failedProductNames };
 
 if (require.main === module) {
     main()

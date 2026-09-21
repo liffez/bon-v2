@@ -593,7 +593,7 @@
 }
 .f3-cust-row {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto;
     gap: 16px;
     align-items: center;
     padding: 12px 16px;
@@ -601,6 +601,11 @@
     cursor: pointer;
     transition: background 0.12s;
 }
+/* En flex-/grid-celle har min-width:auto og kan derfor ikke krympe under sit
+   indholds min-bredde — en lang email ville ellers skubbe ×-knappen ud over
+   kortets kant (samme fælde som .f3-edit-wrap havde). */
+.f3-cust-main { min-width: 0; }
+.f3-cust-main .f3-cust-meta { overflow-wrap: anywhere; }
 .f3-cust-row:last-child { border-bottom: none; }
 .f3-cust-row:hover { background: #fbfaf6; }
 .f3-cust-name {
@@ -629,6 +634,143 @@
     font-weight: 600;
     color: var(--color-text, #1f2024);
 }
+
+/* ── Fjern kontaktperson ───────────────────────────────── */
+/* Dæmpet, men SYNLIG. En knap der først dukker op ved hover bliver overset —
+   og her er den eneste vej til at rydde op i dubletter. */
+.f3-cust-remove {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    font-size: 17px;
+    line-height: 1;
+    color: var(--color-text-dim, #7c8089);
+    opacity: .5;
+    cursor: pointer;
+    transition: opacity .12s, background .12s, color .12s, border-color .12s;
+}
+.f3-cust-row:hover .f3-cust-remove { opacity: 1; }
+.f3-cust-remove:hover {
+    background: #fdf1f1;
+    border-color: #e8c4c4;
+    color: #a23b3b;
+    opacity: 1;
+}
+.f3-cust-row-confirming { background: #fbfaf6; cursor: default; }
+
+.f3-cust-confirm {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+    padding: 12px 14px;
+    background: white;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    cursor: default;
+}
+.f3-cc-load, .f3-cc-err { font-size: 13px; color: var(--color-text-dim, #7c8089); }
+.f3-cc-err { color: #a23b3b; }
+.f3-cc-head { font-size: 13px; margin-bottom: 4px; }
+.f3-cc-content {
+    font-size: 12px;
+    color: var(--color-text-dim, #7c8089);
+    margin-bottom: 10px;
+}
+.f3-cc-empty { font-style: italic; }
+.f3-cc-choices {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.f3-cc-btn {
+    flex: 1 1 210px;
+    min-width: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: left;
+    padding: 9px 12px;
+    background: white;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+}
+.f3-cc-btn:hover:not(:disabled) { background: #fbfaf6; border-color: #b8b0a5; }
+.f3-cc-btn:disabled { opacity: .5; cursor: default; }
+.f3-cc-btn-t { font-size: 13px; font-weight: 600; color: var(--color-text, #1f2024); }
+.f3-cc-btn-d { font-size: 11px; color: var(--color-text-dim, #7c8089); }
+.f3-cc-close:hover:not(:disabled) { background: #fdf1f1; border-color: #e8c4c4; }
+.f3-cc-close .f3-cc-btn-t { color: #8c3232; }
+.f3-cc-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 9px;
+}
+.f3-cc-cancel {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 12px;
+    color: var(--color-text-dim, #7c8089);
+    text-decoration: underline;
+    cursor: pointer;
+}
+.f3-cc-msg { font-size: 12px; color: var(--color-text-dim, #7c8089); }
+.f3-cc-msg-err { color: #a23b3b; }
+
+/* ── Lukkede kontaktpersoner ───────────────────────────── */
+.f3-closed-wrap { margin-top: 12px; }
+.f3-closed-toggle {
+    background: none;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--color-text-dim, #7c8089);
+    cursor: pointer;
+}
+.f3-closed-toggle:hover { background: #fbfaf6; }
+.f3-closed-caret { margin-left: 4px; }
+.f3-closed-list {
+    margin-top: 8px;
+    background: white;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.f3-closed-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+    opacity: .72;
+}
+.f3-closed-row:last-child { border-bottom: none; }
+.f3-closed-main { min-width: 0; }
+.f3-closed-name { font-size: 13px; font-weight: 600; }
+.f3-closed-meta {
+    display: block;
+    font-size: 11px;
+    color: var(--color-text-dim, #7c8089);
+    overflow-wrap: anywhere;
+}
+.f3-closed-restore {
+    background: white;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.f3-closed-restore:hover:not(:disabled) { background: #fbfaf6; }
+.f3-closed-restore:disabled { opacity: .5; cursor: default; }
 
 /* ── Bons/tilbud-tabel ─────────────────────────────────── */
 .f3-table {
