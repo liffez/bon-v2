@@ -2770,21 +2770,28 @@ function _ibAddProductAutocomplete(q) {
     if (!q || q.trim().length < 2) { ac.style.display = 'none'; return; }
 
     q = q.trim().toLowerCase();
-    var matches = [];
+
+    // Inaktive varer SKJULES ikke — 39 af 225 i grocy-hq er det, og en skjult
+    // vare får brugeren til at oprette en dublet ved siden af den der findes
+    // (begge Tørrepapir ligger inaktive på Serviwets lokation). De mærkes og
+    // lægges sidst, og tilføjelsen tager dem i brug igen.
+    var aktive = [], inaktive = [];
     var productIds = Object.keys(_ibProducts);
-    for (var i = 0; i < productIds.length && matches.length < 12; i++) {
+    for (var i = 0; i < productIds.length && (aktive.length + inaktive.length) < 12; i++) {
         var p = _ibProducts[productIds[i]];
-        if (p && p.name && p.name.toLowerCase().indexOf(q) >= 0) {
-            matches.push(p);
-        }
+        if (!p || !p.name || p.name.toLowerCase().indexOf(q) < 0) continue;
+        (grocyProductActive(p) ? aktive : inaktive).push(p);
     }
+    var matches = aktive.concat(inaktive);
 
     if (!matches.length) { ac.style.display = 'none'; return; }
 
     ac.innerHTML = matches.map(function(p) {
         var group = p.product_group || '';
-        return '<div class="ib-add-ac-item" data-pid="' + p.id + '">'
+        var ude = !grocyProductActive(p);
+        return '<div class="ib-add-ac-item' + (ude ? ' ude' : '') + '" data-pid="' + p.id + '">'
             + '<span class="ib-add-ac-name">' + _ibEsc(p.name) + '</span>'
+            + (ude ? '<span class="ib-add-ac-ude">ikke i brug</span>' : '')
             + (group ? '<span class="ib-add-ac-meta">' + _ibEsc(group) + '</span>' : '')
             + '</div>';
     }).join('');
@@ -2794,13 +2801,17 @@ function _ibAddProductAutocomplete(q) {
         item.addEventListener('click', function() {
             var pid = parseInt(item.dataset.pid);
             var prod = _ibProducts[pid];
-            _ibAddProdSelected = prod ? { id: prod.id, name: prod.name } : null;
+            _ibAddProdSelected = prod
+                ? { id: prod.id, name: prod.name, inactive: !grocyProductActive(prod) }
+                : null;
             var inp = document.getElementById('ibAddProdQ');
             if (inp) inp.value = prod ? prod.name : '';
             ac.style.display = 'none';
             var selEl = document.getElementById('ibAddProdSel');
             if (selEl) selEl.innerHTML = prod
                 ? '<span style="color:#6a8f3a;font-weight:700">✓ ' + _ibEsc(prod.name) + '</span>'
+                  + (grocyProductActive(prod) ? ''
+                     : '<span class="ib-add-ac-ude" style="margin-left:6px">tages i brug igen</span>')
                 : 'Søg efter produktnavn...';
             var qtyInp = document.getElementById('ibAddProdQty');
             if (qtyInp) qtyInp.focus();
@@ -2816,8 +2827,20 @@ async function _ibAddProductConfirm() {
 
     _ibBusy = true;
     try {
+        // Varen er sat ud af brug i Grocy. At lægge den på indkøbslisten ER at
+        // tage den i brug igen, så vi gør det — men siger det højt, for det er
+        // en beslutning nogen har truffet den anden vej.
+        var genaktiveret = false;
+        if (_ibAddProdSelected.inactive) {
+            await putGrocyProduct(_ibAddProdSelected.id, { active: 1 }, 'indkob');
+            genaktiveret = true;
+            var gp = _ibProducts[_ibAddProdSelected.id];
+            if (gp) gp.active = 1;
+        }
+
         await addShoppingListProduct(_ibAddProdSelected.id, qty, 1);
-        _ibToast(_ibAddProdSelected.name + ' tilføjet (' + qty + ')');
+        _ibToast(_ibAddProdSelected.name + ' tilføjet (' + qty + ')'
+                 + (genaktiveret ? ' — og taget i brug igen' : ''));
         _ibAddProdSelected = null;
         _ibPanelOpen = null;
 

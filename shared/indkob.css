@@ -157,6 +157,10 @@ body.zone-office .ib-toolbar { top: 0; }
 /* Cap højden så lange lister (17/27 varer) scroller INDE i panelet i stedet
    for at skubbe "Tilføj valgte"-footeren under fold'en (#257). */
 .ib-panel-inner { padding: 10px 16px; max-height: 44vh; overflow-y: auto; }
+/* Tilføj-vare-panelet har ingen lang liste — kun ét søgefelt — men dets
+   autocomplete er position:absolute og blev klippet af overflow-reglen
+   ovenfor, så man kun så den øverste række af op til 12 forslag. */
+.ib-panel[data-ib-panel="add-product"] .ib-panel-inner { max-height: none; overflow: visible; }
 .ib-panel-item {
     display: flex;
     align-items: center;
@@ -278,7 +282,16 @@ body.zone-office .ib-toolbar { top: 0; }
 }
 .ib-add-ac-item:hover { background: var(--color-background, #f5f4f2); }
 .ib-add-ac-name { font-weight: 700; }
-.ib-add-ac-meta { font-size: 11px; color: var(--color-text-dim, #777); }
+.ib-add-ac-meta { font-size: 11px; color: var(--color-text-dim, #777); margin-left: auto; }
+/* Ude af brug i Grocy — vises, men dæmpet, så man kan se forskel FØR man vælger. */
+.ib-add-ac-item.ude .ib-add-ac-name { font-weight: 600; color: var(--color-text-dim, #777); }
+.ib-add-ac-ude {
+    font-size: 10px; font-weight: 700; letter-spacing: .02em;
+    padding: 1px 6px; border-radius: 999px;
+    background: var(--color-background, #f5f4f2);
+    border: 1px solid var(--color-border, #d7d1ca);
+    color: var(--color-text-dim, #777); white-space: nowrap;
+}
 
 .ib-panel-cancel {
     padding: 7px 12px;

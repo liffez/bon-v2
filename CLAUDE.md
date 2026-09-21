@@ -9349,6 +9349,30 @@ Testdata slettet, grocy-test gendannet.
 > information tabes — begge står på linjen — men noten kan med fordel rettes til
 > Serviwets egen tekst.
 
+**To fejl i "+ Tilføj vare" fundet under drifttesten (samme runde).**
+
+`Tørrepapir - Papirhåndklæder` kunne ikke lægges på indkøbslisten: varen FINDES i
+grocy-hq (id 106), men er sat `active: 0`, og Grocy afviser den med
+`400 Product does not exist or is inactive`. Fejlen kom først når man havde trykket
+Tilføj, og sagde ikke hvad man skulle gøre. **39 af 225 produkter er inaktive**, og
+begge Tørrepapir ligger på Serviwets lokation.
+
+At **skjule** de inaktive er den forkerte kur — så opretter man en dublet ved siden af
+den der findes. De vises mærket *"ikke i brug"* og lægges sidst; **Tilføj** sætter
+`active: 1` først og siger det i kvitteringen, for nogen har truffet den modsatte
+beslutning. Fejler genaktiveringen, tilføjes varen ikke — ellers ville kvitteringen
+lyve om noget Grocy lige har afvist. `grocyProductActive()` i `shared/utils.js` er
+reglen (et produkt UDEN `active`-felt er i brug — `/stock` bærer ikke alle felter, jf. #613).
+
+Søgelisten viste desuden kun **én** række af op til 12: den er `position: absolute`
+inde i `.ib-panel-inner`, som har `max-height: 44vh; overflow-y: auto` (#257, så lange
+Manglende/Udløbende-lister scroller indeni), og blev klippet til panelets egen højde.
+Undtagelsen gælder **kun** tilføj-panelet — det har ingen lang liste, kun ét søgefelt.
+Målt i browseren: 34 px → 222 px synlig, 1 → 7 rækker.
+
+**Tests**: `npm run test:tilfoej-vare` — 27 asserts, den ÆGTE `shared/indkob.js` i en
+vm-sandkasse. **Mutations-testet: 9 mutationer, alle fanget.**
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
