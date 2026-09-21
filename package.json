@@ -25,6 +25,7 @@
     "test:web-order-firma": "node --experimental-sqlite --test tests/web_order_company_match.test.js tests/reseller_end_customer.test.js tests/companyMatcher.test.js",
     "test:crm-opfoelgning": "node --experimental-sqlite scripts/test-crm-opfoelgning-mail.js && node --experimental-sqlite scripts/test-crm-ringeliste.js",
     "test:kunde-flyt": "node --experimental-sqlite --test tests/customer_move.test.js",
+    "test:kunde-luk": "node --experimental-sqlite --test tests/customer_close.test.js",
     "test:soeg-id": "node --experimental-sqlite --test tests/search_by_id.test.js",
     "test:mark-internal": "node --experimental-sqlite --test tests/mark_internal_companies.test.js",
     "ryd:forhandler-firmaer": "node --experimental-sqlite scripts/merge-reseller-junk-companies.js",

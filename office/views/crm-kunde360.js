@@ -845,6 +845,28 @@ function _k3RenderShell() {
             .k3-back:hover { color: var(--brand-primary); }
 
             /* Avatar tile */
+            .k3-closed-banner {
+                display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+                padding: 10px 12px; margin-bottom: 14px;
+                background: #f6f3ee; border: 1px solid #d9d2c7; border-left: 3px solid #8a8a8a;
+                border-radius: 8px;
+            }
+            .k3-closed-txt { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .k3-closed-txt strong { font-size: 12.5px; }
+            .k3-closed-txt span { font-size: 11px; color: var(--color-text-dim, #7c8089); }
+            .k3-closed-restore {
+                flex-shrink: 0; box-sizing: border-box;
+                background: white; border: 1px solid var(--color-border, #d7d1ca);
+                border-radius: 6px; padding: 5px 11px; font-size: 12px; cursor: pointer;
+                white-space: nowrap;
+            }
+            .k3-closed-restore:hover:not(:disabled) { background: #fbfaf6; }
+            .k3-closed-restore:disabled { opacity: .5; cursor: default; }
+            /* Stadie-badgen ("AKTIV") er CRM-stadiet, ikke is_active — to
+               forskellige ting. Side om side med "Lukket" ser de alligevel
+               selvmodsigende ud, så resten af kortet dæmpes. */
+            .k3-profile-closed .k3-avatar-row,
+            .k3-profile-closed .k3-stage-badge { opacity: .62; }
             .k3-avatar-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
             .k3-avatar {
                 width: 52px; height: 52px; border-radius: 12px;
@@ -1507,10 +1529,29 @@ async function _k3SaveIdentity() {
     }
 }
 
+window._k3RestoreCustomer = async function() {
+    const btn = document.querySelector('.k3-closed-restore');
+    if (btn) { btn.disabled = true; btn.textContent = 'Gendanner\u2026'; }
+    try {
+        const r = await restoreCustomer(_k3CustomerId);
+        await _k3LoadData();
+        // En adresse en anden kunde har overtaget imens kan ikke åbnes igen —
+        // to aktive ejere ville gøre mail-routingen tvetydig. Sig det, ellers
+        // ville kontaktpunktet bare mangle.
+        const sk = (r.contact_points_skipped || []).length;
+        if (sk) alert('Gendannet — men ' + sk + ' adresse' + (sk === 1 ? '' : 'r') +
+                      ' bruges nu af en anden kontakt og blev ikke åbnet igen.');
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '\u21ba Gendan'; }
+        alert('Kunne ikke gendanne: ' + e.message);
+    }
+};
+
 function _k3RenderProfile() {
     const el = document.getElementById('k3Profile');
     if (!el || !_k3Data) return;
     const c = _k3Data.customer;
+    el.classList.toggle('k3-profile-closed', c.is_active === 0);
     const s = _k3Data.stats;
 
     const stageClass = 'k3-stage-' + (c.stage || 'active');
@@ -1519,6 +1560,19 @@ function _k3RenderProfile() {
     const initial = (c.company_name || fullName || '?').charAt(0).toUpperCase();
 
     let html = '';
+
+    // Er kontaktpersonen lukket, skal det stå her. Kortet kan nås fra en bon
+    // eller et gammelt link og ser ellers helt aktivt ud — og for en
+    // PRIVATKUNDE er dette den eneste vej tilbage: der findes intet Firma 360°
+    // at finde hende under.
+    if (c.is_active === 0) {
+        html += '<div class="k3-closed-banner">' +
+            '<div class="k3-closed-txt"><strong>Lukket kontaktperson</strong>' +
+                '<span>Står ikke i lister eller kundesøgning, og modtager ikke mail. ' +
+                'Bons og tilbud beholder navnet.</span></div>' +
+            '<button class="k3-closed-restore" onclick="_k3RestoreCustomer()">\u21ba Gendan</button>' +
+        '</div>';
+    }
 
     // Avatar row — navn + firma, med inline editor bagved blyanten
     html += '<div class="k3-avatar-row">' +

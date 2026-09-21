@@ -161,7 +161,9 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
                 oldValue: cust[field] == null ? null : String(cust[field]),
                 newValue: patch[field] == null ? null : String(patch[field]),
                 userId,
-                notes: field === 'company_id' ? 'flyttet til andet firma' : null,
+                notes: field !== 'company_id' ? null
+                    : (patch.company_id == null ? 'fjernet fra firmaet — er nu privatkunde'
+                                                : 'flyttet til andet firma'),
             });
         }
 
@@ -182,6 +184,183 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
 
     broadcast('customer_updated', { customer_id: id, changed });
     res.json({ ok: true, changed, company_cleanup: cleanup });
+}));
+
+
+// ─── LUK / GENDAN EN KONTAKTPERSON ─────────────────────────────
+//
+// customers.is_active har eksisteret siden 001 og filtreres på i hver eneste
+// CRM-liste — men INGEN skærm kunne sætte den til 0. Kun scripts og
+// merge-guiden kunne lukke en række, så en kontaktperson tilføjet ved en fejl
+// kunne aldrig fjernes igen. Danner-firmaet viser prisen: fire dubletter
+// (ida@danner.dl er en tastefejl i domænet, Eline Østergaard står to gange),
+// som ingen kunne rydde op i uden SQL.
+//
+// Lukning er is_active = 0, aldrig DELETE — samme konvention som firmaer,
+// leverandører og kontaktpunkter. Bons, tilbud og mailtråde peger fortsat på
+// rækken og beholder navnet: ingen af bon-visningernes joins filtrerer på
+// is_active (kontrolleret), så historikken er urørt.
+//
+// requireAuth() og ikke admin — samme begrundelse som PATCH ovenfor: den der
+// opdager dubletten skal kunne rydde op med det samme.
+
+/** Hvad hænger der på rækken? Vises i bekræftelsen og gemmes i changeloggen. */
+function customerContentCounts(db, id) {
+    const n = (sql) => db.prepare(sql).get(id).n;
+    return {
+        bons:        n(`SELECT COUNT(*) n FROM bons WHERE customer_id = ?
+                          AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)`),
+        tilbud:      n(`SELECT COUNT(*) n FROM bons WHERE customer_id = ? AND is_offer = 1`),
+        traade:      n('SELECT COUNT(*) n FROM mail_threads WHERE customer_id = ?'),
+        aktiviteter: n('SELECT COUNT(*) n FROM crm_activities WHERE customer_id = ?'),
+    };
+}
+
+// GET /api/customers/:id/content — hvad ville en lukning efterlade?
+// Bekræftelsen spørger FØR den lukker; et tal man først ser bagefter er ingen
+// hjælp. Samme opslag som lukningen selv bruger, så de to ikke kan blive uenige.
+router.get('/:id/content', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const c = db.prepare('SELECT id, is_active FROM customers WHERE id = ?').get(id);
+    if (!c) return res.status(404).json({ error: 'Kunde ikke fundet' });
+    res.json({ id, is_active: !!c.is_active, counts: customerContentCounts(db, id) });
+}));
+
+// DELETE /api/customers/:id  { reason? }  — luk kontaktpersonen (soft)
+router.delete('/:id', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const userId = getUserId(req);
+    const reason = String((req.body && req.body.reason) || '').trim().slice(0, 500) || null;
+
+    const cust = db.prepare(`
+        SELECT c.id, c.first_name, c.last_name, c.company_id, c.is_active, co.is_personal
+          FROM customers c LEFT JOIN companies co ON co.id = c.company_id
+         WHERE c.id = ?
+    `).get(id);
+    if (!cust) return res.status(404).json({ error: 'Kunde ikke fundet' });
+    if (!cust.is_active) return res.status(400).json({ error: 'Kontaktpersonen er allerede lukket' });
+
+    const counts = customerContentCounts(db, id);
+    const oldCompanyId = cust.company_id;
+    let cleanup = null;
+    let closedPoints = [];
+
+    transaction(db, () => {
+        db.prepare(`UPDATE customers SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id);
+
+        // Kontaktpunkterne lukkes med. Ellers ville findCustomerByEmail stadig
+        // kunne finde adressen — den filtrerer på BEGGE niveauer (kunde og
+        // punkt), så en indgående mail ville lande på en lukket række hvis kun
+        // det ene var lukket. Vi gemmer id + is_primary, så gendan kan åbne
+        // præcis de punkter vi selv lukkede, og ikke dem der lå lukket i forvejen.
+        closedPoints = db.prepare(`
+            SELECT id, kind, value, is_primary FROM contact_points
+             WHERE entity_type = 'customer' AND entity_id = ? AND is_active = 1
+        `).all(id);
+        if (closedPoints.length) {
+            db.prepare(`UPDATE contact_points
+                           SET is_active = 0, is_primary = 0, updated_at = CURRENT_TIMESTAMP
+                         WHERE entity_type = 'customer' AND entity_id = ? AND is_active = 1`).run(id);
+        }
+
+        // Var firmaet et PERSONLIGT (ensurePersonalCompanies i services/rfm.js
+        // laver et pr. kunde uden firma), står det nu tomt og lægges væk. Kun
+        // is_personal — et rigtigt firma må aldrig forsvinde som bivirkning af
+        // at en kontaktperson lukkes. deactivateCompanies gentjekker desuden
+        // hele tom-reglen, så en bon eller en mailtråd på rækken freder den.
+        if (oldCompanyId && cust.is_personal) {
+            cleanup = deactivateCompanies(db, [oldCompanyId], userId);
+        }
+
+        db.prepare(`
+            INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, user_id, notes, payload)
+            VALUES ('customer', ?, 'update', 'is_active', '1', '0', ?, ?, ?)
+        `).run(id, userId ?? null,
+            reason ? 'Kontaktperson lukket: ' + reason : 'Kontaktperson lukket',
+            JSON.stringify({
+                closed_contact_points: closedPoints.map(p => ({ id: p.id, is_primary: p.is_primary ? 1 : 0 })),
+                company_id: oldCompanyId,
+                company_closed: (cleanup && cleanup.deactivated) || [],   // rå id'er
+                counts,
+            }));
+    });
+
+    broadcast('customer_updated', { customer_id: id, changed: ['is_active'] });
+    res.json({ ok: true, closed: true, counts, contact_points_closed: closedPoints.length, company_cleanup: cleanup });
+}));
+
+// POST /api/customers/:id/restore — luk op igen
+//
+// Uden den ville en fejlklikket lukning være en blindgyde: en lukket kunde
+// står ikke i nogen liste og kan kun findes på sit id.
+router.post('/:id/restore', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const userId = getUserId(req);
+
+    const cust = db.prepare('SELECT id, company_id, is_active FROM customers WHERE id = ?').get(id);
+    if (!cust) return res.status(404).json({ error: 'Kunde ikke fundet' });
+    if (cust.is_active) return res.status(400).json({ error: 'Kontaktpersonen er ikke lukket' });
+
+    // Seneste lukning bærer hvilke kontaktpunkter og hvilket personligt firma
+    // der fulgte med. Findes den ikke (rækken er lukket af et script før denne
+    // rute fandtes), åbnes kunden alene — vi gætter ikke på hvad der hørte til.
+    const last = db.prepare(`
+        SELECT payload FROM changelog
+         WHERE entity_type = 'customer' AND entity_id = ? AND field_name = 'is_active' AND new_value = '0'
+         ORDER BY id DESC LIMIT 1
+    `).get(id);
+    let saved = {};
+    try { saved = JSON.parse(last?.payload || '{}') || {}; } catch { saved = {}; }
+
+    const reopened = [];
+    const skipped = [];
+    let companyReopened = null;
+
+    transaction(db, () => {
+        db.prepare(`UPDATE customers SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id);
+
+        for (const p of (saved.closed_contact_points || [])) {
+            const cp = db.prepare('SELECT id, kind, value, is_active FROM contact_points WHERE id = ?').get(p.id);
+            if (!cp || cp.is_active) continue;
+            // Adressen kan være blevet lært på en ANDEN kunde imens (#478
+            // springer kun over når den er "optaget" af en AKTIV række). Åbner
+            // vi den alligevel, får to kunder samme adresse, og
+            // findCustomerByEmail bliver tvetydig — dens LIMIT 1 uden ORDER BY
+            // ville route mailen til en tilfældig af de to.
+            const taken = db.prepare(`
+                SELECT cp.entity_id AS id FROM contact_points cp
+                  JOIN customers c ON c.id = cp.entity_id
+                 WHERE cp.entity_type = 'customer' AND cp.kind = ?
+                   AND LOWER(cp.value) = LOWER(?) AND cp.is_active = 1 AND c.is_active = 1
+                   AND cp.entity_id <> ?
+                 LIMIT 1
+            `).get(cp.kind, cp.value, id);
+            if (taken) { skipped.push({ value: cp.value, taken_by: taken.id }); continue; }
+            db.prepare(`UPDATE contact_points SET is_active = 1, is_primary = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+              .run(p.is_primary ? 1 : 0, cp.id);
+            reopened.push(cp.value);
+        }
+
+        // Lukkede vi selv et personligt firma i samme greb, åbnes det med —
+        // ellers ville kunden stå uden det firma hun havde før lukningen.
+        for (const cid of (saved.company_closed || [])) {
+            const co = db.prepare('SELECT id, is_active, is_personal FROM companies WHERE id = ?').get(cid);
+            if (!co || co.is_active || !co.is_personal) continue;
+            db.prepare('UPDATE companies SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(cid);
+            companyReopened = cid;
+        }
+
+        db.prepare(`
+            INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, user_id, notes, payload)
+            VALUES ('customer', ?, 'update', 'is_active', '0', '1', ?, 'Kontaktperson gendannet', ?)
+        `).run(id, userId ?? null, JSON.stringify({ contact_points_reopened: reopened, contact_points_skipped: skipped, company_reopened: companyReopened }));
+    });
+
+    broadcast('customer_updated', { customer_id: id, changed: ['is_active'] });
+    res.json({ ok: true, restored: true, contact_points_reopened: reopened, contact_points_skipped: skipped, company_reopened: companyReopened });
 }));
 
 // PATCH /api/customers/:id/economic — opdater e-conomic kontakt/kunde-nr
