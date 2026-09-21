@@ -1611,7 +1611,7 @@
       // Samler nye web-bestillinger + mail der kan blive en ordre, så de to
       // ting man ikke må overse altid har ét synligt sted — uanset view.
       // Tæller = bons_nye + crm_indbakke (samme tal som sidebar-badges).
-      let _attnData = { web_orders: [], mail: [], counts: { web: 0, mail: 0, total: 0 } };
+      let _attnData = { web_orders: [], failed_orders: [], mail: [], counts: { web: 0, failed: 0, mail: 0, total: 0 } };
       let _attnReloadTimer = null;
       let _attnAutoChecked = false;
       const _attnWrap  = document.getElementById('attn-wrap');
@@ -1638,14 +1638,29 @@
         if (_attnBtn) _attnBtn.classList.toggle('has-new', total > 0);
         if (!_attnPanel) return;
 
-        const web  = _attnData.web_orders || [];
-        const mail = _attnData.mail || [];
+        const web    = _attnData.web_orders || [];
+        const failed = _attnData.failed_orders || [];
+        const mail   = _attnData.mail || [];
         let html = '<div class="office-attn-head"><span>Nyt der kræver handling</span></div>';
 
         if (total === 0) {
           html += '<div class="office-attn-empty">✓ Alt er set — intet venter</div>';
         } else {
-          html += '<div class="office-attn-grp">🛒 Nye web-bestillinger (' + web.length + ')</div>';
+          if (failed.length) {
+            html += '<div class="office-attn-grp">⚠️ Bestillinger der ikke blev oprettet (' + failed.length + ')</div>';
+            failed.forEach(function(f) {
+              const who = f.customer_name || f.company_name || 'Ukendt';
+              const kontakt = [f.customer_phone, f.customer_email].filter(Boolean).join(' · ');
+              const naar = [f.delivery_date, f.delivery_time].filter(Boolean).join(' kl. ');
+              const sub = [naar, kontakt].filter(Boolean).join(' — ');
+              html += '<div class="office-attn-row failed" title="' + esc(f.failure_reason || '') + '">'
+                + '<div class="ar-main"><div class="ar-title">' + esc(who) + ' · ring op</div>'
+                + '<div class="ar-sub">' + esc(sub) + '</div></div>'
+                + '<button class="office-attn-ack" data-ack-web="' + f.web_order_id + '">Klaret</button></div>';
+            });
+          }
+
+          html += '<div class="office-attn-grp' + (failed.length ? ' sep' : '') + '">🛒 Nye web-bestillinger (' + web.length + ')</div>';
           web.forEach(function(w) {
             const who = w.customer_name || w.company_name || 'Ukendt';
             const subParts = [];
@@ -1683,7 +1698,23 @@
             acknowledgeBon(id).catch(function(){ /* SSE retter alligevel op */ });
             _attnData.web_orders = (_attnData.web_orders || []).filter(function(w){ return String(w.bon_id) !== String(id); });
             _attnData.counts.web = _attnData.web_orders.length;
-            _attnData.counts.total = _attnData.counts.web + (_attnData.mail || []).length;
+            _attnData.counts.total = _attnData.counts.web
+              + ((_attnData.failed_orders || []).length) + (_attnData.mail || []).length;
+            renderAttention();
+            scheduleBadgeReload();
+          });
+        });
+        _attnPanel.querySelectorAll('[data-ack-web]').forEach(function(btn) {
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const id = btn.dataset.ackWeb;
+            fetch('/api/web-orders/' + encodeURIComponent(id) + '/acknowledge', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }
+            }).catch(function(){ /* næste reload retter op */ });
+            _attnData.failed_orders = (_attnData.failed_orders || [])
+              .filter(function(f){ return String(f.web_order_id) !== String(id); });
+            _attnData.counts.failed = _attnData.failed_orders.length;
+            _attnData.counts.total = (_attnData.counts.web || 0) + _attnData.counts.failed + (_attnData.mail || []).length;
             renderAttention();
             scheduleBadgeReload();
           });
@@ -1712,7 +1743,7 @@
       async function loadAttention() {
         try {
           const data = await fetchNavAttention();
-          _attnData = data || { web_orders: [], mail: [], counts: { web: 0, mail: 0, total: 0 } };
+          _attnData = data || { web_orders: [], failed_orders: [], mail: [], counts: { web: 0, failed: 0, mail: 0, total: 0 } };
           renderAttention();
           // Auto-åbn + pulse én gang pr. login hvis der er noget at se.
           if (!_attnAutoChecked) {

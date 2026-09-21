@@ -38,6 +38,35 @@ const CUTOFF_DEFAULTS = Object.freeze({
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+// Leveringstidspunktets format. Begge offentlige bestillings-webhooks skal
+// kende reglen, og de importerer i forvejen checkOrderTiming herfra — så den
+// bor her, og modulet forbliver afhængighedsfrit (kan testes uden database).
+const DELIVERY_TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * Er strengen en rigtig kalenderdag i YYYY-MM-DD?
+ *
+ * Et regex alene er IKKE nok: `2026-02-31` matcher, og JavaScript ruller den
+ * stille over til 2. marts — så deadline ville blive beregnet for en dato der
+ * ikke findes. Derfor et round-trip: byg datoen af delene og se om den stadig
+ * bærer de samme tal.
+ */
+function isValidDeliveryDate(value) {
+    const m = ISO_DATE.exec(String(value || '').trim());
+    if (!m) return false;
+    const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+    const d = new Date(Date.UTC(year, month - 1, day));
+    if (Number.isNaN(d.getTime())) return false;
+    return d.getUTCFullYear() === year
+        && d.getUTCMonth() === month - 1
+        && d.getUTCDate() === day;
+}
+
+/** Er strengen et klokkeslæt i HH:MM (00:00–23:59)? */
+function isValidDeliveryTime(value) {
+    return DELIVERY_TIME.test(String(value || '').trim());
+}
+
 // ─── Indstillinger ──────────────────────────────────────────────────────────
 
 // Heltal i et interval, ellers standardværdien. Browseren havde her en fælde
@@ -124,6 +153,9 @@ function danishWallClock(now = new Date()) {
 function cutoffMomentFor(deliveryIso, cfg) {
     const m = ISO_DATE.exec(String(deliveryIso || '').trim());
     if (!m) return null;
+    // `2026-02-31` matcher regexen. Uden round-trippet ruller Date den til
+    // 2. marts, og vi ville svare med en deadline for en dag der ikke findes.
+    if (!isValidDeliveryDate(deliveryIso)) return null;
 
     // Ren dato-aritmetik, forankret i UTC så den ikke afhænger af serverens
     // tidszone. Samme mønster som offsetISO() i db/helpers.js.
@@ -195,6 +227,8 @@ module.exports = {
     DAY_KEYS,
     readCutoffConfig,
     cutoffMomentFor,
+    isValidDeliveryDate,
+    isValidDeliveryTime,
     danishWallClock,
     checkOrderTiming,
 };

@@ -132,7 +132,7 @@ router.get('/badges', requireAuth(), handle((req, res) => {
 // aldrig modsiger hinanden.
 router.get('/attention', requireAuth(), handle((req, res) => {
     const db = getDb();
-    const out = { web_orders: [], mail: [], counts: { web: 0, mail: 0, total: 0 } };
+    const out = { web_orders: [], failed_orders: [], mail: [], counts: { web: 0, failed: 0, mail: 0, total: 0 } };
 
     // ── Nye web-bestillinger ────────────────────────────────────────
     try {
@@ -214,9 +214,40 @@ router.get('/attention', requireAuth(), handle((req, res) => {
     out.mail = unmatched.concat(threads)
         .sort((a, b) => String(b.received_at || '').localeCompare(String(a.received_at || '')));
 
+    // ── Web-bestillinger der ALDRIG blev til en bon (#638) ──────────
+    //
+    // Panelets hovedliste ovenfor går `FROM bons JOIN web_orders` — en ordre
+    // uden bon falder derfor helt ud af den. Det var præcis hullet: rækken
+    // blev gemt, og ingen kunne se den. Her er den modsatte vej ind.
+    //
+    // `status='afvist'` holdes UDE med vilje: kunden fik en forklaring og en
+    // vej videre (deadline, ferielukket), så der er ingen handling at tage.
+    // De ligger i web_orders til rapportering — GET /api/web-orders?status=afvist.
+    try {
+        out.failed_orders = db.prepare(`
+            SELECT wo.id             AS web_order_id,
+                   wo.customer_name  AS customer_name,
+                   wo.customer_email AS customer_email,
+                   wo.customer_phone AS customer_phone,
+                   wo.company        AS company_name,
+                   wo.delivery_date  AS delivery_date,
+                   wo.delivery_time  AS delivery_time,
+                   wo.pax            AS pax,
+                   wo.failure_reason AS failure_reason,
+                   wo.created_at     AS created_at
+            FROM web_orders wo
+            WHERE wo.bon_id IS NULL
+              AND wo.acknowledged_at IS NULL
+              AND wo.status <> 'afvist'
+            ORDER BY wo.created_at DESC
+            LIMIT 50
+        `).all();
+    } catch (e) { console.warn('[nav/attention] failed_orders:', e.message); }
+
     out.counts.web = out.web_orders.length;
+    out.counts.failed = out.failed_orders.length;
     out.counts.mail = out.mail.length;
-    out.counts.total = out.counts.web + out.counts.mail;
+    out.counts.total = out.counts.web + out.counts.failed + out.counts.mail;
 
     res.set('Cache-Control', 'no-cache');
     res.json(out);

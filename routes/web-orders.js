@@ -9,7 +9,9 @@ const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
 const { createBon, todayISO } = require('../db/helpers');
-const { checkOrderTiming } = require('../services/orderCutoff');
+const { checkOrderTiming, isValidDeliveryDate, isValidDeliveryTime } = require('../services/orderCutoff');
+const { transaction } = require('../db/compat');
+const { requireAuth } = require('../shared/auth');
 const { resolveOrderCompany, appendWishesLine } = require('../services/orderCompanyResolver');
 
 // En afvisning kunden SKAL have at vide. Webhooken svarede historisk 200 uanset
@@ -55,9 +57,52 @@ router.post('/bestilling', async (req, res) => {
       // har en vej videre i stedet for en blindgyde.
       return res.status(409).json({ ok: false, code: err.code, message: err.message });
     }
+    // Uventet fejl. Historisk svarede vi 200 her — kunden fik "tak for din
+    // bestilling" mens intet blev oprettet, og formularens mailto-udvej fyrer
+    // kun på !res.ok, så den udløstes aldrig (#638). For en madbestilling er
+    // det den værste udgang: kunden tror maden kommer.
+    //
+    // Statuskoden er usynlig for kunden — formularen renderer kun `message`
+    // (eller sin egen faldback-tekst), aldrig HTTP-statussen. Så beskeden her
+    // ER det kunden ser, og den skal være SAND: har vi bestillingen liggende,
+    // siger vi det; har vi ikke, lover vi det ikke.
     console.error('[web-order] Fejl:', err);
-    res.json({ ok: true }); // Altid 200 til klienten
+    const gemt = !!err.webOrderId;
+    res.status(500).json({
+      ok: false,
+      code: gemt ? 'internal_error_saved' : 'internal_error',
+      message: gemt
+        ? 'Vi har modtaget dine oplysninger, men kunne ikke færdigbehandle '
+          + 'bestillingen. Vi kontakter dig hurtigst muligt — eller'
+        : 'Vi kunne ikke tage imod bestillingen lige nu. Prøv igen om lidt, eller',
+    });
   }
+});
+
+// ─── POST /api/web-orders/:id/acknowledge ──────────────────────────────────
+//
+// Office kvitterer for en fejlet bestilling når kunden er ringet op. Uden den
+// kunne listen aldrig ryddes, og et panel der altid viser det samme holder man
+// op med at læse.
+//
+// requireAuth() er IKKE overflødig selvom /api ligger bag den globale gate:
+// den SAMME router er også monteret offentligt på /webhook (server.js:154), så
+// uden den her ville POST /webhook/:id/acknowledge være åben for internettet.
+router.post('/:id/acknowledge', requireAuth(), (req, res) => {
+  const db = getDb();
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Ugyldigt id' });
+
+  const row = db.prepare('SELECT id, acknowledged_at FROM web_orders WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: 'Ukendt web-ordre' });
+  if (row.acknowledged_at) return res.json({ id, acknowledged_at: row.acknowledged_at, already: true });
+
+  db.prepare(`UPDATE web_orders
+                 SET acknowledged_at = CURRENT_TIMESTAMP, acknowledged_by_user_id = ?
+               WHERE id = ?`).run(req.session?.userId || null, id);
+
+  const fresh = db.prepare('SELECT acknowledged_at FROM web_orders WHERE id = ?').get(id);
+  res.json({ id, acknowledged_at: fresh.acknowledged_at });
 });
 
 // ─── GET /api/web-orders ───────────────────────────────────────────────────
@@ -178,6 +223,64 @@ function isClosedDate(db, isoDate) {
   });
 }
 
+// ─── web_orders-rækken: sporet der skal overleve en fejl ────────────────────
+//
+// Rækken blev historisk skrevet EFTER bonen. Gik noget galt undervejs, efterlod
+// bestillingen derfor INTET spor — hverken en række eller en bon (#638). Den
+// skrives nu først, i sin egen commit uden for transaktionen, og opdateres når
+// bonen findes. Ligger den inde i transaktionen, ruller den tilbage sammen med
+// fejlen, og så er vi tilbage ved udgangspunktet.
+function insertWebOrderRow(db, data, { status = 'ny', failureReason = null } = {}) {
+  const addr = data.validatedAddress || {};
+  const orderType = data.ordertype === 'pickup' ? 'pickup' : 'catering';
+  const fullName = [(data.first_name || '').trim(), (data.last_name || '').trim()]
+    .filter(Boolean).join(' ');
+
+  const res = db.prepare(`
+    INSERT INTO web_orders (
+      order_type, customer_name, customer_email, customer_phone,
+      company, delivery_date, delivery_time,
+      address_text, address_lat, address_lon, address_postnr,
+      pax, wishes, ean_info, raw_data, bon_id, status, failure_reason
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, NULL, ?, ?)
+  `).run(
+    orderType,
+    fullName || null,
+    data.email?.trim() || null,
+    data.phone?.trim() || null,
+    // Det RÅ firmanavn som kunden tastede. Firma-resolveren (#567) kører først
+    // inde i transaktionen, så det afkodede navn kendes ikke endnu — og sporet
+    // skal ligge klar før dét punkt. Opdateres når resolveren har svaret.
+    data.company?.trim() || null,
+    data.delivery_date || null,
+    data.delivery_time || null,
+    addr.tekst || data.address_text || null,
+    addr.lat || null,
+    addr.lon || null,
+    addr.postnr || null,
+    data.pax ? parseInt(data.pax) : null,
+    data.wishes || null,
+    data.ean_info || null,
+    JSON.stringify(data),
+    status,
+    failureReason
+  );
+  return Number(res.lastInsertRowid);
+}
+
+// Et spor må aldrig vælte det det sporer: fejler opdateringen, siges det i
+// loggen, men fejlen kastes ikke videre.
+function updateWebOrderRow(db, id, fields) {
+  if (!id) return;
+  try {
+    const keys = Object.keys(fields);
+    db.prepare(`UPDATE web_orders SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`)
+      .run(...keys.map(k => fields[k]), id);
+  } catch (e) {
+    console.error(`[web-order] Kunne ikke opdatere web_orders #${id}:`, e.message);
+  }
+}
+
 async function handleWebOrder(data) {
   const db = getDb();
 
@@ -195,173 +298,234 @@ async function handleWebOrder(data) {
     return null;
   }
 
-  // 2b. Ferielukket — server-guard (formen spærrer allerede, men et direkte
+  // 2a. Format på leveringstidspunktet (#644)
+  //
+  // Feltet blev kun tjekket for at VÆRE der og gik derfra direkte i bonen.
+  // "i morgen" gav en bon der var halvt synlig: Senere og Planlægning viser
+  // den (tekst-sortering — `i` > `2`), mens I dag og Kalender ikke gør. Og
+  // cut-off-guarden fejler bevidst ÅBENT på en dato den ikke kan læse, så en
+  // ugyldig dato var den ene vej helt uden om deadline. Derfor FØR de to
+  // guards nedenfor.
+  //
+  // Rækken gemmes ikke her. En dato vi ikke kan læse giver ingen brugbar
+  // bestilling at følge op på, og formularens <input type="date"> kan ikke
+  // producere den — det er et direkte POST. Samme doktrin som manglende
+  // felter lige ovenfor.
+  if (!isValidDeliveryDate(data.delivery_date)) {
+    throw new OrderRejected('invalid_date',
+      'Leveringsdatoen kunne ikke læses. Vælg en dato i kalenderen, eller');
+  }
+  if (!isValidDeliveryTime(data.delivery_time)) {
+    throw new OrderRejected('invalid_time',
+      'Leveringstidspunktet kunne ikke læses. Angiv det som fx 11:30, eller');
+  }
+
+  // 2b. Gem bestillingen FØR noget andet røres (#638).
+  //
+  // Herfra og ned kan alt gå galt — og uanset hvad har vi nu kundens ordre
+  // liggende i rå form. Placeringen er et valg: efter honeypot og validering,
+  // så bot-spam og ulæselige kald ikke fylder tabellen, men før den første
+  // sideeffekt.
+  const webOrderId = insertWebOrderRow(db, data);
+
+  // 2c. Ferielukket — server-guard (formen spærrer allerede, men et direkte
   // API-kald skal ikke kunne snige en bestilling ind i en lukket periode).
   if (isClosedDate(db, data.delivery_date)) {
+    updateWebOrderRow(db, webOrderId,
+      { status: 'afvist', failure_reason: 'closed_period: ferielukket på leveringsdatoen' });
     throw new OrderRejected('closed_period',
       'Vi holder lukket på den valgte leveringsdato.');
   }
 
-  // 2c. Deadline — server-guard. Formularen tjekker i det øjeblik datoen vælges
+  // 2d. Deadline — server-guard. Formularen tjekker i det øjeblik datoen vælges
   // og aldrig igen, så en side der har stået åben siden formiddagen kunne sende
   // en bestilling til i morgen om aftenen. Reglen ligger i services/orderCutoff
   // og fejler ÅBENT: kan deadline ikke beregnes, slipper bestillingen igennem.
   const timing = checkOrderTiming(db, data.delivery_date, { todayIso: todayISO() });
   if (!timing.ok) {
+    // Gemt som afvist, ikke kastet væk: en ordre vi siger nej til er stadig
+    // en kunde der ville handle, og antallet siger noget om hvad reglen koster.
+    updateWebOrderRow(db, webOrderId,
+      { status: 'afvist', failure_reason: `${timing.code}: ${timing.message}` });
     throw new OrderRejected(timing.code,
       `${timing.message} Ring til os, så finder vi en løsning.`);
   }
 
-  // 3. Parse navn
-  const firstName = (data.first_name || '').trim();
-  const lastName  = (data.last_name || '').trim() || null;
-  const fullName  = [firstName, lastName].filter(Boolean).join(' ');
-
-  // 4. Find bestilleren på email
+  // ── Sideeffekterne i ÉN transaktion (#638) ───────────────────────────
   //
-  // Email er den eneste identitet formularen giver os der IKKE er fri tekst.
-  // Opslaget lå tidligere længere nede (trin 6); det er rykket herop fordi
-  // forhandler-reglen nedenfor skal vide hvem der bestiller, før firmaet
-  // afgøres. Samme forespørgsel, samme række — kun rækkefølgen er ændret.
-  const emailTrimmed = data.email?.trim() || '';
-  const existingCustomer = emailTrimmed
-    ? db.prepare(
-        'SELECT id, company_id FROM customers WHERE email = ? AND is_active = 1 LIMIT 1'
-      ).get(emailTrimmed) || null
-    : null;
-
-  // 5. Firma — én delt regel for begge indgange (#567 + #607)
+  // Trin 3–9 skriver fem steder: firma (resolveren kan oprette en række),
+  // kunde, adresse, bon og til sidst koblingen på sporet. Uden en transaktion
+  // efterlod en fejlet createBon en halvfærdig kunde- og adresserække som
+  // affald — og ingen kunne se hvorfor de lå der.
   //
-  // services/orderCompanyResolver.js afgør det, i denne rækkefølge:
-  //   forhandler (migration 167) → bestillerens eget firma → matcher
-  //   (CVR → EAN → e-mail → navnelighed) → nyt firma.
+  // web_orders-rækken ligger bevidst UDEN FOR (indsat ovenfor): den er sporet,
+  // og et rollback må ikke tage den med sig. Koblingen til bonen sker derimod
+  // INDE i transaktionen, så bon og spor commit'er sammen — der findes aldrig
+  // et øjeblik hvor bonen er oprettet mens sporet stadig siger "ikke færdig".
   //
-  // Før lå der et eksakt navne-opslag her, som oprettede en firma-række pr.
-  // skrivemåde ("University of Copenhagen" ved siden af "Københavns
-  // Universitet", `LANDBRUG &amp; FØDEVARER` ved siden af "Landbrug &
-  // Fødevarer"). Kunden blev derimod slået op på e-mail og ramte altid rigtigt
-  // — så bonnen lå på ét firma og kunden på et andet.
-  const resolved = resolveOrderCompany(db, {
-    typedName: data.company,
-    email: emailTrimmed,
-    invoiceInfo: data.ean_info,
-    cvr: data.cvr,
-    ean: data.ean,
-    // Bevidst INGEN by som tiebreaker: leveringsadressen er ikke firmaets
-    // adresse, og matcheren ville diskvalificere et firma i Frederiksberg der
-    // får leveret i København.
-    existingCustomer,
-  });
+  // transaction() er indlejrbar (db/compat.js), hvilket er nødvendigt her:
+  // createBon åbner sin egen for at låse nummerserien.
+  //
+  // Menu-linjerne (trin 10b) venter på Grocy over netværket og bliver derfor
+  // UDEN FOR — en SQLite-transaktion må ikke spænde over et netværkskald.
+  let tx;
+  try {
+    tx = transaction(db, () => {
+    // 3. Parse navn
+    const firstName = (data.first_name || '').trim();
+    const lastName  = (data.last_name || '').trim() || null;
+    const fullName  = [firstName, lastName].filter(Boolean).join(' ');
 
-  const reseller        = resolved.reseller;
-  const typedCompany    = resolved.typedName;   // afkodet — aldrig `&amp;`
-  const companyId       = resolved.companyId;
-  const endCustomerName = resolved.endCustomerName;
+    // 4. Find bestilleren på email
+    //
+    // Email er den eneste identitet formularen giver os der IKKE er fri tekst.
+    // Opslaget lå tidligere længere nede (trin 6); det er rykket herop fordi
+    // forhandler-reglen nedenfor skal vide hvem der bestiller, før firmaet
+    // afgøres. Samme forespørgsel, samme række — kun rækkefølgen er ændret.
+    const emailTrimmed = data.email?.trim() || '';
+    const existingCustomer = emailTrimmed
+      ? db.prepare(
+          'SELECT id, company_id FROM customers WHERE email = ? AND is_active = 1 LIMIT 1'
+        ).get(emailTrimmed) || null
+      : null;
 
-  // 6. EAN fra faktura-info
-  const eanInfo = data.ean_info || '';
-  const ean = resolved.ean;
+    // 5. Firma — én delt regel for begge indgange (#567 + #607)
+    //
+    // services/orderCompanyResolver.js afgør det, i denne rækkefølge:
+    //   forhandler (migration 167) → bestillerens eget firma → matcher
+    //   (CVR → EAN → e-mail → navnelighed) → nyt firma.
+    //
+    // Før lå der et eksakt navne-opslag her, som oprettede en firma-række pr.
+    // skrivemåde ("University of Copenhagen" ved siden af "Københavns
+    // Universitet", `LANDBRUG &amp; FØDEVARER` ved siden af "Landbrug &
+    // Fødevarer"). Kunden blev derimod slået op på e-mail og ramte altid rigtigt
+    // — så bonnen lå på ét firma og kunden på et andet.
+    const resolved = resolveOrderCompany(db, {
+      typedName: data.company,
+      email: emailTrimmed,
+      invoiceInfo: data.ean_info,
+      cvr: data.cvr,
+      ean: data.ean,
+      // Bevidst INGEN by som tiebreaker: leveringsadressen er ikke firmaets
+      // adresse, og matcheren ville diskvalificere et firma i Frederiksberg der
+      // får leveret i København.
+      existingCustomer,
+    });
 
-  // Ikke på en forhandler: et EAN i en forhandler-ordre hører til SLUTKUNDEN,
-  // ikke til forhandleren. Skrev vi det på forhandlerens firma-række, ville
-  // næste faktura til dem gå til en fremmed EAN-modtager.
-  if (ean && companyId && !reseller) {
-    db.prepare("UPDATE companies SET ean = ? WHERE id = ? AND (ean IS NULL OR ean = '')")
-      .run(ean, companyId);
-  }
+    const reseller        = resolved.reseller;
+    const typedCompany    = resolved.typedName;   // afkodet — aldrig `&amp;`
+    const companyId       = resolved.companyId;
+    const endCustomerName = resolved.endCustomerName;
 
-  // 7. Opret kunde hvis vi ikke kendte bestilleren
-  let customerId = existingCustomer?.id || null;
+    // 6. EAN fra faktura-info
+    const eanInfo = data.ean_info || '';
+    const ean = resolved.ean;
 
-  if (!customerId) {
-    const res = db.prepare(`
-      INSERT INTO customers (first_name, last_name, email, phone, company_id, is_active)
-      VALUES (?, ?, ?, ?, ?, 1)
-    `).run(firstName, lastName, data.email?.trim() || null, data.phone?.trim() || null, companyId);
-    customerId = Number(res.lastInsertRowid);
-  }
-
-  // 8. Opret adresse (kun catering/levering)
-  const orderType = data.ordertype || 'catering';
-  const deliveryType = orderType === 'pickup' ? 'pickup' : 'delivery';
-  let addressId = null;
-
-  if (deliveryType === 'delivery' && data.validatedAddress) {
-    const addr = typeof data.validatedAddress === 'string'
-      ? JSON.parse(data.validatedAddress)
-      : data.validatedAddress;
-
-    if (addr?.tekst) {
-      const vejMatch = addr.tekst.match(/^(.+?)\s+(\d+\S*),/);
-      const streetName = vejMatch ? vejMatch[1] : addr.tekst.split(',')[0];
-      const streetNr   = vejMatch ? vejMatch[2] : null;
-
-      const res = db.prepare(`
-        INSERT INTO addresses (street_name, street_nr, postal_code, city, lat, lon)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(streetName, streetNr, addr.postnr || null, addr.by || null,
-             addr.lat || null, addr.lon || null);
-      addressId = Number(res.lastInsertRowid);
+    // Ikke på en forhandler: et EAN i en forhandler-ordre hører til SLUTKUNDEN,
+    // ikke til forhandleren. Skrev vi det på forhandlerens firma-række, ville
+    // næste faktura til dem gå til en fremmed EAN-modtager.
+    if (ean && companyId && !reseller) {
+      db.prepare("UPDATE companies SET ean = ? WHERE id = ? AND (ean IS NULL OR ean = '')")
+        .run(ean, companyId);
     }
+
+    // 7. Opret kunde hvis vi ikke kendte bestilleren
+    let customerId = existingCustomer?.id || null;
+
+    if (!customerId) {
+      const res = db.prepare(`
+        INSERT INTO customers (first_name, last_name, email, phone, company_id, is_active)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `).run(firstName, lastName, data.email?.trim() || null, data.phone?.trim() || null, companyId);
+      customerId = Number(res.lastInsertRowid);
+    }
+
+    // 8. Opret adresse (kun catering/levering)
+    const orderType = data.ordertype || 'catering';
+    const deliveryType = orderType === 'pickup' ? 'pickup' : 'delivery';
+    let addressId = null;
+
+    if (deliveryType === 'delivery' && data.validatedAddress) {
+      const addr = typeof data.validatedAddress === 'string'
+        ? JSON.parse(data.validatedAddress)
+        : data.validatedAddress;
+
+      if (addr?.tekst) {
+        const vejMatch = addr.tekst.match(/^(.+?)\s+(\d+\S*),/);
+        const streetName = vejMatch ? vejMatch[1] : addr.tekst.split(',')[0];
+        const streetNr   = vejMatch ? vejMatch[2] : null;
+
+        const res = db.prepare(`
+          INSERT INTO addresses (street_name, street_nr, postal_code, city, lat, lon)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(streetName, streetNr, addr.postnr || null, addr.by || null,
+               addr.lat || null, addr.lon || null);
+        addressId = Number(res.lastInsertRowid);
+      }
+    }
+
+    // 9. Opret bon (fælles helper — #237)
+    const pax = data.pax ? parseInt(data.pax) : null;
+    const customerWishes = appendWishesLine(buildCustomerWishes(data), resolved.wishesLine);
+
+    // Saml leverings-info: extra-tekst (etage/indgang) gemmes i delivery_notes
+    const deliveryNotes = data.delivery_extra?.trim() || null;
+
+    const { bonId, bonNumber } = createBon({
+      customer_id: customerId,
+      company_id: companyId,
+      delivery_date: data.delivery_date,
+      delivery_time: data.delivery_time,
+      delivery_type: deliveryType,
+      delivery_address_id: addressId,
+      pax,
+      customer_wishes: customerWishes,
+      invoice_info: eanInfo || null,
+      day_contact_name: data.contact_person || null,
+      day_contact_phone: data.contact_phone || null,
+      end_customer_name: endCustomerName,
+      delivery_notes: deliveryNotes,
+      changelog_field: 'web_order',
+      // Forklarer HVORFOR bonnen ligger hvor den ligger, når det ikke er det
+      // firmanavn der blev tastet. Uden linjen ser det ud som om nogen har
+      // rettet firmaet i hånden.
+      changelog_message: `Oprettet via web-bestilling (${data.email || fullName})` +
+        (resolved.note ? ` — ${resolved.note}` : ''),
+      broadcast_extra: { source: 'web_order' },
+    });
+
+
+      // 10. Kobl sporet til bonen — samme commit som bonen selv.
+      updateWebOrderRow(db, webOrderId, {
+        bon_id: bonId,
+        status: 'konverteret',
+        // Resolveren kan have fundet et andet firma end det kunden tastede
+        // (#567). Sporet skal vise det navn bonen faktisk ligger på.
+        company: typedCompany || null,
+      });
+
+      return {
+        firstName, lastName, fullName, resolved, reseller, typedCompany,
+        companyId, endCustomerName, eanInfo, ean, customerId, orderType,
+        deliveryType, addressId, pax, customerWishes, deliveryNotes,
+        bonId, bonNumber,
+      };
+    });
+  } catch (err) {
+    // Sporet ER skrevet — bestillingen er ikke tabt. Marker hvorfor den ikke
+    // blev til en bon, og lad routen vide at vi har den, så beskeden til
+    // kunden kan være sand.
+    err.webOrderId = webOrderId;
+    updateWebOrderRow(db, webOrderId, { failure_reason: String(err && err.message || err) });
+    console.error(`[web-order] Bon kunne ikke oprettes (web_order #${webOrderId}):`, err);
+    throw err;
   }
 
-  // 9. Opret bon (fælles helper — #237)
-  const pax = data.pax ? parseInt(data.pax) : null;
-  const customerWishes = appendWishesLine(buildCustomerWishes(data), resolved.wishesLine);
-
-  // Saml leverings-info: extra-tekst (etage/indgang) gemmes i delivery_notes
-  const deliveryNotes = data.delivery_extra?.trim() || null;
-
-  const { bonId, bonNumber } = createBon({
-    customer_id: customerId,
-    company_id: companyId,
-    delivery_date: data.delivery_date,
-    delivery_time: data.delivery_time,
-    delivery_type: deliveryType,
-    delivery_address_id: addressId,
-    pax,
-    customer_wishes: customerWishes,
-    invoice_info: eanInfo || null,
-    day_contact_name: data.contact_person || null,
-    day_contact_phone: data.contact_phone || null,
-    end_customer_name: endCustomerName,
-    delivery_notes: deliveryNotes,
-    changelog_field: 'web_order',
-    // Forklarer HVORFOR bonnen ligger hvor den ligger, når det ikke er det
-    // firmanavn der blev tastet. Uden linjen ser det ud som om nogen har
-    // rettet firmaet i hånden.
-    changelog_message: `Oprettet via web-bestilling (${data.email || fullName})` +
-      (resolved.note ? ` — ${resolved.note}` : ''),
-    broadcast_extra: { source: 'web_order' },
-  });
-
-  // 10. Gem i web_orders
+  const {
+    fullName, resolved, reseller, typedCompany, endCustomerName,
+    orderType, deliveryType, pax, bonId, bonNumber,
+  } = tx;
   const addr = data.validatedAddress || {};
-  db.prepare(`
-    INSERT INTO web_orders (
-      order_type, customer_name, customer_email, customer_phone,
-      company, delivery_date, delivery_time,
-      address_text, address_lat, address_lon, address_postnr,
-      pax, wishes, ean_info, raw_data, bon_id, status
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'konverteret')
-  `).run(
-    orderType,
-    fullName,
-    data.email?.trim() || null,
-    data.phone?.trim() || null,
-    typedCompany || null,
-    data.delivery_date || null,
-    data.delivery_time || null,
-    addr.tekst || data.address_text || null,
-    addr.lat || null,
-    addr.lon || null,
-    addr.postnr || null,
-    pax,
-    data.wishes || null,
-    eanInfo || null,
-    JSON.stringify(data),
-    bonId
-  );
 
   // 10b. Auto-generér bon-linjer fra kundens menu-valg (#382).
   //     Best-effort: en Grocy-fejl må ALDRIG vælte selve bestillingen — bonen er
