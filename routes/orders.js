@@ -157,7 +157,7 @@ router.post('/pending', handle(async (req, res) => {
         grocy_location_id,
         order_reference, expected_delivery_date,
         notes, items, sent_via, send_email,
-        email_subject, email_body,
+        email_subject, email_body, email_to,
     } = req.body;
 
     // location_id = Ristet Rugs siteId (HQ/Trailer). NOT NULL i DB.
@@ -252,10 +252,32 @@ router.post('/pending', handle(async (req, res) => {
                 //
                 // Uden en rettet kladde renderes skabelonen som hidtil, så
                 // kaldere der ikke kender kladde-flowet er upåvirkede.
+                // Kontoret kan rette modtageren i kladden — leverandørens faste
+                // adresse er ikke altid den rigtige for DENNE bestilling. Den
+                // valideres, for en tastefejl ville ellers fejle ude hos SMTP
+                // med en besked ingen læser.
+                let modtager = supplier.contact_email;
+                if (typeof email_to === 'string' && email_to.trim()
+                    && email_to.trim() !== supplier.contact_email) {
+                    const kandidat = email_to.trim();
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(kandidat)) {
+                        throw new Error('Ugyldig mailadresse: ' + kandidat);
+                    }
+                    modtager = kandidat;
+                    // Afvigelsen skal kunne ses bagefter — ellers kan ingen
+                    // svare på hvor bestillingen gik hen.
+                    logChange({
+                        entityType: 'purchase_order', entityId: orderId, action: 'update',
+                        fieldName: 'email_to', oldValue: supplier.contact_email,
+                        newValue: modtager, userId,
+                        notes: 'Bestillingsmailen sendt til en anden adresse end leverandørens faste',
+                    });
+                }
+
                 const rettet = typeof email_body === 'string' && email_body.trim();
                 const mailResult = rettet
                     ? await mail.sendMail({
-                        to: supplier.contact_email,
+                        to: modtager,
                         subject: (email_subject || '').trim()
                                  || renderOrderMailDraft(db, supplier, items, expected_delivery_date).subject,
                         text: email_body,
@@ -267,7 +289,7 @@ router.post('/pending', handle(async (req, res) => {
                     })
                     : await mail.sendFromTemplate({
                         templateKey: 'order_email',
-                        to: supplier.contact_email,
+                        to: modtager,
                         vars: {
                             leverandoer: supplier.name,
                             dato: today,

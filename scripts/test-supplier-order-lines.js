@@ -253,6 +253,45 @@ function post(sti, body) {
     ok(sidsteMail !== null, 'uden kladde bruges skabelonen som hidtil');
     eq(mailStub.sidsteRaa, null, 'og den rå sti røres ikke');
 
+    console.log('\n=== §2c Modtageren kan rettes for denne ene bestilling ===');
+    sidsteMail = null; mailStub.sidsteRaa = null;
+    await postSvar('/api/orders/pending', {
+        supplier_id: 5, location_id: siteId, send_email: true,
+        email_subject: 'Emne', email_body: 'Tekst',
+        email_to: 'bogholderi@serviwet.dk',
+        items: [{ product_id: 1, product_name: 'Handsker', quantity: 1, unit: 'stk', barcode: '1' }],
+    });
+    eq(mailStub.sidsteRaa && mailStub.sidsteRaa.to, 'bogholderi@serviwet.dk',
+       'den rettede adresse er den mailen går til');
+    const afvig = db.prepare(
+        `SELECT old_value, new_value FROM changelog
+          WHERE entity_type='purchase_order' AND field_name='email_to' ORDER BY id DESC LIMIT 1`).get();
+    ok(!!afvig, 'afvigelsen står i historikken — ellers kan ingen svare på hvor mailen gik hen');
+    eq(afvig && afvig.old_value, 'rikke.kjeldsen@serviwet.dk', 'med leverandørens faste adresse');
+    eq(afvig && afvig.new_value, 'bogholderi@serviwet.dk', 'og den der blev brugt');
+
+    // Samme adresse som leverandørens er ikke en afvigelse.
+    const foerLog = db.prepare(
+        `SELECT COUNT(*) n FROM changelog WHERE entity_type='purchase_order' AND field_name='email_to'`).get().n;
+    await postSvar('/api/orders/pending', {
+        supplier_id: 5, location_id: siteId, send_email: true,
+        email_subject: 'Emne', email_body: 'Tekst',
+        email_to: 'rikke.kjeldsen@serviwet.dk',
+        items: [{ product_id: 1, product_name: 'Handsker', quantity: 1, unit: 'stk', barcode: '1' }],
+    });
+    eq(db.prepare(`SELECT COUNT(*) n FROM changelog WHERE entity_type='purchase_order' AND field_name='email_to'`).get().n,
+       foerLog, 'den faste adresse noteres ikke som en afvigelse');
+
+    // En tastefejl må ikke gå til SMTP.
+    sidsteMail = null; mailStub.sidsteRaa = null;
+    await postSvar('/api/orders/pending', {
+        supplier_id: 5, location_id: siteId, send_email: true,
+        email_subject: 'Emne', email_body: 'Tekst', email_to: 'rikke.serviwet.dk',
+        items: [{ product_id: 1, product_name: 'Handsker', quantity: 1, unit: 'stk', barcode: '1' }],
+    });
+    eq(mailStub.sidsteRaa, null, 'en ugyldig adresse sendes ikke');
+    eq(sidsteMail, null, 'heller ikke gennem skabelon-stien');
+
     console.log('\n=== §3 Mail og kopiér-liste er enige ===');
     for (const [navn, vare] of [['Serviwet-vare', BURGER_INT], ['Hørkram-vare', CORNICHON],
                                  ['fri tekst', FRITEKST], ['leverandørens SW-nr', SW_EGET]]) {
@@ -418,6 +457,12 @@ function post(sti, body) {
     eq(kt.__confirmTekst, null,
        'og der spørges ikke igen: man har lige læst og rettet hele mailen');
 
+    const kta = gruppeMed(true);
+    await kta._ibConfirmManualOrder('7', true,
+        { subject: 'E', body: 'T', to: 'anden@example.invalid' });
+    eq(kta.__ordre && kta.__ordre.email_to, 'anden@example.invalid',
+       'den rettede modtager sendes med');
+
     // Uden kladde (ældre kaldevej) bæres intet med, og der spørges.
     const uk = gruppeMed(true);
     await uk._ibConfirmManualOrder('7', true);
@@ -439,6 +484,60 @@ function post(sti, body) {
     eq(mo.__confirmTekst, null, 'der vises heller ingen ja/nej-boks — kladden ER valget');
     eq(mo.__kladdeKald && mo.__kladdeKald.items.length, 1,
        'kladden bygges på det samme udvalg som afsendelsen');
+
+    console.log('\n=== §6d Mere af en vare der allerede er bestilt ===');
+    function medLinjer(linjer) {
+        const c = lavKlient();
+        c._ibProducts = { 50: { id: 50, name: 'Nitrilhandsker', shopping_location_id: 7, qu_id_stock: 1 } };
+        c._ibQUnits = { 1: { id: 1, name: 'Antal' } };
+        c._ibLocations = { 7: { id: 7, name: 'Emballage' } };
+        c._ibHandelssteder = [{ grocy_location_id: 7, supplier_id: 5, supplier_name: 'Serviwet',
+                                integration_type: 'email', contact_email: 'rikke@example.invalid' }];
+        c._ibProductGroups = {};
+        c._ibBarcodes = [{ id: 1, product_id: 50, barcode: '4711', note: 'Nitrilhandsker, æske af 100 stk',
+                           shopping_location_id: 7, userfields: {} }];
+        c._ibShoppingList = linjer;
+        c.__byg();
+        const g = c._ibGroups['7'];
+        return { c, e: g && g.items.find(x => x.product.id === 50) };
+    }
+    const bestiltUF = { ordered_at: '2026-09-21T09:00:00Z', ordered_varenr: '4711',
+                        ordered_qty: '10', ordered_supplier: 'Serviwet' };
+
+    // Drifts-scenariet: 10 bestilt, 10 nye lagt på.
+    const blandet = medLinjer([
+        { id: 1, product_id: 50, amount: 10, userfields: bestiltUF },
+        { id: 2, product_id: 50, amount: 10, userfields: {} },
+    ]);
+    ok(!!blandet.e, 'varen findes i gruppen');
+    eq(blandet.e && blandet.e.isOrdered, false,
+       'en vare med en ÅBEN linje er ikke bestilt — ellers kan man ikke bestille mere');
+    eq(blandet.e && blandet.e.need, 10,
+       'behovet er kun det åbne — summeres begge, bestiller man de gamle 10 igen');
+
+    const alleAabne = medLinjer([
+        { id: 1, product_id: 50, amount: 10, userfields: {} },
+        { id: 2, product_id: 50, amount: 5, userfields: {} },
+    ]);
+    eq(alleAabne.e && alleAabne.e.isOrdered, false, 'ingen linjer bestilt ⇒ åben');
+    eq(alleAabne.e && alleAabne.e.need, 15, 'og behovet er summen');
+
+    const alleBestilte = medLinjer([
+        { id: 1, product_id: 50, amount: 10, userfields: bestiltUF },
+        { id: 2, product_id: 50, amount: 5, userfields: bestiltUF },
+    ]);
+    eq(alleBestilte.e && alleBestilte.e.isOrdered, true, 'alle linjer bestilt ⇒ bestilt');
+    eq(alleBestilte.e && alleBestilte.e.need, 15, 'og det samlede vises');
+
+    // Bestilling må kun røre de åbne linjer — ellers overskrives den gamle
+    // bestillings dato og varenummer, og sporet af den forsvinder.
+    const bl = blandet.c;
+    bl.__rullet = [];
+    bl.updateShoppingListItem = async (id, body) => { bl.__rullet.push({ id, body }); };
+    bl.fetchShoppingList = async () => bl._ibShoppingList;
+    await bl._ibConfirmManualOrder('7', true, { subject: 'Emne', body: 'Tekst' });
+    eq(bl.__rullet.length, 1, 'kun ÉN linje markeres — den der ikke allerede var bestilt');
+    eq(bl.__rullet[0] && bl.__rullet[0].id, 2, 'og det er den åbne');
 
     console.log('\n=== §7 Mailen sendes ikke uden varsel ===');
     const b = gruppeMed(true);
@@ -628,6 +727,9 @@ function lavKlient(felter) {
     ctx.updateShoppingListItem = async () => {};
     ctx.updateProductBarcode   = async () => {};
     ctx._ibReloadShoppingList  = async () => {};
+    // Den ÆGTE gruppering gemmes: §6d tester den, og en stub ville skjule
+    // netop den funktion testen handler om.
+    ctx.__byg                  = ctx._ibBuildGroups;
     ctx._ibBuildGroups         = () => {};
     ctx._ibRender              = () => {};
     ctx._ibEnrichSnapshots     = () => {};

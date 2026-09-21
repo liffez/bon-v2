@@ -387,15 +387,27 @@ function _ibBuildGroups() {
         var shopLocId = String(product.shopping_location_id || '');
         var groupKey = shopLocId || '__none__';
 
-        // Check if ordered
-        var firstItem = items[0];
-        var uf = firstItem.userfields || {};
-        var isOrdered = !!uf.ordered_varenr;
+        // En vare kan have FLERE linjer på indkøbslisten. Bestiller man 10
+        // æsker handsker og lægger 10 mere på bagefter, er den første linje
+        // bestilt og den anden ikke.
+        //
+        // isOrdered blev afgjort af items[0] ALENE, så hele varen så bestilt
+        // ud: de nye 10 kunne ikke bestilles, og behovet viste 20 selvom kun
+        // 10 var åbne. En vare er først bestilt når ALLE dens linjer er det.
+        var openItems = items.filter(function(it) {
+            return !((it.userfields || {}).ordered_varenr);
+        });
+        var isOrdered = openItems.length === 0;
 
-        // Aggregate need
+        var firstItem = isOrdered ? items[0] : openItems[0];
+        var uf = firstItem.userfields || {};
+
+        // Behovet er det der endnu IKKE er bestilt — ellers bestiller man det
+        // gamle med én gang til. Er alt bestilt, vises det samlede.
+        var taeller = isOrdered ? items : openItems;
         var totalNeed = 0;
-        for (var n = 0; n < items.length; n++) {
-            totalNeed += parseFloat(items[n].amount) || 0;
+        for (var n = 0; n < taeller.length; n++) {
+            totalNeed += parseFloat(taeller[n].amount) || 0;
         }
 
         // Stock unit name
@@ -409,6 +421,10 @@ function _ibBuildGroups() {
         var entry = {
             item: firstItem,
             allItems: items,
+            // Kun de åbne linjer må markeres ved bestilling: skriver vi på de
+            // allerede bestilte, overskrives den gamle bestillings dato og
+            // varenummer, og sporet af den forsvinder.
+            openItems: openItems,
             product: product,
             barcodes: sortedBc,
             matched: sortedBc.length > 0,
@@ -2247,9 +2263,10 @@ async function _ibGotoCart(groupKey) {
         var now = new Date().toISOString();
         for (var i = 0; i < cartForGroup.length; i++) {
             var e = cartForGroup[i];
-            for (var j = 0; j < e.allItems.length; j++) {
+            var aabne = e.openItems || e.allItems;
+            for (var j = 0; j < aabne.length; j++) {
                 try {
-                    await updateShoppingListItem(e.allItems[j].id, {
+                    await updateShoppingListItem(aabne[j].id, {
                         userfields: {
                             ordered_at: now,
                             ordered_qty: String(e.qty),
@@ -2326,14 +2343,16 @@ async function _ibConfirmManualOrder(groupKey, sendEmail, mailTekst) {
             send_email: sendEmail ? true : false,
             email_subject: mailTekst ? mailTekst.subject : undefined,
             email_body: mailTekst ? mailTekst.body : undefined,
+            email_to: mailTekst ? mailTekst.to : undefined,
         });
 
         var now = new Date().toISOString();
         for (var i = 0; i < items.length; i++) {
             var e = items[i];
-            for (var j = 0; j < e.allItems.length; j++) {
+            var aabne = e.openItems || e.allItems;
+            for (var j = 0; j < aabne.length; j++) {
                 try {
-                    await updateShoppingListItem(e.allItems[j].id, {
+                    await updateShoppingListItem(aabne[j].id, {
                         userfields: {
                             ordered_at: now,
                             ordered_qty: String(e.qty),
@@ -2574,8 +2593,10 @@ async function _ibOpenMailDraft(groupKey) {
     ov.innerHTML =
         '<div class="ib-cb-modal ib-md-modal">' +
           '<div class="ib-md-head">Bestilling til ' + _ibEsc(kladde.supplier_name) + '</div>' +
-          '<div class="ib-md-to">Til <b>' + _ibEsc(kladde.to) + '</b>' +
-            '<span class="ib-md-to-hint">rettes under Indstillinger → Indkøb</span></div>' +
+          '<label class="ib-md-lbl">Til</label>' +
+          '<input class="ib-md-subject" data-ib-md="to" value="' + _ibEsc(kladde.to) + '">' +
+          '<div class="ib-md-note">Leverandørens faste adresse. Rettes den her, gælder det kun ' +
+            'denne bestilling — og afvigelsen noteres i historikken.</div>' +
           '<label class="ib-md-lbl">Emne</label>' +
           '<input class="ib-md-subject" data-ib-md="subject" value="' + _ibEsc(kladde.subject) + '">' +
           '<label class="ib-md-lbl">Besked</label>' +
@@ -2599,12 +2620,20 @@ async function _ibOpenMailDraft(groupKey) {
         if (act === 'cancel' || e.target === ov) { _ibCloseMailDraft(); return; }
         if (act !== 'send') return;
 
+        var til  = ov.querySelector('[data-ib-md="to"]').value.trim();
         var subj = ov.querySelector('[data-ib-md="subject"]').value.trim();
         var txt  = body.value.trim();
         if (!txt) { _ibToast('Skriv en besked først', true); body.focus(); return; }
+        // Fanges her frem for hos SMTP, hvor fejlen kommer længe efter klikket
+        // og med en besked ingen læser.
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(til)) {
+            _ibToast('Tjek mailadressen — den ser ikke rigtig ud', true);
+            ov.querySelector('[data-ib-md="to"]').focus();
+            return;
+        }
 
         _ibCloseMailDraft();
-        _ibConfirmManualOrder(groupKey, true, { subject: subj, body: txt });
+        _ibConfirmManualOrder(groupKey, true, { subject: subj, body: txt, to: til });
     });
     document.addEventListener('keydown', _ibDraftKey);
     ov.querySelector('[data-ib-md="subject"]').focus();

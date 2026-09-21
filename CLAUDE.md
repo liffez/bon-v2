@@ -9450,6 +9450,28 @@ tekst når serveren, §6c at "Send & bestil" ikke sender). **38 mutationer i alt
 fanget** — heriblandt at ignorere den rettede tekst, at lægge signaturen på igen, og
 at rulle "Send & bestil" tilbage til at sende direkte.
 
+**Mere af en vare der allerede er bestilt.** Én vare kan have FLERE linjer på Grocys
+indkøbsliste. Bestiller man 10 æsker handsker og lægger 10 mere på bagefter, er den
+første linje bestilt og den anden ikke — men `isOrdered` blev afgjort af `items[0]`
+**alene**, så hele varen så bestilt ud. De nye 10 kunne ikke bestilles, og behovet
+viste 20 selvom kun 10 var åbne.
+
+En vare er nu først bestilt når **alle** dens linjer er det, og behovet er kun de
+åbne. `entry.openItems` bæres med, og bestillingen markerer kun dem: skriver vi på de
+allerede bestilte, overskrives den gamle bestillings dato og varenummer, og sporet af
+den forsvinder.
+
+**Modtageren kan rettes i kladden** (drift bad om det). Adressen valideres både i
+klienten og på serveren — en tastefejl ville ellers fejle ude hos SMTP med en besked
+ingen læser. Afviger den fra leverandørens faste, skrives en changelog-linje på
+ordren: ellers kan ingen svare på hvor bestillingen gik hen.
+
+**Tests**: 111 → **128 asserts** (§2c modtageren, §6d delvist bestilte varer — sidstnævnte
+mod den ÆGTE `_ibBuildGroups`). **45 mutationer i alt, alle fanget.**
+
+> ⚠️ Testens egen stub af `_ibBuildGroups` skjulte først netop den funktion §6d skulle
+> måle. Den ægte gemmes nu som `__byg` før stubben sættes.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
