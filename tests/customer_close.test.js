@@ -62,6 +62,10 @@ const KOLLEGA = 3;          // skal blive tilbage så firmaet ikke står tomt
 const PRIVAT = 4;           // sidder på et personligt firma
 const ANDEN = 5;            // overtager adressen mens HIBAQ er lukket
 const ENESTE = 6;           // eneste kontakt under NYT_FIRMA
+// En ren privatkunde UDEN firma. Det er den sti "Stoppet i firmaet" efterlader
+// folk på — og Firma 360° kan pr. definition ikke nå hende, så uden en luk-vej
+// i Kunde 360° var det en blindgyde.
+const LOESGAENGER = 7;
 
 const { findCustomerByEmail } = require('../services/mailService');
 
@@ -91,6 +95,10 @@ function createFreshDb() {
       .run(ANDEN, 'Sara', 'Hornum', DANNER);
     db.prepare('INSERT INTO customers (id, first_name, company_id) VALUES (?,?,?)')
       .run(ENESTE, 'Eneste', NYT_FIRMA);
+    db.prepare('INSERT INTO customers (id, first_name, last_name, email, company_id) VALUES (?,?,?,?,NULL)')
+      .run(LOESGAENGER, 'Løs', 'Gænger', 'loes@example.invalid');
+    db.prepare(`INSERT INTO contact_points (entity_type, entity_id, kind, value, source, is_primary, is_active)
+                VALUES ('customer', ?, 'email', 'loes@example.invalid', 'manual', 1, 1)`).run(LOESGAENGER);
 
     // Kontaktpunkter — det er DEM mail-routingen slår op i
     db.prepare(`INSERT INTO contact_points (entity_type, entity_id, kind, value, source, is_primary, is_active)
@@ -254,6 +262,22 @@ test('et efterladt PERSONLIGT firma lægges væk', async () => {
     const r = await api('DELETE', '/api/customers/' + PRIVAT, {});
     assert.deepStrictEqual(r.body.company_cleanup.deactivated, [PERSONAL]);
     assert.strictEqual(comp(PERSONAL).is_active, 0);
+});
+
+test('en privatkunde uden firma kan lukkes — og gendannes', async () => {
+    // Præcis den situation "Stoppet i firmaet" efterlader folk i. Firma 360°
+    // kan ikke nå hende, så lukningen må kunne ske fra hendes eget kort.
+    const r = await api('DELETE', '/api/customers/' + LOESGAENGER, { reason: 'lukket fra Kunde 360°' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.company_cleanup, null, 'intet firma at rydde op i');
+    assert.strictEqual(cust(LOESGAENGER).is_active, 0);
+    assert.strictEqual(findCustomerByEmail(_testDb, 'loes@example.invalid'), null);
+
+    const back = await api('POST', '/api/customers/' + LOESGAENGER + '/restore');
+    assert.strictEqual(back.status, 200);
+    assert.strictEqual(cust(LOESGAENGER).is_active, 1);
+    assert.strictEqual(back.body.company_reopened, null, 'der var intet firma at åbne');
+    assert.deepStrictEqual(back.body.contact_points_reopened, ['loes@example.invalid']);
 });
 
 /* ══ 3. Gendan ════════════════════════════════════════════════════════ */

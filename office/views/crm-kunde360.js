@@ -932,6 +932,37 @@ function _k3RenderShell() {
             .k3-id-result-meta { font-size: 11px; color: var(--color-text-dim, #999); }
             .k3-id-noresult { padding: 5px 8px; font-size: 12px; color: var(--color-text-dim, #999); font-style: italic; }
             .k3-id-actions { display: flex; align-items: center; gap: 8px; }
+            /* Lukningen står under en skillelinje, så den ikke rammes på vej
+               mod Annullér. */
+            .k3-id-danger {
+                margin-top: 9px; padding-top: 8px;
+                border-top: 1px solid var(--color-border, #d7d1ca);
+            }
+            .k3-id-close-link {
+                background: none; border: none; padding: 0;
+                font-size: 11.5px; color: #8c3232;
+                text-decoration: underline; cursor: pointer;
+            }
+            .k3-id-close-link:hover { color: #a23b3b; }
+            .k3-id-cc-load, .k3-id-cc-err { font-size: 11.5px; color: var(--color-text-dim, #7c8089); }
+            .k3-id-cc-err { color: #a23b3b; }
+            .k3-id-cc-head { font-size: 12.5px; margin-bottom: 3px; }
+            .k3-id-cc-txt { font-size: 11px; color: var(--color-text-dim, #7c8089); margin-bottom: 8px; }
+            .k3-id-cc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            .k3-id-cc-do {
+                box-sizing: border-box;
+                background: #fdf1f1; border: 1px solid #e8c4c4; border-radius: 6px;
+                padding: 5px 11px; font-size: 12px; color: #8c3232; cursor: pointer;
+            }
+            .k3-id-cc-do:hover:not(:disabled) { background: #fae4e4; }
+            .k3-id-cc-do:disabled, .k3-id-cc-cancel:disabled { opacity: .5; cursor: default; }
+            .k3-id-cc-cancel {
+                background: none; border: none; padding: 0;
+                font-size: 11.5px; color: var(--color-text-dim, #7c8089);
+                text-decoration: underline; cursor: pointer;
+            }
+            .k3-id-cc-msg { font-size: 11px; color: var(--color-text-dim, #7c8089); }
+            .k3-id-cc-msg.err { color: #a23b3b; }
             .k3-id-save, .k3-id-cancel {
                 padding: 5px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;
                 border: 1px solid var(--color-border, #d7d1ca); font-family: inherit;
@@ -1444,8 +1475,92 @@ function _k3RenderIdentityEditor(c) {
             '<button class="k3-id-cancel" onclick="_k3ToggleIdEdit()">Annullér</button>' +
             '<span class="k3-id-msg" id="k3IdMsg"></span>' +
         '</div>' +
+        // Lukningen hører hjemme her, og det er ikke en bekvemmelighed: Firma
+        // 360° er ellers eneste vej, og den kan ikke nå en PRIVATKUNDE — så
+        // "stoppet i firmaet" flyttede personen ud af den eneste skærm hvor
+        // hun kunne lukkes. Adskilt fra Gem/Annullér med en skillelinje, så
+        // den ikke rammes på vej mod Annullér.
+        '<div class="k3-id-danger" id="k3IdDanger">' +
+            '<button class="k3-id-close-link" onclick="_k3OpenCloseCustomer()">Luk kontaktpersonen</button>' +
+        '</div>' +
     '</div>';
 }
+
+/**
+ * Bekræftelsen ved lukning — inline i editoren.
+ *
+ * Kun ÉT valg her, modsat Firma 360°: "stoppet i firmaet" er allerede muligt
+ * lige ovenfor (ryd firma-chippen og gem), så et andet valg ville være den
+ * samme handling under et andet navn.
+ */
+async function _k3OpenCloseCustomer() {
+    const host = document.getElementById('k3IdDanger');
+    const c = _k3Data && _k3Data.customer;
+    if (!host || !c) return;
+
+    const navn = ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || 'kontaktpersonen';
+    host.innerHTML = '<div class="k3-id-cc-load">Henter…</div>';
+
+    let counts = null;
+    try {
+        counts = (await fetchCustomerContent(_k3CustomerId)).counts;
+    } catch (e) {
+        host.innerHTML = '<div class="k3-id-cc-err">Kunne ikke hente: ' + esc(e.message) + '</div>';
+        return;
+    }
+
+    const bits = [];
+    if (counts.bons)        bits.push(counts.bons + ' bon' + (counts.bons === 1 ? '' : 's'));
+    if (counts.tilbud)      bits.push(counts.tilbud + ' tilbud');
+    if (counts.traade)      bits.push(counts.traade + ' mailtråd' + (counts.traade === 1 ? '' : 'e'));
+    if (counts.aktiviteter) bits.push(counts.aktiviteter + ' aktivitet' + (counts.aktiviteter === 1 ? '' : 'er'));
+
+    host.innerHTML =
+        '<div class="k3-id-cc">' +
+            '<div class="k3-id-cc-head">Luk <strong>' + esc(navn) + '</strong>?</div>' +
+            '<div class="k3-id-cc-txt">' +
+                (bits.length
+                    ? 'Der hænger ' + bits.join(' · ') + ' på hende. Det bliver stående. '
+                    : '') +
+                'Hun forsvinder fra lister, kundesøgning og mail-routing — og kan gendannes herfra.' +
+            '</div>' +
+            '<div class="k3-id-cc-actions">' +
+                '<button class="k3-id-cc-do" onclick="_k3DoCloseCustomer()">Luk rækken</button>' +
+                '<button class="k3-id-cc-cancel" onclick="_k3CancelCloseCustomer()">Annullér</button>' +
+                '<span class="k3-id-cc-msg" id="k3IdCcMsg"></span>' +
+            '</div>' +
+        '</div>';
+}
+
+window._k3OpenCloseCustomer = _k3OpenCloseCustomer;
+
+window._k3CancelCloseCustomer = function() {
+    const host = document.getElementById('k3IdDanger');
+    if (host) host.innerHTML = '<button class="k3-id-close-link" onclick="_k3OpenCloseCustomer()">Luk kontaktpersonen</button>';
+};
+
+window._k3DoCloseCustomer = async function() {
+    const msg = document.getElementById('k3IdCcMsg');
+    const host = document.getElementById('k3IdDanger');
+    host?.querySelectorAll('button').forEach(b => b.disabled = true);
+    if (msg) { msg.textContent = 'Lukker…'; msg.className = 'k3-id-cc-msg'; }
+    try {
+        const r = await closeCustomer(_k3CustomerId, 'lukket fra Kunde 360°');
+        _k3IdEditMode = false;          // editoren giver ikke mening på en lukket række
+        _k3IdCompany = null;
+        await _k3LoadData();            // bjælken øverst overtager herfra
+        // Kontaktpunkterne nævnes: at mail-routingen holder op med at finde
+        // hende er ikke til at se på skærmen.
+        if (r.contact_points_closed) {
+            const m = document.getElementById('k3IdMsg');
+            if (m) { m.textContent = r.contact_points_closed + ' kontaktpunkter lukket'; m.className = 'k3-id-msg ok'; }
+        }
+    } catch (e) {
+        host?.querySelectorAll('button').forEach(b => b.disabled = false);
+        const m2 = document.getElementById('k3IdCcMsg');
+        if (m2) { m2.textContent = 'Fejl: ' + e.message; m2.className = 'k3-id-cc-msg err'; }
+    }
+};
 
 function _k3ToggleIdEdit() {
     _k3IdEditMode = !_k3IdEditMode;
