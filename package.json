@@ -175,7 +175,8 @@
     "test:optaelling-log": "node --experimental-sqlite --test tests/stock_counts.test.js",
     "audit:optaellinger": "node --experimental-sqlite scripts/audit-stock-counts.js",
     "test:opskrift-tilstand": "node scripts/test-recipe-editor-state.js",
-    "test:web-order-fejl": "node --experimental-sqlite --test tests/web_order_failure.test.js"
+    "test:web-order-fejl": "node --experimental-sqlite --test tests/web_order_failure.test.js",
+    "test:indkob-pris": "node scripts/test-indkob-pris.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

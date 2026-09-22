@@ -9495,6 +9495,74 @@ den ægte route med adapteren stubbet). **53 mutationer i alt, alle fanget.**
 > ⚠️ Testens egen stub af `_ibBuildGroups` skjulte først netop den funktion §6d skulle
 > måle. Den ægte gemmes nu som `__byg` før stubben sættes.
 
+### Et fremmed varenummer og en pris fra fakturaen (22. september 2026)
+
+Fortsættelse af sektionen ovenfor, begge fundet i drift dagen efter.
+
+**`Gafler` bar Hørkrams varenummer i en Serviwet-bestilling.** En vare kan have
+flere koblinger, og `_ibSortBarcodes` valgte den første efter `is_preferred` →
+aftale → billigst — uden at se på HVILKEN leverandør man bestiller hos. Nummeret
+ville være røget med i mailen til Rikke, som ikke kender det.
+
+- **Kriterium 0 i sorteringen: gruppens egen leverandør først.** Koblingen bærer
+  `shopping_location_id`, og `supplier_grocy_locations` oversætter det til en
+  leverandør — samme kæde som gruppen selv bygges af. Er den bedste kobling
+  alligevel en andens, mærkes linjen `foreignBarcode`, og **nummeret udelades af
+  bestillingen** (`_ibOrderItem` sender `barcode: null`), så leverandøren får sin
+  egen betegnelse i stedet.
+- **Det siges på linjen**, ikke kun i koden: *"⚠ Varenummeret er Hørkrams — det
+  kommer ikke med i bestillingen. Kobl hos Serviwet"* med en knap der åbner
+  kobl-panelet. Et tavst fravalg ville være samme fejlklasse som #305/#319.
+- **Kender vi ikke gruppens leverandør** — lokationen står ikke i
+  `supplier_grocy_locations` — siger vi ingenting. Vi kan ikke vide om nummeret er
+  fremmed, og et gæt ville mærke halvdelen af listen.
+
+**Prisen kunne ikke tastes nogen steder.** Alle 15 Serviwet-koblinger i grocy-hq
+havde `last_price` tom, så kostprisen (#558) faldt tilbage på et overslag eller
+ingenting. Serverens `PUT /api/purchasing/prices/barcode/:id` fandtes, men ingen
+skærm kaldte den for en leverandør-kobling.
+
+Fælden er enheden: fakturaen skriver en **pakkepris** ("115,00 · Transportkasse,
+25 stk."), mens `last_price` er pr. enhed. Tastede man 115 råt, ville Bon tro at
+én kasse koster 115 kr — 25 gange for meget.
+
+- **To felter i kobl-panelet: `[115] kr for [25] stk`** med udregningen skrevet
+  under mens man taster (`= 4,6 kr pr. stk`). Fakturaens to tal, ingen hovedregning.
+- **Klienten dividerer, og intet andet.** Omregningen fra stregkodens enhed til
+  varens lager-enhed bor ét sted, i `services/supplierPrices.js`. En kopi i
+  browseren ville kunne skride — det var netop to uenige enhedsregler der kostede
+  faktor 1000 i #352. En test holder fast i at `_ibPriceFromInvoice` ikke nævner
+  `qu_id` med et ord, og forudfyldningen henter serverens tal i stedet for at regne
+  `last_price` om.
+- **Et tomt indholds-felt betyder 1** (prisen ER pr. enhed). Men står der noget vi
+  ikke kan læse, afvises hele prisen frem for at regne som om feltet var tomt —
+  "115 kr for tolv" må ikke blive til 115 kr pr. stk. Fundet af testen, ikke af koden.
+- **Ved en ny kobling følger prisen nummeret** (ingen "Gem pris"-knap; den kan først
+  skrives når koblingen har et id). Fejler prisen, står koblingen — og det **siges
+  som en fejl** med vejen tilbage ("tast den igen på chippens ✎"), så den grønne
+  kvittering ikke kommer til at dække over den.
+- **Ny kilde-nøgle `indkobsliste`** i #666's stamdata-spor. `indkob` er
+  indkøbs*indstillingerne*; en prisændring fra indkøbs*listen* er en anden skærm, og
+  hele pointen med sporet er at kunne se hvilken. `indkob.js`' eksisterende brug er
+  rettet med.
+
+**Tests:** `npm run test:indkob-pris` (80 asserts — udregningen, panelet i begge
+tilstande, begge gem-veje, forudfyldning, kladden og selve wiringen af felter,
+knap og Enter). **Mutations-testet: 23 mutationer, alle fanget.** To huller blev
+fundet undervejs og lukket: §4 målte ikke kilden (kun §3 gjorde), og en assert
+bestod uden at måle noget. Regression grøn: bestillingslinjer 142 (+14 for
+`foreignBarcode`), tilfoej-vare 27, tilfoej-server 23, stamdata 21,
+leverandorpriser 101, modtag 123.
+
+Browser-verificeret mod grocy-test med rigtige museklik: advarslen på `Gafler` mens
+`kaffekopper - Låg` (hvis foretrukne er Serviwets) står uden, prisen tastet både på
+en eksisterende kobling og sammen med en ny, tallene efterprøvet i Grocy og sporet
+i changeloggen. Alt rullet tilbage bagefter.
+
+> ⚠️ **Browser-panelet skalerede koordinater med 1,375** (viewport 1100 mod ramme
+> 800), så de første klik ramte ved siden af uden at fejle. Målt med en
+> capture-lytter der noterer `clientX/Y`, og koordinaterne divideret med forholdet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
