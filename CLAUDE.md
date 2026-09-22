@@ -225,6 +225,7 @@ bon-v2/
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash(), "ny version"-bjælken
 │   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
 │   ├── bon_lines.js  ← mergeLines() — slår ens bon-linjer sammen til visning/eksport, eksponeres som window.BonLines
+│   ├── supplier_order_lines.js ← Varelinjen som LEVERANDØREN ser den: betegnelsen er stregkodens `note`, og vores egne INT-numre udelades. Delt af bestillingsmailen, kopiér-listen og forhåndsvisningen (#419-familien)
 │   ├── grocy_num.js  ← num() — tal fra Grocy-userfields med dansk komma tålt, eksponeres som window.GrocyNum (RecipeYield.num er et alias)
 │   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
 │   ├── auth.js       ← requireAuth() middleware (server-side)
@@ -9300,6 +9301,199 @@ Testen voksede 66 → **93 asserts**; 17 mutationer i alt, alle fanget.
 > faldt. Den blev synlig fordi arbejdet løb over midnat; jf. #133 og
 > memory `project_utc_today_bug`. Rettet til `todayISO()`.
 
+
+### Bestillingen til leverandøren: betegnelse frem for vores eget nummer (21. september 2026)
+
+Serviwets varer har **ingen varenumre** — fakturaen er otte linjer ren tekst. Bon kan
+lave et internt nummer (`INT-0001`) for at kunne koble varen, men det tal siger
+leverandøren intet, og det stod midt i bestillingsmailen som `(nr. INT-0001)`.
+
+Samtidig bar linjen vores Grocy-navn. "Burgerlommer" kan ikke bestilles efter: Serviwet
+har dem i både 11×11 og 14×14 cm, og forskellen står kun i deres egen betegnelse.
+
+**`note` på stregkoden var allerede leverandørens tekst** — målt på grocy-hq har 142 af
+146 koblinger en note, og kun 10 er lig produktnavnet (`Cornichoner` → `Cornichons,
+330 g`). Feltet blev bare aldrig brugt til andet end chip-etiketten.
+
+- **`shared/supplier_order_lines.js`** er reglen: betegnelsen er `note` (ellers vores
+  navn), og nummeret udelades når det er vores eget. Mønstret `/^INT-\d+$/` er
+  **smalt med vilje** — `SW-2210` ligner et internt nummer, men er Serviwets eget og
+  skal med.
+- **Tre flader deler den nu**: bestillingsmailen (`routes/orders.js`), "Kopiér liste"
+  og forhåndsvisningen i registrér-dialogen. De byggede hver sin linje, så dialogen
+  kunne vise `Nr. INT-0002` mens mailen udelod det — man kunne ikke stole på det man så
+  lige før afsendelse. `_ibOrderItem` samler oven i købet mapningen entry → vare ét sted.
+- **Bestillingsteksten har sit eget felt** i kobl-panelet ("Sådan hedder varen hos X").
+  At skrive betegnelsen i nummer-feltet er stadig muligt (fri tekst, eksisterende
+  praksis) og taber ingen information — den står så som nummer.
+- **`varenr` gemmes uændret på ordren.** Det er kun MAILEN der udelader interne numre.
+
+**To fejl i INT-generatoren rettet undervejs**, begge relevante for netop dette flow:
+den koblede til **produktets** default handelssted i stedet for den gruppe panelet står
+i (alle andre veje bruger gruppens), og den satte **ingen note** — så chip og mail stod
+med `INT-0001`.
+
+**Ingen migration.** `note` er Grocys eget felt på `product_barcodes`.
+
+**Tests**: `npm run test:bestillingslinjer` — 55 asserts. §2 rammer den ÆGTE route over
+HTTP med mailService stubbet i require-cachen; §3 måler mailen og kopiér-listen mod
+**hinanden**; §4–5 kører den ÆGTE `shared/indkob.js` i en vm-sandkasse og måler hvad der
+ville blive SENDT. **Mutations-testet: 13 mutationer, alle fanget.**
+Browser-verificeret mod grocy-test med rigtige museklik hele vejen: panel → internt
+nummer + bestillingstekst → kobling på lokation 7 med noten → forhåndsvisning og
+kopiér-tekst uden INT-nummeret, men med leverandørens egne numre i behold.
+Testdata slettet, grocy-test gendannet.
+
+> ⚠️ **De tre eksisterende Emballage-koblinger i drift** har en kortere note end
+> fri-teksten i nummer-feltet (`Børne boks` mod `Børnebokse hvid m/låg 12x12`). Ingen
+> information tabes — begge står på linjen — men noten kan med fordel rettes til
+> Serviwets egen tekst.
+
+**To fejl i "+ Tilføj vare" fundet under drifttesten (samme runde).**
+
+`Tørrepapir - Papirhåndklæder` kunne ikke lægges på indkøbslisten: varen FINDES i
+grocy-hq (id 106), men er sat `active: 0`, og Grocy afviser den med
+`400 Product does not exist or is inactive`. Fejlen kom først når man havde trykket
+Tilføj, og sagde ikke hvad man skulle gøre. **39 af 225 produkter er inaktive**, og
+begge Tørrepapir ligger på Serviwets lokation.
+
+At **skjule** de inaktive er den forkerte kur — så opretter man en dublet ved siden af
+den der findes. De vises mærket *"ikke i brug"* og lægges sidst; **Tilføj** sætter
+`active: 1` først og siger det i kvitteringen, for nogen har truffet den modsatte
+beslutning. Fejler genaktiveringen, tilføjes varen ikke — ellers ville kvitteringen
+lyve om noget Grocy lige har afvist. `grocyProductActive()` i `shared/utils.js` er
+reglen (et produkt UDEN `active`-felt er i brug — `/stock` bærer ikke alle felter, jf. #613).
+
+Søgelisten viste desuden kun **én** række af op til 12: den er `position: absolute`
+inde i `.ib-panel-inner`, som har `max-height: 44vh; overflow-y: auto` (#257, så lange
+Manglende/Udløbende-lister scroller indeni), og blev klippet til panelets egen højde.
+Undtagelsen gælder **kun** tilføj-panelet — det har ingen lang liste, kun ét søgefelt.
+Målt i browseren: 34 px → 222 px synlig, 1 → 7 rækker.
+
+**Tests**: `npm run test:tilfoej-vare` — 27 asserts, den ÆGTE `shared/indkob.js` i en
+vm-sandkasse. **Mutations-testet: 9 mutationer, alle fanget.**
+
+**Og en tredje, alvorligere: mailen sendte hele listen uden at spørge.**
+
+De tre flader var enige om HVORDAN en linje ser ud, men ikke om HVILKE linjer der er
+med. Dialogen viste de markerede varer; mailen og kopiér-listen brugte
+`_marked || matched` — altså ALT der var koblet, uanset markering. Markerede man én
+vare, viste forhåndsvisningen én og mailen sendte hele listen. Det ramte en rigtig
+leverandør 21. september 2026.
+
+`_ibOrderSelection(g)` er nu den ene regel, og den er dialogens: **har man markeret
+noget, er det dét man bestiller — ellers alt der er klar.** `readyItems`-parameteren
+på `_ibRenderManualDialog` er fjernet; en ubrugt parameter der ligner et udvalg er
+præcis dét der lod fladerne skride fra hinanden.
+
+**"Send & bestil" spørger nu først.** En mail ud af huset kan ikke kaldes tilbage, så
+bekræftelsen siger hvem den går til, hvor mange varer, og navngiver dem (de første
+seks). `window.confirm` er bevidst valgt frem for en pæn modal: den blokerer tråden,
+så der ikke kan nå at ske noget imens. **"Bekræft bestilt"** (uden mail) spørger
+ikke — den går ikke ud af huset.
+
+**Tests**: `npm run test:bestillingslinjer` 55 → **70 asserts** (§6 udvalget på alle
+tre flader, §7 bekræftelsen). **20 mutationer i alt, alle fanget** — heriblandt at
+genindføre drifts-fejlen (mailen sender alt matchet) og at ignorere brugerens nej.
+
+**En fejlbestilling kunne ikke rulles tilbage.** Efter afsendelse sættes
+`ordered_*`-userfields på varerne, og de forsvinder fra "klar til bestilling". Gik
+bestillingen galt — som den gjorde — kunne varerne ikke bestilles igen. Der FANDTES
+en Fortryd-knap pr. vare, men den lå bag den kollapsede sektion *"N varer bestilt —
+vis"*: med 12 varer var det 12 klik bag noget man først skulle finde.
+
+**"Fortryd alle"** ligger nu på sektions-headeren, altså uden for det foldede. Den
+ruller hele gruppen tilbage i én handling, og bekræftelsen siger eksplicit at
+**mailen ikke kaldes tilbage** — uden den linje ville "Fortryd" læses som "afbestil
+hos leverandøren". Ligger der bestillinger fra flere dage, nævnes det, så man ikke
+uforvarende ruller gamle med. En delvis rulning navngiver dem der fejlede.
+
+> ⚠️ **#133 ramte i selve bekræftelsen.** Dato-grupperingen brugte
+> `ordered_at.slice(0, 10)` — altså UTC-datoen — så en bestilling lavet kl. 00:30
+> dansk stod som "bestilt i går". Fanget fordi en testkørsel tilfældigvis løb over
+> midnat. Grupper på den **lokale** dato (`parseServerDate` + `getDate()`), og lad
+> `_ibFmtDate` få et tidsstempel, ikke en afskåret datostreng.
+>
+> Testen **pinner tidszonen** (`process.env.TZ = 'Europe/Copenhagen'`) og bruger
+> 22:30Z (= 00:30 dansk næste dag) samt 23:00Z + 01:00Z (= samme danske nat, to
+> UTC-datoer). Uden pinning ville asserten bestå 22 timer i døgnet.
+
+**Tests**: 70 → **83 asserts**. **28 mutationer i alt, alle fanget** — heriblandt den
+originale dato-fejl, som fælder tre navngivne asserts.
+
+**Og så blev bekræftelsen til en kladde.** En ja/nej-boks kan kun svare på en tekst
+man ikke kan røre — men man vil tit skrive noget med ("kan I levere onsdag?").
+Driftens ord: *"send og bestil skal lave en kladde som jeg kan rette i og derefter
+sende."*
+
+**"Send & bestil" åbner nu mailen som kladde** med emne og brødtekst redigerbare.
+`POST /api/orders/pending/mail-draft` renderer den server-side uden at sende eller
+skrive noget; `POST /pending` tager `email_subject` + `email_body` og sender DEM i
+stedet for at rendere skabelonen forfra.
+
+- **`renderOrderMailDraft()` bruges af BÅDE kladden og afsendelsen.** To renderinger
+  ville betyde at man retter i én tekst og sender en anden.
+- **Signaturen lægges på i kladden**, og afsendelsen bruger `appendSignature: false`.
+  Det man ser ER det der sendes — også hvis man har skrevet om i signaturen.
+  (`applySignature` er idempotent, så uden flaget ville den blot lade være; men
+  sletter man signaturen, ville den komme igen. Det ville være en overraskelse.)
+- **Svar-mærket (`#po-NN`) er IKKE i kladden.** Ordre-id'et findes først når ordren
+  oprettes, og et mærke i et redigerbart felt kan slettes ved et uheld — så ville
+  leverandørens svar havne i den ufordelte indbakke. `sendMail` sætter det på.
+- **Modtageren vises, men kan ikke rettes her.** En engangsadresse ville ikke stå
+  nogen steder bagefter; feltet rettes i Settings → Indkøb.
+- **Bekræftelsen springes over efter kladden** — man har lige læst og rettet hele
+  mailen. Uden kladde (ældre kaldevej) spørges der stadig.
+
+**Tests**: 83 → **111 asserts** (§2b kladden mod den ægte route, §6b at den rettede
+tekst når serveren, §6c at "Send & bestil" ikke sender). **38 mutationer i alt, alle
+fanget** — heriblandt at ignorere den rettede tekst, at lægge signaturen på igen, og
+at rulle "Send & bestil" tilbage til at sende direkte.
+
+**Mere af en vare der allerede er bestilt.** Én vare kan have FLERE linjer på Grocys
+indkøbsliste. Bestiller man 10 æsker handsker og lægger 10 mere på bagefter, er den
+første linje bestilt og den anden ikke — men `isOrdered` blev afgjort af `items[0]`
+**alene**, så hele varen så bestilt ud. De nye 10 kunne ikke bestilles, og behovet
+viste 20 selvom kun 10 var åbne.
+
+> ⚠️ **Halvdelen af rettelsen var ikke nok.** Der var slet ikke nogen ny linje at se
+> på. Grocys `/stock/shoppinglist/add-product` lægger mængden til en EKSISTERENDE
+> linje når `(product_id, list_id, note)` matcher — og den tager den **første**, som
+> typisk er den bestilte. Om det sker, afhang af om linjen tilfældigvis havde en
+> note: målt mod grocy-test aggregerede handskerne (ingen note) mens burgerlommerne
+> (note `Uppdateret från Bon` fra en gammel synk) fik en ny linje. Derfor så det ud
+> som om det virkede nogle gange.
+>
+> `POST /api/grocy/shopping-list/add-product` afgør nu selv hvor mængden lander:
+> **ingen bestilte linjer** → Grocys egen aggregering (rigtigt: læg til det åbne) ·
+> **bestilt + åben** → læg til den ÅBNE linje · **alt bestilt** → opret en NY linje
+> (`createShoppingListLine`, direkte mod `/objects/shopping_list`).
+>
+> Reglen bor i routen, ikke i klienten, så ingen kaldevej kan glemme den. Kan listen
+> ikke læses, står begge lister tomme, og reglen falder af sig selv ud på Grocys
+> adfærd — vi afviser ikke en tilføjelse fordi et opslag fejlede.
+>
+> **Kolonnen hedder `shopping_list_id`** på `/objects/shopping_list`; `list_id` er kun
+> navnet i add-product's payload og giver 400 (`table shopping_list has no column
+> named list_id`). Låst af en test der kører den ÆGTE adapter mod en falsk `fetch` —
+> adapteren er stubbet i de øvrige asserts, så feltnavnet ville ellers være udækket.
+
+En vare er nu først bestilt når **alle** dens linjer er det, og behovet er kun de
+åbne. `entry.openItems` bæres med, og bestillingen markerer kun dem: skriver vi på de
+allerede bestilte, overskrives den gamle bestillings dato og varenummer, og sporet af
+den forsvinder.
+
+**Modtageren kan rettes i kladden** (drift bad om det). Adressen valideres både i
+klienten og på serveren — en tastefejl ville ellers fejle ude hos SMTP med en besked
+ingen læser. Afviger den fra leverandørens faste, skrives en changelog-linje på
+ordren: ellers kan ingen svare på hvor bestillingen gik hen.
+
+**Tests**: 111 → **128 asserts** (§2c modtageren, §6d delvist bestilte varer — sidstnævnte
+mod den ÆGTE `_ibBuildGroups`) + `npm run test:tilfoej-server` (**23**, de tre veje mod
+den ægte route med adapteren stubbet). **53 mutationer i alt, alle fanget.**
+
+> ⚠️ Testens egen stub af `_ibBuildGroups` skjulte først netop den funktion §6d skulle
+> måle. Den ægte gemmes nu som `__byg` før stubben sættes.
 
 ## Næste opgave
 

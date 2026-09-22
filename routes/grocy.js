@@ -465,13 +465,57 @@ router.delete('/shopping-list/:id', handle(async (req, res) => {
     res.json({ ok: true });
 }));
 
+/* At lægge en vare på indkøbslisten betyder at den skal bestilles. Er alle dens
+ * linjer allerede markeret bestilt, skal der derfor en NY linje til — ellers
+ * lægger Grocy mængden ind i den bestilte, og tilføjelsen forsvinder: varen står
+ * stadig som bestilt, og det man lige har lagt på kan ikke bestilles.
+ *
+ * Reglen bor her og ikke i klienten, så ingen kaldevej kan glemme den.
+ */
 router.post('/shopping-list/add-product', handle(async (req, res) => {
     const { product_id, product_amount, list_id, note } = req.body;
     if (!product_id || !product_amount) {
         return res.status(400).json({ error: 'product_id og product_amount er påkrævet' });
     }
-    await grocy.addShoppingListProduct(product_id, product_amount, list_id, note);
-    res.json({ ok: true });
+
+    // Har varen mindst én BESTILT linje, må Grocy ikke selv vælge hvor mængden
+    // lander: den tager den første der matcher, og det er typisk den bestilte.
+    // Så styrer vi det selv.
+    let bestilte = [], aabne = [];
+    try {
+        const liste = await grocy.getShoppingList();
+        for (const r of (liste || [])) {
+            if (String(r.product_id) !== String(product_id)) continue;
+            ((r.userfields || {}).ordered_varenr ? bestilte : aabne).push(r);
+        }
+    } catch (e) {
+        // Kan listen ikke læses, står begge lister tomme, og reglen nedenfor
+        // falder af sig selv ud på Grocys egen adfærd. Vi afviser ikke
+        // tilføjelsen, fordi vi ikke kunne slå noget op.
+        console.warn('[grocy] kunne ikke afgøre bestilt-status:', e.message);
+    }
+
+    let vej = 'grocy';
+    if (bestilte.length && aabne.length) {
+        // Læg til den åbne linje — dét er den der skal bestilles.
+        vej = 'merged';
+        const mål = aabne[0];
+        await grocy.updateShoppingListItem(mål.id, {
+            amount: (parseFloat(mål.amount) || 0) + (parseFloat(product_amount) || 0),
+        });
+    } else if (bestilte.length) {
+        // Alt er bestilt: der skal en ny linje til, ellers forsvinder
+        // tilføjelsen ind i den bestilte og kan ikke bestilles.
+        vej = 'new_line';
+        const produkter = await grocy.getProducts();
+        const p = (produkter || []).find(x => String(x.id) === String(product_id));
+        await grocy.createShoppingListLine(product_id, product_amount, list_id,
+                                           p && (p.qu_id_purchase || p.qu_id_stock));
+    } else {
+        // Ingen bestilte linjer — Grocys egen aggregering er den rigtige.
+        await grocy.addShoppingListProduct(product_id, product_amount, list_id, note);
+    }
+    res.json({ ok: true, path: vej, new_line: vej === 'new_line' });
 }));
 
 router.post('/shopping-list/remove-product', handle(async (req, res) => {

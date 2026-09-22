@@ -157,6 +157,10 @@ body.zone-office .ib-toolbar { top: 0; }
 /* Cap højden så lange lister (17/27 varer) scroller INDE i panelet i stedet
    for at skubbe "Tilføj valgte"-footeren under fold'en (#257). */
 .ib-panel-inner { padding: 10px 16px; max-height: 44vh; overflow-y: auto; }
+/* Tilføj-vare-panelet har ingen lang liste — kun ét søgefelt — men dets
+   autocomplete er position:absolute og blev klippet af overflow-reglen
+   ovenfor, så man kun så den øverste række af op til 12 forslag. */
+.ib-panel[data-ib-panel="add-product"] .ib-panel-inner { max-height: none; overflow: visible; }
 .ib-panel-item {
     display: flex;
     align-items: center;
@@ -278,7 +282,16 @@ body.zone-office .ib-toolbar { top: 0; }
 }
 .ib-add-ac-item:hover { background: var(--color-background, #f5f4f2); }
 .ib-add-ac-name { font-weight: 700; }
-.ib-add-ac-meta { font-size: 11px; color: var(--color-text-dim, #777); }
+.ib-add-ac-meta { font-size: 11px; color: var(--color-text-dim, #777); margin-left: auto; }
+/* Ude af brug i Grocy — vises, men dæmpet, så man kan se forskel FØR man vælger. */
+.ib-add-ac-item.ude .ib-add-ac-name { font-weight: 600; color: var(--color-text-dim, #777); }
+.ib-add-ac-ude {
+    font-size: 10px; font-weight: 700; letter-spacing: .02em;
+    padding: 1px 6px; border-radius: 999px;
+    background: var(--color-background, #f5f4f2);
+    border: 1px solid var(--color-border, #d7d1ca);
+    color: var(--color-text-dim, #777); white-space: nowrap;
+}
 
 .ib-panel-cancel {
     padding: 7px 12px;
@@ -704,6 +717,27 @@ body.zone-office .ib-toolbar { top: 0; }
     transition: background .1s;
 }
 .ib-bs-tog:hover { background: var(--color-background, #f5f4f2); }
+/* Fortryd hele gruppens bestilling. Ligger på headeren — IKKE inde i den
+   kollapsede sektion — fordi den skal kunne nås når en bestilling er gået
+   galt, uden først at folde noget ud. Diskret: den er en nødudgang, ikke
+   hovedhandlingen. */
+.ib-bs-undo {
+    margin-left: auto;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    color: var(--color-text-dim, #777);
+    background: #fff;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ib-bs-undo:hover {
+    color: var(--ib-red, #bc181b);
+    border-color: var(--ib-red, #bc181b);
+    background: #fff;
+}
 .ib-bs-chev {
     font-size: 14px;
     transition: transform .15s;
@@ -885,6 +919,10 @@ body.zone-office .ib-toolbar { top: 0; }
 }
 .ib-lp-link.danger { color: var(--ib-red, #bc181b); }
 .ib-lp-foot-sub { font-size: 10px; color: var(--color-text-dim, #999); margin-top: 3px; }
+/* Bestillingsteksten under varenummeret: en underoverskrift, ikke et nyt afsnit
+   — de to felter hører til samme kobling. */
+.ib-lp-sub { font-size: 11px; font-weight: 700; color: var(--color-text, #333); margin-bottom: 4px; }
+.ib-lp-hint { font-size: 10px; color: var(--color-text-dim, #999); margin: -4px 0 8px; line-height: 1.35; }
 .ib-lp-source { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--color-text-dim, #999); margin-bottom: 8px; }
 .ib-lp-note { font-size: 11px; color: var(--color-text-dim, #777); margin-bottom: 6px; }
 .ib-lp-note a { color: var(--brand-primary); font-weight: 700; }
@@ -1259,6 +1297,60 @@ body.ib-focus-mode .ib-group.ib-focused { display: block; }
     white-space: nowrap;
 }
 .ib-item-sup.warn { color: #7a5200; background: var(--ib-orange-light, #fef3d6); }
+
+/* ── ORDREMAIL SOM KLADDE ──
+   Bygger på cart-blocked-modalens overlay, men bredere: her skal en hel mail
+   kunne læses og rettes, ikke kun en besked kvitteres. */
+.ib-md-modal {
+    width: 680px;
+    padding: 18px 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+}
+.ib-md-head { font-size: 15px; font-weight: 700; color: var(--color-text, #333); }
+.ib-md-to {
+    font-size: 12px; color: var(--color-text-dim, #777);
+    padding-bottom: 6px; border-bottom: .5px solid var(--color-border-light, #e8e4e0);
+}
+.ib-md-to b { color: var(--color-text, #333); }
+.ib-md-to-hint { margin-left: 8px; font-size: 11px; opacity: .8; }
+.ib-md-lbl {
+    font-size: 11px; font-weight: 700; letter-spacing: .02em;
+    color: var(--color-text-dim, #777); margin-top: 4px;
+}
+.ib-md-subject, .ib-md-body {
+    width: 100%;
+    box-sizing: border-box;          /* siden er content-box; uden den flyder feltet ud */
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--color-text, #333);
+}
+.ib-md-body { resize: vertical; min-height: 220px; line-height: 1.45; }
+.ib-md-subject:focus, .ib-md-body:focus {
+    outline: none; border-color: var(--brand-primary, #8e631f);
+}
+.ib-md-note { font-size: 11px; color: var(--color-text-dim, #999); }
+.ib-md-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.ib-md-btn {
+    padding: 8px 16px; font-size: 13px; font-family: inherit;
+    border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; color: var(--color-text, #333);
+}
+.ib-md-btn:hover { background: var(--color-background, #f5f4f2); }
+.ib-md-btn.primary {
+    background: var(--brand-primary, #8e631f);
+    border-color: var(--brand-primary, #8e631f);
+    color: #fff; font-weight: 700;
+}
+.ib-md-btn.primary:hover { filter: brightness(1.08); background: var(--brand-primary, #8e631f); }
 
 /* ── OPRET / KOBL DRAWER ── */
 .ib-dr-scrim {

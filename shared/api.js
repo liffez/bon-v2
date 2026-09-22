@@ -1563,6 +1563,13 @@ function fetchPendingOrders() { return apiFetch('/orders/pending'); }
 
 function fetchPendingOrder(id) { return apiFetch('/orders/pending/' + id); }
 
+/* Ordremailen som kladde — renderet server-side, men ikke sendt. */
+function fetchOrderMailDraft(data) {
+    return apiFetch('/orders/pending/mail-draft', {
+        method: 'POST', body: JSON.stringify(data),
+    });
+}
+
 function createPendingOrder(data) {
     return apiFetch('/orders/pending', {
         method: 'POST', body: JSON.stringify(data),

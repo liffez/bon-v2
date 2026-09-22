@@ -29,6 +29,41 @@ const { handle, logChange, todayISO } = require('../db/helpers');
 const { transaction } = require('../db/compat');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
+const supplierLines = require('../shared/supplier_order_lines');
+
+/* Ordremailen som den kommer til at se ud.
+ *
+ * Kladden og afsendelsen SKAL rendere ens — ellers retter man i én tekst og
+ * sender en anden. Derfor én funktion, kaldt begge steder.
+ *
+ * Signaturen lægges på HER, så kladden viser hele mailen. Afsendelsen sender
+ * så med appendSignature:false: det man ser er det der sendes, også hvis man
+ * har slettet eller skrevet om i signaturen.
+ *
+ * Svar-mærket (#po-NN) er bevidst IKKE med: ordre-id'et findes først når
+ * ordren oprettes, og et mærke i et redigerbart felt kan slettes ved et uheld
+ * — så ville Rikkes svar havne i den ufordelte indbakke. sendMail sætter det
+ * på ved afsendelse.
+ */
+function renderOrderMailDraft(db, supplier, items, expectedDeliveryDate) {
+    const mail = require('../services/mailService');
+    const tmpl = db.prepare(
+        `SELECT subject, body_text, append_signature FROM mail_templates WHERE key = 'order_email'`
+    ).get();
+    if (!tmpl) throw new Error("Mail-skabelonen 'order_email' findes ikke");
+
+    const vars = {
+        leverandoer: supplier.name,
+        dato: todayISO(),
+        vareliste: supplierLines.mailList(items || []),
+        leveringsdato: expectedDeliveryDate || 'Hurtigst muligt',
+    };
+    return {
+        subject: mail.renderTemplate(tmpl.subject, vars, {}),
+        body: mail.applySignature(mail.renderTemplate(tmpl.body_text, vars, {}),
+                                  tmpl.append_signature !== 0),
+    };
+}
 
 // Alle ordre-endpoints kræver login (indkøb må laves af alle aktive roller,
 // ikke kun admin). Lukker bl.a. den åbne udgående-mail-vektor via kontakt@.
@@ -89,6 +124,32 @@ router.get('/pending/:id', handle((req, res) => {
 
 /* ── POST /pending ───────────────────────────────────────── */
 
+/* ── POST /pending/mail-draft ────────────────────────────────
+ * Ordremailen som kladde, uden at sende eller skrive noget. Klienten viser
+ * den redigerbart; det rettede sendes tilbage som email_subject/email_body.
+ */
+router.post('/pending/mail-draft', handle((req, res) => {
+    const db = getDb();
+    const { supplier_id, items, expected_delivery_date } = req.body;
+
+    const supplier = supplier_id
+        ? db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplier_id)
+        : null;
+    if (!supplier) return res.status(404).json({ error: 'Leverandør ikke fundet' });
+    if (!supplier.contact_email) {
+        return res.status(400).json({ error: 'Leverandøren har ingen mailadresse', code: 'NO_EMAIL' });
+    }
+
+    const draft = renderOrderMailDraft(db, supplier, items, expected_delivery_date);
+    res.json({
+        to: supplier.contact_email,
+        supplier_name: supplier.name,
+        item_count: (items || []).length,
+        subject: draft.subject,
+        body: draft.body,
+    });
+}));
+
 router.post('/pending', handle(async (req, res) => {
     const db = getDb();
     const {
@@ -96,6 +157,7 @@ router.post('/pending', handle(async (req, res) => {
         grocy_location_id,
         order_reference, expected_delivery_date,
         notes, items, sent_via, send_email,
+        email_subject, email_body, email_to,
     } = req.body;
 
     // location_id = Ristet Rugs siteId (HQ/Trailer). NOT NULL i DB.
@@ -184,29 +246,63 @@ router.post('/pending', handle(async (req, res) => {
                 const mail = require('../services/mailService');
                 const today = todayISO();
 
-                // Build vareliste
-                const vareliste = (items || []).map(it => {
-                    const name = it.product_name || it.name || 'Ukendt';
-                    const qty  = it.quantity_ordered || it.quantity || 0;
-                    const unit = it.unit || 'stk';
-                    const nr   = it.barcode || it.varenr || '';
-                    return `• ${name} — ${qty} ${unit}${nr ? ' (nr. ' + nr + ')' : ''}`;
-                }).join('\n');
+                // Har kontoret rettet i kladden, sendes DEN tekst — ikke
+                // skabelonen renderet forfra. appendSignature:false, fordi
+                // kladden allerede bar signaturen: det man så er det der sendes.
+                //
+                // Uden en rettet kladde renderes skabelonen som hidtil, så
+                // kaldere der ikke kender kladde-flowet er upåvirkede.
+                // Kontoret kan rette modtageren i kladden — leverandørens faste
+                // adresse er ikke altid den rigtige for DENNE bestilling. Den
+                // valideres, for en tastefejl ville ellers fejle ude hos SMTP
+                // med en besked ingen læser.
+                let modtager = supplier.contact_email;
+                if (typeof email_to === 'string' && email_to.trim()
+                    && email_to.trim() !== supplier.contact_email) {
+                    const kandidat = email_to.trim();
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(kandidat)) {
+                        throw new Error('Ugyldig mailadresse: ' + kandidat);
+                    }
+                    modtager = kandidat;
+                    // Afvigelsen skal kunne ses bagefter — ellers kan ingen
+                    // svare på hvor bestillingen gik hen.
+                    logChange({
+                        entityType: 'purchase_order', entityId: orderId, action: 'update',
+                        fieldName: 'email_to', oldValue: supplier.contact_email,
+                        newValue: modtager, userId,
+                        notes: 'Bestillingsmailen sendt til en anden adresse end leverandørens faste',
+                    });
+                }
 
-                const mailResult = await mail.sendFromTemplate({
-                    templateKey: 'order_email',
-                    to: supplier.contact_email,
-                    vars: {
-                        leverandoer: supplier.name,
-                        dato: today,
-                        vareliste: vareliste,
-                        leveringsdato: expected_delivery_date || 'Hurtigst muligt',
-                    },
-                    purchaseOrderId: orderId,
-                    context: { type: 'purchase_order', number: orderId },
-                    userId,
-                    smtpPrefix: 'smtp_kontakt',
-                });
+                const rettet = typeof email_body === 'string' && email_body.trim();
+                const mailResult = rettet
+                    ? await mail.sendMail({
+                        to: modtager,
+                        subject: (email_subject || '').trim()
+                                 || renderOrderMailDraft(db, supplier, items, expected_delivery_date).subject,
+                        text: email_body,
+                        purchaseOrderId: orderId,
+                        context: { type: 'purchase_order', number: orderId },
+                        userId,
+                        smtpPrefix: 'smtp_kontakt',
+                        appendSignature: false,
+                    })
+                    : await mail.sendFromTemplate({
+                        templateKey: 'order_email',
+                        to: modtager,
+                        vars: {
+                            leverandoer: supplier.name,
+                            dato: today,
+                            // Varelinjen som leverandøren ser den — samme regel
+                            // som "Kopiér liste" (shared/supplier_order_lines.js).
+                            vareliste: supplierLines.mailList(items || []),
+                            leveringsdato: expected_delivery_date || 'Hurtigst muligt',
+                        },
+                        purchaseOrderId: orderId,
+                        context: { type: 'purchase_order', number: orderId },
+                        userId,
+                        smtpPrefix: 'smtp_kontakt',
+                    });
 
                 // Update order: sent_via = email, sent_at + mail_thread_id
                 db.prepare(`UPDATE purchase_orders SET sent_via = 'email', sent_at = CURRENT_TIMESTAMP, mail_thread_id = ? WHERE id = ?`)

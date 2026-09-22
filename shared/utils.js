@@ -1593,6 +1593,16 @@ function grocyHasNoOwnStock(p) {
     return !!p && grocyFlagOn(p.no_own_stock);
 }
 
+/** Er varen i brug i Grocy?
+ *  Et produkt UDEN `active`-felt regnes som aktivt: /stock's indlejrede
+ *  `product` bærer ikke alle felter (samme fælde som #613), og et manglende
+ *  felt må ikke kunne skjule en hel liste. */
+function grocyProductActive(p) {
+    if (!p) return false;
+    if (p.active === undefined || p.active === null) return true;
+    return grocyFlagOn(p.active);
+}
+
 // ─── Formidler-mærke ─────────────────────────────────────────
 // Et firma markeret som formidler (companies.is_reseller) bestiller for andre.
 // Ligger bonen på et sådant firma UDEN at vi ved hvem maden er til, kan mærket
