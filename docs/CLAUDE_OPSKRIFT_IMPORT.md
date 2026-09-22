@@ -1,6 +1,12 @@
 # CLAUDE_OPSKRIFT_IMPORT.md
 
-Specifikation for opskriftsimporteren i Bon. Version 0.1 — udkast til gennemsyn.
+Specifikation for opskriftsimporteren i Bon. Version 0.2 — udkast til gennemsyn.
+
+**Ændringer fra v0.1 (20.09.2026):** Gennemsynet flyttet helt ind i den fælles editor
+(`CLAUDE_OPSKRIFT_DESIGNER.md`) — editoren åbner med det samme, og gaps afklares
+dér (§4.6). Vareoprettelse og opskrift skrives af én fælles writer, udløst af
+editorens Gem (§4.5). Planens resumé vises som bånd i editoren ved enkeltimport (§4.4).
+Invariant 3 præciseret: editorens Gem er godkendelsen.
 
 ---
 
@@ -37,7 +43,7 @@ Disse må ikke brydes af nogen kodesti.
 
 1. **Lagerenheden er kg.** Undtagelsen er varer der reelt kun håndteres i stk. Enhver vare skal have en gyldig vej fra sine øvrige enheder til lagerenheden.
 2. **Importen ændrer aldrig en eksisterende vare.** En opskriftslinje er ikke belæg for at rette QU eller omregning på en vare med lagerhistorik og indkøbsaftaler. Uoverensstemmelser rapporteres, de rettes ikke.
-3. **Der skrives aldrig uden en godkendt plan.** Ingen kodesti går direkte fra parsing til Grocy-API.
+3. **Der skrives aldrig uden en godkendt plan.** Ingen kodesti går direkte fra parsing til Grocy-API. Ved enkeltimport er editorens Gem godkendelsen: den udløser writeren på den plan, editoren har bygget.
 4. **Alias peger på Bons varenøgle, ikke på Grocys produkt-id.** Grocy-id er et autonummer der ikke overlever en ny instans. Adapteren oversætter.
 5. **Nye opskrifter er ikke salgsvarer.** `sellable` og `sellableZettle` sættes hårdt til falsk i writeren, uafhængigt af kilde.
 6. **En lokalt redigeret opskrift overskrives aldrig af en genimport.** Den giver en diff til gennemsyn.
@@ -165,6 +171,11 @@ Planen vises som et resumé før detaljerne:
 
 Planen kan gemmes, genåbnes, køres mod testinstansen og derefter mod HQ.
 
+**Ved enkeltimport vises resuméet som bånd i editoren** — "12 linjer skal
+afklares", delt i dem der blokerer gem (G1, G2, G5, G6) og dem der kun gør tallene
+til mindstetal (manglende pris/CO₂). Se designer-spec §8.3. Det fulde resumé ovenfor
+bruges ved batch-import og Grocy → Grocy, hvor der ikke er én opskrift at åbne.
+
 **Redigerbarhed følger planens status.** Så længe planen er kladde, kan enhver afklaret linje åbnes igen og laves om — den er blot en række i Bon, og der er ingen grund til at spærre noget. Når planen er udført, står varen derimod i Grocy med lagerenhed og omregning, og invariant 2 gælder: importen ændrer ikke eksisterende varer. En linje i en udført plan er derfor ikke redigerbar; den vises som et link til varekortet, hvor rettelsen sker med åbne øjne.
 
 ### 4.5 Writer
@@ -180,26 +191,63 @@ Fast rækkefølge, da Grocy har fremmednøgleafhængigheder og ingen transaktion
 7. opskrift
 8. opskriftslinjer
 
+**Én fælles writer.** Skridt 4–8 udføres af den samme service
+(`services/recipeWriter.js`), uanset om opskriften kommer fra import eller er bygget
+i designeren. Forskellen er alene hvor loggen lander: ved import i `import_plan_item`,
+i designeren i en log der kun lever under selve gem-kaldet (til fortrydelse ved fejl).
+Skridt 1–3 er normalt tomme ved enkeltimport; er de ikke, vises de som planpunkter
+der skal godkendes, før editoren kan gemme.
+
 Efter hvert skridt logges det oprettede id i `import_plan_item`. Efter sidste skridt køres en **verifikation**: hver oprettet vare læses tilbage, og det kontrolleres at lagerenhed og omregning faktisk er som planlagt. Grocys `/objects`-endpoint validerer stort set ingenting, så en vare kan sagtens oprettes i en tilstand der ser rigtig ud og regner forkert.
 
 Fejler et skridt, standses udførelsen, planen får status `delvist_udfoert`, og der tilbydes en fortrydelse baseret på de loggede id'er.
 
-### 4.6 Gennemsyn og gem sker i opskrift-designeren (19.09.2026)
+### 4.6 Gennemsyn og gem sker i den fælles editor (rettet 20.09.2026)
 
-Bon har allerede en opskrift-designer (`shared/recipe_designer.js`) med ingredienstabel, fremgangsmåde og live-beregning af vægt, lager, kostpris, pris, DB og CO₂e. Importen bygger derfor **ikke** sin egen opskrifts-editor.
+Importen bygger **ikke** sin egen opskrifts-editor eller gennemsynsflade. Den
+leverer editorens tilstandsobjekt og intet andet (`CLAUDE_OPSKRIFT_DESIGNER.md` §15).
 
-Arbejdsdelingen følger risikoen i §4.5:
+**Flowet:**
 
-| Skridt | Hvem | Hvorfor |
-|---|---|---|
-| 1–6 — enheder, omregninger, varer, userfields på varer | **Planen og dens writer** | svære at fortryde; beholder resumé, verifikation og fortrydelse (§4.4–4.5) |
-| 7–8 — opskrift og opskriftslinjer | **Designeren** | det brugeren skal se og rette; én vej til at skrive en opskrift til Grocy |
+```
+Importér-kortet → indsæt tekst / URL / fil
+  → adapter → RecipeDraft
+  → resolver → linjer med bånd og gap-type
+  → editoren åbner med det samme
+  → gennemgang af uafklarede linjer i editoren
+  → Gem → writer (skridt 4–8) → verifikation
+```
 
-Flowet er et tredje kort på designerens startskærm, *Importér opskrift*: indsæt/upload → plan → når alle linjer peger på en rigtig vare: **Åbn i designer** med `RecipeDraft` omsat til designerens format → ret → Gem. Designerens Gem registreres på planen (`import_plan_item`), så idempotens og genimport (§6) virker uændret.
+Editoren åbner **før** alle linjer er afklaret. Det er ændringen fra v0.1, hvor
+planen skulle være løst først. Afklaringen sker i editorens gennemgangspanel, med
+kildens tekst ved siden af (designer-spec §8.4).
 
-Tillæggets antagelser (`CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md` §9) vises som en note pr. ingrediensrække i designeren, og importnoten lander i fremgangsmåden.
+**Resolverens output i editoren:**
 
-**Forudsætning:** designeren skal først kunne den nuværende model — udbytte som eget felt (#680), produceret vare, underopskrift som produktlinje frem for nesting, og målvægt for skål-opskrifter. Se epic #660, fase F-1 (#683).
+| Resolver | I editoren |
+|---|---|
+| Bånd A | Afklaret linje |
+| Bånd B | Uafklaret linje med forslaget forvalgt i gennemgangen — ét klik |
+| Bånd C / G6 | Uafklaret linje, kandidaterne vist i gennemgangen |
+| G1 ukendt ingrediens | Uafklaret linje: vælg eksisterende eller opret ny |
+| G2 enhed kan ikke omregnes | Uafklaret linje, blokerer gem |
+| G3 uklar mængde | Afklaret linje med variabel mængde og annotation |
+| G4 tilberedt form / rå vare | Uafklaret linje, afgørelse i gennemgangen |
+| G5 manglende udbytte | Udbyttesætningen står tom og blokerer gem |
+
+**Afgørelser skrives til planen.** Når brugeren i gennemgangen vælger en eksisterende
+vare, registreres afgørelsen på `import_plan_item`, og aliaset læres efter reglen i
+åbent punkt 6. Det er det, der får værktøjet til at blive bedre for hver import.
+
+**Tillæggets antagelser** (`CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md` §9) vises som
+annotation på linjen og bliver stående efter afklaring. Importnoten vises i
+editorens panel "Kilde og antagelser" og gemmes som afsluttende blok i Grocys
+beskrivelsesfelt, markeret så trin-parseren kan skelne den fra fremgangsmåden
+(designer-spec R9.5).
+
+**Forudsætning:** editoren i `CLAUDE_OPSKRIFT_DESIGNER.md` — udbyttesætning,
+produceret vare, underopskrift som produktlinje frem for nesting, målvægt som
+valgfrit felt og uafklarede linjer. Se epic #660, fase F-1 (#683). **Merget 21.09.2026** (#694) — forudsætningen er opfyldt.
 
 ---
 
@@ -321,5 +369,5 @@ Kun én ting, og den er allerede besluttet: aliaser og planer skal referere Bons
 3. **Tærskel for fuzzy-match.** Fastlægges empirisk på et sæt kendte opskrifter frem for at gættes.
 4. **Densitetstabel.** Start med de mest almindelige råvarer og udvid efter behov. Skal ligge i Bon, ikke i koden.
 5. **Ophavsret.** Opskrifter hentet fra websider kan bruges internt. De må ikke indgå i en grundpakke der distribueres til andre virksomheder — den må kun indeholde egne opskrifter.
-6. **Aliaslagring ved bånd B.** Gemmes et alias automatisk når et forslag bekræftes, eller kun ved et eksplicit valg mellem flere kandidater? Mockuppen gør det i dag inkonsekvent.
+6. **Aliaslagring ved bånd B.** Gemmes et alias automatisk når et forslag bekræftes i gennemgangen, eller kun ved et eksplicit valg mellem flere kandidater? Skal afgøres før gennemgangspanelet bygges.
 7. **Krydsnavngivning som mellemløsning.** Er "Køl, Amager"-mønsteret acceptabelt hos en flerlokationskunde indtil den egne lagerengine er klar, eller udskyder det den kundetype til efter v3?
