@@ -214,7 +214,8 @@ function candidatesFor(meta, productId) {
                 unit: meta.unitName.get(Number(b.qu_id)) || null,
                 amount: num(b.amount),
                 stock_price: s.price,
-                note: s.note,
+                note: s.note,           // hvorfor prisen mangler (serverens tekst)
+                text: b.note || null,   // leverandørens betegnelse — Grocys note på stregkoden
                 is_preferred: flag(uf.is_preferred),
                 is_agreement: flag(uf.is_agreement_item),
                 is_estimate: isEstimateBarcode(b.barcode),
@@ -258,9 +259,15 @@ async function priceOverview(grocy) {
             stock_unit: meta.unitName.get(Number(p.qu_id_stock)) || null,
             is_estimate: r.reason === 'estimate',
             estimate_price: (candidates.find(c => c.is_estimate) || {}).stock_price ?? null,
+            // is_preferred + leverandør + enhed: arbejdslisten i Indkøb → ⚙ →
+            // Produkter viser valget mellem varenumrene direkte i rækken, uden
+            // et kald pr. vare. Prisen er stadig serverens (pr. lager-enhed).
             barcodes: candidates.map(c => ({
                 id: c.id, barcode: c.barcode, stock_price: c.stock_price,
-                note: c.note, is_estimate: c.is_estimate,
+                note: c.note, text: c.text, is_estimate: c.is_estimate,
+                is_preferred: c.is_preferred, is_agreement: c.is_agreement,
+                shopping_location_id: c.shopping_location_id,
+                unit: c.unit, amount: c.amount,
             })),
         };
     }

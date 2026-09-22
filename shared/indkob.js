@@ -1380,39 +1380,12 @@ function _ibClearLinkDraft(productId) {
     delete _ibPriceDraft[productId];
 }
 
-/* Fakturaens tal → kr pr. lager-enhed.
- *
- * Fakturaen skriver en pakkepris ("115,00 · Transportkasse, 25 stk."), mens
- * Grocy skal bruge prisen pr. lager-enhed. Divisionen er det eneste sted vi
- * regner: selve omregningen fra stregkodens enhed til lagerets bor på serveren
- * (services/supplierPrices.js) og må ikke få en kopi her — det var netop to
- * uenige enhedsregler der kostede faktor 1000 i #352.
- *
- * Tomt eller vrøvl giver null, så feltet aldrig gemmer et tal ingen tastede.
- */
+/* Fakturaens tal → kr pr. lager-enhed. Reglen bor i shared/invoice_price.js,
+ * som arbejdslisten i Indkøb → ⚙ → Produkter også bruger — to kopier ville
+ * skride fra hinanden. Browseren dividerer; omregningen fra stregkodens enhed
+ * til lagerets bor på serveren (services/supplierPrices.js, jf. #352). */
 function _ibPriceFromInvoice(prisTekst, indholdTekst) {
-    var pris = _ibNumFromInput(prisTekst);
-    if (pris === null || pris <= 0) return null;
-    // Tomt felt = prisen ER pr. enhed. Men står der NOGET vi ikke kan læse,
-    // må vi ikke bare regne som om feltet var tomt: så ville "115 kr for tolv"
-    // blive gemt som 115 kr pr. stk.
-    var raa = indholdTekst === null || indholdTekst === undefined ? '' : String(indholdTekst).trim();
-    var indhold = _ibNumFromInput(indholdTekst);
-    if (indhold === null) {
-        if (raa) return null;
-        indhold = 1;
-    }
-    if (indhold <= 0) return null;
-    return Math.round((pris / indhold) * 10000) / 10000;
-}
-
-/* Dansk komma tålt — fakturaen skriver 115,00 og tastaturet giver komma. */
-function _ibNumFromInput(v) {
-    if (v === null || v === undefined) return null;
-    var t = String(v).trim().replace(/\s/g, '').replace(',', '.');
-    if (!t) return null;
-    var n = parseFloat(t);
-    return isFinite(n) ? n : null;
+    return InvoicePrice.priceFromInvoice(prisTekst, indholdTekst);
 }
 
 function _ibFmtKr(n) {

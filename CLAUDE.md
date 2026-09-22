@@ -9563,6 +9563,60 @@ i changeloggen. Alt rullet tilbage bagefter.
 > 800), så de første klik ramte ved siden af uden at fejle. Målt med en
 > capture-lytter der noterer `clientX/Y`, og koordinaterne divideret med forholdet.
 
+
+### Arbejdslisten "N uden pris": prisen sættes i rækken (22. september 2026)
+
+Indkøb → ⚙ → Produkter → **"N uden pris"** var en liste man læste og så forlod:
+en pris kunne kun sættes fra lageroversigtens ✎, og den viser kun varer med en
+lagerpost. Målt mod grocy-test 22/9: 189 aktive varer, **133 uden pris**, og
+lageroversigten viser 85 — mindst 48 kunne slet ikke nås.
+
+De 133 fordeler sig sådan (ikke "112 uden varenummer", som det så ud):
+
+| Varer | Situation | Rækken |
+|---|---|---|
+| 95 | intet varenummer | prisfelt → **overslag** |
+| 16 | ét varenummer uden pris | prisfelt → prisen **på varenummeret** (ikke et overslag) |
+| 19 | flere varenumre med pris, intet foretrukket | **vælg** — ét klik |
+| 1 | flere varenumre uden pris, intet foretrukket | **vælg** → så prisfelt for det valgte |
+| 2 | foretrukket varenummer uden pris | prisfelt på det + de andre som alternativ |
+
+Fem af dem har et varenummer hvis enhed ikke kan omregnes til lager-enheden
+(sodavand pr. flaske) — dér ville serveren afvise prisen, så rækken tilbyder et
+overslag og siger hvorfor.
+
+- **`_isWorkPlan(po)`** i `shared/indkob_settings.js` afgør rækkens vej ud fra
+  varens varenumre. Ren funktion af oversigtens post.
+- **Prisfeltet er fakturaens tal**: `[115] kr for [25] stk`, med udregningen
+  vist mens man taster. **Tab ud af rækken gemmer**, Tab fra pris til antal i
+  samme række gør ikke (ellers blev "115" gemt som 115 kr/stk før "25" var
+  skrevet). Enter gemmer og flytter videre. Leverandør- og min.-grænse-felterne
+  får `tabindex="-1"` på listen, så Tab går pris → antal → næste vare.
+- **Browseren dividerer — intet andet.** Reglen er flyttet til
+  **`shared/invoice_price.js`** (`InvoicePrice.priceFromInvoice`), som både
+  kobl-panelet i indkøbslisten og arbejdslisten bruger. Omregningen fra
+  varenummerets enhed til lager-enheden bor i `services/supplierPrices.js`
+  (#352). Hvilken pris der så **gælder**, spørges serveren om bagefter
+  (`fetchSupplierPrice`) — rækken bygges af svaret, ikke af hvad vi selv satte.
+- Kun den gemte række tegnes om, så fokus i næste række står. Det tastede
+  overlever en genrendering (søgning). En gemt vare bliver stående med
+  kvitteringen indtil listen filtreres igen.
+- Ingen ny route, ingen migration. `priceOverview` fik `is_preferred`,
+  `is_agreement`, `shopping_location_id` og **`text`** (leverandørens betegnelse
+  = Grocys note) på varenumrene. `note` er stadig serverens forklaring på en
+  manglende pris og må ikke bruges som navn — det gjorde første udgave.
+- **Knappens tal talte inaktive varer med** (169 mod 133): oversigten rummer kun
+  aktive, og `_isUdenPris` tolkede "ikke i oversigten" som "uden pris".
+- Knappen bliver stående mens man er på listen, også når den sidste er sat.
+- Lytterne på containeren bindes kun én gang (`__isBound`) — ellers fyrede et
+  gem to gange når office monterede panelet igen.
+
+**Tests:** `test-indkob-arbejdsliste.js` (84, kører nu under `test:indkob-pris`)
+— den ægte `indkob_settings.js` i en vm-sandkasse. **13 mutationer, alle
+fanget.** Browser-verificeret mod grocy-test med rigtige klik (overslag via
+Enter, pakkepris 350/1000 på et varenummer → Grocys `last_price` 0,35,
+foretrukket-valg, "115 kr for tolv" afvist); grocy-test rullet tilbage bagefter.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

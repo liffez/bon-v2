@@ -774,6 +774,7 @@ function lavKlient(felter) {
                     body: el() },
         setTimeout, clearTimeout, Promise, JSON, Math, String, Number, Array, Object, Date, parseInt, parseFloat, isNaN, RegExp,
         SupplierOrderLines: S,
+        InvoicePrice: require(path.join(__dirname, '..', 'shared', 'invoice_price')),
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
         __kopieret: null, __ordre: null, __oprettet: null,
         __confirmTekst: null, __confirmSvar: true, __toast: null,

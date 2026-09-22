@@ -55,6 +55,7 @@ function lavKlient(opts) {
         navigator: { clipboard: { writeText: async () => {} } },
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
         SupplierOrderLines: require(path.join(ROD, 'shared', 'supplier_order_lines')),
+        InvoicePrice: require(path.join(ROD, 'shared', 'invoice_price')),
         grocyProductActive: (p) => !p || p.active === undefined || String(p.active) !== '0',
         __kaldt: [], __toast: [], __prisKald: [],
     };
@@ -132,9 +133,14 @@ eq(pris('100', '3'), 33.3333, 'afrundes til fire decimaler, ikke flere');
 eq(pris('0,50', '1000'), 0.0005, 'gram-varer kan komme under en øre');
 
 /* Klienten må KUN dividere. Stregkodens enhed er serverens sag. */
+// Reglen bor i shared/invoice_price.js (delt med arbejdslisten i Produkter),
+// og indkob.js må kun delegere til den.
 const src = fs.readFileSync(path.join(ROD, 'shared', 'indkob.js'), 'utf8');
-const prisFn = src.slice(src.indexOf('function _ibPriceFromInvoice'),
-                        src.indexOf('function _ibNumFromInput'));
+const delegat = src.slice(src.indexOf('function _ibPriceFromInvoice'));
+ok(/^function _ibPriceFromInvoice\([^)]*\) \{\s*return InvoicePrice\.priceFromInvoice\(/.test(delegat),
+   'indkob.js delegerer til den delte regel — ingen egen kopi');
+const prisFn = fs.readFileSync(path.join(ROD, 'shared', 'invoice_price.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 ok(!/qu_id|quantity_unit|conversion|resolveToStock/i.test(prisFn),
    'udregningen kender ikke stregkodens enhed — den regel bor på serveren');
 
