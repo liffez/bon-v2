@@ -1,6 +1,8 @@
 # CLAUDE_VARER_OG_PRISER.md — Indkøb → Varer: hvor købes varen, og hvad koster den?
 
-> **Status:** spec, godkendt som koncept 22. september 2026. Ikke bygget.
+> **Status:** koncept godkendt 22. september 2026. **Ikke bygget — og må ikke bygges
+> før §14 (beslutninger) og §15 (rækkefølge) er afklaret.** Samler alt vi ved og
+> alt vi er bekymrede for, så arbejdet ikke bliver til lappeløsninger.
 > **Mockup:** https://claude.ai/artifact/VEqBpyGsTpCdrBDQRDtXQS (klikbar, eksempeldata)
 > **Bygger videre på:** #657 (leverandørpriser i Grocy), #704 (arbejdslisten "N uden pris"),
 > #703 (enhedsaudit), #666 (stamdata-spor), #558 (kostpris fra opskrift).
@@ -210,8 +212,8 @@ filteret. `shared/invoice_price.js`, `createInternalBarcode`, `setBarcodeContent
 
 ## 7. Faser
 
-0. **Forudsætninger** — natligt Hørkram-prisjob (9.1) og leverandører på de fem
-   indkøbssteder uden (9.2). Uden dem lover skærmen noget den ikke holder.
+0. **Forudsætninger** — se §15: beslutningerne i §14, natligt Hørkram-prisjob,
+   kostprisens nye trin (§11) og én model for akse 3 (§10).
 1. **Varer-listen** — ny fane der afløser Produkter; tilstande, filtre, "Købes hos" i
    rækken, alle række-handlinger inkl. "Hvor købes den?" og "Find i kataloget".
 2. **Vare-panelet** — varenumre pr. leverandør, Gør foretrukken, Køb her i stedet,
@@ -230,76 +232,189 @@ Hver fase kan testes i drift for sig; 1 kræver ikke 2.
    bevidst 0 er en pris og giver *Klar*; en tom pris (`""`/null) betyder *mangler*
    og giver *Skal ordnes*. Kræver en ændring: i dag afviser
    `setBarcodeStockPrice`/`setEstimatePrice` alt ≤ 0, og `resolveProductPrice`
-   behandler 0 som "ingen pris". **Mål før det bygges** hvor mange stregkoder der i
-   dag har `last_price = 0` — betyder de "ukendt", skal de ryddes til null først,
-   ellers bliver de stille til *Klar*.
+   behandler 0 som "ingen pris". **Målt 22/9 mod grocy-hq: ingen stregkoder har
+   `last_price = 0`** (34 er tomme, 125 har en pris over 0), så 0 kan få den betydning
+   uden oprydning.
 3. **Minimumsgrænse** er en indstilling pr. vare i Grocy → den bor i **vare-panelet**,
    ikke som kolonne i listen.
 4. **Kobl-panelet i indkøbslisten** skal på sigt åbne **vare-panelet** (en drawer, som
    bon-draweren) i stedet for sin egen formular. Hører til fase 4: ét panel til en
    vare, uanset hvor man står.
 
-## 9. Udfordringer der skal løses undervejs
+## 9. Rettelser efter måling
 
-Fundet mens specen blev skrevet. De første tre er målt, ikke antaget.
+Specens første udgave (#705) havde to forkerte antagelser. Målt 22/9 mod
+grocy-hq og `supplier_grocy_locations` (sessionen *Prioritering af åbne opgaver*):
 
-1. **"Holder sig selv ajour" er ikke sandt i dag.** Der findes ingen planlagt
-   Hørkram-prisopdatering — kun knappen *Opdater priser nu*
-   (`POST /prices/refresh-horkram`). Katalog-typens løfte kræver et natligt job
-   (cron, som `booking-reminders.js`), der kører `refreshHorkramPrices` og logger
-   udfaldet. Uden det bliver en katalog-pris lige så forældet som en fakturapris,
-   bare uden at nogen ved det. **Skal på plads før fase 1 går i drift.**
+| Indkøbssted (Grocy-lokation) | Varer | Koblet til leverandør | Vurdering |
+|---|---|---|---|
+| Hørkram (2) | 107 | Hørkram | — |
+| **Convifood (5)** | 6 | **Hørkram** | rigtig: varenumrene er Hørkram-numre — Convifood købes *gennem* Hørkram |
+| **Drikkevarer (9)** | 7 | **Hørkram** | tvivlsom: øl, cava, kaffe; det ene varenummer er en EAN, ikke et Hørkram-nummer |
+| Inco (3) | | Inco (`webshop`) | — |
+| RR Produktion (6) | | RR Produktion (`intern`) | — |
+| Emballage (7) | | Serviwet (`email`) | — |
+| Trykkeriet friheden (11) | | Trykkeriet friheden (`email`) | — |
+| ForEmma, Madsynergi, Dagligvare butik | 8 | **ingen** | reelt uden leverandør |
 
-2. **Fem indkøbssteder har ingen leverandør i Bon.** Kun lokation 2, 3, 5, 6, 7, 9
-   og 11 er koblet (`supplier_grocy_locations`). Convifood, ForEmma, Drikkevarer,
-   Madsynergi og Dagligvare butik er ikke — deres type er derfor ukendt, og #704
-   falder tilbage på *overslag* for dem, hvor det burde være *fakturapris på et
-   internt nummer*. Regel: et indkøbssted uden leverandør behandles som
-   **faktura-type**, og Leverandører-fanen viser det som "indkøbssted uden
-   leverandør" med den eksisterende *opret leverandør*-knap.
+Heraf følger:
 
-3. **Én leverandør, flere indkøbssteder.** Hørkram er lokation 2, 5 og 9. Skal
-   "Købes hos" vise leverandører (Hørkram én gang) eller Grocy-lokationer (tre
-   gange Hørkram)? Forslag: **leverandører**, og et skift skriver leverandørens
-   første lokation — men så skal det afklares hvad de tre Hørkram-lokationer
-   bruges til i dag, før én af dem vælges som "den".
+- **"Købes hos" viser indkøbssted, men "Hvor købes den?" sammenligner leverandør.**
+  Indkøberen kender *Convifood*, ikke "Hørkram lokation 5" — så skærmen skal vise
+  indkøbsstedet. Men Brød Rug (købes via Convifood, har et Hørkram-nummer) er
+  **ikke** en uoverensstemmelse: begge er Hørkram. Alarmen skal derfor gå på
+  leverandøren. Første udgave ville have givet falsk alarm her.
+- **Drikkevarer lover noget der ikke holder.** Som koblet i dag får de 7 varer
+  katalog-typen, dvs. "prisen hentes selv fra Hørkram" — det gør den ikke. Enten
+  kobles lokationen fra Hørkram og til en faktura-leverandør, eller varerne flyttes.
+  Det er en beslutning (§14.1), ikke kode.
+- **Et indkøbssted uden leverandør** (ForEmma m.fl.) behandles som faktura-type, og
+  Leverandører-fanen viser det som "indkøbssted uden leverandør" med den
+  eksisterende *opret leverandør*-knap. #704 falder i dag tilbage på *overslag* for
+  dem — forkert efter dette koncept.
 
-4. **Antal i lager-enheden er svært fra en faktura.** Står varen på lager i kg men
-   købes i kasser à 10 stk, skal man selv regne kg pr. kasse for at skrive
-   `[kr] for [antal] kg`. Det er præcis dér enhedsfejl opstår. Løsning: antallet
-   tastes med de delte mængdefelter (`shared/mangde_felter.js`, #658/#665), og
-   **serveren** summerer til lager-enhed med sine egne omregninger — browseren
-   dividerer stadig kun prisen med den sum serveren giver.
+## 10. Tre modeller for "hvad én pakke indeholder"
 
-5. **Et skift af "Købes hos" flytter varen på indkøbslisten** (grupperet efter
-   indkøbssted) — også hvis den allerede er bestilt dér. Rækken skal sige det før
-   skiftet, når varen har en åben bestilling (`ordered_*`-userfields).
+Det er den største strukturelle risiko. Samme spørgsmål — *hvor meget af vores
+enhed er én af leverandørens?* — er i dag gemt tre steder, og koden læser
+forskellige steder fra:
 
-6. **En vare kan både laves og købes** (fx Falaffel: opskrift *og* Hørkram-nummer).
-   *Egen produktion* vinder i status (kostprisen kommer fra opskriften, #558), men
-   varenumrene skal stadig kunne ses og bruges i panelet — ellers kan den ikke
-   bestilles når køkkenet ikke når at lave den.
+| Felt | Betyder | Læses af |
+|---|---|---|
+| `product_barcodes.amount` + `qu_id` (Grocys egne) | én af leverandørens **basisenheder** = X af stregkodens enhed | prisomregningen (`supplierPrices`, #657): Hørkram-opdatering, varemodtagelsens pris, lageroversigtens pris, #704's "Mangler indhold" |
+| userfield `pack_size_stock_unit` | én pakke = X **lager-enheder** | indkøbslistens mængder (`_ibPackSize` i `indkob.js`), #702's "mangler pakstørrelse", #703's audit — og falder stille tilbage til **1** (#698) |
+| userfields `supplier_unit_code` + `supplier_unit_qty` | leverandørens **salgsenhed** (`kt` = 5 `ps`) | Hørkram-kurven; Fase A (#471) A2 |
 
-7. **Pris 0 (8.2) påvirker kostprisen** — en vare på 0 kr trækker kostprisen ned på
-   hver ret der bruger den. Det er rigtigt for en gratis vareprøve, men et 0 tastet
-   ved en fejl er usynligt. 0 kræver derfor en bekræftelse i rækken ("gratis — ingen
-   pris?"), ikke bare et tal i feltet.
+Fase A's "tre akser" (`CLAUDE_INDKOB_FASE_A.md` §5.4) er de samme tre:
 
-8. **Hvem må sætte priser?** Priser styrer kostprisen og marginen. I dag er
-   prisruterne `requireAuth()` (enhver indlogget, også køkkenets fælles konto).
-   Skal det være sådan, eller kun office/admin? Samme spørgsmål for "Købes hos".
-   Sporet (#666) viser hvem — men kun rollen, fordi login er delte konti.
+| Akse | Fra → til | Bor i |
+|---|---|---|
+| 1 | salgsenhed → basisenhed (karton → pose) | `supplier_unit_code/qty` |
+| 2 | Grocys indkøbsenhed → lagerenhed (kasse → kg) | Grocys QU-omregninger, `resolveToStockAmount` (#358) |
+| 3 | basisenhed ⟷ Grocys enhed ("hvad vejer en pose?") | **både** `amount/qu_id` **og** `pack_size_stock_unit` |
 
-9. **Hvor bor Varer?** Indkøbsindstillingerne findes både som side i office og som
-   880 px slide-in i køkkenet. Fem kolonner + række-handlinger er trangt i
-   slide-in'en. Forslag: Varer er fuld side i office; i køkkenet åbner fanen den
-   samme side i stedet for at presse den ind i panelet.
+Akse 3 er altså allerede besvaret — to gange, i hvert sit felt, som ikke kender
+hinanden. Retter man det ene sted (fx via #704's indholds-felt), forbliver
+indkøbslisten forkert, og omvendt. #702's 40 "mangler pakstørrelse" og #704's
+"mangler indhold" er **samme mangel set fra to felter**.
 
-10. **Katalog-søgning pr. række koster kald hos leverandøren.** Opslaget må kun ske
-    på klik (aldrig automatisk for alle 76 rækker), og en udløbet Hørkram-session
-    skal give en forståelig besked i rækken, ikke en tom resultatliste (jf. #419).
+**Anbefaling (§14.2):** Grocys `amount` + `qu_id` er eneste sandhed for akse 3 — det
+er Grocys eget felt, det kan udtrykke enhver enhed (ikke kun lager-enheden), og
+prisomregningen står allerede på det. `pack_size_stock_unit` udledes af det
+(omregnet til lager-enhed på serveren) og holder op med at blive skrevet. Kræver en
+engangsovergang: sammenlign de to felter på alle koblinger, og vis uenighederne
+for et menneske — vi vælger ikke automatisk.
 
-## 10. Test
+## 11. Kostprisen ser ikke en pris på et varenummer
+
+Målt i koden (`getProductUnitCostDetails`, `services/grocyAdapter.js`): kostprisen
+bygger på **køb i lagerloggen** (snit over vinduet, #557), falder tilbage på Grocys
+egne lagertal, forældres snit — og til sidst **kun overslag-varenummeret**
+(`OVERSLAG-<id>`). Prisen på et leverandør-varenummer eller et internt `INT-`
+nummer læses **ikke**.
+
+Konsekvens: skriver man en fakturapris på Glutenfri Bolle (internt nummer, #704),
+står varen som *Klar* i Varer — men kostprisen har stadig ingen pris, indtil varen
+modtages med prisen i varemodtagelsen. Et overslag ville faktisk have givet
+kostprisen et tal. **"Klar" må ikke betyde noget andet end "kostprisen kender
+prisen".**
+
+Muligheder (§14.3):
+- **a)** Kostprisen får et nyt trin før overslaget: *den leverandørpris der gælder*
+  (`priceForStock`, samme regel som varemodtagelsen). Rækkefølgen bliver
+  målt køb → Grocys lagertal → forældres snit → **leverandørens pris** → overslag.
+- **b)** At sætte en pris i Varer skriver også en købspost — nej: det ville være et
+  køb der ikke er sket, og det ville forurene #557's snit.
+
+Anbefaling: **a**. Og Varer skal vise *hvilken* pris kostprisen bruger lige nu, når
+den afviger fra leverandørprisen — ellers ser man to tal uden at vide hvilket der
+gælder.
+
+## 12. Berørte flader
+
+Varer er ikke en isoleret skærm. Alle disse læser eller skriver det samme:
+
+| Flade | Læser/skriver | Hvad der skal passe |
+|---|---|---|
+| **Indkøbslisten** (`indkob.js`) | leverandørgrupper = indkøbssted; `_ibPackSize` (akse 3 via `pack_size_stock_unit`); kobl-panel; fakturapris (0eee245); bestillingsmail (varenr/betegnelse, #701) | samme "Købes hos"; samme akse-3-felt (§10); kobl-panelet bliver vare-panelet (fase 4) |
+| **Varemodtagelse** (`varemodtagelse.js`, #658) | kandidatliste pr. leverandør (via varenumrenes indkøbssted); sender pris; pris-status + ret-på-stedet; mængdefelter | læser samme prisoversigt, men har sin egen visning og tekst for pris-status — skal bruge Varers regler |
+| **Lageroversigten** (`stock_overview.js`, #657) | pris ved op-rettelse; overslag i ✎; "N uden pris"-pille | pillen skal tælle med samme regel som Varer (fx egen produktion tæller ikke med) |
+| **Optællingen** (#665/#673) | mængdefelter pr. enhed (akse 2) | uændret, men deler `mangde_felter.js` med §13.4 |
+| **Kostpris / Opskrifter & priser** (#557/#558) | snit fra lagerlog, opskrift for egen produktion, overslag | §11 |
+| **Hørkram-kurven** (`routes/horkram.js`) | `supplier_unit_code/qty` (akse 1) | Fase A |
+| **e-conomic / CO₂** | berøres ikke | — |
+
+## 13. Bekymringer
+
+1. **Ingen automatisk Hørkram-prisopdatering.** Kun knappen *Opdater priser nu*.
+   Katalog-typens løfte kræver et natligt job (som `booking-reminders.js`) der kører
+   `refreshHorkramPrices` og logger udfaldet — og #698: `/health` svarer altid ok,
+   så et nedbrud ses ikke. **Forudsætning for fase 1.** Indtil da viser Varer prisen
+   som et oplyst tal med dato, aldrig "opdateres selv".
+2. **Tre modeller for pakkens indhold** — §10.
+3. **"Klar" uden kostpris** — §11.
+4. **Antal i lager-enheden er svært fra en faktura.** Står varen i kg men købes i
+   kasser à 10 stk, skal man selv regne kg pr. kasse. Løsning: antallet tastes med
+   de delte mængdefelter (`mangde_felter.js`, #658/#665), serveren summerer —
+   browseren dividerer stadig kun prisen.
+5. **Et skift af "Købes hos" flytter varen på indkøbslisten** — også når den er
+   bestilt dér (`ordered_*`). Rækken skal sige det før skiftet.
+6. **En vare kan både laves og købes** (Falaffel). *Egen produktion* vinder i status,
+   men varenumrene skal kunne ses og bestilles.
+7. **0 kr skal bekræftes** i rækken; et fejltastet 0 trækker kostprisen ned usynligt.
+8. **Hvem må sætte priser og skifte "Købes hos"?** I dag enhver indlogget (også
+   køkkenets fælles konto). Sporet (#666) viser kun rollen.
+9. **Hvor bor Varer?** Fem kolonner er trangt i køkkenets 880 px slide-in.
+10. **Katalog-søgning koster kald hos leverandøren** — kun på klik, og en udløbet
+    session skal give en besked i rækken, ikke en tom liste (#419, #698).
+11. **Stamdata-arbejdet (#702) og skærmen må ikke blive to lister.** #702 retter
+    91 + 40 koblinger via en CSV; Varer bør være værktøjet til det, ellers rettes det
+    samme to steder.
+12. **Hørkram-data er udledt, ikke målt.** Alle 119 vægte i #703 er pris/enhed ÷
+    pris/kg. De må foreslås i skærmen, aldrig skrives uden et menneske (§4.6).
+13. **#704 ligger i de samme filer** som Fase A og alt andet indkøbsarbejde (2.233
+    linjer). Jo længere den ligger umerget, jo dyrere bliver den at bære med.
+14. **Tre skærme viser pris-status hver for sig** — Varer, varemodtagelsen (#658) og
+    lageroversigtens pille (#657). To regler for "har varen en pris?" er præcis den
+    fejl dette koncept skal fjerne; reglen skal bo på serveren, ét sted.
+
+## 14. Beslutninger der mangler
+
+Med anbefaling. Ingen af dem kan afgøres i kode.
+
+| # | Beslutning | Anbefaling |
+|---|---|---|
+| 14.1 | **Drikkevarer (lokation 9)**: blive ved Hørkram, eller en faktura-leverandør? | faktura-leverandør — varenumrene er ikke Hørkrams |
+| 14.2 | **Én model for akse 3** (§10) | Grocys `amount` + `qu_id`; `pack_size_stock_unit` udledes |
+| 14.3 | **Kostpris fra leverandørprisen** (§11) | ja — nyt trin før overslag |
+| 14.4 | **Hvem må sætte priser / skifte leverandør?** | office + admin; køkkenet kan se og foreslå |
+| 14.5 | **Hvor bor Varer?** | fuld side i office; køkkenet linker dertil |
+| 14.6 | **Visning af "Købes hos"** | indkøbssted (Convifood), sammenligning på leverandør (§9) |
+| 14.7 | **Rækkefølge** (§15) | som foreslået |
+
+## 15. Afhængigheder og rækkefølge
+
+| Arbejde | Status | Forhold til Varer |
+|---|---|---|
+| #704 arbejdslisten | åben, testet i drift, server tilbage på main | fundamentet (§6) |
+| #702 stamdata (91 + 40) | åben, data-arbejde | Varer er værktøjet til det (§13.11) |
+| #698 synlige gæt / `/health` | åben | forudsætning for katalog-løftet (§13.1) |
+| #471 Fase A (salgsenhed, pris, leveringsdato) | åben, blokeret på akse 3 | deler akse 3 med §10 |
+| natligt Hørkram-job | findes ikke | forudsætning (§13.1) |
+
+Foreslået rækkefølge:
+
+1. **Afklar §14.1–14.3.** De ændrer datamodellen; alt andet bygger ovenpå.
+2. **Merge #704**, med rettelsen af §9 (indkøbssted uden leverandør = faktura), så
+   den ikke ligger og bliver ældre under de andre.
+3. **Forudsætninger:** natligt Hørkram-job + #698, og kostprisens nye trin (§11).
+4. **Fase 1 + 2** af Varer (liste + vare-panel), med akse 3 på ét felt (§10) og
+   #702's mangler som en del af *Skal ordnes* — ikke en separat liste.
+5. **Fase A (#471)** når akse 3 er afgjort og stamdataene rettet via Varer.
+6. **Fase 3 + 4:** Kataloger-fanen; samme panel i lageroversigt, indkøbsliste og
+   varemodtagelse (også pris-status, §13.14).
+
+## 16. Test
 
 Som #704: den ægte browser-kode i vm-sandkasse, målt på hvad der ville blive **sendt**,
 og routes over HTTP mod `:memory:` af de rigtige migrations med Grocy stubbet.
