@@ -13,6 +13,7 @@
 - docs/CLAUDE_CO2.md (hvis du rører CO₂ — F0–F7 er bygget; §1 kildehierarki + §3 `na` + §7 motor)
 - docs/CLAUDE_ECONOMIC_ADAPTER.md (spec — ikke bygget endnu)
 - docs/CLAUDE_MENU_AGENT.md (spec — ikke bygget endnu)
+- docs/indkob/CLAUDE_VARER_OG_PRISER.md (hvis du rører indkøbets Varer/Produkter, varenumre eller leverandørpriser — koncept godkendt 22/9, ikke bygget)
 
 ### Scan for nye specs
 Kør `ls docs/CLAUDE_*.md docs/**/CLAUDE_*.md 2>/dev/null` ved sessionsstart for at
