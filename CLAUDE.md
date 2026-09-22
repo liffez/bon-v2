@@ -14,6 +14,11 @@
 - docs/CLAUDE_ECONOMIC_ADAPTER.md (spec — ikke bygget endnu)
 - docs/CLAUDE_MENU_AGENT.md (spec — ikke bygget endnu)
 - docs/indkob/CLAUDE_VARER_OG_PRISER.md (hvis du rører indkøbets Varer/Produkter, varenumre eller leverandørpriser — koncept godkendt 22/9, ikke bygget)
+- docs/CLAUDE_LAGEROPTAELLING.md (hvis du rører optællingen — epic #649, v0.3)
+- docs/CLAUDE_OPSKRIFT_DESIGNER.md (hvis du rører opskrift-designeren — den er også importens editor)
+- docs/CLAUDE_OPSKRIFT_IMPORT.md + CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md (spec — F-1 bygget, resten ikke)
+- docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md (spec — ikke bygget endnu)
+- docs/indkob/CLAUDE_INDKOB_FASE_A.md + CLAUDE_INDKOB_FASE_B.md (hvis du rører indkøb — A er blokeret på akse 3, §5.4)
 
 ### Scan for nye specs
 Kør `ls docs/CLAUDE_*.md docs/**/CLAUDE_*.md 2>/dev/null` ved sessionsstart for at

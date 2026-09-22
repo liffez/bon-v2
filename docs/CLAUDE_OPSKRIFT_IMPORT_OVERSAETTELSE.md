@@ -1,9 +1,10 @@
 # CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md
 
-**Version:** v0.5
+**Version:** v0.6
 **Status:** Tillæg til `CLAUDE_OPSKRIFT_IMPORT.md` — oversættelseslag, enheder, svind, udbytte, målvægt og underopskrifter
 **Dato:** september 2026
 
+**Ændringer fra v0.5 (20.09.2026):** De tre opskriftstyper udgår (§6): en opskrift producerer en vare eller ej, og målvægt er et valgfrit felt. Skåltyper er hurtigvalg for målvægt, ikke en type (§6.1). Rollerne lander som sektioner i editoren (§6.2). Emballageskabelon pr. opskriftsgruppe; emballage genkendes på varegruppe (§6.3). Underopskriftsforslaget afgøres i editorens gennemgang (§8). Importnoten markeres, så trin-parseren kan skelne den (§9).
 **Ændringer fra v0.4 (19.09.2026):** Gennemsyn og gem af opskriften sker i opskrift-designeren (moderspec §4.6); §9 er indholdet designeren skal vise. Målvægten er **350 g mad** (uden skål) for standardskålen, ikke 400 g — skålens egen vægt står i Grocy for sig. §6.1, §6.2, §11 og §12 rettet; de fire salater i `02 Salat` er justeret i drift (§12.1).
 **Ændringer fra v0.3 (17.09.2026, gennemgang):** §8 rettet — nesting ER i brug i drift (28 referencer) og udfases af #270; importeren opretter aldrig nestings. Faktorbiblioteket starter som nyt modul og flytter IKKE CO₂-faktorerne (§7). `ingredient_alias` er planlagt, ikke eksisterende. Krydring harmoniseret til 0,5 % salt + 0,1 % peber (§6.2/§6.4/§9). Densitet har én kilde (§7). DTU-data holdes ude af git (§7). §12.1 følger Spor B's disciplin.
 **Ændringer fra v0.2:** Målvægt fastsat til 400 g for standardskålen (900 ml). Rollemodellen omskrevet fra procentfordeling til absolutte roller med basen som residual. Spinat afklaret som garniture. Eksisterende salatopskrifter skal justeres (§12).
@@ -151,26 +152,48 @@ udbytte, og lad differencen stå uforklaret — den er ikke en fejl.
 
 ---
 
-## 6. Målvægt: tre opskriftstyper
+## 6. Udbytte og målvægt
 
-Konventionen er ikke én, men tre. Typen afgøres **før** omregningen, fordi det
-er tre forskellige beregninger.
+*Rettet 20.09.2026 — de tre typer (Produktion / Skål / Styk) udgår. Se
+`CLAUDE_OPSKRIFT_DESIGNER.md` §5.*
 
-| Type | Enhed | Målvægt | Eksempler |
-|---|---|---|---|
-| **Produktion** | 1 kg | Fast: 1 kg deklareret | Syltede gulerødder, rødkål, pulled pork, dressinger, mellemprodukter |
-| **Skål** | 1 antal | Valgt pr. skåltype | Salater (gruppe `02 Salat`), bowls |
-| **Styk** | 1 antal | Givet af produktet | Sandwich |
+Opskriften har ét udbytte, skrevet som én sætning:
 
-Fundne opskrifter er typisk skrevet til én portion eller et måltid. For
-**Produktion** skaleres op til 1 kg. For **Skål** og **Styk** divideres kildens
-portionsantal væk, og målvægten sættes derefter.
+```
+1 portion er [x] [enhed] af [vare]     Giver [n] portioner     (producerer en vare)
+1 portion er [x] [enhed]               Giver [n] portioner     Målvægt [350] g
+```
+
+Der er to ting at afgøre ved import, ikke tre typer:
+
+| Spørgsmål | Hvis ja | Hvis nej |
+|---|---|---|
+| **Lægger opskriften en vare på lager?** | Vare vælges i udbyttesætningen; enheden låses til varens lagerenheder | Varefeltet skjules |
+| **Har den en målvægt?** | Målvægtsfeltet udfyldes (evt. via hurtigvalg, §6.1) | Feltet står tomt |
+
+**Konventioner, ikke typer.** Mellemprodukter skrives normalt som 1 kg eller 1 stk
+pr. portion; retter der sælges som én enhed (salat, sandwich) skrives som 1 stk med
+målvægt. Men udbyttet er et frit tal — 900 g løvstikke og 100 g olie giver 30 pakker.
+
+**Importerens skalering.** Fundne opskrifter er typisk skrevet til et antal
+personer. Importeren:
+
+1. Dividerer kildens portionsantal væk
+2. For opskrifter der producerer en vare: skalerer til husets konvention for varens enhed
+3. For opskrifter med målvægt: skalerer efter rollemodellen (§6.2), basen som residual
+
+Beslutningen om vare ja/nej foreslås ud fra opskriftsgruppen (f.eks. `RR produktion`
+→ ja, `02 Salat` → nej), men står altid synlig i editoren og kan ændres.
 
 ---
 
-## 6.1 Skåltyper
+## 6.1 Hurtigvalg for målvægt
 
-| Skåltype | Volumen | Målvægt | Pakningsdensitet | Status |
+*Skåltyper er ikke en opskriftstype, men et mål for portionsstørrelse — hvor meget
+der kan være i en skål med låg, eller hvad en ny sandwich skal veje.* Hurtigvalget
+udfylder målvægtsfeltet; valget gemmes ikke.
+
+| Hurtigvalg | Volumen | Målvægt | Pakningsdensitet | Status |
 |---|---|---|---|---|
 | Standard salatskål | 900 ml | **350 g** mad (uden skål) | 0,39 kg/l | I brug |
 | Bowl-skål | TBD | TBD | 0,7–0,8 kg/l forventet | Ikke anskaffet |
@@ -191,6 +214,10 @@ Importeren må ikke udlede bowl-målvægten af volumen × densitet.
 
 Roller skalerer ikke ens, og det er dét der er strukturen. En portion protein er
 en portion protein, uanset skålens størrelse.
+
+I editoren er rollerne **sektioner** (`ingredient_group`): importeren placerer hver
+linje i sin rolles sektion, og brugeren kan flytte den bagefter. Rollemodellen gælder
+kun opskrifter med målvægt.
 
 | Rolle | Adfærd | Standard (350 g skål) |
 |---|---|---|
@@ -263,8 +290,10 @@ Tredobles målvægten på én skål, er det stadig 1 bøtte, 1 låg, 1 gaffel, 1
 serviet. Skaleres til 3 skåle, bliver det 3 af hver. To forskellige akser i
 samme opskrift, og den nemmeste fejl at lave i en skaleringsrutine.
 
-Emballagegruppen kommer fra en **skabelon pr. skåltype** ved import, ikke fra
-kildeopskriften, som aldrig nævner den.
+Emballagegruppen kommer fra en **skabelon pr. opskriftsgruppe** ved import, ikke fra
+kildeopskriften, som aldrig nævner den. Emballage genkendes på **varegruppen**, ikke
+på sektionsnavnet — så madvægten ikke ødelægges af en omdøbt sektion
+(designer-spec R7.5).
 
 ---
 
@@ -404,8 +433,8 @@ Heuristisk, og må aldrig være tavs:
 - **Excel:** ny blok med tom række imellem, eller nyt faneblad
 - **Web/JSON-LD:** sjældent markeret — kræver næsten altid manuel opdeling
 
-Flowet er et forslag: *"Jeg ser 2 opskrifter her — opret dressingen som
-selvstændig 1 kg-opskrift?"* med fire svar:
+Flowet er et forslag i editorens gennemgang: *"Jeg ser 2 opskrifter her — opret
+dressingen som selvstændig opskrift der lægger en vare på lager?"* med fire svar:
 
 1. Peg på eksisterende mellemprodukt *(forvalgt hvis fundet)*
 2. Opret som ny opskrift + mellemprodukt
@@ -418,7 +447,7 @@ selvstændig 1 kg-opskrift?"* med fire svar:
 
 ### Ved gennemsyn: tre kolonner
 
-> *Gennemsynet sker i opskrift-designeren, ikke i en separat visning (moderspec §4.6). De tre kolonner nedenfor er det indhold designeren skal kunne vise for en importeret kladde: "Bliver" er ingrediensrækken, "Antagelse" er en note på rækken.*
+> *Gennemsynet sker i den fælles editor, ikke i en separat visning (moderspec §4.6). "Bliver" er ingrediensrækken; "Antagelse" er en annotation på rækken, der bliver stående efter afklaring ("kilde: 3 spsk · omregnet 41 g"). "Kilden skrev" vises i gennemgangspanelet.*
 
 | Kilden skrev | Bliver | Antagelse |
 |---|---|---|
@@ -446,8 +475,10 @@ opskrifter (§12).
 
 ### Efter import: to spor
 
-**Grocy får den menneskelige version** — en kort importnote i fremgangsmåden,
-hvor køkkennoterne i forvejen står:
+**Grocy får den menneskelige version** — en kort importnote i beskrivelsesfeltet,
+som **afsluttende blok efter trinnene**, markeret med linjen `Importnote:`. Markeringen
+lader editorens trin-parser skelne noten fra fremgangsmåden (designer-spec R9.5), og
+editoren viser den i panelet "Kilde og antagelser":
 
 ```
 Importnote (DTU 2013): 1 dl mel = 60 g. Gulerødder +10 % rensesvind.
