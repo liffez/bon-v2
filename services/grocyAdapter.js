@@ -856,6 +856,29 @@ async function addShoppingListProduct(productId, amount, listId, note) {
     return grocyPost('/stock/shoppinglist/add-product', body);
 }
 
+/* Opret en NY linje på indkøbslisten, uden Grocys aggregering.
+ *
+ * Grocys /stock/shoppinglist/add-product lægger mængden til en eksisterende
+ * linje når (product_id, list_id, note) matcher. Er den linje markeret som
+ * bestilt, forsvinder tilføjelsen ind i den: varen står stadig som bestilt, og
+ * det man lige har lagt på kan ikke bestilles.
+ *
+ * Om det sker, afhænger af om linjen tilfældigvis har en note — målt i drift
+ * aggregerede handskerne (ingen note) mens burgerlommerne (note fra en tidligere
+ * synk) fik en ny linje. Den slags må ikke afgøre om man kan bestille.
+ */
+async function createShoppingListLine(productId, amount, listId, quId) {
+    // Kolonnen hedder shopping_list_id på objektet — `list_id` er kun navnet i
+    // /stock/shoppinglist/add-product's payload, og Grocy svarer 400 på det her.
+    const body = {
+        product_id: productId,
+        amount: amount,
+        shopping_list_id: listId || 1,
+    };
+    if (quId) body.qu_id = quId;
+    return grocyPost('/objects/shopping_list', body);
+}
+
 /** Fjern produkt fra indkøbsliste */
 async function removeShoppingListProduct(productId, amount, listId) {
     return grocyPost('/stock/shoppinglist/remove-product', {
@@ -1802,6 +1825,7 @@ module.exports = {
     getShoppingList,
     deleteShoppingListItem,
     addShoppingListProduct,
+    createShoppingListLine,
     removeShoppingListProduct,
     addMissingProducts,
     addExpiredProducts,

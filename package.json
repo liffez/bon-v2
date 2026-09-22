@@ -94,6 +94,7 @@
     "test:run-dashboard": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DASHBOARD.js",
     "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
     "test:run-optaelling": "node tests/scripts/run_T_OPTAELLING.js",
+    "test:tilfoej-server": "node --experimental-sqlite scripts/test-indkob-tilfoej-server.js",
     "test:tilfoej-vare": "node scripts/test-indkob-tilfoej-vare.js",
     "test:bestillingslinjer": "node --experimental-sqlite scripts/test-supplier-order-lines.js",
     "test:leverandorpriser": "node --experimental-sqlite scripts/test-supplier-prices.js",

@@ -9456,6 +9456,28 @@ første linje bestilt og den anden ikke — men `isOrdered` blev afgjort af `ite
 **alene**, så hele varen så bestilt ud. De nye 10 kunne ikke bestilles, og behovet
 viste 20 selvom kun 10 var åbne.
 
+> ⚠️ **Halvdelen af rettelsen var ikke nok.** Der var slet ikke nogen ny linje at se
+> på. Grocys `/stock/shoppinglist/add-product` lægger mængden til en EKSISTERENDE
+> linje når `(product_id, list_id, note)` matcher — og den tager den **første**, som
+> typisk er den bestilte. Om det sker, afhang af om linjen tilfældigvis havde en
+> note: målt mod grocy-test aggregerede handskerne (ingen note) mens burgerlommerne
+> (note `Uppdateret från Bon` fra en gammel synk) fik en ny linje. Derfor så det ud
+> som om det virkede nogle gange.
+>
+> `POST /api/grocy/shopping-list/add-product` afgør nu selv hvor mængden lander:
+> **ingen bestilte linjer** → Grocys egen aggregering (rigtigt: læg til det åbne) ·
+> **bestilt + åben** → læg til den ÅBNE linje · **alt bestilt** → opret en NY linje
+> (`createShoppingListLine`, direkte mod `/objects/shopping_list`).
+>
+> Reglen bor i routen, ikke i klienten, så ingen kaldevej kan glemme den. Kan listen
+> ikke læses, står begge lister tomme, og reglen falder af sig selv ud på Grocys
+> adfærd — vi afviser ikke en tilføjelse fordi et opslag fejlede.
+>
+> **Kolonnen hedder `shopping_list_id`** på `/objects/shopping_list`; `list_id` er kun
+> navnet i add-product's payload og giver 400 (`table shopping_list has no column
+> named list_id`). Låst af en test der kører den ÆGTE adapter mod en falsk `fetch` —
+> adapteren er stubbet i de øvrige asserts, så feltnavnet ville ellers være udækket.
+
 En vare er nu først bestilt når **alle** dens linjer er det, og behovet er kun de
 åbne. `entry.openItems` bæres med, og bestillingen markerer kun dem: skriver vi på de
 allerede bestilte, overskrives den gamle bestillings dato og varenummer, og sporet af
@@ -9467,7 +9489,8 @@ ingen læser. Afviger den fra leverandørens faste, skrives en changelog-linje p
 ordren: ellers kan ingen svare på hvor bestillingen gik hen.
 
 **Tests**: 111 → **128 asserts** (§2c modtageren, §6d delvist bestilte varer — sidstnævnte
-mod den ÆGTE `_ibBuildGroups`). **45 mutationer i alt, alle fanget.**
+mod den ÆGTE `_ibBuildGroups`) + `npm run test:tilfoej-server` (**23**, de tre veje mod
+den ægte route med adapteren stubbet). **53 mutationer i alt, alle fanget.**
 
 > ⚠️ Testens egen stub af `_ibBuildGroups` skjulte først netop den funktion §6d skulle
 > måle. Den ægte gemmes nu som `__byg` før stubben sættes.
