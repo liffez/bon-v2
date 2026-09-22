@@ -9611,9 +9611,38 @@ overslag og siger hvorfor.
 - Lytterne på containeren bindes kun én gang (`__isBound`) — ellers fyrede et
   gem to gange når office monterede panelet igen.
 
-**Tests:** `test-indkob-arbejdsliste.js` (84, kører nu under `test:indkob-pris`)
+**Efter PR #703's enhedsaudit — tre veje mere (samme dag):**
+
+Målt mod grocy-test er 19 af de 133 varer nogen vi **selv laver** efter en
+opskrift. De mangler ingen leverandørpris — kostprisen kommer fra opskriften
+(#558). `priceOverview` bærer nu `produced_by` (laveste opskrift-id, samme valg
+som kostprisen), og de tælles fra: listen er 114, med noten "+ 19 laves selv".
+
+For en vare **uden varenummer** afgør leverandøren vejen:
+
+| Leverandør | Rækken |
+|---|---|
+| uden varenumre (email/manual/webshop — Emballage, Drikkevarer) | fakturaprisen gemmes på et **nyt internt varenummer** (INT-nnnn) hos dem — en leverandørpris, ikke et gæt |
+| Hørkram (api) | overslag, med anvisning om at koble Hørkrams rigtige nummer under Hørkram → Ny kobling (et internt nummer kan ikke opdateres) |
+| intern / ingen | overslag |
+
+`POST /api/purchasing/prices/product/:id/internal { shopping_location_id, stock_price }`
+opretter nummeret på serveren (`supplierPrices.createInternalBarcode`): i varens
+lager-enhed med `amount: 1`, så `last_price` ER prisen pr. lager-enhed. Afvist
+med 409 hvis varen allerede har et nummer hos leverandøren. Oprettelserne køres
+én ad gangen, så to samtidige ikke får samme nummer.
+
+**Hørkram-varenumre uden indhold** (6 i grocy-test): Hørkram HAR en pris
+(`hk_price_per_unit`), men stregkoden mangler sit `amount`, så "Opdater priser
+nu" kan ikke regne om. Rækken viser stykprisen og et felt: *1 salgsenhed
+indeholder [500] stk*. `PUT /api/purchasing/prices/barcode/:id/content { amount }`
+skriver indholdet og kører **den samme** `refreshHorkramPrices` for det ene
+nummer — serveren regner (346,02 ÷ 500), og prisen holdes derefter ajour af sig
+selv. Der fandtes ingen skærm i Bon til stregkodens indhold før.
+
+**Tests:** `test-indkob-arbejdsliste.js` (118, kører nu under `test:indkob-pris`)
 — den ægte `indkob_settings.js` i en vm-sandkasse. **13 mutationer, alle
-fanget.** Browser-verificeret mod grocy-test med rigtige klik (overslag via
+fanget** (26 mutationer i alt). Browser-verificeret mod grocy-test med rigtige klik (overslag via
 Enter, pakkepris 350/1000 på et varenummer → Grocys `last_price` 0,35,
 foretrukket-valg, "115 kr for tolv" afvist); grocy-test rullet tilbage bagefter.
 

@@ -491,3 +491,7 @@
 .is-work-agr { font-size: 10px; font-weight: 700; color: #8e631f; text-transform: uppercase; }
 tr.is-work-saved td { background: #f3faf3; }
 .is-work-inp::placeholder { color: #b8b0a6; }
+.is-work-supp { font-size: 11px; color: #5a4a2e; background: #fbf6ea; border-radius: 6px; padding: 5px 8px; margin-top: 5px; line-height: 1.6; }
+.is-work-supp .is-work-inp { padding: 3px 6px; font-size: 12px; }
+.is-work-produced { color: var(--color-text-dim); font-style: italic; }
+.is-work-selv { font-size: 11px; color: var(--color-text-dim); white-space: nowrap; }

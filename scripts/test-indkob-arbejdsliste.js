@@ -62,6 +62,19 @@ const OVERSIGT = () => ({
         { id: 99, barcode: '18426663', stock_price: null, note: 'Varenummerets enhed kan ikke omregnes til lager-enheden',
           text: 'Sodavand 25 cl', is_estimate: false, is_preferred: false },
     ] },
+    // laves selv efter en opskrift → kostprisen kommer derfra (#558)
+    60: { price: null, reason: 'missing', reason_text: '', stock_unit: 'Kilo', barcodes: [],
+          produced_by: { id: 44, name: 'Remoulade Produktion' } },
+    // intet varenummer, købes hos en leverandør UDEN varenumre (Emballage, email)
+    61: { price: null, reason: 'missing', reason_text: '', stock_unit: 'Antal', barcodes: [] },
+    // intet varenummer, købes hos Hørkram (api)
+    62: { price: null, reason: 'missing', reason_text: '', stock_unit: 'Kilo', barcodes: [] },
+    // Hørkram-varenummer: leverandøren har en pris, stregkoden mangler indhold
+    63: { price: null, reason: 'missing', reason_text: '', stock_unit: 'Antal', barcodes: [
+        { id: 70, barcode: '60035437', stock_price: null, note: 'Ingen pris på varenummeret', text: 'Bagepapir',
+          is_estimate: false, is_preferred: false, shopping_location_id: 2, unit: 'Antal', amount: null,
+          supplier_unit_price: 346.02 },
+    ] },
     // har allerede en pris
     5: { price: 12.5, reason: 'preferred', reason_text: 'foretrukket varenummer', stock_unit: 'Kilo', barcodes: [] },
 });
@@ -91,8 +104,16 @@ function lavKlient(opts) {
         { filename: 'indkob_settings.js' });
 
     ctx._isPriceOverview = OVERSIGT();
-    ctx._isGrocyLocs = [{ grocy_location_id: 2, grocy_location_name: 'Hørkram' }];
-    ctx._isAllProducts = [150, 89, 20, 30, 25, 170, 5, 999].map(id => ({ id, name: 'Vare ' + id }));
+    ctx._isGrocyLocs = [
+        { grocy_location_id: 2, grocy_location_name: 'Hørkram', linked_supplier_id: 1 },
+        { grocy_location_id: 7, grocy_location_name: 'Emballage', linked_supplier_id: 2 },
+        { grocy_location_id: 9, grocy_location_name: 'RR Produktion', linked_supplier_id: 3 },
+    ];
+    ctx._isSupDropdown = [{ id: 1, integration_type: 'api' }, { id: 2, integration_type: 'email' },
+                          { id: 3, integration_type: 'intern' }];
+    const lok = { 61: 7, 62: 2, 150: 9 };
+    ctx._isAllProducts = [150, 89, 20, 30, 25, 170, 60, 61, 62, 63, 5, 999]
+        .map(id => ({ id, name: 'Vare ' + id, shopping_location_id: lok[id] || null }));
     ctx._isContainer = {
         querySelector(sel) {
             const m = String(sel).match(/data-work-cell="(\d+)"/);
@@ -115,6 +136,16 @@ function lavKlient(opts) {
         kald.push({ hvad: 'varenummer', id, pris, kilde });
         if (opts.skrivFejler) throw new Error('Grocy nede');
         return {};
+    };
+    ctx.createInternalBarcodePrice = async (pid, locId, pris, kilde) => {
+        kald.push({ hvad: 'internt', pid, locId, pris, kilde });
+        if (opts.skrivFejler) throw new Error('Grocy nede');
+        return {};
+    };
+    ctx.setBarcodeContent = async (id, amount, kilde) => {
+        kald.push({ hvad: 'indhold', id, amount, kilde });
+        if (opts.skrivFejler) throw new Error('Grocy nede');
+        return opts.indholdSvar || { price: 0.692, reason: 'only', unpriced_reason: null };
     };
     ctx.setPreferredBarcode = async (pid, id, kilde) => {
         kald.push({ hvad: 'foretrukket', pid, id, kilde });
@@ -139,7 +170,8 @@ console.log('\n=== §1 Hvem mangler en pris ===');
     eq(k._isUdenPris({ id: 150 }), true, 'aktiv vare uden pris tælles');
     eq(k._isUdenPris({ id: 5 }), false, 'vare med pris tælles ikke');
     eq(k._isUdenPris({ id: 999 }), false, 'en vare der ikke står i oversigten (inaktiv) mangler ingen pris');
-    eq(k._isAllProducts.filter(k._isUdenPris).length, 6, 'knappen tæller kun de aktive uden pris');
+    eq(k._isAllProducts.filter(k._isUdenPris).length, 9, 'knappen tæller kun de aktive uden pris');
+    eq(k._isUdenPris({ id: 60 }), false, 'en vare vi selv laver, mangler ingen leverandørpris');
     k._isPriceOverview = null;
     eq(k._isUdenPris({ id: 150 }), false, 'kunne oversigten ikke hentes, påstår vi intet');
 }
@@ -176,6 +208,22 @@ console.log('\n=== §2 Rækkens plan ===');
     ok(/omregnes/.test(p170.text), '… og årsagen siger hvorfor');
 
     eq(k._isWorkPlan(o[5]).mode, 'done', 'har pris → færdig');
+    const prod = (id) => k._isAllProducts.find(p => p.id === id);
+    const p60 = k._isWorkPlan(o[60], prod(60));
+    eq(p60.mode, 'produced', 'laves selv → ingen prisfelt');
+    ok(/Remoulade Produktion/.test(p60.text), '… og siger hvilken opskrift prisen kommer fra');
+    const p61 = k._isWorkPlan(o[61], prod(61));
+    eq(p61.target.kind, 'internal', 'intet varenummer hos en leverandør uden numre → nyt internt varenummer');
+    eq(p61.target.locId, 7, '… hos varens egen leverandør');
+    ok(/Emballage/.test(p61.text), '… og det står i årsagen');
+    const p62 = k._isWorkPlan(o[62], prod(62));
+    eq(p62.target.kind, 'estimate', 'intet varenummer hos Hørkram → IKKE et internt nummer (kan ikke opdateres)');
+    ok(/Ny kobling/.test(p62.text), '… årsagen peger på at koble Hørkrams rigtige nummer');
+    eq(k._isWorkPlan(o[150], prod(150)).target.kind, 'estimate', 'intern produktion uden opskrift → overslag');
+    const p63 = k._isWorkPlan(o[63], prod(63));
+    eq(p63.supplierPrice, 346.02, 'Hørkrams stykpris følger med når stregkoden mangler indhold');
+    const med = JSON.parse(JSON.stringify(o[63])); med.barcodes[0].amount = 500;
+    eq(k._isWorkPlan(med, prod(63)).supplierPrice, null, '… men ikke når indholdet er sat');
     eq(k._isWorkPlan(undefined).mode, 'none', 'ukendt vare → ingen handling');
 }
 
@@ -287,6 +335,45 @@ console.log('\n=== §4 Gem ===');
         eq(k.__kald.filter(x => x.hvad === 'overslag').length, 1, 'to gem på én gang → ét kald');
     }
 
+    /* ── §4b Internt varenummer og stregkodens indhold ────────── */
+    console.log('\n=== §4b Nye veje ===');
+    {
+        const k = lavKlient();
+        ok(/nyt varenummer/.test(k._isWorkCellHtml(61)), 'rækken mærkes "nyt varenummer"');
+        ok(!/work-pris/.test(k._isWorkCellHtml(60)), 'en vare vi laver selv har intet prisfelt');
+        k._isWork.draft[61] = { pris: '115', antal: '25' };
+        await k._isWorkSave(61, false);
+        const c = k.__kald.find(x => x.hvad === 'internt');
+        ok(c && c.pid === 61 && c.locId === 7, 'fakturaprisen oprettes som internt varenummer hos leverandøren');
+        eq(c && c.pris, 4.6, '… med prisen pr. lager-enhed (kun division)');
+        eq(k.__kald.filter(x => x.hvad === 'overslag').length, 0, '… og intet overslag ved siden af');
+    }
+    {
+        const k = lavKlient();
+        const h = k._isWorkCellHtml(63);
+        ok(/data-is="work-indhold"/.test(h), 'Hørkram-varenummer uden indhold: felt til indholdet');
+        ok(/346,02 kr/.test(h), '… med leverandørens stykpris som oplysning');
+        k._isWork.draft[63] = { indhold: '500', pris: '' };
+        await k._isWorkSave(63, false);
+        const c = k.__kald.find(x => x.hvad === 'indhold');
+        ok(c && c.id === 70 && c.amount === 500, 'indholdet sendes til serveren — browseren regner ikke prisen');
+        eq(k.__kald.filter(x => x.hvad === 'varenummer').length, 0, '… og der gemmes ingen pris ved siden af');
+        ok(k.__kald.some(x => x.hvad === 'hent' && x.pid === 63), 'serveren spørges bagefter');
+    }
+    {
+        const k = lavKlient({ indholdSvar: { price: null, unpriced_reason: 'Stregkoden mangler indhold (mængde og enhed)' } });
+        k._isWork.draft[63] = { indhold: '500' };
+        await k._isWorkSave(63, false);
+        ok(k._isWork.msg[63] && /Indholdet er gemt, men/.test(k._isWork.msg[63].text),
+           'gemt indhold uden pris siges — ligner ikke en succes');
+    }
+    {
+        const k = lavKlient();
+        k._isWork.draft[63] = { indhold: 'fem' };
+        await k._isWorkSave(63, false);
+        eq(k.__kald.filter(x => x.hvad === 'indhold').length, 0, 'vrøvl i indholdet sendes ikke');
+    }
+
     /* ── §5 Vælg foretrukket ─────────────────────────────────── */
     console.log('\n=== §5 Vælg varenummer ===');
     {
@@ -385,6 +472,68 @@ console.log('\n=== §4 Gem ===');
         eq(bc.text, 'Cherry 250 g', '… leverandørens betegnelse som `text`');
         eq(bc.shopping_location_id, 2, '… og leverandøren');
         eq(o[21], undefined, 'inaktive varer er ikke i oversigten');
+        grocy.getRecipesRaw = async () => [{ id: 3, name: 'Tomat A', product_id: 20 }, { id: 9, name: 'Tomat B', product_id: 20 }];
+        const o2 = await sp.priceOverview(grocy);
+        eq(o2[20].produced_by && o2[20].produced_by.name, 'Tomat A', 'producerende opskrift — laveste id, som kostprisen');
+        grocy.getRecipesRaw = async () => { throw new Error('nede'); };
+        const o3 = await sp.priceOverview(grocy);
+        eq(o3[20].produced_by, null, 'opskrifter nede → oversigten virker stadig, påstår intet');
+    }
+    {
+        const sp = require(path.join(ROD, 'services', 'supplierPrices'));
+        const skrevet = [];
+        let barcodes = [
+            { id: 1, product_id: 20, barcode: 'INT-0007', qu_id: 2, shopping_location_id: 5, userfields: {} },
+            { id: 2, product_id: 30, barcode: '1234', qu_id: 2, shopping_location_id: 7, userfields: {} },
+        ];
+        const grocy = {
+            getProductBarcodes: async () => barcodes,
+            getProducts: async () => [{ id: 30, name: 'Handsker', qu_id_stock: 3, active: 1 },
+                                      { id: 31, name: 'Låg', qu_id_stock: 3, active: 1 },
+                                      { id: 32, name: 'Rør', qu_id_stock: 3, active: 1 }],
+            getQuantityUnitConversions: async () => [], getQuantityUnits: async () => [{ id: 3, name: 'Antal' }],
+            createProductBarcode: async (b) => { await vent(); skrevet.push(b); barcodes = barcodes.concat([{ ...b, id: 100 + skrevet.length, userfields: {} }]); return { created_object_id: 100 + skrevet.length }; },
+        };
+        const r = await sp.createInternalBarcode(grocy, 31, { shoppingLocationId: 7, stockPrice: 4.6 });
+        eq(r.barcode, 'INT-0008', 'næste interne nummer efter det højeste');
+        const b = skrevet[0];
+        ok(b.qu_id === 3 && b.amount === 1 && b.last_price === 4.6 && b.shopping_location_id === 7,
+           'stregkoden oprettes i lager-enheden, indhold 1, prisen = pris pr. lager-enhed, hos leverandøren');
+        let fejl = null;
+        try { await sp.createInternalBarcode(grocy, 30, { shoppingLocationId: 7, stockPrice: 5 }); } catch (e) { fejl = e; }
+        eq(fejl && fejl.status, 409, 'har varen allerede et nummer hos leverandøren → afvist (prisen hører til det)');
+        const [x, y] = await Promise.all([
+            sp.createInternalBarcode(grocy, 32, { shoppingLocationId: 9, stockPrice: 1 }),
+            sp.createInternalBarcode(grocy, 30, { shoppingLocationId: 9, stockPrice: 1 }),
+        ]);
+        ok(x.barcode !== y.barcode, 'to samtidige får hver sit nummer (' + x.barcode + ', ' + y.barcode + ')');
+        let f2 = null;
+        try { await sp.createInternalBarcode(grocy, 31, { shoppingLocationId: 7, stockPrice: 0 }); } catch (e) { f2 = e; }
+        eq(f2 && f2.status, 400, 'nul er ikke en pris');
+    }
+    {
+        const sp = require(path.join(ROD, 'services', 'supplierPrices'));
+        const opd = [];
+        const bc = { id: 70, product_id: 40, barcode: '60035437', qu_id: 3, amount: null, last_price: null,
+                     shopping_location_id: 2, userfields: {} };
+        const grocy = {
+            getProductBarcodes: async () => [bc],
+            getProducts: async () => [{ id: 40, name: 'Bagepapir', qu_id_stock: 3, active: 1 }],
+            getQuantityUnitConversions: async () => [], getQuantityUnits: async () => [{ id: 3, name: 'Antal' }],
+            updateProductBarcode: async (id, body) => { opd.push(body); Object.assign(bc, body); },
+            updateProductBarcodeUserfields: async () => {},
+        };
+        const db = { prepare: (sql) => ({ all: () => /FROM suppliers/.test(sql)
+            ? [{ id: 1, name: 'Hørkram' }] : [{ grocy_location_id: 2 }] }) };
+        const fetchSnapshots = async () => ({ products: [{ varenummer: '60035437', baseUnitCode: 'kt',
+            salesUnits: [{ code: 'kt', salesPrice: 346.02, isDefault: true }] }] });
+        const r = await sp.setBarcodeContent(db, { grocy, fetchSnapshots }, 70, 500);
+        eq(opd[0] && opd[0].amount, 500, 'indholdet skrives på stregkoden');
+        eq(bc.last_price, 0.69204, 'og prisen regnes på SERVEREN: 346,02 ÷ 500');
+        eq(r.refresh.updated, 1, '… via den samme Hørkram-opdatering som "Opdater priser nu"');
+        let f = null;
+        try { await sp.setBarcodeContent(db, { grocy, fetchSnapshots }, 70, 0); } catch (e) { f = e; }
+        eq(f && f.status, 400, 'nul indhold afvises');
     }
 
     console.log(`\n${fail ? '\x1b[31m' : '\x1b[32m'}${pass} PASS · ${fail} FAIL\x1b[0m`);

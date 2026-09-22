@@ -220,6 +220,10 @@ function candidatesFor(meta, productId) {
                 is_agreement: flag(uf.is_agreement_item),
                 is_estimate: isEstimateBarcode(b.barcode),
                 fetched_at: uf.hk_scraped_at || null,
+                // Leverandørens egen pris pr. salgsenhed (Hørkram-scraperen). Kun til
+                // visning: den er pr. LEVERANDØRENS enhed, og omregningen til vores
+                // kræver stregkodens indhold (amount + qu_id).
+                supplier_unit_price: num(uf.hk_price_per_unit),
                 shopping_location_id: b.shopping_location_id || null,
             };
         });
@@ -244,7 +248,22 @@ async function priceForStock(grocy, productId, opts = {}) {
 
 /** Pris-status for alle aktive produkter: { [pid]: { price, reason, reason_text, stock_unit } }. */
 async function priceOverview(grocy) {
-    const meta = await loadGrocyMeta(grocy);
+    const [meta, recipes] = await Promise.all([
+        loadGrocyMeta(grocy),
+        // Varer vi selv laver efter en opskrift, får kostprisen fra opskriften
+        // (#558) — de mangler ingen leverandørpris. Kan opskrifterne ikke hentes,
+        // påstår vi intet om det (feltet bliver null), frem for at vælte oversigten.
+        typeof grocy.getRecipesRaw === 'function'
+            ? grocy.getRecipesRaw().catch(() => []) : Promise.resolve([]),
+    ]);
+    const producedBy = new Map();
+    for (const r of (Array.isArray(recipes) ? recipes : [])) {
+        const pid = Number(r.product_id);
+        if (!pid) continue;
+        const cur = producedBy.get(pid);
+        // Laveste id — samme valg som kostprisen (recipeCost.buildProducedByIndex).
+        if (!cur || Number(r.id) < Number(cur.id)) producedBy.set(pid, { id: Number(r.id), name: r.name });
+    }
     const out = {};
     for (const [pid, p] of meta.productMap) {
         if (Number(p.active) === 0) continue;
@@ -259,6 +278,7 @@ async function priceOverview(grocy) {
             stock_unit: meta.unitName.get(Number(p.qu_id_stock)) || null,
             is_estimate: r.reason === 'estimate',
             estimate_price: (candidates.find(c => c.is_estimate) || {}).stock_price ?? null,
+            produced_by: producedBy.get(Number(pid)) || null,
             // is_preferred + leverandør + enhed: arbejdslisten i Indkøb → ⚙ →
             // Produkter viser valget mellem varenumrene direkte i rækken, uden
             // et kald pr. vare. Prisen er stadig serverens (pr. lager-enhed).
@@ -268,6 +288,7 @@ async function priceOverview(grocy) {
                 is_preferred: c.is_preferred, is_agreement: c.is_agreement,
                 shopping_location_id: c.shopping_location_id,
                 unit: c.unit, amount: c.amount,
+                supplier_unit_price: c.supplier_unit_price, fetched_at: c.fetched_at,
             })),
         };
     }
@@ -359,6 +380,68 @@ async function setEstimatePrice(grocy, productId, stockPrice) {
     }
     await grocy.createProductBarcode({ product_id: Number(productId), barcode: code, ...fields });
     return { price, barcode: code, removed: false };
+}
+
+/* Oprettelse af interne varenumre køres én ad gangen: nummeret er "højeste + 1",
+   og to samtidige ville ellers få samme. */
+let _internalChain = Promise.resolve();
+
+/** Næste interne varenummer (INT-nnnn) — samme mønster som indkøbslistens. */
+function nextInternalBarcode(barcodes) {
+    let max = 0;
+    for (const b of barcodes || []) {
+        const m = /^INT-(\d+)$/.exec(String(b.barcode || ''));
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return 'INT-' + String(max + 1).padStart(4, '0');
+}
+
+/**
+ * Giv en vare uden varenummer et internt varenummer hos leverandøren, MED prisen
+ * fra fakturaen. Til leverandører der ikke har varenumre (Emballage, Drikkevarer):
+ * så bliver prisen en leverandørpris — den følger med i bestillingen og står ikke
+ * som et gæt i kostprisen, hvad et overslag ville.
+ *
+ * Stregkoden oprettes i varens LAGER-enhed med `amount: 1`, så `last_price` ER
+ * prisen pr. lager-enhed — og læses tilbage gennem samme omregning som alt andet.
+ *
+ * @param {number} stockPrice  kr pr. lager-enhed, ex moms
+ * @returns {{ barcode: string, id: number|null, stock_price: number }}
+ */
+function createInternalBarcode(grocy, productId, { shoppingLocationId, stockPrice }) {
+    const run = async () => {
+        const p = num(stockPrice);
+        if (p === null || p <= 0) {
+            const e = new Error('Prisen skal være et positivt tal (kr pr. lager-enhed, ex moms)');
+            e.status = 400; throw e;
+        }
+        const loc = parseInt(shoppingLocationId);
+        if (!loc) { const e = new Error('Leverandøren mangler'); e.status = 400; throw e; }
+        const meta = await loadGrocyMeta(grocy);
+        const product = meta.productMap.get(Number(productId));
+        if (!product) { const e = new Error('Varen findes ikke'); e.status = 404; throw e; }
+        const quStock = product.qu_id_stock != null && product.qu_id_stock !== ''
+            ? parseInt(product.qu_id_stock) : null;
+        if (!quStock) { const e = new Error('Varen har ingen lager-enhed i Grocy'); e.status = 400; throw e; }
+        // Har varen allerede et varenummer hos leverandøren, hører prisen til DET —
+        // et internt ved siden af ville give to numre og et valg ingen har bedt om.
+        const har = meta.barcodes.find(b => Number(b.product_id) === Number(productId)
+            && !isEstimateBarcode(b.barcode) && Number(b.shopping_location_id) === loc);
+        if (har) {
+            const e = new Error(`Varen har allerede varenummeret ${har.barcode} hos leverandøren — sæt prisen på det`);
+            e.status = 409; throw e;
+        }
+        const code = nextInternalBarcode(meta.barcodes);
+        const price = round4(p);
+        const res = await grocy.createProductBarcode({
+            product_id: Number(productId), barcode: code, shopping_location_id: loc,
+            qu_id: quStock, amount: 1, last_price: price,
+        });
+        return { barcode: code, id: res && res.created_object_id != null ? Number(res.created_object_id) : null, stock_price: price };
+    };
+    const next = _internalChain.then(run, run);
+    _internalChain = next.catch(() => {});
+    return next;
 }
 
 /**
@@ -467,7 +550,35 @@ async function refreshHorkramPrices(db, deps, opts = {}) {
     return result;
 }
 
+/**
+ * Giv et Hørkram-varenummer sit indhold (hvor meget af stregkodens enhed ÉN af
+ * leverandørens basisenheder er), og hent prisen igen.
+ *
+ * Uden indhold kan "Opdater priser nu" ikke regne leverandørens stykpris om til
+ * vores enhed, og varen står uden pris — også selvom Hørkram har en. Med
+ * indholdet på plads gør opdateringen resten af sig selv, hver gang.
+ * Omregningen sker HER og i refreshHorkramPrices, aldrig i browseren (#352).
+ *
+ * @returns {{ amount: number, refresh: object }}
+ */
+async function setBarcodeContent(db, deps, barcodeId, amount) {
+    const a = num(amount);
+    if (a === null || a <= 0) {
+        const e = new Error('Indholdet skal være et positivt tal'); e.status = 400; throw e;
+    }
+    const meta = await loadGrocyMeta(deps.grocy);
+    const b = meta.barcodes.find(x => Number(x.id) === Number(barcodeId));
+    if (!b) { const e = new Error('Varenummeret findes ikke'); e.status = 404; throw e; }
+    if (isEstimateBarcode(b.barcode)) {
+        const e = new Error('Et overslag har intet indhold at sætte'); e.status = 400; throw e;
+    }
+    await deps.grocy.updateProductBarcode(b.id, { amount: round8(a) });
+    const refresh = await refreshHorkramPrices(db, deps, { barcodes: [String(b.barcode)] });
+    return { amount: round8(a), barcode: String(b.barcode), product_id: Number(b.product_id), refresh };
+}
+
 module.exports = {
+    setBarcodeContent,
     barcodePriceFromSupplier,
     stockPriceFromBarcode,
     resolveProductPrice,
@@ -476,6 +587,8 @@ module.exports = {
     setPreferredBarcode,
     setBarcodeStockPrice,
     setEstimatePrice,
+    createInternalBarcode,
+    nextInternalBarcode,
     estimatePrices,
     refreshHorkramPrices,
     loadGrocyMeta,

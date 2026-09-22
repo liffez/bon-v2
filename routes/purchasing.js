@@ -782,6 +782,61 @@ router.put('/prices/product/:id/preferred', handle(async (req, res) => {
     res.json({ ok: true, price: r.price, reason: r.reason, reason_text: r.reason_text, ...spor });
 }));
 
+/* POST /prices/product/:id/internal  { shopping_location_id, stock_price }
+   — nyt internt varenummer (INT-nnnn) hos leverandøren, med fakturaprisen.
+   Til leverandører uden varenumre: så er prisen en leverandørpris, ikke et overslag. */
+router.post('/prices/product/:id/internal', handle(async (req, res) => {
+    const pid = parseInt(req.params.id);
+    if (!pid) return res.status(400).json({ error: 'Ugyldigt produkt-id' });
+    const body = req.body || {};
+    let r;
+    try {
+        r = await supplierPrices.createInternalBarcode(grocy, pid, {
+            shoppingLocationId: body.shopping_location_id, stockPrice: body.stock_price,
+        });
+    } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
+        throw err;
+    }
+    // #666: et nyt varenummer og en pris er to beslutninger — begge skal kunne ses.
+    const a = sporPris(req, pid, 'varenummer', null, r.barcode, null);
+    const b = sporPris(req, pid, 'pris', null, r.stock_price, `varenr ${r.barcode}`);
+    const p = await supplierPrices.priceForStock(grocy, pid);
+    res.json({
+        ok: true, ...r, price: p.price, reason: p.reason, reason_text: p.reason_text,
+        logget: (a.logget || 0) + (b.logget || 0), log_error: a.log_error || b.log_error || undefined,
+    });
+}));
+
+/* PUT /prices/barcode/:id/content  { amount } — stregkodens indhold, og prisen hentes igen */
+router.put('/prices/barcode/:id/content', handle(async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Ugyldigt varenummer-id' });
+    let før = null;
+    try {
+        const b = (await grocy.getProductBarcodes()).find(x => Number(x.id) === id);
+        før = b ? b.amount : null;
+    } catch (err) { console.warn('[stamdata] kunne ikke læse før-indhold:', err.message); }
+    const { fetchSnapshotSummaries } = require('./horkram');
+    let r;
+    try {
+        r = await supplierPrices.setBarcodeContent(getDb(), { grocy, fetchSnapshots: fetchSnapshotSummaries },
+            id, req.body ? req.body.amount : null);
+    } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
+        throw err;
+    }
+    const spor = sporPris(req, r.product_id, 'indhold på varenummer', før, r.amount, `varenr ${r.barcode}`);
+    const p = await supplierPrices.priceForStock(grocy, r.product_id);
+    // Indholdet ER gemt. Kunne Hørkram ikke prissætte det alligevel, siges hvorfor.
+    const unpriced = (r.refresh.unpriced || []).find(u => u.barcode === r.barcode);
+    res.json({
+        ok: true, amount: r.amount, price: p.price, reason: p.reason, reason_text: p.reason_text,
+        unpriced_reason: unpriced ? unpriced.reason : null,
+        refresh_errors: r.refresh.errors || [], ...spor,
+    });
+}));
+
 /* PUT /prices/barcode/:id  { stock_price } — ret et varenummers pris (kr pr. lager-enhed, ex moms) */
 router.put('/prices/barcode/:id', handle(async (req, res) => {
     const id = parseInt(req.params.id);
