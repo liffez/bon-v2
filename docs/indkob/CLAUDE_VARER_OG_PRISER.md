@@ -384,9 +384,9 @@ Med anbefaling. Ingen af dem kan afgøres i kode.
 
 | # | Beslutning | Anbefaling |
 |---|---|---|
-| 14.1 | **Drikkevarer (lokation 9)**: blive ved Hørkram, eller en faktura-leverandør? | faktura-leverandør — varenumrene er ikke Hørkrams |
-| 14.2 | **Én model for akse 3** (§10) | Grocys `amount` + `qu_id`; `pack_size_stock_unit` udledes |
-| 14.3 | **Kostpris fra leverandørprisen** (§11) | ja — nyt trin før overslag |
+| 14.1 | **Drikkevarer (lokation 9)**: blive ved Hørkram, eller en faktura-leverandør? | ✅ **Afgjort 22/9:** sodavand og vand købes gennem Hørkram (katalog); de øvrige drikkevarer (øl, vin, cava, kaffe) hos en faktura-leverandør. Kræver at varerne fordeles på to indkøbssteder — data-arbejde, ikke kode |
+| 14.2 | **Én model for akse 3** (§10) | ✅ **Afgjort 22/9:** Grocys `amount` + `qu_id` er eneste sandhed; `pack_size_stock_unit` udledes af det og holder op med at blive skrevet |
+| 14.3 | **Kostpris fra leverandørprisen** (§11) | ✅ **Afgjort 22/9:** ja — nyt trin før overslaget. Princip: *vi gætter ikke på priser, medmindre det er bevidst* — et overslag er det eneste bevidste gæt |
 | 14.4 | **Hvem må sætte priser / skifte leverandør?** | office + admin; køkkenet kan se og foreslå |
 | 14.5 | **Hvor bor Varer?** | fuld side i office; køkkenet linker dertil |
 | 14.6 | **Visning af "Købes hos"** | indkøbssted (Convifood), sammenligning på leverandør (§9) |
@@ -404,9 +404,11 @@ Med anbefaling. Ingen af dem kan afgøres i kode.
 
 Foreslået rækkefølge:
 
-1. **Afklar §14.1–14.3.** De ændrer datamodellen; alt andet bygger ovenpå.
-2. **Merge #704**, med rettelsen af §9 (indkøbssted uden leverandør = faktura), så
-   den ikke ligger og bliver ældre under de andre.
+1. ~~**Afklar §14.1–14.3.**~~ ✅ Afgjort 22/9 aften.
+2. **Ret og merge #704** (afgjort 22/9: hold den til den er rettet):
+   indkøbssted uden leverandør = faktura-type, ikke overslag (§9); og "Klar" må først
+   vises når kostprisen kender prisen — dvs. §11's nye trin følger med, eller Varer
+   skelner "leverandørpris sat" fra "kostprisen har den".
 3. **Forudsætninger:** natligt Hørkram-job + #698, og kostprisens nye trin (§11).
 4. **Fase 1 + 2** af Varer (liste + vare-panel), med akse 3 på ét felt (§10) og
    #702's mangler som en del af *Skal ordnes* — ikke en separat liste.
