@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { resolveMenuItemLines } = require('../services/menuItemsToLines');
+const { resolveMenuItemLines, chipItemsFromWishes } = require('../services/menuItemsToLines');
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { console.log('  \x1b[32m✓\x1b[0m', m); pass++; } else { console.log('  \x1b[31m✗\x1b[0m', m); fail++; } };
@@ -121,6 +121,21 @@ console.log('\n#382 — resolveMenuItemLines\n');
     ok(lines.length === 3 && unmatched.length === 0, 'blandet payload: 3 linjer');
     const total = lines.reduce((s, l) => s + ((l.unit_price ?? 0) * l.quantity), 0);
     ok(total === 20 * 94 + 20 * 94, 'sum kun fra prissatte linjer (kage er prisløs)');
+}
+
+// ── 10. Kost-knapper → vare (Glutenfri: N → glutenfri bolle) ──
+{
+    const G = { Glutenfri: 75 };
+    const w = 'Sandwichvalg: Køkkenet blander\n\nGlutenfri: 1\n\n--- Valgte Menu ---\n1× Falaflen';
+    const r = chipItemsFromWishes(w, G);
+    ok(r.length === 1 && r[0].id === 'r75' && r[0].count === 1, 'Glutenfri: 1 → r75 ×1 (B4314)');
+    ok(chipItemsFromWishes('glutenfri : 3', G)[0]?.count === 3, 'store/små bogstaver + mellemrum tåles');
+    ok(chipItemsFromWishes('Glutenfri: 0', G).length === 0, 'Glutenfri: 0 → intet');
+    ok(chipItemsFromWishes('Glutenfri: den ene uden ost', G).length === 0, 'fri tekst efter kolon er en besked, ikke et antal');
+    ok(chipItemsFromWishes('Ikke glutenfri: 2', G).length === 0, 'præfikset skal stå forrest på linjen');
+    ok(chipItemsFromWishes('Vegansk: 3', G).length === 0, 'kun knapper i indstillingen');
+    ok(chipItemsFromWishes('Glutenfri: 2', null).length === 0, 'uden indstilling → intet');
+    ok(chipItemsFromWishes('Glutenfri: 2', { Glutenfri: 'x' }).length === 0, 'ugyldigt id → intet, kaster ikke');
 }
 
 console.log(`\n${fail === 0 ? '\x1b[32m' : '\x1b[31m'}${pass} PASS · ${fail} FAIL\x1b[0m\n`);

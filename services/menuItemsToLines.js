@@ -84,4 +84,35 @@ function resolveMenuItemLines({ menuItems, recipesById, menuItemsById = new Map(
     return { lines, unmatched };
 }
 
-module.exports = { resolveMenuItemLines };
+/**
+ * chipItemsFromWishes — kost-knapperne i formularen ("🌾 Glutenfri") skriver kun
+ * en tekstlinje i kundeønskerne (`Glutenfri: 2`). Nogle af dem svarer til en vare
+ * der skal på bonen (en glutenfri bolle). Denne funktion finder de linjer og
+ * oversætter dem til menu_items-form, så de går gennem samme opslag som menuvalget.
+ *
+ * Teksten er kilden, ikke knap-klikket: kunden kan rette tallet i hånden efter
+ * klikket, og det rettede tal er det hun mener.
+ *
+ * @param {string} wishes       kundens fritekst
+ * @param {Object} chipRecipes  { "Glutenfri": 75, ... } — præfiks → Grocy recipe_id
+ * @returns {Array<{id,count}>}
+ */
+function chipItemsFromWishes(wishes, chipRecipes) {
+    const out = [];
+    if (typeof wishes !== 'string' || !wishes.trim()) return out;
+    if (!chipRecipes || typeof chipRecipes !== 'object' || Array.isArray(chipRecipes)) return out;
+    for (const [prefix, rid] of Object.entries(chipRecipes)) {
+        const recipeId = Number(rid);
+        if (!prefix || !Number.isInteger(recipeId) || recipeId <= 0) continue;
+        const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Kun linjer der STARTER med præfikset og kun bærer et tal — "Glutenfri: 2".
+        // "Glutenfri: den ene uden ost" er en besked, ikke et antal, og tolkes ikke.
+        const re = new RegExp(`(?:^|\\n)[ \\t]*${esc}[ \\t]*:[ \\t]*(\\d+)[ \\t]*(?=\\n|$)`, 'i');
+        const m = re.exec(wishes);
+        const count = m ? parseInt(m[1], 10) : 0;
+        if (count > 0) out.push({ id: `r${recipeId}`, count });
+    }
+    return out;
+}
+
+module.exports = { resolveMenuItemLines, chipItemsFromWishes };
