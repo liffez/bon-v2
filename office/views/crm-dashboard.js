@@ -707,14 +707,64 @@ function _crmRenderSuggestions(suggestions) {
 // bære alle felter med gennem markup'en (mail-knappen skal bruge navn + adresse).
 let _crmServiceCalls = [];
 
-function _crmRenderServiceCalls(calls) {
-    _crmServiceCalls = Array.isArray(calls) ? calls : [];
+// Påbegyndte logs pr. bon (shared/crm_call_draft.js). En mail eller en kollegas
+// aktivitet tegner listen forfra — og en sendt mail tæller som håndtering, så
+// rækken forsvinder fra serverens svar. Uden kladden forsvandt stemning og note
+// med. Nu bliver kortet stående ("fastholdt") med formularen åben, til man
+// enten gemmer eller lukker — og lukker man med noget noteret, spørges der.
+// Modul-niveau, så en kladde også overlever at man skifter view og kommer tilbage.
+const _crmSvcDrafts = new Map();   // bon_id → { pristine, snap, row, mailTo }
+
+function _crmSvcFormEl(idx) {
+    const wrap = document.getElementById('crmSvcLogForm' + idx);
+    return wrap && wrap.style.display !== 'none' ? wrap.querySelector('.crm-svc-logform') : null;
+}
+
+function _crmSvcDraftDirty(d, formEl) {
+    if (!d || typeof CrmCallDraft === 'undefined') return false;
+    const cur = formEl ? CrmCallDraft.snapshot(formEl) : d.snap;
+    return !!(cur && d.pristine && !CrmCallDraft.same(cur, d.pristine));
+}
+
+// Tag billeder af åbne formularer FØR listen tegnes om.
+function _crmSvcCaptureDrafts() {
+    if (typeof CrmCallDraft === 'undefined') return;
+    (_crmServiceCalls || []).forEach((c, i) => {
+        const d = _crmSvcDrafts.get(c.bon_id);
+        if (!d) return;
+        const f = _crmSvcFormEl(i);
+        if (f) d.snap = CrmCallDraft.snapshot(f);
+    });
+}
+
+if (typeof CrmCallDraft !== 'undefined') {
+    CrmCallDraft.guard(() => {
+        for (const [bonId, d] of _crmSvcDrafts) {
+            const i = (_crmServiceCalls || []).findIndex(c => c.bon_id === bonId);
+            if (_crmSvcDraftDirty(d, i >= 0 ? _crmSvcFormEl(i) : null)) return true;
+        }
+        return false;
+    });
+}
+
+function _crmRenderServiceCalls(serverCalls) {
+    serverCalls = Array.isArray(serverCalls) ? serverCalls : [];
+    _crmSvcCaptureDrafts();
+    // Kort med en åben kladde bliver stående, selv om serveren ikke længere
+    // lister dem — de forsvinder først når man gemmer eller lukker.
+    const inServer = new Set(serverCalls.map(c => c.bon_id));
+    const pinned = [];
+    for (const [bonId, d] of _crmSvcDrafts) {
+        if (!inServer.has(bonId) && d.row) pinned.push(Object.assign({}, d.row, { _pinned: true }));
+    }
+    const calls = pinned.concat(serverCalls);
+    _crmServiceCalls = calls;
     const el = document.getElementById('crmServiceCallsList');
     if (!el) return;
 
-    // Update count badge
+    // Update count badge — kun det der reelt venter
     const countEl = document.getElementById('crmSvcCount');
-    if (countEl) countEl.textContent = calls.length ? calls.length + ' ventende' : '';
+    if (countEl) countEl.textContent = serverCalls.length ? serverCalls.length + ' ventende' : '';
 
     if (!calls.length) {
         el.innerHTML = '<div class="crm-empty">🎉 Alle service-kald er håndteret!</div>';
@@ -762,6 +812,60 @@ function _crmRenderServiceCalls(calls) {
             '<div id="crmSvcLogForm' + i + '" style="display:none;"></div>' +
         '</div>';
     }).join('');
+
+    // Læg kladderne tilbage i deres (nu gentegnede) formularer.
+    calls.forEach((c, i) => {
+        const d = _crmSvcDrafts.get(c.bon_id);
+        if (d) _crmSvcShowDraft(i, c, d);
+    });
+}
+
+function _crmSvcShowDraft(idx, c, d) {
+    _crmBuildLogForm(idx, c.customer_id, c.bon_id || null);
+    const f = _crmSvcFormEl(idx);
+    if (!f || typeof CrmCallDraft === 'undefined') return;
+    if (d.snap) CrmCallDraft.restore(f, d.snap);
+    if (d.mailTo !== undefined) {
+        // Efter en mail: "Mail" som resultat, hvis der ikke er valgt andet.
+        if (!f.querySelector('.crm-svc-result-btn.active')) {
+            const mb = f.querySelector('.crm-svc-result-btn[data-r="email_instead"]');
+            if (mb) _crmSelResult(mb);
+        }
+        CrmCallDraft.banner(f, '✓ Mail sendt' + (d.mailTo ? ' til ' + _crmEsc(d.mailTo) : '') +
+            '. Log samtalen — eller luk kortet.');
+        const cancel = f.querySelector('[data-svc-cancel]');
+        if (cancel) cancel.textContent = 'Luk';
+    }
+    // Udgangspunktet er det der stod da kortet blev åbnet — eller, efter en
+    // mail, formularen med "Mail" valgt. Lukker man uden at røre mere, er der
+    // intet at spørge om: mailen er allerede logget.
+    if (!d.pristine) d.pristine = CrmCallDraft.snapshot(f);
+    d.snap = CrmCallDraft.snapshot(f);
+}
+
+// Luk formularen. Er der noteret noget, spørges der først (Gem / Kassér / Fortsæt).
+function _crmSvcCancel(idx) {
+    const c = (_crmServiceCalls || [])[idx];
+    const f = _crmSvcFormEl(idx);
+    const d = c ? _crmSvcDrafts.get(c.bon_id) : null;
+    if (f && d && _crmSvcDraftDirty(d, f) && typeof CrmCallDraft !== 'undefined') {
+        CrmCallDraft.askUnsaved(f, {
+            onSave: () => _crmSaveLog(idx, c.customer_id, c.bon_id || null),
+            onDiscard: () => _crmSvcClose(idx),
+        });
+        return;
+    }
+    _crmSvcClose(idx);
+}
+
+function _crmSvcClose(idx) {
+    const c = (_crmServiceCalls || [])[idx];
+    const wrap = document.getElementById('crmSvcLogForm' + idx);
+    if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
+    if (!c) return;
+    _crmSvcDrafts.delete(c.bon_id);
+    // Et fastholdt kort (mailen er sendt) forsvinder nu, hvor man er færdig.
+    if (c._pinned) _crmRenderServiceCalls(_crmServiceCalls.filter(x => !x._pinned));
 }
 
 async function _crmChangeSvcDays(days) {
@@ -793,7 +897,20 @@ function _crmRingOgLog(event, idx, customerId, bonId) {
 function _crmOpenLogForm(idx, customerId, bonId) {
     const el = document.getElementById('crmSvcLogForm' + idx);
     if (!el) return;
-    if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+    // Åben i forvejen → det er et "luk"; det går gennem spørgsmålet.
+    if (el.style.display !== 'none') { _crmSvcCancel(idx); return; }
+    _crmBuildLogForm(idx, customerId, bonId);
+    const c = (_crmServiceCalls || [])[idx];
+    const f = _crmSvcFormEl(idx);
+    if (c && f && typeof CrmCallDraft !== 'undefined') {
+        const snap = CrmCallDraft.snapshot(f);
+        _crmSvcDrafts.set(c.bon_id, { pristine: snap, snap, row: c });
+    }
+}
+
+function _crmBuildLogForm(idx, customerId, bonId) {
+    const el = document.getElementById('crmSvcLogForm' + idx);
+    if (!el) return;
     el.style.display = 'block';
     el.innerHTML =
         '<div class="crm-svc-logform">' +
@@ -820,7 +937,7 @@ function _crmOpenLogForm(idx, customerId, bonId) {
             // opkaldet (udført) — de to tilstande kan ikke bo i samme række.
             (typeof CrmFollowup !== 'undefined' ? CrmFollowup.html('svc' + idx) : '') +
             '<div class="crm-svc-logform-actions">' +
-                '<button class="crm-svc-action-btn" onclick="document.getElementById(\'crmSvcLogForm' + idx + '\').style.display=\'none\'">Annuller</button>' +
+                '<button type="button" class="crm-svc-action-btn" data-svc-cancel onclick="_crmSvcCancel(' + idx + ')">Annuller</button>' +
                 '<button class="crm-svc-action-btn primary" id="crmSvcSaveBtn' + idx + '" disabled onclick="_crmSaveLog(' + idx + ',' + customerId + ',' + bonId + ')">Gem</button>' +
             '</div>' +
         '</div>';
@@ -843,7 +960,16 @@ function _crmSvcMail(idx) {
         to: c.customer_email || '',
         title: 'Mail til ' + (c.customer_name || 'kunden'),
         subtitle: '#' + c.bon_number,
-        onSent: () => { _crmReloadServiceCalls(); },
+        // Tilbage til kortet efter mailen: formularen åbnes (eller bevares med
+        // det der allerede var noteret), så stemningen kan logges bagefter.
+        onSent: (res) => {
+            _crmSvcCaptureDrafts();
+            const d = _crmSvcDrafts.get(c.bon_id) || { pristine: null, snap: null };
+            d.row = c;
+            d.mailTo = (res && res.to) || c.customer_email || '';
+            _crmSvcDrafts.set(c.bon_id, d);
+            _crmReloadServiceCalls();
+        },
     });
 }
 
@@ -911,6 +1037,7 @@ async function _crmSaveLog(idx, customerId, bonId) {
                 alert('Opkaldet er logget, men opfølgningen blev ikke gemt: ' + (e.message || 'ukendt fejl'));
             }
         }
+        _crmSvcDrafts.delete(bonId);
         _crmReloadServiceCalls();
     } catch (err) {
         console.error('[crm] Save log error:', err);
@@ -919,7 +1046,20 @@ async function _crmSaveLog(idx, customerId, bonId) {
     }
 }
 
-async function _crmMarkHandled(customerId, bonId) {
+async function _crmMarkHandled(customerId, bonId, force) {
+    // ✓ med en åben, udfyldt log ville smide noten væk — spørg først.
+    const idx = (_crmServiceCalls || []).findIndex(c => c.bon_id === bonId);
+    const f = idx >= 0 ? _crmSvcFormEl(idx) : null;
+    const d = _crmSvcDrafts.get(bonId);
+    if (!force && f && _crmSvcDraftDirty(d, f) && typeof CrmCallDraft !== 'undefined') {
+        CrmCallDraft.askUnsaved(f, {
+            text: 'Du har noteret noget — gem det i stedet for bare at markere håndteret?',
+            onSave: () => _crmSaveLog(idx, customerId, bonId),
+            onDiscard: () => _crmMarkHandled(customerId, bonId, true),
+        });
+        return;
+    }
+    _crmSvcDrafts.delete(bonId);
     try {
         const data = {
             customer_id: customerId,

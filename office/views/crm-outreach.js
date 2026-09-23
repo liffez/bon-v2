@@ -677,26 +677,71 @@ function _coOpenMember(memberId) {
         CrmFollowup.wire(fuHost);
     }
 
+    // Påbegyndt log (shared/crm_call_draft.js): lukker man detaljen med noget
+    // noteret i log-formularen, spørges der først — Gem / Kassér / Fortsæt.
+    const D = (typeof CrmCallDraft !== 'undefined') ? CrmCallDraft : null;
+    let pristine = null;
+    function openLog() {
+        if (logEl.classList.contains('open')) return;
+        logEl.classList.add('open');
+        if (D) pristine = D.snapshot(logEl);
+    }
+    function dirty() {
+        return !!(D && pristine && logEl.classList.contains('open') && !D.same(D.snapshot(logEl), pristine));
+    }
+    const unguard = D ? D.guard(dirty) : () => {};
+
     function close() {
         document.removeEventListener('keydown', onKey);
+        unguard();
         overlay.remove();
     }
-    function onKey(e) { if (e.key === 'Escape') close(); }
+    // Luk-ønsker går gennem spørgsmålet; `then` kører når det er sikkert at lukke.
+    function tryClose(then) {
+        if (dirty()) {
+            D.askUnsaved(logEl, {
+                onSave: () => overlay.querySelector('[data-co-act="logsave"]').click(),
+                onDiscard: () => { pristine = null; close(); if (then) then(); },
+            });
+            return;
+        }
+        close();
+        if (then) then();
+    }
+    function onKey(e) {
+        if (e.key !== 'Escape') return;
+        // Escape i mail-vinduet ovenpå skal kun lukke mailen, ikke detaljen bag den.
+        if (document.querySelector('.mc-overlay')) return;
+        tryClose();
+    }
     document.addEventListener('keydown', onKey);
-    overlay.querySelector('.co-md-x').addEventListener('click', close);
+    overlay.querySelector('.co-md-x').addEventListener('click', () => tryClose());
     // Et klik der kun rydder en tekstmarkering må ikke også lukke panelet.
-    if (typeof closeOnOutsideClick === 'function') closeOnOutsideClick(overlay, close, panel);
+    if (typeof closeOnOutsideClick === 'function') closeOnOutsideClick(overlay, () => tryClose(), panel);
 
     overlay.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-co-act]');
         if (!btn) return;
         const act = btn.dataset.coAct;
-        if (act === 'log') { logEl.classList.toggle('open'); return; }
+        if (act === 'log') {
+            if (logEl.classList.contains('open')) {
+                if (dirty()) { D.askUnsaved(logEl, { onSave: () => overlay.querySelector('[data-co-act="logsave"]').click(), onDiscard: () => { logEl.classList.remove('open'); pristine = null; } }); }
+                else logEl.classList.remove('open');
+            } else openLog();
+            return;
+        }
         if (act === 'history') { CrmContactContext.toggleHistory(overlay.querySelector('#coMdHist'), m.customer_id); return; }
-        if (act === 'logcancel') { logEl.classList.remove('open'); return; }
+        if (act === 'logcancel') {
+            if (dirty()) {
+                D.askUnsaved(logEl, {
+                    onSave: () => overlay.querySelector('[data-co-act="logsave"]').click(),
+                    onDiscard: () => { logEl.classList.remove('open'); pristine = null; },
+                });
+            } else { logEl.classList.remove('open'); pristine = null; }
+            return;
+        }
         if (act === 'profile') {
-            close();
-            if (typeof window.openKunde360 === 'function') window.openKunde360(m.customer_id);
+            tryClose(() => { if (typeof window.openKunde360 === 'function') window.openKunde360(m.customer_id); });
             return;
         }
         if (act === 'mail') {
@@ -712,7 +757,17 @@ function _coOpenMember(memberId) {
                 to: email,
                 title: 'Mail til ' + name,
                 subtitle: m.campaign_name,
-                onSent: () => { close(); _coLoadPipeline(); },
+                // Tilbage til detaljen efter mailen — ikke lukket — med log-formularen
+                // åben, så samtalen/stemningen kan logges bagefter eller detaljen lukkes.
+                onSent: (res) => {
+                    _coLoadPipeline();
+                    const wasOpen = logEl.classList.contains('open');
+                    openLog();
+                    const sel = overlay.querySelector('#coMdResult');
+                    if (!wasOpen && sel) { sel.value = 'email_instead'; if (D) pristine = D.snapshot(logEl); }
+                    if (D) D.banner(logEl, '✓ Mail sendt' + ((res && res.to) ? ' til ' + _coEsc(res.to) : '') +
+                        '. Log samtalen — eller luk.');
+                },
             });
             return;
         }
@@ -745,6 +800,7 @@ function _coOpenMember(memberId) {
                         alert('Opkaldet er logget, men opfølgningen blev ikke gemt: ' + (err.message || 'ukendt fejl'));
                     }
                 }
+                pristine = null;
                 close();
                 _coLoadPipeline();
             } catch (err) {
