@@ -96,11 +96,14 @@ test('historik uden kontaktperson henter intet', async () => {
     assert.match(el.innerHTML, /Ingen kontaktperson/);
 });
 
-test('de tre lister bruger modulet — ingen lokale kopier', () => {
+test('alle lister (office + mobil) bruger modulet — ingen lokale kopier', () => {
     const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
     assert.match(read('office/views/crm-dashboard.js'), /CrmContactContext\.lineHtml\(c\)/);
     assert.match(read('shared/crm_worklist.js'), /_ctx\.lineHtml\(r\)/);
     assert.match(read('office/views/crm-outreach.js'), /CrmContactContext\.lineHtml\(m, \{ compact: true \}\)/);
     assert.match(read('office/index.html'), /crm_contact_context\.js/);
+    assert.match(read('mobile/views/crm.js'), /CrmContactContext\.lineHtml\(sc\)/);
+    assert.match(read('mobile/views/crm.js'), /CrmContactContext\.toggleHistory\(slot, sc\.customer_id\)/);
+    assert.match(read('mobile/index.html'), /crm_contact_context\.js[\s\S]*views\/crm\.js/, 'modulet loades FØR mobilens crm.js');
     assert.doesNotMatch(read('office/views/crm-dashboard.js'), /_CRM_SENT|_crmSvcContextHtml/);
 });

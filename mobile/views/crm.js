@@ -11,7 +11,6 @@ var _mcTab = 'calls';     // 'calls' | 'search' | 'inbox'
 var _mcCalls = [];
 var _mcSearchTimer = null;
 var _mcDays = 7;          // 7 | 14 | 30
-var _mcOrdersCache = {};  // customerId -> orders
 var _mcPurposes = null;   // cached activity_purposes
 
 // ── Indbakke (mail_threads) ──
@@ -143,7 +142,6 @@ async function _mcLoadCalls() {
         daysSel.value = String(_mcDays);
         daysSel.addEventListener('change', function() {
             _mcDays = parseInt(daysSel.value);
-            _mcOrdersCache = {};
             _mcLoadCalls();
         });
     }
@@ -166,8 +164,6 @@ async function _mcLoadCalls() {
         return;
     }
 
-    var sentEmojiMap = { positive: '😊', neutral: '😐', negative: '😟' };
-
     var html = '';
     _mcCalls.forEach(function(sc, i) {
         var d = sc.days_since_delivery != null ? sc.days_since_delivery : (sc.days_since || 0);
@@ -181,7 +177,6 @@ async function _mcLoadCalls() {
         if (sc.pax) metaParts.push(sc.pax + ' pax');
         else if (sc.total_units) metaParts.push(sc.total_units + ' enh.');
 
-        var sentEmoji = sentEmojiMap[sc.last_sentiment] || '';
         var lastNote = sc.last_note ? String(sc.last_note).trim() : '';
         if (lastNote.length > 80) lastNote = lastNote.slice(0, 80) + '…';
 
@@ -197,9 +192,11 @@ async function _mcLoadCalls() {
                 '<div class="m-svc-name">' +
                     _mcEsc(sc.customer_name || sc.company_name || '?') +
                     (sc.company_name && sc.customer_name ? ' <span class="m-svc-company">· ' + _mcEsc(sc.company_name) + '</span>' : '') +
-                    (sentEmoji ? ' <span class="m-svc-last-sent s-' + sc.last_sentiment + '" title="Seneste stemning">' + sentEmoji + '</span>' : '') +
                 '</div>' +
                 '<div class="m-svc-meta">' + _mcEsc(metaParts.join(' · ')) + '</div>' +
+                // Stemning · aktiviteter · afstand — samme linje som office' service-kald
+                // og ringeliste (shared/crm_contact_context.js).
+                (window.CrmContactContext ? CrmContactContext.lineHtml(sc) : '') +
                 (lastNote ? '<div class="m-svc-lastnote">📝 ' + _mcEsc(lastNote) + '</div>' : '') +
                 '<div class="m-crm-actions">' +
                     (phone
@@ -207,7 +204,7 @@ async function _mcLoadCalls() {
                         : '<button class="m-crm-btn primary" data-action="log" data-idx="' + i + '">📞 Log</button>') +
                     (phone ? '<a class="m-crm-btn" href="sms:' + phone + '">💬 SMS</a>' : '') +
                     (email ? '<a class="m-crm-btn" href="mailto:' + email + '">' + mailIcon(15) + '</a>' : '') +
-                    '<button class="m-crm-btn" data-action="expand" data-idx="' + i + '">▼ Ordrer</button>' +
+                    '<button class="m-crm-btn" data-action="expand" data-idx="' + i + '">▼ Historik</button>' +
                     '<button class="m-crm-btn" data-action="done" data-idx="' + i + '">✓</button>' +
                 '</div>' +
                 '<div class="m-svc-orders-slot" id="mcOrders' + i + '"></div>' +
@@ -242,58 +239,13 @@ async function _mcLoadCalls() {
     });
 }
 
-async function _mcToggleOrders(idx) {
+// Aktiviteter (egne + kollegers) over ordrerne — samme udfoldning som i office.
+function _mcToggleOrders(idx) {
     var sc = _mcCalls[idx];
     if (!sc) return;
     var slot = document.getElementById('mcOrders' + idx);
-    if (!slot) return;
-    if (slot.innerHTML) { slot.innerHTML = ''; return; }
-
-    slot.innerHTML = '<div class="m-svc-orders-loading">Henter ordrer...</div>';
-
-    try {
-        var orders;
-        if (_mcOrdersCache[sc.customer_id]) {
-            orders = _mcOrdersCache[sc.customer_id];
-        } else {
-            orders = await apiFetch('/crm/customer-orders/' + sc.customer_id + '?limit=5');
-            _mcOrdersCache[sc.customer_id] = orders;
-        }
-
-        if (!orders || !orders.length) {
-            slot.innerHTML = '<div class="m-svc-orders-empty">Ingen tidligere ordrer</div>';
-            return;
-        }
-
-        var html = '<div class="m-svc-orders">';
-        orders.forEach(function(o) {
-            var price = o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '';
-            html += '<div class="m-svc-order">' +
-                '<div class="m-svc-order-head">' +
-                    '<span class="m-svc-order-bon">#' + (o.bon_number || '') + '</span>' +
-                    '<span class="m-svc-order-date">' + _mcFormatDate(o.delivery_date) + '</span>' +
-                    (o.pax ? '<span class="m-svc-order-pax">' + o.pax + ' pax</span>' : '') +
-                    (price ? '<span class="m-svc-order-price">' + price + '</span>' : '') +
-                '</div>';
-
-            if (o.lines && o.lines.length) {
-                html += '<div class="m-svc-order-lines">';
-                o.lines.forEach(function(l) {
-                    html += '<div class="m-svc-order-line">' +
-                        '<span class="m-svc-order-qty">' + l.quantity + '×</span> ' +
-                        _mcEsc(l.product_name || '') +
-                        (l.special_request ? ' <span class="m-svc-order-extra">— ' + _mcEsc(l.special_request) + '</span>' : '') +
-                    '</div>';
-                });
-                html += '</div>';
-            }
-            html += '</div>';
-        });
-        html += '</div>';
-        slot.innerHTML = html;
-    } catch (e) {
-        slot.innerHTML = '<div class="m-svc-orders-empty">Fejl ved hentning</div>';
-    }
+    if (!slot || !window.CrmContactContext) return;
+    CrmContactContext.toggleHistory(slot, sc.customer_id);
 }
 
 function _mcShowLogForm(idx) {
