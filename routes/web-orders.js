@@ -631,13 +631,28 @@ async function handleWebOrder(data) {
 // ─── Auto-generér bon-linjer fra kundens menu-valg (#382) ────────────────────
 // Kaldes fra handleWebOrder inde i en try/catch — må aldrig kaste videre.
 async function generateLinesFromMenuItems(db, bonId, data) {
+  const { resolveMenuItemLines, chipItemsFromWishes } = require('../services/menuItemsToLines');
   const items = Array.isArray(data.menu_items)
     ? data.menu_items.filter(i => i && Number(i.count) > 0)
     : [];
+
+  // Kost-knapper der svarer til en vare ("Glutenfri: 2" → 2 glutenfri boller).
+  // Har kunden selv valgt samme vare i menuen, er dét hendes antal — vi lægger
+  // ikke knappens tal oveni.
+  let chipRecipes = null;
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'bestilling.chip_recipes'").get();
+    if (row?.value) chipRecipes = JSON.parse(row.value);
+  } catch (e) {
+    console.warn('[web-order] bestilling.chip_recipes kan ikke læses:', e.message);
+  }
+  const chosen = new Set(items.map(i => String(i.id)));
+  for (const c of chipItemsFromWishes(data.wishes, chipRecipes)) {
+    if (!chosen.has(c.id)) items.push(c);
+  }
   if (!items.length) return;
 
   const grocyAdapter = require('../services/grocyAdapter');
-  const { resolveMenuItemLines } = require('../services/menuItemsToLines');
   const { insertBonLines } = require('../db/helpers');
 
   // Bonens priskategori — festival-events rammer festival-prisen, ellers catering.

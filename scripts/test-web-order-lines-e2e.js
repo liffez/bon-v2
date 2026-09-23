@@ -43,6 +43,8 @@ function cleanup() { for (const f of [TMP, TMP + '-wal', TMP + '-shm']) { try { 
         prices: { store: 90, catering: 94, festival: 98, produktion: 0, waiste: 0 }, cost_price: 23.55, co2e: 0.42 },
       { id: 77, name: 'Tunen', category: '01 Sandwich', unit: 'stk',
         prices: { store: 90, catering: 94, festival: 98, produktion: 0, waiste: 0 }, cost_price: 20, co2e: 0.5 },
+      { id: 75, name: 'Glutenfri Bolle', category: 'Tilbehør & Bokse', unit: 'stk',
+        prices: { store: 15, catering: 15, festival: 15, produktion: 0, waiste: 0 }, cost_price: 6, co2e: 0.1 },
     ]);
 
     const db = getDb();
@@ -102,6 +104,43 @@ function cleanup() { for (const f of [TMP, TMP + '-wal', TMP + '-shm']) { try { 
     await webOrders._generateLinesFromMenuItems(db, bonId, { menu_items: [] });
     const after = db.prepare('SELECT COUNT(*) AS n FROM bon_lines WHERE bon_id=?').get(bonId).n;
     ok(after === 2, 'tom menu_items tilføjer ingen linjer');
+
+    // ── Kost-knap: "Glutenfri: 2" i kundeønskerne → 2 glutenfri boller (B4314) ──
+    const setting = db.prepare("SELECT value FROM settings WHERE key='bestilling.chip_recipes'").get();
+    ok(setting && JSON.parse(setting.value).Glutenfri === 75, 'migration 189 seedet Glutenfri → 75');
+    const { bonId: gfBon } = createBon({
+      delivery_date: '2026-12-24', delivery_time: '11:00', delivery_type: 'delivery',
+      pax: 14, customer_wishes: 'TEST glutenfri', changelog_field: 'web_order',
+      changelog_message: 'test', broadcast_extra: { source: 'web_order' },
+    });
+    await webOrders._generateLinesFromMenuItems(db, gfBon, {
+      wishes: 'Glutenfri: 2\n\n--- Valgte Menu ---\n12× Falaflen',
+      menu_items: [{ id: 'r91', count: 12 }],
+    });
+    const gf = db.prepare('SELECT * FROM bon_lines WHERE bon_id=? AND grocy_recipe_id=75').all(gfBon);
+    ok(gf.length === 1 && gf[0].quantity === 2 && gf[0].unit_price === 15, 'glutenfri bolle ×2 à 15 kr lagt på');
+
+    // Kunden har selv valgt bollen i menuen → hendes antal gælder, ingen dublet
+    const { bonId: gfBon2 } = createBon({
+      delivery_date: '2026-12-24', delivery_time: '11:00', delivery_type: 'delivery',
+      pax: 14, customer_wishes: 'TEST glutenfri 2', changelog_field: 'web_order',
+      changelog_message: 'test', broadcast_extra: { source: 'web_order' },
+    });
+    await webOrders._generateLinesFromMenuItems(db, gfBon2, {
+      wishes: 'Glutenfri: 2', menu_items: [{ id: 'r75', count: 5 }],
+    });
+    const gf2 = db.prepare('SELECT SUM(quantity) q FROM bon_lines WHERE bon_id=? AND grocy_recipe_id=75').get(gfBon2);
+    ok(gf2.q === 5, `menuvalget vinder over knappen (5, fik ${gf2.q})`);
+
+    // Kun knappen, ingen menu_items → linjen kommer stadig
+    const { bonId: gfBon3 } = createBon({
+      delivery_date: '2026-12-24', delivery_time: '11:00', delivery_type: 'delivery',
+      pax: 14, customer_wishes: 'TEST glutenfri 3', changelog_field: 'web_order',
+      changelog_message: 'test', broadcast_extra: { source: 'web_order' },
+    });
+    await webOrders._generateLinesFromMenuItems(db, gfBon3, { wishes: '14 stk, Glutenfri: 1\nGlutenfri: 1' });
+    const gf3 = db.prepare('SELECT SUM(quantity) q FROM bon_lines WHERE bon_id=? AND grocy_recipe_id=75').get(gfBon3);
+    ok(gf3.q === 1, `uden menuvalg: knappen alene giver en linje (fik ${gf3.q})`);
 
     console.log(`\n${fail === 0 ? '\x1b[32m' : '\x1b[31m'}${pass} PASS · ${fail} FAIL\x1b[0m\n`);
   } catch (e) {
