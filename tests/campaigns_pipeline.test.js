@@ -22,8 +22,21 @@ function createFreshDb() {
         CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
         CREATE TABLE addresses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            street TEXT, city TEXT, zipcode TEXT
+            street TEXT, city TEXT, zipcode TEXT,
+            postal_code TEXT, lat REAL, lon REAL
         );
+        -- Kontakt-konteksten (services/crmContactContext.js): stemning,
+        -- aktiviteter og afstand. Minimale tabeller, som resten af fixturen.
+        CREATE TABLE bons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER,
+            delivery_date TEXT, delivery_type TEXT, delivery_method TEXT,
+            delivery_address_id INTEGER
+        );
+        CREATE TABLE geo_calculations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, bon_id INTEGER, address_id INTEGER,
+            distance_meters REAL, calculated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE companies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -32,7 +45,8 @@ function createFreshDb() {
             -- firma-medlem UDEN kontaktperson stadig har noget at ringe/maile til.
             phone TEXT, email TEXT,
             address_id INTEGER REFERENCES addresses(id),
-            is_internal INTEGER NOT NULL DEFAULT 0
+            is_internal INTEGER NOT NULL DEFAULT 0,
+            is_personal INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,6 +72,7 @@ function createFreshDb() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_id INTEGER, bon_id INTEGER,
             type TEXT NOT NULL, text TEXT NOT NULL,
+            sentiment TEXT, due_at DATETIME, done_at DATETIME,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
     `);

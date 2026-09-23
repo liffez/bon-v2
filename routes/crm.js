@@ -18,6 +18,7 @@ const {
     setLeadStageIfNew:   _liSetLeadStageIfNew,
 } = require('../services/leadCreate');
 const { logActivity, validateActivity, OUTCOMES: ACTIVITY_OUTCOMES } = require('../services/crmActivity');
+const { enrichContactContext, colleagueIds, actOwnerSql } = require('../services/crmContactContext');
 
 router.use(requireAuth());
 
@@ -677,6 +678,7 @@ router.get('/season', handle((req, res) => {
         GROUP BY c.id
         ORDER BY b1.total_price DESC
     `).all();
+    enrichContactContext(db, rows);
     res.json(rows);
 }));
 
@@ -742,6 +744,7 @@ router.get('/rytme', handle((req, res) => {
             )
         ORDER BY (ostats.days_since - ostats.avg_interval_days) DESC
     `).all(mult, '-' + RYTME_DEDUPE_DAYS + ' days');
+    enrichContactContext(db, rows);
     res.json(rows);
 }));
 
@@ -761,6 +764,7 @@ router.get('/cold-offers', handle((req, res) => {
             b.bon_number,
             b.total_price,
             b.offer_valid_until,
+            b.delivery_type, b.delivery_method, b.delivery_address_id,
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
             c.first_name, c.last_name, c.email,
@@ -788,6 +792,8 @@ router.get('/cold-offers', handle((req, res) => {
             )
         ORDER BY b.offer_valid_until DESC
     `).all('-' + COLD_OFFER_MAX_AGE_DAYS + ' days', '-' + COLD_OFFER_DEDUPE_DAYS + ' days');
+    // Tilbuddets egen adresse er dér eventet skal stå; mangler den, kundens seneste.
+    enrichContactContext(db, rows, { useRowAddress: true });
     res.json(rows);
 }));
 
@@ -799,6 +805,8 @@ router.get('/service-calls', handle((req, res) => {
         SELECT
             b.id AS bon_id, b.bon_number, b.delivery_date, b.delivery_time,
             b.pax, b.total_units, b.total_price,
+            b.delivery_type, b.delivery_method, b.delivery_address_id,
+            ad.postal_code AS delivery_postal_code, ad.city AS delivery_city,
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
             c.first_name, c.last_name,
@@ -808,10 +816,10 @@ router.get('/service-calls', handle((req, res) => {
             CAST(julianday('now') - julianday(b.delivery_date) AS INTEGER) AS days_since_delivery,
             (SELECT a.sentiment FROM crm_activities a
                 WHERE a.customer_id = c.id AND a.sentiment IS NOT NULL
-                ORDER BY a.created_at DESC LIMIT 1) AS last_sentiment,
-            (SELECT a.created_at FROM crm_activities a
+                ORDER BY COALESCE(a.done_at, a.created_at) DESC, a.id DESC LIMIT 1) AS last_sentiment,
+            (SELECT COALESCE(a.done_at, a.created_at) FROM crm_activities a
                 WHERE a.customer_id = c.id AND a.sentiment IS NOT NULL
-                ORDER BY a.created_at DESC LIMIT 1) AS last_sentiment_at,
+                ORDER BY COALESCE(a.done_at, a.created_at) DESC, a.id DESC LIMIT 1) AS last_sentiment_at,
             (SELECT a.text FROM crm_activities a
                 WHERE a.customer_id = c.id AND a.text IS NOT NULL AND a.text != ''
                 ORDER BY a.created_at DESC LIMIT 1) AS last_note,
@@ -821,6 +829,7 @@ router.get('/service-calls', handle((req, res) => {
         FROM bons b
         JOIN customers c ON b.customer_id = c.id
         LEFT JOIN companies co ON b.company_id = co.id
+        LEFT JOIN addresses ad ON ad.id = b.delivery_address_id
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code IN ('LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET')
             AND b.is_internal = 0
@@ -836,6 +845,41 @@ router.get('/service-calls', handle((req, res) => {
             )
         ORDER BY b.delivery_date DESC
     `).all(days);
+    // Afstanden er til DENNE levering — ikke kundens seneste adresse.
+    enrichContactContext(db, rows, { useRowAddress: true });
+    res.json(rows);
+}));
+
+// ─── GET /customer/:id/activities ───────────────────────────
+// Letvægts-historik til ringelisterne: kundens egne aktiviteter + kollegernes
+// (mærket), nyeste først. Kunde 360° har den fulde; denne er til et blik.
+router.get('/customer/:id/activities', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Ugyldigt kunde-id' });
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 6, 1), 50);
+    const ids = [id, ...colleagueIds(db, id)];
+    const w = actOwnerSql(ids);
+    const rows = db.prepare(`
+        SELECT a.id, a.type, a.result, a.sentiment, a.text, a.outcome,
+               a.created_at, a.done_at, a.due_at,
+               COALESCE(a.customer_id, b.customer_id) AS customer_id,
+               TRIM(cu.first_name || ' ' || COALESCE(cu.last_name, '')) AS customer_name,
+               u.name AS user_name, b.bon_number,
+               p.label AS purpose_label, p.emoji AS purpose_emoji
+        FROM crm_activities a
+        LEFT JOIN bons b ON b.id = a.bon_id
+        LEFT JOIN customers cu ON cu.id = COALESCE(a.customer_id, b.customer_id)
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        LEFT JOIN activity_purposes p ON p.id = a.purpose_id
+        WHERE ${w.sql}
+        ORDER BY COALESCE(a.done_at, a.due_at, a.created_at) DESC, a.id DESC
+        LIMIT ?
+    `).all(...w.args, limit);
+    for (const r of rows) {
+        r.is_colleague = r.customer_id !== id;
+        r.is_planned = !r.done_at && !!r.due_at;
+    }
     res.json(rows);
 }));
 

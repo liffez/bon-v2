@@ -411,7 +411,8 @@
                     alert('Mailen er sendt, men den blev ikke skrevet i kundens historik.\n' +
                           'Noter det manuelt — ellers ser kunden ud til ikke at være kontaktet.');
                 }
-                if (typeof opts.onSent === 'function') opts.onSent(res);
+                // Modtageren følger med, så kaldestedet kan kvittere "Mail sendt til …".
+                if (typeof opts.onSent === 'function') opts.onSent(Object.assign({ to }, res));
             } catch (err) {
                 alert('Kunne ikke sende: ' + (err.message || 'ukendt fejl'));
             } finally {

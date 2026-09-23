@@ -171,7 +171,44 @@
             rows: null,
             meta: null,      // valgfri config/meta fra { rows, config }-svar
             debounce: null,
+            // Påbegyndte logs pr. række (shared/crm_call_draft.js). En sendt mail
+            // dedupe'r rækken væk og tegner listen forfra — uden kladden forsvandt
+            // stemning og note. Nu bliver kortet stående til man gemmer eller lukker.
+            drafts: new Map(),   // key → { pristine, snap, row, mailTo }
+            serverCount: 0,
         };
+        const _key = (r) => (cfg.getBonId ? (cfg.getBonId(r) || '') : '') + ':' + (cfg.getCustomerId(r) || '');
+        const _draftApi = () => (typeof CrmCallDraft !== 'undefined' ? CrmCallDraft : null);
+        function _logEl(idx) {
+            const f = document.getElementById(uid + '-log-' + idx);
+            return f && f.classList.contains('open') ? f : null;
+        }
+        function _dirty(d, formEl) {
+            const D = _draftApi();
+            if (!D || !d || !d.pristine) return false;
+            const cur = formEl ? D.snapshot(formEl) : d.snap;
+            return !!cur && !D.same(cur, d.pristine);
+        }
+        // Billeder af åbne formularer FØR rækkerne udskiftes.
+        function _captureDrafts() {
+            const D = _draftApi();
+            if (!D || !state.rows) return;
+            state.rows.forEach((r, i) => {
+                const d = state.drafts.get(_key(r));
+                const f = d && _logEl(i);
+                if (f) d.snap = D.snapshot(f);
+            });
+        }
+        if (_draftApi()) {
+            _draftApi().guard(() => {
+                if (!state.rows) return false;
+                for (const [k, d] of state.drafts) {
+                    const i = state.rows.findIndex(r => _key(r) === k);
+                    if (_dirty(d, i >= 0 ? _logEl(i) : null)) return true;
+                }
+                return false;
+            });
+        }
 
         function mount(container) {
             ensureStyles();
@@ -219,7 +256,16 @@
                     _purposesCache ? Promise.resolve(_purposesCache) : fetchActivityPurposes(),
                 ]);
                 _purposesCache = purposes;
-                state.rows = Array.isArray(rows) ? rows : (rows && rows.rows) || [];
+                _captureDrafts();
+                const serverRows = Array.isArray(rows) ? rows : (rows && rows.rows) || [];
+                state.serverCount = serverRows.length;
+                // Kort med en åben kladde bliver stående, selv om de er faldet af listen.
+                const inServer = new Set(serverRows.map(_key));
+                const pinned = [];
+                for (const [k, d] of state.drafts) {
+                    if (!inServer.has(k) && d.row) pinned.push(Object.assign({}, d.row, { _pinned: true }));
+                }
+                state.rows = pinned.concat(serverRows);
                 state.meta = (rows && !Array.isArray(rows) && (rows.config || rows.meta)) || null;
                 _render();
             } catch (err) {
@@ -264,7 +310,7 @@
         function _render() {
             if (!state.active || !state.rows) return;
             const sub = document.getElementById(uid + '-sub');
-            if (sub) sub.textContent = cfg.subtitle(state.rows.length);
+            if (sub) sub.textContent = cfg.subtitle(state.serverCount != null ? state.serverCount : state.rows.length);
 
             if (cfg.renderControls) {
                 const cEl = state.container && state.container.querySelector('#' + uid + '-controls');
@@ -280,6 +326,9 @@
                 return;
             }
 
+            // Stemning · aktiviteter · afstand + "▼ historik" — samme modul som
+            // service-kald og kampagne-tavlen. Tallene lægger serveren på rækken.
+            const _ctx = window.CrmContactContext || null;
             list.innerHTML = state.rows.map((r, i) => {
                 const name = cfg.getName(r);
                 const cid = cfg.getCustomerId(r) || 0;
@@ -298,6 +347,7 @@
                         <div>
                             <div class="wl-name"${nameTitle}>${esc(name)}</div>
                             <div class="wl-meta">${meta || ''}</div>
+                            ${_ctx ? _ctx.lineHtml(r) : ''}
                         </div>
                         ${cfg.buildExtra ? (cfg.buildExtra(r) || '') : ''}
                     </div>
@@ -308,13 +358,16 @@
                         ${email ? '<button class="wl-btn wl-btn-ghost" data-act="mail" title="Send mail — kan bære et booking-link">' + _mailIcon() + ' Mail</button>' : ''}
                         <button class="wl-btn wl-btn-ghost" data-act="profile">Profil →</button>
                         <button class="wl-btn wl-btn-snooze" data-act="snooze" title="Skjul dette emne i 14 dage">🙈 Skjul</button>
+                        ${_ctx ? _ctx.historyButtonHtml('data-act="history"') : ''}
                     </div>
+                    <div class="wl-hist" id="${uid}-hist-${i}" style="display:none"></div>
                     <div class="wl-log" id="${uid}-log-${i}">
                         <select id="${uid}-result-${i}">
                             <option value="reached">Nået</option>
                             <option value="no_answer">Ingen svar</option>
                             <option value="voicemail">Voicemail</option>
                             <option value="callback">Ring tilbage</option>
+                            <option value="email_instead">Sendte mail i stedet</option>
                         </select>
                         <select id="${uid}-sentiment-${i}">
                             <option value="">Stemning…</option>
@@ -336,6 +389,11 @@
             if (typeof CrmFollowup !== 'undefined') {
                 list.querySelectorAll('.wl-log').forEach(f => CrmFollowup.wire(f));
             }
+            // Læg kladderne tilbage i de gentegnede kort.
+            state.rows.forEach((r, i) => {
+                const d = state.drafts.get(_key(r));
+                if (d) _showDraft(i, d);
+            });
             if (window.ListCampaignSelect) window.ListCampaignSelect.refresh();
         }
 
@@ -352,15 +410,21 @@
                     e.stopPropagation();
                     const act = btn.dataset.act;
                     if (act === 'log') _showLog(idx);
-                    else if (act === 'cancel') _hideLog(idx);
+                    else if (act === 'cancel') _cancelLog(idx);
                     else if (act === 'save') _submitLog(idx);
                     else if (act === 'mail') _openMail(idx);
                     else if (act === 'snooze') _snooze(idx);
+                    else if (act === 'history' && window.CrmContactContext) {
+                        window.CrmContactContext.toggleHistory(
+                            document.getElementById(uid + '-hist-' + idx), cfg.getCustomerId(state.rows[idx]) || 0);
+                    }
                     else if (act === 'profile') _openProfile(cfg.getCustomerId(state.rows[idx]) || 0);
                     return;
                 }
                 // Klik på tel:-link håndteres af browseren (stopPropagation i markup)
                 if (e.target.closest('a, select, textarea, input')) return;
+                // Klik i en udfoldet historik (fx for at markere en note) må ikke åbne profilen.
+                if (e.target.closest('.wl-hist')) return;
 
                 // Bare-klik på kort: select-mode toggles valg, ellers åbn profil
                 if (window.ListCampaignSelect && window.ListCampaignSelect.handleRowClick(card)) return;
@@ -371,11 +435,56 @@
 
         function _showLog(idx) {
             const f = document.getElementById(uid + '-log-' + idx);
-            if (f) f.classList.add('open');
+            if (!f || f.classList.contains('open')) return;
+            f.classList.add('open');
+            const D = _draftApi();
+            const r = state.rows[idx];
+            if (D && r && !state.drafts.has(_key(r))) {
+                const snap = D.snapshot(f);
+                state.drafts.set(_key(r), { pristine: snap, snap, row: r });
+            }
+        }
+        function _showDraft(idx, d) {
+            const f = document.getElementById(uid + '-log-' + idx);
+            const D = _draftApi();
+            if (!f || !D) return;
+            f.classList.add('open');
+            if (d.snap) D.restore(f, d.snap);
+            if (d.mailTo !== undefined) {
+                const sel = document.getElementById(uid + '-result-' + idx);
+                // Efter en mail: "Sendte mail i stedet", hvis der ikke er valgt andet.
+                if (sel && !d.snap) sel.value = 'email_instead';
+                D.banner(f, '✓ Mail sendt' + (d.mailTo ? ' til ' + esc(d.mailTo) : '') +
+                    '. Log samtalen — eller luk kortet.');
+                const cancel = f.querySelector('[data-act="cancel"]');
+                if (cancel) cancel.textContent = 'Luk';
+            }
+            if (!d.pristine) d.pristine = D.snapshot(f);
+            d.snap = D.snapshot(f);
         }
         function _hideLog(idx) {
             const f = document.getElementById(uid + '-log-' + idx);
             if (f) f.classList.remove('open');
+            const r = state.rows && state.rows[idx];
+            if (!r) return;
+            state.drafts.delete(_key(r));
+            // Et fastholdt kort (mailen er sendt) forsvinder nu, hvor man er færdig.
+            if (r._pinned) {
+                state.rows = state.rows.filter(x => !x._pinned || state.drafts.has(_key(x)));
+                _render();
+            }
+        }
+        // Annuller/Luk: er der noteret noget, spørges der først.
+        function _cancelLog(idx) {
+            const f = _logEl(idx);
+            const r = state.rows && state.rows[idx];
+            const d = r && state.drafts.get(_key(r));
+            const D = _draftApi();
+            if (D && f && _dirty(d, f)) {
+                D.askUnsaved(f, { onSave: () => _submitLog(idx), onDiscard: () => _hideLog(idx) });
+                return;
+            }
+            _hideLog(idx);
         }
 
         async function _submitLog(idx) {
@@ -421,7 +530,9 @@
                         alert('Opkaldet er logget, men opfølgningen blev ikke gemt: ' + (e.message || 'ukendt fejl'));
                     }
                 }
-                _hideLog(idx);
+                state.drafts.delete(_key(r));
+                const f = document.getElementById(uid + '-log-' + idx);
+                if (f) f.classList.remove('open');
                 const card = document.getElementById(uid + '-card-' + idx);
                 if (card) card.style.opacity = '0.3';
                 setTimeout(loadData, 1000);   // SSE reloader også, men vær sikker
@@ -434,6 +545,7 @@
             if (!state.rows[idx]) return;
             const cid = cfg.getCustomerId(state.rows[idx]);
             if (!cid) return;
+            state.drafts.delete(_key(state.rows[idx]));
             try {
                 await snoozeSuggestion({ customer_id: cid, type: cfg.key });
                 const card = document.getElementById(uid + '-card-' + idx);
@@ -461,10 +573,16 @@
                 to: cfg.getEmail(r) || '',
                 title: 'Mail til ' + cfg.getName(r),
                 subtitle: cfg.title,
-                onSent: () => {
-                    const card = document.getElementById(uid + '-card-' + idx);
-                    if (card) card.style.opacity = '0.3';
-                    setTimeout(loadData, 800);
+                // Tilbage til kortet efter mailen: log-formularen åbnes (eller bevares
+                // med det der allerede var noteret), så samtalen kan logges bagefter.
+                onSent: (res) => {
+                    _captureDrafts();
+                    const k = _key(r);
+                    const d = state.drafts.get(k) || { pristine: null, snap: null };
+                    d.row = r;
+                    d.mailTo = (res && res.to) || cfg.getEmail(r) || '';
+                    state.drafts.set(k, d);
+                    setTimeout(loadData, 300);
                 },
             });
         }

@@ -841,6 +841,11 @@ function fetchCrmCustomer(id) {
     return apiFetch('/crm/customer/' + id);
 }
 
+function fetchCrmCustomerActivities(id, limit) {
+    var qs = limit ? '?limit=' + limit : '';
+    return apiFetch('/crm/customer/' + id + '/activities' + qs);
+}
+
 function fetchCrmCustomerOrders(id, limit) {
     var qs = limit ? '?limit=' + limit : '';
     return apiFetch('/crm/customer-orders/' + id + qs);
