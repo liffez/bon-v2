@@ -135,7 +135,9 @@
             if (btn.classList.contains('ccd-save') && onSave) onSave();
             else if (btn.classList.contains('ccd-discard') && onDiscard) onDiscard();
         });
-        box.scrollIntoView && box.scrollIntoView({ block: 'nearest' });
+        // 'center', ikke 'nearest': på mobilen ville boksen ellers lægge sig bag
+        // den faste bundmenu.
+        box.scrollIntoView && box.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
 
     // Sidelukning/genindlæsning mens noget er ugemt. Hvert kaldested registrerer

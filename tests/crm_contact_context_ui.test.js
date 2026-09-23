@@ -107,3 +107,13 @@ test('alle lister (office + mobil) bruger modulet — ingen lokale kopier', () =
     assert.match(read('mobile/index.html'), /crm_contact_context\.js[\s\S]*views\/crm\.js/, 'modulet loades FØR mobilens crm.js');
     assert.doesNotMatch(read('office/views/crm-dashboard.js'), /_CRM_SENT|_crmSvcContextHtml/);
 });
+
+test('mobilens service calls sender mail via den delte formular — ikke mailto:', () => {
+    const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
+    const crm = read('mobile/views/crm.js');
+    const calls = crm.slice(crm.indexOf('async function _mcLoadCalls'), crm.indexOf('function _mcShowDraft'));
+    assert.doesNotMatch(calls, /href="mailto:/);
+    assert.match(crm, /MailCompose\.open\(\{[\s\S]*?bonId: sc\.bon_id/);
+    const html = read('mobile/index.html');
+    assert.match(html, /crm_call_draft\.js[\s\S]*mail_compose\.js[\s\S]*views\/crm\.js/, 'loades før crm.js');
+});

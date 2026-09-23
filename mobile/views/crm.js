@@ -119,6 +119,40 @@ function _mcToggleDueVisibility(root, show) {
 }
 
 /* ── Service calls ── */
+// Påbegyndte logs pr. bon (shared/crm_call_draft.js) — samme regel som office:
+// en sendt mail gør service-kaldet håndteret og tegner listen forfra; uden
+// kladden forsvandt stemning og note. Kortet bliver stående til man gemmer
+// eller lukker, og lukker man med noget noteret, spørges der først.
+var _mcDrafts = new Map();   // bon_id → { pristine, snap, row, mailTo }
+
+function _mcFormEl(idx) {
+    var slot = document.getElementById('mcForm' + idx);
+    return slot ? slot.querySelector('.m-svc-logform') : null;
+}
+function _mcDraftDirty(d, f) {
+    if (!d || !d.pristine || !window.CrmCallDraft) return false;
+    var cur = f ? CrmCallDraft.snapshot(f) : d.snap;
+    return !!cur && !CrmCallDraft.same(cur, d.pristine);
+}
+function _mcCaptureDrafts() {
+    if (!window.CrmCallDraft) return;
+    (_mcCalls || []).forEach(function(sc, i) {
+        var d = _mcDrafts.get(sc.bon_id);
+        var f = d && _mcFormEl(i);
+        if (f) d.snap = CrmCallDraft.snapshot(f);
+    });
+}
+if (window.CrmCallDraft) {
+    CrmCallDraft.guard(function() {
+        var dirty = false;
+        _mcDrafts.forEach(function(d, bonId) {
+            var i = (_mcCalls || []).findIndex(function(c) { return c.bon_id === bonId; });
+            if (_mcDraftDirty(d, i >= 0 ? _mcFormEl(i) : null)) dirty = true;
+        });
+        return dirty;
+    });
+}
+
 async function _mcLoadCalls() {
     var wrap = document.getElementById('mcContent');
     if (!wrap) return;
@@ -149,15 +183,24 @@ async function _mcLoadCalls() {
     var list = document.getElementById('mcCallsList');
     list.innerHTML = '<div class="m-loading">Henter service calls...</div>';
 
+    _mcCaptureDrafts();
+    var serverCalls;
     try {
-        _mcCalls = await apiFetch('/crm/service-calls?days=' + _mcDays);
+        serverCalls = await apiFetch('/crm/service-calls?days=' + _mcDays);
     } catch (e) {
         list.innerHTML = '<div class="m-bon-empty">Kunne ikke hente data</div>';
         return;
     }
+    // Kort med en åben kladde bliver stående, selv om de er håndteret nu.
+    var inServer = new Set(serverCalls.map(function(c) { return c.bon_id; }));
+    var pinned = [];
+    _mcDrafts.forEach(function(d, bonId) {
+        if (!inServer.has(bonId) && d.row) pinned.push(Object.assign({}, d.row, { _pinned: true }));
+    });
+    _mcCalls = pinned.concat(serverCalls);
 
     var countEl = document.getElementById('mcSvcCount');
-    if (countEl) countEl.textContent = _mcCalls.length ? (_mcCalls.length + ' ventende') : '';
+    if (countEl) countEl.textContent = serverCalls.length ? (serverCalls.length + ' ventende') : '';
 
     if (!_mcCalls || !_mcCalls.length) {
         list.innerHTML = '<div class="m-bon-empty">🎉 Alle service calls er håndteret!</div>';
@@ -181,7 +224,6 @@ async function _mcLoadCalls() {
         if (lastNote.length > 80) lastNote = lastNote.slice(0, 80) + '…';
 
         var phone = (sc.customer_phone || '').replace(/\s/g, '');
-        var email = sc.customer_email || '';
 
         html +=
             '<div class="m-crm-item" data-idx="' + i + '">' +
@@ -203,7 +245,9 @@ async function _mcLoadCalls() {
                         ? '<a class="m-crm-btn primary" href="tel:' + phone + '">📞 Ring</a>'
                         : '<button class="m-crm-btn primary" data-action="log" data-idx="' + i + '">📞 Log</button>') +
                     (phone ? '<a class="m-crm-btn" href="sms:' + phone + '">💬 SMS</a>' : '') +
-                    (email ? '<a class="m-crm-btn" href="mailto:' + email + '">' + mailIcon(15) + '</a>' : '') +
+                    // Den delte mail-formular — ikke mailto: — så mailen lander i kundens
+                    // tråd, tæller som håndtering af kaldet og kan bære et booking-link.
+                    '<button class="m-crm-btn" data-action="mail" data-idx="' + i + '" title="Send mail">' + mailIcon(15) + '</button>' +
                     '<button class="m-crm-btn" data-action="expand" data-idx="' + i + '">▼ Historik</button>' +
                     '<button class="m-crm-btn" data-action="done" data-idx="' + i + '">✓</button>' +
                 '</div>' +
@@ -223,6 +267,11 @@ async function _mcLoadCalls() {
             _mcShowLogForm(parseInt(btn.dataset.idx));
         });
     });
+    list.querySelectorAll('[data-action="mail"]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            _mcSvcMail(parseInt(btn.dataset.idx));
+        });
+    });
     list.querySelectorAll('[data-action="expand"]').forEach(function(btn) {
         btn.addEventListener('click', function() {
             _mcToggleOrders(parseInt(btn.dataset.idx));
@@ -236,6 +285,86 @@ async function _mcLoadCalls() {
             if (ev.target.closest('.m-crm-form-slot')) return;
             _mcShowLogForm(parseInt(item.dataset.idx));
         });
+    });
+
+    // Læg kladderne tilbage i de gentegnede kort.
+    _mcCalls.forEach(function(sc, i) {
+        var d = _mcDrafts.get(sc.bon_id);
+        if (d) _mcShowDraft(i, d);
+    });
+}
+
+function _mcShowDraft(idx, d) {
+    _mcBuildLogForm(idx);
+    var f = _mcFormEl(idx);
+    if (!f || !window.CrmCallDraft) return;
+    if (d.snap) CrmCallDraft.restore(f, d.snap);
+    if (d.mailTo !== undefined) {
+        if (!f.querySelector('[data-r].active')) {
+            var mb = f.querySelector('[data-r="email_instead"]');
+            if (mb) mb.click();
+        }
+        CrmCallDraft.banner(f, '✓ Mail sendt' + (d.mailTo ? ' til ' + _mcEsc(d.mailTo) : '') +
+            '. Log samtalen — eller luk kortet.');
+        var cancel = f.querySelector('[data-cancel]');
+        if (cancel) cancel.textContent = 'Luk';
+    }
+    // Knapper og felter er gendannet; tidspunkt-rækken følger valgt resultat.
+    var active = f.querySelector('[data-r].active');
+    var saveBtn = f.querySelector('[data-save]');
+    if (saveBtn) saveBtn.disabled = !active;
+    _mcToggleDueVisibility(f, !!active && active.dataset.r === 'callback');
+    if (!d.pristine) d.pristine = CrmCallDraft.snapshot(f);
+    d.snap = CrmCallDraft.snapshot(f);
+}
+
+function _mcCancelLog(idx) {
+    var sc = _mcCalls[idx];
+    var f = _mcFormEl(idx);
+    var d = sc && _mcDrafts.get(sc.bon_id);
+    if (f && window.CrmCallDraft && _mcDraftDirty(d, f)) {
+        CrmCallDraft.askUnsaved(f, {
+            onSave: function() { var b = f.querySelector('[data-save]'); if (b) { b.disabled = false; b.click(); } },
+            onDiscard: function() { _mcCloseLog(idx); },
+        });
+        return;
+    }
+    _mcCloseLog(idx);
+}
+
+function _mcCloseLog(idx) {
+    var sc = _mcCalls[idx];
+    var slot = document.getElementById('mcForm' + idx);
+    if (slot) slot.innerHTML = '';
+    if (!sc) return;
+    _mcDrafts.delete(sc.bon_id);
+    if (sc._pinned) _mcLoadCalls();   // håndteret nu — kortet forsvinder
+}
+
+function _mcSvcMail(idx) {
+    var sc = _mcCalls[idx];
+    if (!sc) return;
+    if (typeof MailCompose === 'undefined') { if (window._mToast) window._mToast('Mail-formularen er ikke indlæst'); return; }
+    MailCompose.open({
+        customerId: sc.customer_id,
+        bonId: sc.bon_id || null,
+        customer: {
+            first_name: sc.first_name, last_name: sc.last_name,
+            company_name: sc.company_name, phone: sc.customer_phone, email: sc.customer_email,
+        },
+        to: sc.customer_email || '',
+        title: 'Mail til ' + (sc.customer_name || 'kunden'),
+        subtitle: '#' + (sc.bon_number || ''),
+        // Tilbage til kortet efter mailen med log-formularen åben.
+        onSent: function(res) {
+            _mcCaptureDrafts();
+            var d = _mcDrafts.get(sc.bon_id) || { pristine: null, snap: null };
+            d.row = sc;
+            d.mailTo = (res && res.to) || sc.customer_email || '';
+            _mcDrafts.set(sc.bon_id, d);
+            if (window._mToast) window._mToast('Mail sendt');
+            _mcLoadCalls();
+        },
     });
 }
 
@@ -253,7 +382,21 @@ function _mcShowLogForm(idx) {
     if (!sc) return;
     var slot = document.getElementById('mcForm' + idx);
     if (!slot) return;
-    if (slot.innerHTML) { slot.innerHTML = ''; return; }
+    // Åben i forvejen → et "luk", som går gennem spørgsmålet.
+    if (slot.innerHTML) { _mcCancelLog(idx); return; }
+    _mcBuildLogForm(idx);
+    var f = _mcFormEl(idx);
+    if (f && window.CrmCallDraft) {
+        var snap = CrmCallDraft.snapshot(f);
+        _mcDrafts.set(sc.bon_id, { pristine: snap, snap: snap, row: sc });
+    }
+}
+
+function _mcBuildLogForm(idx) {
+    var sc = _mcCalls[idx];
+    if (!sc) return;
+    var slot = document.getElementById('mcForm' + idx);
+    if (!slot) return;
 
     slot.innerHTML =
         '<div class="m-inline-form m-svc-logform">' +
@@ -300,7 +443,7 @@ function _mcShowLogForm(idx) {
     _mcWireToggleGroup(slot, '[data-due]');
 
     slot.querySelector('[data-cancel="' + idx + '"]').addEventListener('click', function() {
-        slot.innerHTML = '';
+        _mcCancelLog(idx);
     });
 
     slot.querySelector('[data-save="' + idx + '"]').addEventListener('click', async function() {
@@ -335,6 +478,7 @@ function _mcShowLogForm(idx) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
+            _mcDrafts.delete(sc.bon_id);
             if (window._mToast) window._mToast('Service call logget');
             _mcLoadCalls();
         } catch (e) {
@@ -344,9 +488,20 @@ function _mcShowLogForm(idx) {
     });
 }
 
-async function _mcQuickMarkHandled(idx) {
+async function _mcQuickMarkHandled(idx, force) {
     var sc = _mcCalls[idx];
     if (!sc) return;
+    // ✓ med en udfyldt log ville smide noten væk — spørg først.
+    var f = _mcFormEl(idx);
+    if (!force && f && window.CrmCallDraft && _mcDraftDirty(_mcDrafts.get(sc.bon_id), f)) {
+        CrmCallDraft.askUnsaved(f, {
+            text: 'Du har noteret noget — gem det i stedet for bare at markere håndteret?',
+            onSave: function() { var b = f.querySelector('[data-save]'); if (b) { b.disabled = false; b.click(); } },
+            onDiscard: function() { _mcQuickMarkHandled(idx, true); },
+        });
+        return;
+    }
+    _mcDrafts.delete(sc.bon_id);
     try {
         var body = {
             customer_id: sc.customer_id,
