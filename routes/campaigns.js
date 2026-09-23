@@ -16,6 +16,7 @@ const { handle, logChange, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { matchCompany } = require('../services/companyMatcher');
+const { enrichContactContext, CONTEXT_FIELDS } = require('../services/crmContactContext');
 
 // Outreach er CRM-følsom: ingen anonym adgang. Spec sektion 1.2 nævner ikke
 // rolle-restriktion (alle indloggede må læse + skrive), så ingen rolle-args.
@@ -84,7 +85,7 @@ router.get('/pipeline', handle((req, res) => {
             m.company_id, m.customer_id,
             oc.name AS campaign_name,
             co.name AS company_name, co.cvr, co.ean,
-            addr.city AS company_city,
+            addr.city AS company_city, co.address_id AS company_address_id,
             cu.first_name, cu.last_name,
             cu.email AS customer_email, cu.phone AS customer_phone,
             co.email AS company_email, co.phone AS company_phone,
@@ -110,6 +111,9 @@ router.get('/pipeline', handle((req, res) => {
         ${where}
         ORDER BY m.added_at DESC
     `).all(...args);
+    // Samme kontakt-kontekst som service-kald og ringelisten: stemning,
+    // aktiviteter og afstand. Firmaets adresse er sidste udvej for afstanden.
+    enrichContactContext(db, rows, { fallbackAddressKey: 'company_address_id' });
 
     // Klassificér kort-tilstand (firma alene / firma+kontakt / privatkunde).
     // Labels matcher forretningsproces:
@@ -158,6 +162,7 @@ router.get('/pipeline', handle((req, res) => {
             marketing_consent: r.marketing_consent,
             do_not_contact: r.do_not_contact,
         };
+        for (const k of CONTEXT_FIELDS) item[k] = r[k];
         const col = columns[r.member_status];
         if (col) col.members.push(item);
     }

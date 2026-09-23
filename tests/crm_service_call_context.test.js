@@ -81,6 +81,7 @@ const app = express();
 app.use(express.json());
 app.use((req, _res, next) => { req.session = { userId: 1, user: { id: 1 } }; next(); });
 app.use('/api/crm', require('../routes/crm'));
+app.use('/api/campaigns', require('../routes/campaigns'));
 
 let server, base;
 test.before(() => new Promise(r => { server = app.listen(0, () => { base = 'http://127.0.0.1:' + server.address().port; r(); }); }));
@@ -101,7 +102,7 @@ test('aktiviteter tæller bon-aktiviteter med, men ikke planlagte', async () => 
     const { body } = await get('/api/crm/service-calls?days=7');
     const a = row(body, 'B1');
     assert.strictEqual(a.activity_count, 3);
-    assert.strictEqual(a.last_activity_type, 'note');
+    assert.strictEqual(a.last_contact_type, 'note');
 });
 
 test('kollegaens stemning leveres med navn', async () => {
@@ -147,4 +148,69 @@ test('/customer/:id/activities: egne + kolleger, mærket, planlagt markeret', as
 test('/customer/:id/activities: personligt firma viser ikke naboens', async () => {
     const { body } = await get('/api/crm/customer/4/activities');
     assert.deepStrictEqual(body, []);
+});
+
+// ── Samme kontekst på ringelisten og kampagne-tavlen ─────────────────
+const { enrichContactContext } = require('../services/crmContactContext');
+
+test('ringeliste-rækker: kundens SENESTE leveringsadresse, ikke en afhentning', () => {
+    // Anna (1) har kun B1 (adresse 1, cache 3,5 km) og B9 (samme). Dan (4): B2 Roskilde.
+    const rows = [{ customer_id: 1 }, { customer_id: 4 }, { customer_id: 5 }];
+    enrichContactContext(_testDb, rows);
+    assert.strictEqual(rows[0].distance_km, 3.5);
+    assert.strictEqual(rows[0].last_sentiment, 'positive');
+    assert.strictEqual(rows[1].distance_estimated, true);
+    // Eva har kun en afhentning (B3) → ingen leveringsadresse at måle til.
+    assert.strictEqual(rows[2].distance_km, null);
+});
+
+test('customerKey: sovende-rækken bærer kunden som primary_customer_id', () => {
+    const rows = [{ company_id: 1, primary_customer_id: 1 }];
+    enrichContactContext(_testDb, rows, { customerKey: 'primary_customer_id' });
+    assert.strictEqual(rows[0].activity_count, 3);
+    assert.strictEqual(rows[0].last_sentiment, 'positive');
+});
+
+test('fallbackAddressKey: firma uden kontaktperson får firmaets adresse', () => {
+    const rows = [{ customer_id: null, company_address_id: 2 }];
+    enrichContactContext(_testDb, rows, { fallbackAddressKey: 'company_address_id' });
+    assert.ok(rows[0].distance_km > 30, 'Roskilde');
+    assert.strictEqual(rows[0].activity_count, 0);
+});
+
+test('rækkens egen stemning overskrives ikke', () => {
+    const rows = [{ customer_id: 4, last_sentiment: 'neutral', last_sentiment_at: 'x' }];
+    enrichContactContext(_testDb, rows);
+    assert.strictEqual(rows[0].last_sentiment, 'neutral');
+});
+
+test('kampagne-pipeline: kortet bærer kontekst, og medlemmets egen last_activity_at står urørt', async () => {
+    _testDb.prepare("INSERT INTO outreach_campaigns (id, name) VALUES (1, 'Jul')").run();
+    _testDb.prepare(`INSERT INTO campaign_members (campaign_id, company_id, customer_id, member_status, last_activity_at)
+        VALUES (1, 1, 1, 'lead', '2020-01-01 00:00:00')`).run();
+    const { status, body } = await get('/api/campaigns/pipeline?campaign_id=1');
+    assert.strictEqual(status, 200);
+    const m = body.columns.lead.members[0];
+    assert.strictEqual(m.last_activity_at, '2020-01-01 00:00:00');
+    assert.strictEqual(m.activity_count, 3);
+    assert.strictEqual(m.last_sentiment, 'positive');
+    assert.strictEqual(m.distance_km, 3.5);
+});
+
+test('kolde tilbud: tilbuddets egen adresse', async () => {
+    const loc = _testDb.prepare('SELECT id FROM locations LIMIT 1').get().id;
+    const tilbud = _testDb.prepare("SELECT id FROM status_definitions WHERE code = 'TILBUD'").get();
+    _testDb.prepare(`INSERT INTO bons (id, bon_number, status_id, customer_id, company_id, delivery_date, delivery_type,
+        delivery_address_id, is_internal, location_id, order_date, is_offer, offer_status, offer_valid_until, total_price)
+        VALUES (50, 'T-50', ?, 1, 1, ?, 'delivery', 2, 0, ?, '2026-01-01', 1, 'sent', ?, 1000)`)
+        .run(tilbud.id, offsetISO(-20), loc, offsetISO(-10));
+    // Datoen ligger FØR Annas seneste levering (B1, i Kbh), så "seneste adresse"
+    // ville give 3,5 km — kun tilbuddets egen adresse giver Roskilde.
+    const { status, body } = await get('/api/crm/cold-offers');
+    assert.strictEqual(status, 200);
+    const r = body.find(x => x.bon_id === 50);
+    assert.ok(r, 'tilbuddet står på listen');
+    // Anna leverer normalt i Kbh (3,5 km), men tilbuddet er i Roskilde.
+    assert.ok(r.distance_km > 30, 'fik ' + r.distance_km);
+    assert.strictEqual(r.activity_count, 3);
 });

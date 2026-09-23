@@ -466,6 +466,9 @@ function _coRenderCard(m) {
         campaignLabel +
         '<div class="co-card-name"><span class="co-card-icon">' + icon + '</span><span>' + _coEsc(primary) + '</span></div>' +
         (secondary ? '<div class="co-card-sub">' + _coEsc(secondary) + '</div>' : '') +
+        // Kompakt udgave af kontaktlinjen (fælles med service-kald og ringelisten):
+        // emoji, antal aktiviteter og km — detaljerne står i tooltips og i detaljen.
+        (window.CrmContactContext ? CrmContactContext.lineHtml(m, { compact: true }) : '') +
         '<div class="co-card-footer">' +
             multiBadge +
             assigned +
@@ -629,13 +632,16 @@ function _coOpenMember(memberId) {
                     ${m.lost_reason ? '<div><b>Tabt fordi</b> ' + _coEsc(m.lost_reason) + '</div>' : ''}
                 </div>
                 ${m.notes ? '<div class="co-md-notes">' + _coEsc(m.notes) + '</div>' : ''}
+                ${window.CrmContactContext ? CrmContactContext.lineHtml(m) : ''}
 
                 <div class="co-md-actions">
                     ${phone ? '<a class="co-btn co-btn-call" href="tel:' + _coEsc(phoneClean) + '">📞 Ring</a>' : ''}
                     ${m.customer_id ? '<button type="button" class="co-btn co-btn-ghost" data-co-act="log">📝 Log</button>' : ''}
                     ${m.customer_id && email ? '<button type="button" class="co-btn co-btn-ghost" data-co-act="mail">' + _coMailIcon() + ' Mail</button>' : ''}
                     ${m.customer_id ? '<button type="button" class="co-btn co-btn-ghost" data-co-act="profile">Profil →</button>' : ''}
+                    ${m.customer_id && window.CrmContactContext ? CrmContactContext.historyButtonHtml('data-co-act="history"') : ''}
                 </div>
+                <div id="coMdHist" style="display:none"></div>
 
                 <div class="co-md-log" id="coMdLog">
                     <label class="co-md-label">Resultat</label>
@@ -686,6 +692,7 @@ function _coOpenMember(memberId) {
         if (!btn) return;
         const act = btn.dataset.coAct;
         if (act === 'log') { logEl.classList.toggle('open'); return; }
+        if (act === 'history') { CrmContactContext.toggleHistory(overlay.querySelector('#coMdHist'), m.customer_id); return; }
         if (act === 'logcancel') { logEl.classList.remove('open'); return; }
         if (act === 'profile') {
             close();

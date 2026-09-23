@@ -10,6 +10,7 @@ const { getDb } = require('../db/database');
 const { handle } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
+const { enrichContactContext } = require('../services/crmContactContext');
 const { computeRfmScores, getRfmConfig, computeIcpProfile, computeProspectScores, getReactivationCandidates } = require('../services/rfm');
 
 router.use(requireAuth());
@@ -193,7 +194,11 @@ router.patch('/scores/:companyId/unlock', handle((req, res) => {
 // Sovende firmaer med højt potentiale, sorteret efter F+M score.
 // Tærskler (min. ordrer + karantæne) er justerbare — se services/rfm.js.
 router.get('/reactivation', handle((req, res) => {
-    res.json(getReactivationCandidates(getDb()));
+    const db = getDb();
+    const result = getReactivationCandidates(db);
+    // Rækken er et firma — konteksten hører til dets primære kontakt.
+    enrichContactContext(db, result.rows, { customerKey: 'primary_customer_id' });
+    res.json(result);
 }));
 
 // ─── GET /prospects ─────────────────────────────────────────

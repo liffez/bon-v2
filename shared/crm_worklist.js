@@ -280,6 +280,9 @@
                 return;
             }
 
+            // Stemning · aktiviteter · afstand + "▼ historik" — samme modul som
+            // service-kald og kampagne-tavlen. Tallene lægger serveren på rækken.
+            const _ctx = window.CrmContactContext || null;
             list.innerHTML = state.rows.map((r, i) => {
                 const name = cfg.getName(r);
                 const cid = cfg.getCustomerId(r) || 0;
@@ -298,6 +301,7 @@
                         <div>
                             <div class="wl-name"${nameTitle}>${esc(name)}</div>
                             <div class="wl-meta">${meta || ''}</div>
+                            ${_ctx ? _ctx.lineHtml(r) : ''}
                         </div>
                         ${cfg.buildExtra ? (cfg.buildExtra(r) || '') : ''}
                     </div>
@@ -308,7 +312,9 @@
                         ${email ? '<button class="wl-btn wl-btn-ghost" data-act="mail" title="Send mail — kan bære et booking-link">' + _mailIcon() + ' Mail</button>' : ''}
                         <button class="wl-btn wl-btn-ghost" data-act="profile">Profil →</button>
                         <button class="wl-btn wl-btn-snooze" data-act="snooze" title="Skjul dette emne i 14 dage">🙈 Skjul</button>
+                        ${_ctx ? _ctx.historyButtonHtml('data-act="history"') : ''}
                     </div>
+                    <div class="wl-hist" id="${uid}-hist-${i}" style="display:none"></div>
                     <div class="wl-log" id="${uid}-log-${i}">
                         <select id="${uid}-result-${i}">
                             <option value="reached">Nået</option>
@@ -356,11 +362,17 @@
                     else if (act === 'save') _submitLog(idx);
                     else if (act === 'mail') _openMail(idx);
                     else if (act === 'snooze') _snooze(idx);
+                    else if (act === 'history' && window.CrmContactContext) {
+                        window.CrmContactContext.toggleHistory(
+                            document.getElementById(uid + '-hist-' + idx), cfg.getCustomerId(state.rows[idx]) || 0);
+                    }
                     else if (act === 'profile') _openProfile(cfg.getCustomerId(state.rows[idx]) || 0);
                     return;
                 }
                 // Klik på tel:-link håndteres af browseren (stopPropagation i markup)
                 if (e.target.closest('a, select, textarea, input')) return;
+                // Klik i en udfoldet historik (fx for at markere en note) må ikke åbne profilen.
+                if (e.target.closest('.wl-hist')) return;
 
                 // Bare-klik på kort: select-mode toggles valg, ellers åbn profil
                 if (window.ListCampaignSelect && window.ListCampaignSelect.handleRowClick(card)) return;
