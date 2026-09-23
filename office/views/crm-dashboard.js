@@ -397,14 +397,29 @@ function _crmRenderShell() {
             .crm-svc-customer { cursor: pointer; }
             .crm-svc-customer:hover { text-decoration: underline; }
             .crm-svc-meta { font-size: 11px; color: var(--color-text-dim, #888); white-space: nowrap; }
-            .crm-svc-last-sent {
-                display: inline-block; padding: 1px 6px; border-radius: 10px;
-                font-size: 13px; line-height: 1; vertical-align: middle;
-                border: 1px solid transparent; cursor: help;
+            .crm-svc-context {
+                display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+                margin-top: 5px; font-size: 11.5px; color: var(--color-text-dim, #777);
             }
-            .crm-svc-last-sent.s-positive { background: var(--color-sentiment-pos-bg, #E6F7F0); border-color: var(--color-sentiment-pos, #2E9E6B); }
-            .crm-svc-last-sent.s-neutral  { background: var(--color-sentiment-neu-bg, #FBF3E2); border-color: var(--color-sentiment-neu, #C8962A); }
-            .crm-svc-last-sent.s-negative { background: var(--color-sentiment-neg-bg, #FBE9E9); border-color: var(--color-sentiment-neg, #C94040); }
+            .crm-svc-ctx.dim { opacity: .75; font-style: italic; }
+            .crm-svc-chip {
+                display: inline-flex; align-items: center; gap: 3px;
+                padding: 1px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 600;
+                border: 1px solid transparent; white-space: nowrap; color: #333;
+            }
+            .crm-svc-chip.s-positive { background: var(--color-sentiment-pos-bg, #E6F7F0); border-color: var(--color-sentiment-pos, #2E9E6B); }
+            .crm-svc-chip.s-neutral  { background: var(--color-sentiment-neu-bg, #FBF3E2); border-color: var(--color-sentiment-neu, #C8962A); }
+            .crm-svc-chip.s-negative { background: var(--color-sentiment-neg-bg, #FBE9E9); border-color: var(--color-sentiment-neg, #C94040); }
+            .crm-svc-chip.colleague { border-style: dashed; font-weight: 500; }
+            .crm-svc-hist-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--color-text-dim, #888); margin-bottom: 4px; }
+            .crm-svc-hist-empty { font-size: 12px; color: var(--color-text-dim, #888); }
+            .crm-svc-act { font-size: 12px; padding: 4px 0 4px 10px; border-left: 2px solid var(--color-border, #e6e1da); margin-bottom: 4px; }
+            .crm-svc-act.planned { border-left-style: dashed; opacity: .85; }
+            .crm-svc-act-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+            .crm-svc-act-date { font-weight: 700; color: var(--brand-primary, #8e631f); }
+            .crm-svc-act-type { font-weight: 600; }
+            .crm-svc-act-dim { color: var(--color-text-dim, #888); }
+            .crm-svc-act-text { color: #555; margin-top: 2px; white-space: pre-wrap; }
             .crm-svc-days { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 700; white-space: nowrap; }
             .crm-svc-days.d-ok { background: #e8f2dc; color: #3d7a0a; }
             .crm-svc-days.d-warn { background: #fef3cd; color: #856404; }
@@ -748,9 +763,6 @@ function _crmRenderServiceCalls(calls) {
         return;
     }
 
-    const sentimentEmojiMap = { positive: '😊', neutral: '😐', negative: '😟' };
-    const sentimentLabelMap = { positive: 'Seneste: God', neutral: 'Seneste: Neutral', negative: 'Seneste: Dårlig' };
-
     el.innerHTML = calls.map((c, i) => {
         const phone = (c.customer_phone || '').replace(/\s/g, '');
         const d = c.days_since_delivery || 0;
@@ -760,9 +772,6 @@ function _crmRenderServiceCalls(calls) {
         if (c.pax) paxUnits.push(c.pax + ' pax');
         if (c.total_units) paxUnits.push(c.total_units + ' enh.');
         const priceStr = c.total_price ? Math.round(c.total_price).toLocaleString('da-DK') + ' kr' : '';
-        const lastSentEmoji = sentimentEmojiMap[c.last_sentiment] || '';
-        const lastSentLabel = sentimentLabelMap[c.last_sentiment] || '';
-        const lastSentDate = c.last_sentiment_at ? (' (' + c.last_sentiment_at.substring(0, 10) + ')') : '';
 
         return '<div class="crm-svc-item" id="crmSvc' + i + '">' +
             '<div class="crm-svc-top">' +
@@ -771,10 +780,6 @@ function _crmRenderServiceCalls(calls) {
                     '<span class="crm-svc-customer" onclick="_crmOpenKunde(' + c.customer_id + ')">' +
                         c.customer_name + (c.company_name ? ' · ' + c.company_name : '') +
                     '</span>' +
-                    (lastSentEmoji ?
-                        ' <span class="crm-svc-last-sent s-' + c.last_sentiment + '" title="' + lastSentLabel + lastSentDate + '">' +
-                            lastSentEmoji +
-                        '</span>' : '') +
                     (paxUnits.length || priceStr ?
                         '<span class="crm-svc-meta" style="margin-left:8px;">' +
                             (paxUnits.join(' / ') + (priceStr ? ' · ' + priceStr : '')) +
@@ -792,10 +797,11 @@ function _crmRenderServiceCalls(calls) {
                     // tæller som håndtering af netop dette service-kald.
                     '<button class="crm-svc-action-btn" onclick="_crmSvcMail(' + i + ')" title="Send mail (med booking-link)">' + mailIcon(13) + '</button>' +
                 '</span>' +
-                '<span class="crm-svc-expand" onclick="_crmToggleOrders(' + c.customer_id + ',' + i + ')">' +
-                    '▼ ordrer' +
+                '<span class="crm-svc-expand" onclick="_crmToggleOrders(' + c.customer_id + ',' + i + ')" title="Tidligere aktiviteter og ordrer">' +
+                    '▼ historik' +
                 '</span>' +
             '</div>' +
+            _crmSvcContextHtml(c) +
             '<div id="crmSvcOrders' + i + '" style="display:none;"></div>' +
             '<div id="crmSvcLogForm' + i + '" style="display:none;"></div>' +
         '</div>';
@@ -817,44 +823,140 @@ async function _crmReloadServiceCalls() {
     }
 }
 
+const _CRM_SENT = {
+    positive: { emoji: '😊', label: 'God' },
+    neutral:  { emoji: '😐', label: 'Neutral' },
+    negative: { emoji: '😟', label: 'Dårlig' },
+};
+const _CRM_ACT_LABEL = {
+    call: 'opkald', service_call: 'service-kald', meeting: 'møde', task: 'opgave',
+    note: 'note', followup: 'opfølgning', offer_sent: 'tilbud sendt',
+    email_in: 'mail ind', email_out: 'mail ud',
+};
+const _CRM_RESULT_LABEL = {
+    reached: 'nået', no_answer: 'intet svar', busy: 'optaget', voicemail: 'besked',
+    callback: 'ring tilbage', email_instead: 'mail i stedet',
+};
+
+// Serverens tidsstempler er UTC uden markør — parseServerDate tolker dem rigtigt.
+function _crmShortDate(s) {
+    const d = (typeof parseServerDate === 'function') ? parseServerDate(s) : new Date(s);
+    if (!d || isNaN(d)) return '';
+    const now = new Date();
+    return d.getDate() + '/' + (d.getMonth() + 1) + (d.getFullYear() !== now.getFullYear() ? '-' + String(d.getFullYear()).slice(2) : '');
+}
+
+function _crmFmtKm(km) {
+    return (km < 10 ? km.toFixed(1) : String(Math.round(km))).replace('.', ',') + ' km';
+}
+
+// Linjen under navnet: hvordan gik det sidst, har vi talt med dem, og hvor langt væk er de.
+// Svarer på det man spørger sig selv om før man trykker Ring — uden at folde noget ud.
+function _crmSvcContextHtml(c) {
+    const parts = [];
+    const own = _CRM_SENT[c.last_sentiment];
+    const col = _CRM_SENT[c.colleague_sentiment];
+    if (own) {
+        parts.push('<span class="crm-svc-chip s-' + c.last_sentiment + '" title="Seneste stemning hos ' +
+            escapeHtml(c.customer_name || 'kunden') + '">' + own.emoji + ' ' + own.label +
+            (c.last_sentiment_at ? ' · ' + _crmShortDate(c.last_sentiment_at) : '') + '</span>');
+    } else if (col) {
+        // Kollegaens stemning — altid med navn, så man ikke tror det var kunden selv.
+        const who = c.colleague_sentiment_by ? escapeHtml(c.colleague_sentiment_by) : 'en kollega';
+        parts.push('<span class="crm-svc-chip s-' + c.colleague_sentiment + ' colleague" title="Kunden har ingen stemning registreret — dette var en kollega på samme firma">' +
+            col.emoji + ' ' + col.label + ' · ' + who +
+            (c.colleague_sentiment_at ? ', ' + _crmShortDate(c.colleague_sentiment_at) : '') + '</span>');
+    }
+    if (c.activity_count) {
+        parts.push('<span class="crm-svc-ctx">' + c.activity_count + ' aktivitet' + (c.activity_count === 1 ? '' : 'er') +
+            (c.last_activity_at ? ' · sidst ' + (_CRM_ACT_LABEL[c.last_activity_type] || 'kontakt') + ' ' + _crmShortDate(c.last_activity_at) : '') +
+            '</span>');
+    } else {
+        parts.push('<span class="crm-svc-ctx dim">Ingen tidligere kontakt' +
+            (c.colleague_activity_count ? ' · ' + c.colleague_activity_count + ' med kolleger' : '') + '</span>');
+    }
+    if (c.distance_km != null) {
+        const where = [c.delivery_postal_code, c.delivery_city].filter(Boolean).join(' ');
+        parts.push('<span class="crm-svc-ctx" title="' + (c.distance_estimated
+            ? 'Skønnet: luftlinje fra HQ × vejfaktor — ruten er ikke beregnet'
+            : 'Vejafstand fra HQ') + '">🚗 ' + (c.distance_estimated ? 'ca. ' : '') + _crmFmtKm(c.distance_km) +
+            (where ? ' · ' + escapeHtml(where) : '') + '</span>');
+    } else if (c.delivery_type === 'pickup' || c.delivery_method === 'pickup') {
+        parts.push('<span class="crm-svc-ctx dim">🏠 Afhentning</span>');
+    }
+    return '<div class="crm-svc-context">' + parts.join('') + '</div>';
+}
+
+function _crmActivitiesHtml(acts) {
+    if (!acts.length) return '<div class="crm-svc-hist-empty">Ingen aktiviteter endnu</div>';
+    return acts.map(a => {
+        const sent = _CRM_SENT[a.sentiment];
+        const when = a.is_planned ? a.due_at : (a.done_at || a.created_at);
+        const head = [
+            '<span class="crm-svc-act-date">' + (a.is_planned ? 'planlagt ' : '') + _crmShortDate(when) + '</span>',
+            '<span class="crm-svc-act-type">' + (a.purpose_emoji ? a.purpose_emoji + ' ' : '') +
+                escapeHtml(a.purpose_label || _CRM_ACT_LABEL[a.type] || a.type) + '</span>',
+            a.result ? '<span class="crm-svc-act-dim">' + escapeHtml(_CRM_RESULT_LABEL[a.result] || a.result) + '</span>' : '',
+            sent ? '<span class="crm-svc-chip s-' + a.sentiment + '">' + sent.emoji + ' ' + sent.label + '</span>' : '',
+            a.is_colleague && a.customer_name ? '<span class="crm-svc-act-dim">· ' + escapeHtml(a.customer_name) + '</span>' : '',
+            a.bon_number ? '<span class="crm-svc-act-dim">#' + escapeHtml(a.bon_number) + '</span>' : '',
+            a.user_name ? '<span class="crm-svc-act-dim" style="margin-left:auto;">' + escapeHtml(a.user_name) + '</span>' : '',
+        ].join('');
+        return '<div class="crm-svc-act' + (a.is_planned ? ' planned' : '') + '">' +
+            '<div class="crm-svc-act-head">' + head + '</div>' +
+            (a.text ? '<div class="crm-svc-act-text">' + escapeHtml(a.text) + '</div>' : '') +
+        '</div>';
+    }).join('');
+}
+
 async function _crmToggleOrders(customerId, idx) {
     const el = document.getElementById('crmSvcOrders' + idx);
     if (!el) return;
     if (el.style.display !== 'none') { el.style.display = 'none'; return; }
     el.style.display = 'block';
-    el.innerHTML = '<div class="crm-svc-orders"><span style="font-size:12px;color:var(--color-text-dim);">Henter ordrer...</span></div>';
-    try {
-        const orders = await fetchCrmCustomerOrders(customerId, 5);
-        if (!orders.length) {
-            el.innerHTML = '<div class="crm-svc-orders"><span style="font-size:12px;color:var(--color-text-dim);">Ingen tidligere ordrer</span></div>';
-            return;
-        }
-        el.innerHTML = '<div class="crm-svc-orders">' + orders.map(o => {
-            const statusLabel = o.status_label || o.status || '';
-            return '<div class="crm-svc-order">' +
-                '<div class="crm-svc-order-head">' +
-                    '<span class="crm-svc-order-bon">' + (o.bon_number || '') + '</span>' +
-                    '<span style="font-size:12px;color:var(--color-text-dim);">' + (o.delivery_date || '') + '</span>' +
-                    (o.pax ? '<span style="font-size:12px;">' + o.pax + ' pax</span>' : '') +
-                    '<span style="font-size:13px;font-weight:700;margin-left:auto;">' +
-                        (o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '') +
-                    '</span>' +
-                    (statusLabel ? '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--color-background);font-weight:700;">' + statusLabel + '</span>' : '') +
-                '</div>' +
-                (o.lines && o.lines.length ? '<div class="crm-svc-order-lines">' +
-                    o.lines.map(l =>
-                        '<div class="crm-svc-order-line">' +
-                            '<span class="crm-svc-order-qty">' + l.quantity + '×</span> ' +
-                            (l.product_name || '') +
-                            (l.special_request ? ' <span class="crm-svc-order-extra"> — ' + l.special_request + '</span>' : '') +
-                        '</div>'
-                    ).join('') +
-                '</div>' : '') +
-            '</div>';
-        }).join('') + '</div>';
-    } catch (err) {
-        el.innerHTML = '<div class="crm-svc-orders"><span style="font-size:12px;color:var(--color-sentiment-neg);">Fejl: ' + (err.message || 'ukendt') + '</span></div>';
-    }
+    el.innerHTML = '<div class="crm-svc-orders"><span style="font-size:12px;color:var(--color-text-dim);">Henter historik...</span></div>';
+    // Hver halvdel fejler for sig: en fejl i ordrerne må ikke skjule aktiviteterne.
+    const [actsRes, ordersRes] = await Promise.allSettled([
+        fetchCrmCustomerActivities(customerId, 6),
+        fetchCrmCustomerOrders(customerId, 5),
+    ]);
+    const errHtml = (r) => '<div class="crm-svc-hist-empty" style="color:var(--color-sentiment-neg);">Fejl: ' +
+        escapeHtml((r.reason && r.reason.message) || 'ukendt') + '</div>';
+    const actsHtml = actsRes.status === 'fulfilled' ? _crmActivitiesHtml(actsRes.value || []) : errHtml(actsRes);
+    let ordersHtml;
+    if (ordersRes.status !== 'fulfilled') ordersHtml = errHtml(ordersRes);
+    else if (!(ordersRes.value || []).length) ordersHtml = '<div class="crm-svc-hist-empty">Ingen tidligere ordrer</div>';
+    else ordersHtml = _crmOrdersHtml(ordersRes.value);
+    el.innerHTML = '<div class="crm-svc-orders">' +
+        '<div class="crm-svc-hist-label">Aktiviteter</div>' + actsHtml +
+        '<div class="crm-svc-hist-label" style="margin-top:10px;">Ordrer</div>' + ordersHtml +
+    '</div>';
+}
+
+function _crmOrdersHtml(orders) {
+    return orders.map(o => {
+        const statusLabel = o.status_label || o.status || '';
+        return '<div class="crm-svc-order">' +
+            '<div class="crm-svc-order-head">' +
+                '<span class="crm-svc-order-bon">' + (o.bon_number || '') + '</span>' +
+                '<span style="font-size:12px;color:var(--color-text-dim);">' + (o.delivery_date || '') + '</span>' +
+                (o.pax ? '<span style="font-size:12px;">' + o.pax + ' pax</span>' : '') +
+                '<span style="font-size:13px;font-weight:700;margin-left:auto;">' +
+                    (o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '') +
+                '</span>' +
+                (statusLabel ? '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--color-background);font-weight:700;">' + statusLabel + '</span>' : '') +
+            '</div>' +
+            (o.lines && o.lines.length ? '<div class="crm-svc-order-lines">' +
+                o.lines.map(l =>
+                    '<div class="crm-svc-order-line">' +
+                        '<span class="crm-svc-order-qty">' + l.quantity + '×</span> ' +
+                        (l.product_name || '') +
+                        (l.special_request ? ' <span class="crm-svc-order-extra"> — ' + l.special_request + '</span>' : '') +
+                    '</div>'
+                ).join('') +
+            '</div>' : '') +
+        '</div>';
+    }).join('');
 }
 
 function _crmRingOgLog(event, idx, customerId, bonId) {

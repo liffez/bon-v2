@@ -18,6 +18,7 @@ const {
     setLeadStageIfNew:   _liSetLeadStageIfNew,
 } = require('../services/leadCreate');
 const { logActivity, validateActivity, OUTCOMES: ACTIVITY_OUTCOMES } = require('../services/crmActivity');
+const co2Transport = require('../services/co2Transport');
 
 router.use(requireAuth());
 
@@ -799,6 +800,8 @@ router.get('/service-calls', handle((req, res) => {
         SELECT
             b.id AS bon_id, b.bon_number, b.delivery_date, b.delivery_time,
             b.pax, b.total_units, b.total_price,
+            b.delivery_type, b.delivery_method, b.delivery_address_id,
+            ad.postal_code AS delivery_postal_code, ad.city AS delivery_city,
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
             c.first_name, c.last_name,
@@ -808,10 +811,10 @@ router.get('/service-calls', handle((req, res) => {
             CAST(julianday('now') - julianday(b.delivery_date) AS INTEGER) AS days_since_delivery,
             (SELECT a.sentiment FROM crm_activities a
                 WHERE a.customer_id = c.id AND a.sentiment IS NOT NULL
-                ORDER BY a.created_at DESC LIMIT 1) AS last_sentiment,
-            (SELECT a.created_at FROM crm_activities a
+                ORDER BY COALESCE(a.done_at, a.created_at) DESC, a.id DESC LIMIT 1) AS last_sentiment,
+            (SELECT COALESCE(a.done_at, a.created_at) FROM crm_activities a
                 WHERE a.customer_id = c.id AND a.sentiment IS NOT NULL
-                ORDER BY a.created_at DESC LIMIT 1) AS last_sentiment_at,
+                ORDER BY COALESCE(a.done_at, a.created_at) DESC, a.id DESC LIMIT 1) AS last_sentiment_at,
             (SELECT a.text FROM crm_activities a
                 WHERE a.customer_id = c.id AND a.text IS NOT NULL AND a.text != ''
                 ORDER BY a.created_at DESC LIMIT 1) AS last_note,
@@ -821,6 +824,7 @@ router.get('/service-calls', handle((req, res) => {
         FROM bons b
         JOIN customers c ON b.customer_id = c.id
         LEFT JOIN companies co ON b.company_id = co.id
+        LEFT JOIN addresses ad ON ad.id = b.delivery_address_id
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code IN ('LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET')
             AND b.is_internal = 0
@@ -836,6 +840,171 @@ router.get('/service-calls', handle((req, res) => {
             )
         ORDER BY b.delivery_date DESC
     `).all(days);
+    const dist = deliveryDistances(db, rows);
+    for (const r of rows) {
+        Object.assign(r, contactContext(db, r.customer_id));
+        Object.assign(r, dist.get(r.bon_id) || { distance_km: null, distance_estimated: false });
+    }
+    res.json(rows);
+}));
+
+// ─── Kontakt-kontekst til ringelister ───────────────────────
+// Når man ringer rundt, er det første spørgsmål "har vi talt med dem før, og
+// hvordan gik det?". Svaret lå kun i Kunde 360°, ét klik og en sideskift væk.
+//
+// Kollegaer tæller med: på et firma med flere kontaktpersoner (et institut,
+// en afdeling) er det ofte en ANDEN der sidst var glad eller sur — og det skal
+// man vide før man ringer. Et personligt firma (is_personal) har ingen kolleger.
+// Kundens EGEN stemning vinder altid over en kollegas; kollegaens vises kun når
+// kunden selv ingen har, og altid med navn, så man ikke tror det var hende.
+function colleagueIds(db, customerId) {
+    const row = db.prepare(`
+        SELECT c.company_id, COALESCE(co.is_personal, 0) AS is_personal
+        FROM customers c LEFT JOIN companies co ON co.id = c.company_id
+        WHERE c.id = ?
+    `).get(customerId);
+    if (!row || !row.company_id || row.is_personal) return [];
+    return db.prepare('SELECT id FROM customers WHERE company_id = ? AND id != ?')
+        .all(row.company_id, customerId).map(r => r.id);
+}
+
+// En aktivitet kan hænge på kunden direkte ELLER kun på en bon (customer_id NULL,
+// jf. CHECK-constraintet). Begge veje skal med, ellers forsvinder den.
+const ACT_OWNER_SQL = `(a.customer_id IN (%IDS%)
+    OR (a.customer_id IS NULL AND a.bon_id IN (SELECT id FROM bons WHERE customer_id IN (%IDS%))))`;
+
+function actOwnerSql(ids) {
+    const ph = ids.map(() => '?').join(',');
+    return { sql: ACT_OWNER_SQL.replace(/%IDS%/g, ph), args: [...ids, ...ids] };
+}
+
+function contactContext(db, customerId) {
+    const out = {
+        activity_count: 0, last_activity_at: null, last_activity_type: null,
+        colleague_activity_count: 0,
+        colleague_sentiment: null, colleague_sentiment_at: null, colleague_sentiment_by: null,
+    };
+    if (!customerId) return out;
+    const own = actOwnerSql([customerId]);
+    // Kun det der ER sket — en planlagt opfølgning er ikke en samtale.
+    const doneWhere = "(a.done_at IS NOT NULL OR a.due_at IS NULL)";
+    const agg = db.prepare(`
+        SELECT COUNT(*) AS n, MAX(COALESCE(a.done_at, a.created_at)) AS last_at
+        FROM crm_activities a WHERE ${own.sql} AND ${doneWhere}
+    `).get(...own.args);
+    out.activity_count = agg.n || 0;
+    out.last_activity_at = agg.last_at || null;
+    if (out.last_activity_at) {
+        const t = db.prepare(`
+            SELECT a.type FROM crm_activities a WHERE ${own.sql} AND ${doneWhere}
+            ORDER BY COALESCE(a.done_at, a.created_at) DESC, a.id DESC LIMIT 1
+        `).get(...own.args);
+        out.last_activity_type = t ? t.type : null;
+    }
+    const col = colleagueIds(db, customerId);
+    if (col.length) {
+        const c = actOwnerSql(col);
+        out.colleague_activity_count = db.prepare(`
+            SELECT COUNT(*) AS n FROM crm_activities a WHERE ${c.sql} AND ${doneWhere}
+        `).get(...c.args).n || 0;
+        const s = db.prepare(`
+            SELECT a.sentiment, COALESCE(a.done_at, a.created_at) AS at,
+                   TRIM(cu.first_name || ' ' || COALESCE(cu.last_name, '')) AS who
+            FROM crm_activities a
+            LEFT JOIN bons b ON b.id = a.bon_id
+            LEFT JOIN customers cu ON cu.id = COALESCE(a.customer_id, b.customer_id)
+            WHERE ${c.sql} AND a.sentiment IS NOT NULL
+            ORDER BY COALESCE(a.done_at, a.created_at) DESC, a.id DESC LIMIT 1
+        `).get(...c.args);
+        if (s) {
+            out.colleague_sentiment = s.sentiment;
+            out.colleague_sentiment_at = s.at;
+            out.colleague_sentiment_by = s.who || null;
+        }
+    }
+    return out;
+}
+
+// Afstand HQ → leveringsadresse. Kun det vi VED i forvejen: routing-cachen
+// (vejafstand fra ORS) og ellers luftlinje × vejfaktor fra adressens koordinater —
+// samme to kilder og samme faktor som transport-CO₂ (services/bonTransportCo2.js).
+// Vi ringer ALDRIG til ORS her: en liste med 20 rækker må ikke blive til 20
+// eksterne kald. Et skøn markeres (distance_estimated), så "ca." kan stå foran.
+// Afhentning har ingen afstand — det er kunden der kører.
+function deliveryDistances(db, rows) {
+    const out = new Map();
+    const addrIds = [...new Set(rows
+        .filter(r => r.delivery_type !== 'pickup' && r.delivery_method !== 'pickup')
+        .map(r => r.delivery_address_id).filter(x => x != null))];
+    if (!addrIds.length) return out;
+    const ph = addrIds.map(() => '?').join(',');
+    const road = new Map();
+    for (const g of db.prepare(`
+        SELECT address_id, distance_meters FROM geo_calculations
+        WHERE distance_meters IS NOT NULL AND address_id IN (${ph})
+        ORDER BY calculated_at DESC, id DESC
+    `).all(...addrIds)) {
+        if (!road.has(g.address_id)) road.set(g.address_id, g.distance_meters);
+    }
+    const coords = new Map();
+    for (const a of db.prepare(`
+        SELECT id, lat, lon FROM addresses
+        WHERE lat IS NOT NULL AND lon IS NOT NULL AND id IN (${ph})
+    `).all(...addrIds)) coords.set(a.id, { lat: Number(a.lat), lon: Number(a.lon) });
+    const hqRows = db.prepare(
+        "SELECT key, value FROM settings WHERE key IN ('delivery_hq_lat','delivery_hq_lon')"
+    ).all();
+    const hq = {};
+    for (const r of hqRows) hq[r.key] = Number(r.value);
+    const hqOk = Number.isFinite(hq.delivery_hq_lat) && Number.isFinite(hq.delivery_hq_lon);
+
+    for (const r of rows) {
+        if (r.delivery_type === 'pickup' || r.delivery_method === 'pickup') continue;
+        const aid = r.delivery_address_id;
+        if (aid == null) continue;
+        if (road.has(aid)) {
+            out.set(r.bon_id, { distance_km: Math.round(road.get(aid) / 100) / 10, distance_estimated: false });
+        } else if (hqOk && coords.has(aid)) {
+            const c = coords.get(aid);
+            if (!Number.isFinite(c.lat) || !Number.isFinite(c.lon)) continue;
+            const km = co2Transport.haversineKm(hq.delivery_hq_lat, hq.delivery_hq_lon, c.lat, c.lon)
+                * co2Transport.ROAD_FACTOR;
+            out.set(r.bon_id, { distance_km: Math.round(km * 10) / 10, distance_estimated: true });
+        }
+    }
+    return out;
+}
+
+// ─── GET /customer/:id/activities ───────────────────────────
+// Letvægts-historik til ringelisterne: kundens egne aktiviteter + kollegernes
+// (mærket), nyeste først. Kunde 360° har den fulde; denne er til et blik.
+router.get('/customer/:id/activities', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Ugyldigt kunde-id' });
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 6, 1), 50);
+    const ids = [id, ...colleagueIds(db, id)];
+    const w = actOwnerSql(ids);
+    const rows = db.prepare(`
+        SELECT a.id, a.type, a.result, a.sentiment, a.text, a.outcome,
+               a.created_at, a.done_at, a.due_at,
+               COALESCE(a.customer_id, b.customer_id) AS customer_id,
+               TRIM(cu.first_name || ' ' || COALESCE(cu.last_name, '')) AS customer_name,
+               u.name AS user_name, b.bon_number,
+               p.label AS purpose_label, p.emoji AS purpose_emoji
+        FROM crm_activities a
+        LEFT JOIN bons b ON b.id = a.bon_id
+        LEFT JOIN customers cu ON cu.id = COALESCE(a.customer_id, b.customer_id)
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        LEFT JOIN activity_purposes p ON p.id = a.purpose_id
+        WHERE ${w.sql}
+        ORDER BY COALESCE(a.done_at, a.due_at, a.created_at) DESC, a.id DESC
+        LIMIT ?
+    `).all(...w.args, limit);
+    for (const r of rows) {
+        r.is_colleague = r.customer_id !== id;
+        r.is_planned = !r.done_at && !!r.due_at;
+    }
     res.json(rows);
 }));
 
