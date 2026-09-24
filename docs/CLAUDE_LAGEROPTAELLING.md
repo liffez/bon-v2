@@ -261,6 +261,16 @@ Rækkefølgen i optællingen og på lageroversigten styres af nummerpræfikset i
 | `Lager varer` | Landingsplads. Bliver stående som den er; tømmes efterhånden som varerne fordeles, og fanger nye varer der oprettes uden gruppe. |
 | `x-…` | Levering og service, uændret. |
 
+> **Målt i grocy-hq 23.09.2026:** 11 salgsgrupper i brug, **61 varer** på
+> landingspladsen `Lager varer` (specen talte 58 — bunken vokser), 2 varer helt uden
+> gruppe, og **ingen af 30-serien er oprettet endnu**. Tallene kan gentages med et
+> opslag på `/objects/product_groups` og `/objects/products`.
+>
+> Samme dag blev det afgjort, at planlægningens råvare-niveau grupperer efter
+> **varegruppen**, ikke efter `ingredient_group` på opskriftslinjen: det felt er tomt
+> på 498 af 684 linjer. 30-serien er dermed også den rækkefølge planlægningen viser.
+> (`CLAUDE_PLANLAEGNING_DRILLDOWN.md` §16.1)
+
 ### 13.2 Nye grupper
 
 | Gruppe | Indhold | Ca. antal |

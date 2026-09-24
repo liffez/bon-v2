@@ -18,7 +18,8 @@
 - docs/CLAUDE_OPSKRIFT_DESIGNER.md (hvis du rører opskrift-designeren — den er også importens editor)
 - docs/CLAUDE_OPSKRIFT_IMPORT.md + CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md (spec — F-1 bygget, resten ikke)
 - docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md (spec — ikke bygget endnu)
-- docs/indkob/CLAUDE_INDKOB_FASE_A.md + CLAUDE_INDKOB_FASE_B.md (hvis du rører indkøb — A er blokeret på akse 3, §5.4)
+- docs/indkob/CLAUDE_INDKOB_STATUS.md (LÆS FØRST ved indkøb — hvad vi har nu, arbejdsgangen, og hvor den knækker)
+- docs/indkob/CLAUDE_INDKOB_FASE_A.md + CLAUDE_INDKOB_FASE_B.md (hvis du rører indkøb — fejlene og løgnene; akse 3 afgjort 22/9)
 
 ### Scan for nye specs
 Kør `ls docs/CLAUDE_*.md docs/**/CLAUDE_*.md 2>/dev/null` ved sessionsstart for at
