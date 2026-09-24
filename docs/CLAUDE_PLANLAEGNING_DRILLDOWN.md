@@ -1,6 +1,6 @@
 # CLAUDE_PLANLAEGNING_DRILLDOWN.md — Planlægningen som drill-down
 
-> Status: SPEC — klar til implementering
+> Status: SPEC — klar til implementering (revideret 24. september 2026, se §18)
 > Oprettet: 20. september 2026
 > Mockup (klikbar, iPad + 27"): https://claude.ai/artifact/V9Sj2i3SnwuxrHxLx9b921
 > Berører: `shared/planning.js/.css`, `kitchen/planning.html`, `office/views/planning.js`,
@@ -41,7 +41,8 @@ backend-funktion først, som også bruges alle andre steder. Intet regnes lokalt
 | Råvarestatus (🔴🟡🟢, "skal laves") | resolverens råvare-niveau (#349) | Råvarer-modal, bon-kort |
 | **Nettomangel** = behov − lager − på listen − bestilt | **NY** backend-funktion | Indkøb (`shared/indkob.js`) skal over på den — separat opgave, men funktionen designes til det |
 | Oprunding til hele købsenheder | den eksisterende oprunding bag 🛒 | 🛒 overalt. Ligger den i frontend i dag → flyt til backend |
-| Enhedstælling | `recipe_unit_counts` + `settings.unit_count_categories` | Sammentælling, dashboard, kitchen |
+| Enhedstælling | `recipe_unit_counts` + `settings.unit_count_categories` | Sammentælling, dashboard, kitchen, **ugeoversigtens kapacitet** (`routes/schedule.js`) — samme tal skal komme ud begge steder |
+| Hvad skal laves (niveau 4) | produktionspolitikken (`productionTypeOf`/`buildProductionPolicy`) + resolverens `make_*`-felter | dashboardets "Lav snart" (`/api/bons/prep-ahead`) |
 | Moms | `shared/moms.js` | alt |
 | Kostpris | Grocy fulfillment `costs` (opskrift for producerede, 90-dages snit for købte, #557/#558) | kalkulation, tilbud |
 | CO₂ | `co2e_per_kg` / opskriftens `Co2e` (F5-cache) | CO₂-modul |
@@ -77,11 +78,23 @@ Samme komponent — antal kolonner bestemmes af bredde (CSS/JS breakpoint), ikke
 Tryk på række = et niveau ned. Brødkrumme = tilbage til ethvert niveau.
 
 **Vagtplanen** forbliver som i dag (kollapset sektion) — ikke en del af denne opgave.
+Planlægningen viser **ingen** kapacitetsberegning; den findes i office' ugeoversigt.
+Kravet er kun at enhedstallene regnes med samme funktion begge steder (§3).
 
 ## 5. Bonvalg og ekstra (venstre kolonne)
 
 Beholdes fra i dag, redesignet til smal kolonne:
-- Status-chips (localStorage-persistens som i dag). TILBUD fra som default.
+- Status-chips (localStorage-persistens som i dag).
+- **Standard-statusser er en admin-indstilling** (Settings), fx `planning_default_statuses`.
+  Udgangspunkt: LEVERET, FAKTURERET, BETALT, AFSLUTTET og AFLYST er **fra**. En leveret
+  bon har trukket lageret, så med den i behovet tælles varerne to gange. Brugeren kan
+  stadig slå chips til og fra; indstillingen styrer kun hvad der er valgt fra start.
+- **Tilbud** vises indtil de er vundet. Et vundet tilbud bliver liggende som bilag
+  (`is_offer = 1`, `offer_status = 'won'`) ved siden af den rigtige bon og skal derfor
+  aldrig med — ellers tælles ordren to gange. `GET /api/bons/planning` filtrerer
+  allerede `offer_status != 'won'` fra; det nye endpoint skal bruge samme filter.
+- **Event-salgsbons** oprettes som BETALT (`routes/events.js`) og falder dermed ud med
+  standardreglen. Kun prep-bonnen trækker lager. Ingen særregel nødvendig.
 - Bonrækker på to linjer: `#nr · STATUS · dag` / `kunde` — `N enh` til højre.
 - Checkbox pr. bon, Vælg alle / Fravælg alle.
 
@@ -100,15 +113,30 @@ For vægt/volumen: `3,5 kg × Løvstikke Mayo`. Grupper uden mængde viser kun n
 | 1 | Kategorier | `271 × Slider` | varer i kategorien | Sammentællingens kategori-logik (enhedstælling) |
 | 2 | Varer | `52 × Kartoflen` + badge "2 ønsker" | standard + ønske-grupper | bonlinjer, bokse foldet ud (se nedenfor) |
 | 3 | Ønsker | kun varer med ønsker: `7 × Falaflen · af 27` | ønske-grupper → bons | `special_request` |
-| 4 | Skal laves | underopskrifter: `2,08 kg × Æggesalat` + "bruges i …" + status | råvarer i den | resolver, **kun** underopskrifter |
+| 4 | Skal laves | producerede varer: `2,08 kg × Æggesalat` + "bruges i …" + status | råvarer i den | produktionspolitikken via resolveren — samme kilde som "Lav snart" |
 | 5 | Råvarer | grupper → `6,99 kg × Kartofler` | — | resolver, fladt, grupperet |
 
 Fanerne er direkte indgange — indkøberen går til 5 uden at gå gennem 1–4.
 
-**Udfoldning af bokse (niveau 1–3):** et `recipes_nestings`-barn med `sellable = 1`
-er en **vare** (niveau 1–3). Et barn uden `sellable` er et **halvfabrikat** (niveau 4).
+**Udfoldning af bokse (niveau 1–3):** en boks (fx slider-boks 77/78) er indlejrede
+opskrifter, og et `recipes_nestings`-barn med `sellable = 1` er en **vare** (niveau 1–3).
 `sellable` sidder kun på opskriftsniveau og betyder "kan stå på en bon / sælges".
 Bevidst valg: en opskrift der både sælges alene og indgår i en anden vises som vare.
+
+**Niveau 4 bygger på produktionspolitikken (#270/#329), ikke på nestings.** Efter #270
+er mellemprodukter **varer** på en almindelig ingredienslinje (Chili Mayo som produkt),
+ikke indlejrede opskrifter — målt 20/9: 20 producerende opskrifter, ingen nestet. En
+regel der kigger på `recipes_nestings` ville ikke finde dem. Niveau 4 skal derfor bruge
+samme opløsning som lagertrækket og "Lav snart" gør. Der må ikke skrives ny logik;
+mangler et tal, udvides den fælles funktion.
+
+- **`to_stock`** (fx langtidsstegt gris, syltede rødløg): vises med behov mod varens
+  lager og status (skal laves / dækket).
+- **`on_demand`** (`RR produktion Hurtig` — mayo, dressing): vises også, som noget der
+  **kan** laves, mærket *"laves automatisk ved levering"*. Køkkenet kan vælge at lave
+  dem i forvejen.
+- Grocys nesting-funktion er fortsat teknisk mulig (resolveren falder tilbage på den),
+  men den tilbydes ikke som vej. Produktionspolitikken er modellen.
 
 **Ønsker (niveau 2–3):** grupperes på `(vare, normaliseret special_request)` —
 lowercase, trim, sammenpresset whitespace. Ingen parsing. "glutenfri" og
@@ -140,16 +168,27 @@ mærkes **"inkl. listepriser"**.
 **Regler (doktrin):**
 - Manglende pris/CO₂ → `?`, udelades af summen, og kolonnehovedet siger det:
   *"Kost 4.210 kr ex · 3 ukendte"*.
-- Salg vises kun når office-wrapperen beder om det (`include_sale=1`). Kitchen beder
-  ikke. Det er zone, ikke rolle.
+- **Kost og Salg kan slås fra hver for sig** i Settings pr. **rolle** (rettigheds-matrixen,
+  åbent spørgsmål 5). Er et tal slået fra, **sender serveren det ikke** — et flag i requesten
+  (`include_sale`) kan enhver klient sætte, så det afgøres på serveren ud fra sessionen.
+  Slået fra = knappen findes ikke i Vis-vælgeren. DB kræver både Kost og Salg.
 - Den eksisterende pris-toggle (`show_prices_in_planning`, 6-kolonne-tabel, faktura-footer)
-  **udgår** og erstattes af Vis-vælgeren. Settingen bestemmer fortsat om Salg/DB tilbydes.
+  **udgår** og erstattes af Vis-vælgeren + de to nye indstillinger.
+- **Moms:** frontend regner ingen moms. Salg ex kommer færdigt fra serveren via
+  `shared/moms.js`. Holdes under skarp observation i alle tre faser (§17).
 
 **Kendt forskel:** niveau 1–3 bruger bonens snapshot, niveau 4–5 aktuelle priser.
 Summen på niveau 3 og 5 kan derfor afvige. Kolonnehovedet på 4–5 skal sige
 "aktuelle priser". Det er korrekt adfærd, ikke en fejl.
 
 ## 8. Indkøb på niveau 5
+
+> **Afhænger af indkøbs-sessionen (24.09.2026).** Indkøb er et kapitel for sig og
+> bygges i en anden session. Planlægningen bygger **ikke** nettomangel, tilstande eller
+> indkøbsværdi selv. Indtil indkøbs-sessionen leverer en fælles funktion, viser niveau 5
+> resolverens råvarestatus (🔴🟡🟢) og den eksisterende 🛒 — præcis som Råvarer-modalen i
+> dag. Oprundingen bag 🛒 ligger allerede på serveren (`shortfall_purchase`,
+> `services/ingredientResolver.js`). Nedenstående er målbilledet, ikke v1.
 
 Hver råvare har en **tilstand**, beregnet af nettomangel-funktionen:
 
@@ -237,7 +276,9 @@ sideeffekter.
 
 - Hele træet beregnes i ét kald. Frontend navigerer lokalt — ingen API-kald pr. tryk.
 - Nye kald ved: bonvalg, ekstra, periode, statusfilter, SSE `bon_updated` på en valgt bon.
-- `sale_ex`/DB returneres kun med `include_sale=true`.
+- `sale_ex`/DB og `cost_ex` returneres kun når indstillingen tillader det for sessionen
+  (§7). `include_sale` i requesten kan kun bede om *mindre*, aldrig om mere.
+- `purchase` er `null` i v1 (§8).
 - Alle tal er færdigberegnede. Frontend formaterer kun (`qty_display`, valuta).
 - `GET /api/bons/planning/ingredients` beholdes indtil Råvarer-modalen er fjernet
   fra planlægningen, derefter vurderes om andre bruger den.
@@ -296,12 +337,19 @@ strukturerede varianter ("Tunen – Glutenfri Bolle") og embed-bestillingen send
 
    Emballage-reglen er ikke i fare ved skiftet: `services/ingredientResolver.js`
    sammenligner med små bogstaver, så begge stavemåder fanges.
-2. **Tjekliste → `prep_ingredients_ready`:** skal en gennemgået tjekliste kunne sætte
+2. *(Forslag, ikke besluttet:)* lad "Lav tjekliste" starte en **optælling** (#673,
+   `stock_counts`) afgrænset til de valgte råvarer. Så bliver en afvigelse en rigtig
+   lagerrettelse med spor, og samtidigheds-advarslen følger med gratis.
+   **Tjekliste → `prep_ingredients_ready`:** skal en gennemgået tjekliste kunne sætte
    *Råvarer ✓* på alle valgte bons på én gang?
 3. **Tjekliste-afvigelser:** når noget ikke er der — kun markering, eller skal det
    kunne føre til lagerkorrektion i Grocy?
-4. **Oprunding:** hvor ligger `Math.ceil`-oprundingen bag 🛒 i dag (frontend/backend)?
-   Hvis frontend → flyttes til backend-funktionen i §3.
+4. ~~**Oprunding:** hvor ligger `Math.ceil`-oprundingen bag 🛒 i dag?~~
+   ✅ **Backend.** `shortfall_purchase` regnes i `services/ingredientResolver.js`;
+   Råvarer-modalen sender blot tallet videre. Intet at flytte.
+5. ~~**Priser fra — pr. rolle eller pr. zone?**~~ ✅ **Afgjort 24.09.2026: pr. rolle.**
+   Kost og Salg er to rettigheder i den eksisterende rettigheds-matrix
+   (`role_permissions_*`, Settings), så serveren afgør det ud fra sessionen.
 
 ## 17. Acceptance
 
@@ -309,13 +357,32 @@ strukturerede varianter ("Tunen – Glutenfri Bolle") og embed-bestillingen send
 - [ ] Sum af `N` på niveau 2 = sum på niveau 1 (for kategorier med enhedstælling).
 - [ ] Niveau 4 indeholder ingen købte varer.
 - [ ] En boks (fx slider-boks) optræder som sine børn på niveau 2, ikke som boks.
-- [ ] 🛒 lægger nettomangel i hele købsenheder på — og rækken skifter til "på listen"
-      uden genindlæsning af hele siden.
-- [ ] Efter 🛒 viser et nyt kald samme vare som "på listen", ikke "mangler".
+- [ ] Leverede/fakturerede/betalte/afsluttede/aflyste bons er fravalgt som standard;
+      admin kan ændre standarden i Settings.
+- [ ] Et vundet tilbud tæller aldrig med; et åbent tilbud kan vælges til.
+- [ ] Niveau 4 viser de producerede varer (ikke tomt, selvom ingen er nestet), og
+      `on_demand`-varer er mærket "laves automatisk ved levering".
+- [ ] Niveau 4 og dashboardets "Lav snart" er enige om hvad der skal laves.
+- [ ] Enhederne pr. dag = ugeoversigtens enheder for samme bons.
+- [ ] 🛒 virker som i Råvarer-modalen i dag (indkøbs-tilstande: se §8).
 - [ ] Manglende kostpris vises som `?`, tælles i "N ukendte", indgår ikke i sum.
-- [ ] Kitchen-zonen modtager ingen `sale_ex` i svaret (tjek netværk, ikke kun UI).
+- [ ] Er Salg/Kost slået fra for brugeren, er tallet ikke i svaret (tjek netværk,
+      ikke kun UI) — heller ikke hvis klienten beder om det.
 - [ ] Ingen momsberegning i frontend (`grep 1.25` / `/ 1.25` i `shared/planning.js` = 0).
 - [ ] Ingen aggregering i frontend (ingen summering af `bon_lines` i `planning.js`).
 - [ ] iPad landskab: bonkolonne + 1 drill-kolonne, alle tryk-mål ≥ 44 px.
 - [ ] 27": bonkolonne + 3 drill-kolonner.
 - [ ] Periodevælger: Uge + ▶ fra uge 38 viser uge 39; "I dag" viser dags dato.
+
+## 18. Byggerækkefølge (afgjort 24. september 2026)
+
+Tre faser, hver testes i drift fra branchen før den næste startes.
+
+| Fase | Indhold | Afhænger af |
+|---|---|---|
+| **1 — Grundlag** | `POST /planning/tree` med niveau 1–3, `shared/periodPicker.js`, bonkolonne med status-standard fra Settings, Vis-vælger (Antal/Kost/CO₂/Salg) med de to pris-indstillinger. Fjerner client-side aggregering og momsberegningen i frontend. | — |
+| **2 — Produktion og råvarer** | Niveau 4 (produktionspolitikken, samme kilde som "Lav snart") og niveau 5 (resolverens status + eksisterende 🛒). | #695 (kostpris koldt 9,4 s) bør være løst, ellers bliver første "Uge" en ventetid |
+| **3 — Tjekliste** | Se §9 og åbent spørgsmål 2–3 | Beslutning om optælling vs. egen liste |
+
+Indkøbets nettomangel/tilstande (§8) kommer fra indkøbs-sessionen og kobles på når den
+findes — ikke en del af de tre faser.
