@@ -179,6 +179,31 @@ Samme population som ovenfor — de 148 koblinger på aktive varer.
 Det sidste tal betyder, at 0 trygt kan komme til at betyde "bevidst gratis":
 der er intet at rydde op først.
 
+### Varegrupperne — halvt opdelt
+
+Rækkefølgen i optællingen, på lageroversigten og på planlægningens råvare-niveau
+styres af nummerpræfikset i varegruppens navn. Salgsgrupperne `01–11` findes;
+lagergrupperne `30–37` er besluttet i `CLAUDE_LAGEROPTAELLING.md` §13, men **ikke
+oprettet endnu**. Målt i grocy-hq 23. september:
+
+| | Antal |
+|---|---|
+| Varegrupper i brug (`01 Brød` … `10 Emballage`) | 11 |
+| Varer på landingspladsen `Lager varer` | **61** |
+| Varer helt uden gruppe | 2 |
+| Grupper i 30-serien | **0 — ikke oprettet** |
+
+De 61 er interne råvarer og hjælpevarer, der aldrig står på en bon: krydderier,
+tørvarer, olier, rengøring. De deles op i otte grupper, og bunken vokser — specen
+talte 58 i september.
+
+⚠ **Omdøb ingen eksisterende gruppe.** En tidligere omdøbning gik galt, fordi kode
+matcher på gruppens navn frem for dens id. At **flytte** en vare er ufarligt, og det
+er alt opdelingen kræver. (§13.4 i optællings-specen)
+
+Åbent: hvem opretter grupperne, og om det sker før eller efter oprydningsbakken —
+samt fem grænsetilfælde (condikasser, majs, persille, the-breve, rugbrødsrester).
+
 ### Leverandører og indkøbssteder
 
 Seks leverandører, fem aktive: Hørkram (katalog), Inco (webshop), Serviwet og

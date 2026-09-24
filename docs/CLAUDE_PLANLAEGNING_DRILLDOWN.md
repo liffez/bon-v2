@@ -169,10 +169,10 @@ Hver råvare har en **tilstand**, beregnet af nettomangel-funktionen:
 nettomangel i hele købsenheder × leverandørpris, ex moms. `≈ 89 kr ex` pr. række,
 sum pr. gruppe og i alt i kolonnehovedet. Manglende leverandørpris → `?`.
 
-**Grupper på niveau 5:** i dag grupperes efter Grocy `ingredient_group` med
-Emballage sidst, og næsten alt havner i "Øvrige". Nummererede grupper (30-serien,
-fx 31 Krydderier) kommer. Hvis grupperne er nummererede, vises tier-hierarkiet
-(30 › 31) uden ekstra konfiguration. → se åbent spørgsmål 1.
+**Grupper på niveau 5:** grupperes efter varens **varegruppe** i Grocy, ikke efter
+`ingredient_group` på opskriftslinjen. Nummerpræfikset styrer rækkefølgen, så
+tier-hierarkiet (30 › 31) falder ud af navnet uden ekstra konfiguration.
+`10 Emballage` sidst som i dag. Afgjort 23.09 — se åbent spørgsmål 1.
 
 ## 9. Tjekliste
 
@@ -279,9 +279,23 @@ strukturerede varianter ("Tunen – Glutenfri Bolle") og embed-bestillingen send
 
 ## 16. Åbne spørgsmål (afklares før/under implementering)
 
-1. **Råvaregrupper:** er 30-serien (31 Krydderier …) Grocy **product group** eller
-   `ingredient_group` på opskriftspositionerne? Niveau 5 grupperer i dag efter
-   `ingredient_group`.
+1. ~~**Råvaregrupper:** er 30-serien Grocy product group eller `ingredient_group`?~~
+   ✅ **Afgjort 23.09.2026: varegruppen.** 30-serien er varegrupper i Grocy
+   (`CLAUDE_LAGEROPTAELLING.md` §13), og `ingredient_group` på opskriftslinjen er
+   reelt ubrugt. Målt på grocy-hq, 684 opskriftslinjer:
+
+   | `ingredient_group` | Linjer |
+   |---|---|
+   | tom | 498 |
+   | `Emballage` + `emballage` | 146 |
+   | Dressing · krydderi · Tempty · topping · side dish | 40 |
+
+   Derfor havner næsten alt i "Øvrige" i dag. Varegruppen dækker til gengæld alle
+   varer: 11 grupper i brug, plus 61 varer på landingspladsen `Lager varer` som
+   30-serien deler op, og 2 varer helt uden gruppe.
+
+   Emballage-reglen er ikke i fare ved skiftet: `services/ingredientResolver.js`
+   sammenligner med små bogstaver, så begge stavemåder fanges.
 2. **Tjekliste → `prep_ingredients_ready`:** skal en gennemgået tjekliste kunne sætte
    *Råvarer ✓* på alle valgte bons på én gang?
 3. **Tjekliste-afvigelser:** når noget ikke er der — kun markering, eller skal det
