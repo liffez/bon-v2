@@ -44,11 +44,19 @@ Målt i driftskopien 22. september.
 | Bestillingslinjer i alt | 20 |
 | Bestillinger der stadig står som "sendt" | 9 af 9 |
 | Varemodtagelser, august + september | **29** |
+| Varemodtagelser i alt | 33 |
+| … heraf med varer på | **9** |
+| … heraf kun fødevarekontrol, ingen varer | **24** |
 | Varemodtagelser med registreret afvigelse | 0 af 33 |
 
 To ting kan læses direkte ud af det: køkkenet **modtager** i Bon, men **bestiller**
 uden om. Og en bestilling skifter aldrig tilstand efter afsendelse, så skærmen
 "Bestillinger" kan ikke vise hvad der faktisk skete.
+
+Men bemærk hvad modtagelsen bruges til: **24 af 33 gange er der ingen varer på.**
+Skærmen åbnes for fødevarekontrollens skyld to gange om ugen; varer er undtagelsen.
+Det er samtidig den eneste del af modulet der bruges dagligt, og den er derfor ikke
+en aftager af indkøbet — den er den anden halvdel af samme kæde. Se trin 5.
 
 ---
 
@@ -124,6 +132,16 @@ bestilling (#658).
 ⚠ **Fejler oprydningen af indkøbslisten, godkendes modtagelsen alligevel** — linjen
 bliver hængende som bestilt. Lagerdelen ved siden af gør det rigtige og markerer
 sig som delvist godkendt. Forskellen er ujævn, ikke principiel.
+
+**Tre bindinger der ikke kan designes udenom.** Modtagelsen læser bestillingens
+stempler for at bygge sin liste, så ændrer man hvordan en bestilling registreres,
+står den med en tom liste — derfor migreres de to sammen, ikke efter hinanden.
+Prisen bliver først virkelig her, for kostprisen ser først en pris når varen er
+modtaget. Og enheden afgøres både ved bestilling og ved modtagelse: kender
+modtagelsen den ikke, flytter en rettelse i bestillingen bare fejlen over på lageret.
+
+Dertil stempler modtagelsen hvornår varen sidst blev set (#336) — det er dét
+lageroptællingen bygger sin rækkefølge på. Bindingen går altså også til epic #649.
 
 ### Trin 6 · Prisen og kostprisen
 
