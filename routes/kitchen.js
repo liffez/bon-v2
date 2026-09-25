@@ -284,6 +284,31 @@ router.post('/planning/ingredients', handle(async (req, res) => {
     res.json(result);
 }));
 
+// POST /api/bons/planning/tree
+// body: { bon_ids: [], extras: [{ grocy_recipe_id, quantity, price_category? }] }
+// Planlægningens drill-down som ét træ (docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md §11).
+// POST fordi body bærer ekstra-linjer — ingen sideeffekter.
+//
+// Kost og salg sendes KUN hvis rollen må se dem (rettighederne plan_kost/plan_salg
+// i rollematricen). Det afgøres her ud fra sessionen, ikke af et flag fra klienten:
+// et tal brugeren ikke må se, må ikke stå i svaret.
+function planningPerms(req) {
+    if (req.session?.userRole === 'admin') return { cost: true, sale: true };
+    const { getUserById } = require('../db/helpers');
+    const { userCan } = require('../shared/auth');
+    const user = req.session?.userId ? getUserById(req.session.userId) : null;
+    if (!user) return { cost: false, sale: false };
+    return { cost: !!userCan(user, 'plan_kost'), sale: !!userCan(user, 'plan_salg') };
+}
+
+router.post('/planning/tree', handle(async (req, res) => {
+    const bonIds = Array.isArray(req.body?.bon_ids) ? req.body.bon_ids : [];
+    const extras = Array.isArray(req.body?.extras) ? req.body.extras : [];
+    const { buildPlanningTree } = require('../services/planningTree');
+    const tree = await buildPlanningTree(getDb(), { bonIds, extras, perms: planningPerms(req) });
+    res.json(tree);
+}));
+
 // GET /api/bons/prep-ahead?days=N
 // "Lav snart" — de mellemprodukter personalet selv skal lave i forvejen.
 //

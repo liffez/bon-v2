@@ -207,6 +207,18 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
         });
     }
 
+    // Planlægningens standard-statusser: en ukendt kode ville bare aldrig matche,
+    // og så står listen tom uden at nogen kan se hvorfor. Afvis den her.
+    if (req.params.key === 'planning_default_statuses') {
+        let arr;
+        try { arr = JSON.parse(value); } catch { arr = null; }
+        const known = new Set(getDb().prepare(`SELECT code FROM status_definitions`).all().map(r => r.code));
+        if (!Array.isArray(arr) || arr.some(c => typeof c !== 'string' || !known.has(c))) {
+            return res.status(400).json({ error: 'Standard-statusserne skal være en liste af kendte statuskoder.' });
+        }
+        value = JSON.stringify([...new Set(arr)]);
+    }
+
     // Standardgebyrer: en ugyldig regel skal afvises HER, ikke opdages som et
     // manglende gebyr på en faktura tre uger senere. Gemmes den ødelagt, springer
     // autoFees den bare over — tavst, og det er den fejlklasse vi kender (#319).

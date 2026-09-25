@@ -9502,6 +9502,22 @@ den ægte route med adapteren stubbet). **53 mutationer i alt, alle fanget.**
 > ⚠️ Testens egen stub af `_ibBuildGroups` skjulte først netop den funktion §6d skulle
 > måle. Den ægte gemmes nu som `__byg` før stubben sættes.
 
+### Planlægning (ny) — drill-down, fase 1 (24. september 2026)
+> Spec: `docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md` §18–19. Kører SIDE OM SIDE med den gamle.
+
+- `POST /api/bons/planning/tree` (`services/planningTree.js`) bygger hele træet for
+  niveau 1–3 (Kategorier · Varer · Ønsker) i ét kald. Frontenden navigerer og formaterer
+  kun — ingen summering af bonlinjer, ingen moms i browseren.
+- Enheder = `bonUnitsExpr` (samme tal som `bons.total_units`); ekstra-linjer via den nye
+  `unitsForLines()`. Bokse foldes ud i deres sælgelige børn med `splitOre` + servings.
+- Kost/salg er rettigheder pr. rolle (`plan_kost`/`plan_salg`, migration 190) og afgøres
+  på serveren — et tal man ikke må se, står ikke i svaret.
+- Standard-statusser (`planning_default_statuses`) er en admin-indstilling i Settings →
+  System; LEVERET og frem er fra som standard. Vundne tilbud og event-salg tæller aldrig.
+- `shared/periodPicker.js` er ny delt komponent (Dag · 3 dage · Uge · Periode).
+- Køkken: `kitchen/planning-ny.html`. Office: Bons → **Planlægning (ny)**.
+- Fase 2 (Skal laves + Råvarer) og fase 3 (tjekliste) er ikke bygget.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -9880,6 +9896,7 @@ GET    /api/bons/later?days=28                            routes/kitchen.js
 GET    /api/bons/calendar?year=&month=&status=            routes/kitchen.js
 GET    /api/bons/planning?from=&to=&status=              routes/kitchen.js
 GET    /api/bons/planning/ingredients?ids=               routes/kitchen.js
+POST   /api/bons/planning/tree   { bon_ids, extras }     routes/kitchen.js (Planlægning ny — drill-down-træ, kost/salg pr. rolle)
 GET    /api/bons?date=&status=&q=&location=              routes/bons.js
 GET    /api/bons/:id                                     routes/bons.js
 POST   /api/bons                                         routes/bons.js
