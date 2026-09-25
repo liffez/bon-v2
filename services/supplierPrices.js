@@ -246,8 +246,19 @@ async function priceForStock(grocy, productId, opts = {}) {
     };
 }
 
-/** Pris-status for alle aktive produkter: { [pid]: { price, reason, reason_text, stock_unit } }. */
-async function priceOverview(grocy) {
+/**
+ * Pris-status for alle aktive produkter: { [pid]: { price, reason, reason_text, stock_unit } }.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.withCost]  tag også KOSTPRISENS viden med (`cost`) og om
+ *   varen bruges i en opskrift (`in_recipes`). Arbejdslisten bruger det til at
+ *   skille "mangler pris" (kostprisen kender ingen) fra "kun købspris"
+ *   (kostprisen har en pris fra køb, men der er ingen leverandørpris). Uden
+ *   den ville listen bede om priser kostprisen allerede kender — målt mod
+ *   grocy-hq 25/9: 75 af 114. Opt-in, så lageroversigten og varemodtagelsen
+ *   ikke betaler for et opslag de ikke bruger.
+ */
+async function priceOverview(grocy, opts = {}) {
     const [meta, recipes] = await Promise.all([
         loadGrocyMeta(grocy),
         // Varer vi selv laver efter en opskrift, får kostprisen fra opskriften
@@ -264,6 +275,23 @@ async function priceOverview(grocy) {
         // Laveste id — samme valg som kostprisen (recipeCost.buildProducedByIndex).
         if (!cur || Number(r.id) < Number(cur.id)) producedBy.set(pid, { id: Number(r.id), name: r.name });
     }
+    // Kostprisens viden + opskriftsbrug. Fejler et af opslagene, siger vi
+    // INTET om det (felterne bliver null) frem for at påstå at prisen mangler:
+    // klienten falder så tilbage på én samlet liste.
+    let costDetails = null, recipeUse = null;
+    if (opts.withCost) {
+        [costDetails, recipeUse] = await Promise.all([
+            typeof grocy.getProductUnitCostDetails === 'function'
+                ? grocy.getProductUnitCostDetails(6).catch(() => null) : null,
+            typeof grocy.getAllRecipesPos === 'function'
+                ? grocy.getAllRecipesPos().then(pos => {
+                    const m = new Map();
+                    for (const x of (pos || [])) m.set(Number(x.product_id), (m.get(Number(x.product_id)) || 0) + 1);
+                    return m;
+                }).catch(() => null) : null,
+        ]);
+    }
+
     const out = {};
     for (const [pid, p] of meta.productMap) {
         if (Number(p.active) === 0) continue;
@@ -279,6 +307,12 @@ async function priceOverview(grocy) {
             is_estimate: r.reason === 'estimate',
             estimate_price: (candidates.find(c => c.is_estimate) || {}).stock_price ?? null,
             produced_by: producedBy.get(Number(pid)) || null,
+            // Kun med opts.withCost. null = ukendt (opslaget fejlede eller blev ikke bedt om).
+            cost: costDetails ? (() => {
+                const d = costDetails.get(String(pid));
+                return d && d.cost > 0 ? { known: true, price: d.cost, source: d.source } : { known: false };
+            })() : null,
+            in_recipes: recipeUse ? (recipeUse.get(Number(pid)) || 0) : null,
             // is_preferred + leverandør + enhed: arbejdslisten i Indkøb → ⚙ →
             // Produkter viser valget mellem varenumrene direkte i rækken, uden
             // et kald pr. vare. Prisen er stadig serverens (pr. lager-enhed).

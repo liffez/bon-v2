@@ -1516,7 +1516,9 @@ function refreshHorkramPrices(barcodes) {
 }
 
 /** Pris-status pr. aktivt produkt: { [pid]: { price, reason, reason_text, stock_unit, barcodes } } */
-function fetchSupplierPriceOverview() { return apiFetch('/purchasing/prices/overview'); }
+function fetchSupplierPriceOverview(opts) {
+    return apiFetch('/purchasing/prices/overview' + (opts && opts.withCost ? '?with_cost=1' : ''));
+}
 
 /** Én vares varenumre og hvilken pris der gælder. */
 function fetchSupplierPrice(productId) { return apiFetch('/purchasing/prices/product/' + productId); }

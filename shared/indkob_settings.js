@@ -90,7 +90,6 @@ async function initIndkobSettings(containerEl, options) {
         _isSupDropdown = [];
     }
 
-    _isTabLoaded[0] = true;
     if (loadErr) {
         var body = document.getElementById('isBody');
         if (body) {
@@ -103,7 +102,18 @@ async function initIndkobSettings(containerEl, options) {
         }
         return;
     }
-    _isRenderTab(0);
+    // Åbnet direkte på en fane (office → Indkøb → Varer åbner arbejdslisten).
+    var start = options && options.tab ? options.tab : 0;
+    // Altid sat ved åbning — ellers arver "Leverandører" arbejdslisten fra "Varer".
+    _isProdFilter.nopris = (options && options.nopris) || false;
+    _isActiveTab = start;
+    _isContainer.querySelectorAll('.is-tab').forEach(function(el, i) { el.classList.toggle('on', i === start); });
+    _isTabLoaded[0] = true;
+    if (start === 0) { _isRenderTab(0); return; }
+    _isTabLoaded[start] = true;
+    await _isLoadTabData(start);
+    // _isLoadTabData tegner fanen uden filteret; filtrér når data er der.
+    if (start === 1) _isProdFilterAndRender();
 }
 
 /* ── Column prefs ──────────────────────────────────────────── */
@@ -750,13 +760,26 @@ function _isRenderProducts(body) {
     // foretrukket valg og får derfor ingen pris — men de er umulige at finde
     // i en liste på 181. En liste i et issue ville være forældet i samme
     // sekund nogen retter en vare; det her er rigtigt hver gang man åbner det.
-    var manglerN = _isAllProducts.filter(_isUdenPris).length;
+    //
+    // Listen deles i to (25/9): "mangler pris" er varer KOSTPRISEN ikke kender
+    // nogen pris på — de gør en opskrift til et minimum. "Kun købspris" har en
+    // pris fra rigtige køb, men ingen leverandørpris til varemodtagelsen. Målt
+    // mod grocy-hq: 39 mod 75. Én liste gjorde de 39 umulige at se.
+    var manglerN = _isAllProducts.filter(_isManglerPris).length;
+    var koebN    = _isAllProducts.filter(_isKunKoebspris).length;
     // Står man på listen, bliver knappen — også når den sidste pris er sat,
     // ellers var der ingen vej ud af filteret igen.
-    if (manglerN > 0 || _isProdFilter.nopris) {
-        html += '<button class="is-prod-nopris' + (_isProdFilter.nopris ? ' on' : '') +
-            '" data-is="prod-filter-nopris" title="Varer uden en pris — s\u00e6t et foretrukket varenummer eller et overslag">' +
-            manglerN + ' uden pris</button>';
+    if (manglerN > 0 || _isProdFilter.nopris === 'mangler') {
+        html += '<button class="is-prod-nopris' + (_isProdFilter.nopris === 'mangler' ? ' on' : '') +
+            '" data-is="prod-filter-nopris" data-kind="mangler" title="Varer kostprisen ikke kender nogen pris p\u00e5 — varer der bruges i en opskrift st\u00e5r \u00f8verst">' +
+            manglerN + ' mangler pris</button>';
+    }
+    if (koebN > 0 || _isProdFilter.nopris === 'kobspris') {
+        html += '<button class="is-prod-nopris is-prod-kobspris' + (_isProdFilter.nopris === 'kobspris' ? ' on' : '') +
+            '" data-is="prod-filter-nopris" data-kind="kobspris" title="Kostprisen kender prisen fra k\u00f8b — der mangler kun en leverand\u00f8rpris til varemodtagelsen">' +
+            koebN + ' kun købspris</button>';
+    }
+    if (manglerN > 0 || koebN > 0 || _isProdFilter.nopris) {
         // Varer vi laver selv, er ikke på listen — men de skal kunne ses som
         // talt fra, ellers ligner færre varer bare færre.
         var selvN = _isPriceOverview ? Object.keys(_isPriceOverview).filter(function(k) {
@@ -876,9 +899,12 @@ function _isRenderProducts(body) {
     // Bind supplier filter change (not in delegation because it's a select without data-is on change)
     var noprisBtn = body.querySelector('[data-is="prod-filter-nopris"]');
     if (noprisBtn) {
-        noprisBtn.addEventListener('click', function() {
-            _isProdFilter.nopris = !_isProdFilter.nopris;
-            _isProdFilterAndRender();
+        body.querySelectorAll('[data-is="prod-filter-nopris"]').forEach(function(b) {
+            b.addEventListener('click', function() {
+                var kind = b.dataset.kind || 'mangler';
+                _isProdFilter.nopris = _isProdFilter.nopris === kind ? false : kind;
+                _isProdFilterAndRender();
+            });
         });
     }
 
@@ -923,6 +949,18 @@ function _isUdenPris(p) {
     // fra opskriften (#558). 18 af de 133 mod grocy-test 22/9.
     return !!o && o.price == null && !o.produced_by;
 }
+
+/** Kender KOSTPRISEN en pris på varen (fra køb, lager eller forældre)? Så mangler
+ *  der kun en leverandørpris, og det er ikke akut. `cost` er null når serveren
+ *  ikke kunne svare — så lander alt i "mangler pris", aldrig omvendt. */
+function _isKostKendt(p) {
+    var o = _isPriceOverview && _isPriceOverview[p.id];
+    return !!(o && o.cost && o.cost.known);
+}
+/** Arbejdslistens to dele. Tilsammen er de præcis _isUdenPris — samme prædikat
+ *  bag knappernes tal og bag listen, så de ikke kan skride fra hinanden. */
+function _isManglerPris(p)   { return _isUdenPris(p) && !_isKostKendt(p); }
+function _isKunKoebspris(p)  { return _isUdenPris(p) && _isKostKendt(p); }
 
 /* ══════════════════════════════════════════════════════════════
    ARBEJDSLISTEN "N uden pris" — prisen sættes i rækken
@@ -1065,6 +1103,31 @@ function _isWorkHintHtml(pid) {
     return '= ' + _isFmtPrice(pr, po && po.stock_unit);
 }
 
+/* Hvad kostprisen bruger i dag — og om varen overhovedet indgår i en opskrift.
+   Uden den linje kan man ikke se forskel på en vare der gør en ret til et
+   minimum, og en vare der bare mangler en leverandørpris. */
+var _IS_COST_SRC = {
+    avg_window: 'snit af køb', last_purchase: 'seneste køb', stock_row: 'lagerpost',
+    last: 'seneste lagerpris', avg: 'Grocys snit', stock_value: 'lagerværdi', parent_avg: 'snit af børnene',
+};
+function _isWorkCostLine(po) {
+    if (!po) return '';
+    var dele = [];
+    if (po.cost && po.cost.known) {
+        dele.push('kostprisen bruger i dag ' + _isFmtPrice(po.cost.price, po.stock_unit) +
+            ' (' + (_IS_COST_SRC[po.cost.source] || po.cost.source) + ') — der mangler kun en leverandørpris');
+    } else if (po.cost) {
+        dele.push('kostprisen kender ingen pris');
+    }
+    if (po.in_recipes != null) {
+        dele.push(po.in_recipes > 0 ? 'bruges i ' + po.in_recipes + (po.in_recipes === 1 ? ' opskrift' : ' opskrifter')
+                                    : 'bruges ikke i nogen opskrift');
+    }
+    if (!dele.length) return '';
+    var akut = po.cost && !po.cost.known && po.in_recipes > 0;
+    return '<div class="is-work-cost' + (akut ? ' akut' : '') + '">' + _isEsc(dele.join(' · ')) + '</div>';
+}
+
 function _isWorkCellHtml(pid) {
     var po = _isPriceOverview && _isPriceOverview[pid];
     var plan = _isWorkPlan(po, _isWorkProduct(pid));
@@ -1084,6 +1147,7 @@ function _isWorkCellHtml(pid) {
 
     var busy = !!_isWork.saving[pid];
     h += '<div class="is-work-reason">' + _isEsc(plan.text) + '</div>';
+    h += _isWorkCostLine(po);
 
     if (plan.mode === 'price') {
         var d = _isWork.draft[pid] || {};
@@ -1155,8 +1219,12 @@ function _isWorkRerender(pid) {
             tr.classList.toggle('is-work-saved', !!(po && po.price != null));
         }
     }
-    var btn = _isContainer && _isContainer.querySelector('[data-is="prod-filter-nopris"]');
-    if (btn) btn.textContent = _isAllProducts.filter(_isUdenPris).length + ' uden pris';
+    var bs = _isContainer && _isContainer.querySelectorAll ? _isContainer.querySelectorAll('[data-is="prod-filter-nopris"]') : [];
+    Array.prototype.forEach.call(bs, function(btn) {
+        btn.textContent = btn.dataset.kind === 'kobspris'
+            ? _isAllProducts.filter(_isKunKoebspris).length + ' kun købspris'
+            : _isAllProducts.filter(_isManglerPris).length + ' mangler pris';
+    });
 }
 
 /* Serverens svar på "hvilken pris gælder nu" — oversigtens post bygges af det,
@@ -1171,6 +1239,8 @@ async function _isWorkRefresh(pid) {
         is_estimate: r.reason === 'estimate',
         estimate_price: r.estimate_price != null ? r.estimate_price : null,
         produced_by: gl.produced_by || null,
+        // Kostprisens viden og opskriftsbrug hentes ikke pr. vare — de bæres med.
+        cost: gl.cost || null, in_recipes: gl.in_recipes != null ? gl.in_recipes : null,
         barcodes: (r.candidates || []).map(function(c) {
             return {
                 id: c.id, barcode: c.barcode, stock_price: c.stock_price, note: c.note, text: c.text,
@@ -1350,9 +1420,17 @@ function _isProdFilterAndRender() {
             p.shopping_location_id != _isProdFilter.supplier) return false;
         // Kunne pris-status ikke hentes, filtrerer vi ikke — en tom liste
         // ville ellers se ud som "alt er i orden".
-        if (_isProdFilter.nopris && _isPriceOverview && !_isUdenPris(p)) return false;
+        if (_isProdFilter.nopris && _isPriceOverview) {
+            if (_isProdFilter.nopris === 'kobspris' ? !_isKunKoebspris(p) : !_isManglerPris(p)) return false;
+        }
         return true;
     });
+    // "Mangler pris": varer der bruges i en opskrift først — det er dem der gør
+    // en kostpris til et minimum. Ellers alfabetisk som resten af listen.
+    if (_isProdFilter.nopris === 'mangler' && _isPriceOverview) {
+        var brugt = function(p) { var o = _isPriceOverview[p.id]; return o && o.in_recipes > 0 ? 0 : 1; };
+        _isProducts.sort(function(a, b) { return brugt(a) - brugt(b) || a.name.localeCompare(b.name, 'da'); });
+    }
     _isRenderTab(1);
 }
 
@@ -2234,7 +2312,7 @@ function _isPriceResultMsg(r) {
 }
 
 async function _isLoadPriceOverview() {
-    try { return await fetchSupplierPriceOverview(); }
+    try { return await fetchSupplierPriceOverview({ withCost: true }); }
     catch (err) { console.warn('[is] prisoversigt:', err.message); return null; }
 }
 

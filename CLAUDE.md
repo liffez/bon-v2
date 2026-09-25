@@ -9728,6 +9728,31 @@ alle fanget.
   Niveau 5 = behov for bonlinjerne + de batches der skal laves. Fase 3 (tjekliste) er ikke bygget.
 - Resolverens `shortfall_purchase` havde en flydende-tal-fejl (1,12 → 1,13; 2 sække → 3) — rettet med epsilon.
 
+### Arbejdslisten deles i "mangler pris" og "kun købspris" + Indkøb → Varer (25. september 2026)
+
+"114 uden pris" betød *ingen leverandørpris på et varenummer* — men kostprisen har
+andre kilder. Målt mod grocy-hq: **75 af de 114 kender kostprisen allerede fra køb**,
+kun 39 har ingen pris nogen steder (19 af dem bruges i en opskrift). Listen bad om
+priser kostprisen kendte, og de 19 der gør en opskrift til et minimum druknede.
+
+- **`GET /api/purchasing/prices/overview?with_cost=1`** tager kostprisens viden med
+  (`cost: {known, price, source}`) og opskriftsbrug (`in_recipes`). **Opt-in**, så
+  lageroversigten og varemodtagelsen ikke betaler for opslaget. Fejler opslaget, er
+  felterne `null` (ukendt) — aldrig "kostprisen kender ingen pris". En pris på 0 er
+  ikke kendt.
+- **To knapper**: *N mangler pris* (kostprisen kender ingen — opskriftsvarer øverst,
+  linjen fremhævet) og *N kun købspris* (dæmpet: kostprisen har en pris fra køb, der
+  mangler kun en leverandørpris til varemodtagelsen). `_isManglerPris` +
+  `_isKunKoebspris` er tilsammen præcis `_isUdenPris`, så intet falder imellem.
+  Hver række siger hvad kostprisen bruger i dag og hvor mange opskrifter varen er i.
+- **Office → Indkøb → Varer** åbner arbejdslisten direkte (`initIndkobSettings` fik
+  `tab` + `nopris`). Den lå kun under "Leverandører → Produkter", og dér ledte ingen.
+  Filteret nulstilles ved hver åbning, så "Leverandører" ikke arver det.
+
+Tests: `test-supplier-prices` +6 (108), `test-indkob-arbejdsliste` +14 (136).
+Mutations-testet: seks regler, alle fanget. Browser-verificeret mod grocy-test med
+rigtige klik i office og køkken: 40 mangler / 74 kun købspris, samme tal begge steder.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

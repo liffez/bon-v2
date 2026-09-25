@@ -685,7 +685,8 @@ router.post('/prices/refresh-horkram', handle(async (req, res) => {
 
 /* GET /prices/overview — pris-status pr. aktivt produkt */
 router.get('/prices/overview', handle(async (req, res) => {
-    res.json(await supplierPrices.priceOverview(grocy));
+    // ?with_cost=1: arbejdslisten vil også vide om KOSTPRISEN kender en pris.
+    res.json(await supplierPrices.priceOverview(grocy, { withCost: req.query.with_cost === '1' }));
 }));
 
 /* GET /prices/product/:id — varenumre + hvilken pris der gælder */

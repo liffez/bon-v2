@@ -583,6 +583,41 @@ async function main() {
         check((await sp.priceForStock(grocy, 14)).price === null, 'og så er der ingen pris igen');
     }
 
+    console.log('\n── Oversigten med kostprisens viden (arbejdslistens to dele) ──');
+    {
+        G.reset();
+        const base = await sp.priceOverview(grocy);
+        const enId = Object.keys(base)[0], toId = Object.keys(base)[1];
+        check(base[enId].cost === undefined || base[enId].cost === null,
+            'uden with_cost: intet cost-felt — lageroversigten betaler ikke for opslaget');
+
+        let costKald = 0;
+        const medCost = {
+            ...grocy,
+            getProductUnitCostDetails: async () => { costKald++; return new Map([
+                [String(enId), { cost: 12.5, source: 'last_purchase' }],
+                [String(toId), { cost: 0, source: 'last' }],
+            ]); },
+            getAllRecipesPos: async () => [
+                { recipe_id: 1, product_id: Number(enId) }, { recipe_id: 2, product_id: Number(enId) },
+            ],
+        };
+        const ov = await sp.priceOverview(medCost, { withCost: true });
+        check(costKald === 1, 'kostprisen slås op ÉN gang for hele oversigten');
+        check(ov[enId].cost && ov[enId].cost.known === true && ov[enId].cost.price === 12.5
+            && ov[enId].cost.source === 'last_purchase', 'en vare med kostpris: known + pris + kilde');
+        check(ov[toId].cost && ov[toId].cost.known === false, 'en pris på 0 er IKKE kendt');
+        check(ov[enId].in_recipes === 2 && ov[toId].in_recipes === 0, 'opskriftsbrug tælles pr. vare');
+
+        const fejler = { ...grocy,
+            getProductUnitCostDetails: async () => { throw new Error('nede'); },
+            getAllRecipesPos: async () => { throw new Error('nede'); } };
+        const ovF = await sp.priceOverview(fejler, { withCost: true });
+        check(ovF[enId].cost === null && ovF[enId].in_recipes === null,
+            'fejler opslaget: null (ukendt) — aldrig "kostprisen kender ingen pris"');
+        check(ovF[enId].price === base[enId].price, 'og resten af oversigten er urørt');
+    }
+
     console.log('\n' + '─'.repeat(60));
     console.log(`${pass} PASS · ${fail} FAIL`);
     try { require('fs').unlinkSync(TEST_DB); } catch (_) {}

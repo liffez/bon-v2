@@ -38,7 +38,7 @@
   <link rel="stylesheet" href="views/logistik-historik.css">
   <link rel="stylesheet" href="../shared/schedule.css">
   <link rel="stylesheet" href="../shared/indkob.css?v=2026-09-22">
-  <link rel="stylesheet" href="../shared/indkob_settings.css?v=2026-09-22">
+  <link rel="stylesheet" href="../shared/indkob_settings.css?v=2026-09-25">
   <link rel="stylesheet" href="../shared/product_create.css?v=2026-09-18">
   <link rel="stylesheet" href="../shared/help-system.css">
   <script src="/assets/jspdf.umd.min.js"></script>
@@ -885,7 +885,7 @@
   <script src="/shared/moms.js"></script>
   <script src="/shared/bon_lines.js"></script>
   <script src="/shared/delivery_icons.js"></script>
-  <script src="../shared/api.js?v=2026-09-22"></script>
+  <script src="../shared/api.js?v=2026-09-25"></script>
   <script src="../shared/planned.js"></script>
   <script src="../shared/mail_thread.js"></script>
   <script src="../shared/mail_compose.js"></script>
@@ -952,7 +952,7 @@
   <script src="/shared/supplier_order_lines.js"></script>
   <script src="/shared/invoice_price.js?v=2026-09-22"></script>
   <script src="/shared/indkob.js?v=2026-09-22"></script>
-  <script src="/shared/indkob_settings.js?v=2026-09-22"></script>
+  <script src="/shared/indkob_settings.js?v=2026-09-25"></script>
   <script src="views/forecast.js"></script>
 
   <script>
@@ -1193,6 +1193,16 @@
           },
           cleanup: () => {},
         },
+        // Varer: arbejdslisten "mangler pris" — samme komponent som køkkenets ⚙ →
+        // Produkter, men åbnet direkte dér. Den lå kun under "Leverandører", og
+        // dér ledte ingen efter den (25/9).
+        'indkob-varer': {
+          init: () => {
+            if (typeof initIndkobSettings === 'function') initIndkobSettings(contentEl, { mode: 'page', tab: 1, nopris: 'mangler' });
+            else contentEl.innerHTML = '<div style="padding:24px;color:#888">Indkøbsindstillinger ikke indlæst</div>';
+          },
+          cleanup: () => {},
+        },
         'indkob-forecast': {
           init: () => {
             if (typeof initForecast === 'function') initForecast(contentEl);
@@ -1256,6 +1266,7 @@
           { id: 'liste', label: 'Indkøbsliste', def: true },
           { id: 'best', label: 'Bestillinger' },
           { id: 'forecast', label: 'Forecast' },
+          { id: 'varer', label: 'Varer' },
           { id: 'lev', label: 'Leverandører' },
           { id: 'post', label: 'Leverandørpost', badge: 'indkob_leverandorpost' },
         ],
@@ -1309,6 +1320,7 @@
           liste: 'indkob-liste',
           best: 'indkob-liste',
           forecast: 'indkob-forecast',
+          varer: 'indkob-varer',
           lev: 'indkob-lev',
           post: 'leverandorpost',
         },
@@ -1544,6 +1556,7 @@
           'crm-ringeliste':'Office — Ringeliste',
           'crm-prospekter':'Office — Prospekter',
           'indkob-liste':'Office — Indkøb · Indkøbsliste',
+          'indkob-varer':'Office — Indkøb · Varer',
           'indkob-lev':'Office — Indkøb · Leverandører',
           'indkob-forecast':'Office — Indkøb · Forecast',
           'supplier-inbox':'Office — Leverandørpost'
