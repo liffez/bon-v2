@@ -907,9 +907,11 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
             status,
             ingredient_group: ing.ingredient_group,
             // Rund op til hele purchase-enheder (1 Kasse, 1 Pakke — ikke 0.01)
+            // Epsilon før oprundingen: 1,12 er i binært 1,1200000000000001, så
+            // Math.ceil(x × 100) gav 1,13 — og 0,7 / 0,35 gav 3 kasser i stedet for 2.
             shortfall_purchase: purchaseIsRealUnit
-                ? Math.ceil(shortfallPurchase)
-                : Math.ceil(shortfallPurchase * 100) / 100,
+                ? Math.ceil(shortfallPurchase - 1e-9)
+                : Math.ceil(shortfallPurchase * 100 - 1e-9) / 100,
             purchase_unit:      purchaseUnitName,
             // Rå bygge-klodser til enheds-konvertering hos kalderen:
             needed_stock:       ing.needed_stock,

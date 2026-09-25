@@ -18,7 +18,7 @@
     "test:modal": "node --test tests/modal_outside_click.test.js",
     "test:grocy-url": "node --experimental-sqlite --test tests/grocy_test_url.test.js tests/migrate.test.js",
     "test:isolation": "node --test tests/isolated_test_scripts.test.js",
-    "test:dawa": "node --test tests/dawa_autocomplete.test.js",
+    "test:dawa": "node --experimental-sqlite --test tests/dawa_autocomplete.test.js",
     "test:rabat": "node --experimental-sqlite --test tests/discount_rule.test.js tests/standing_discount.test.js",
     "test:forhandler": "node --experimental-sqlite --test tests/reseller_end_customer.test.js",
     "test:ean-opslag": "node --experimental-sqlite --test tests/ean_lookup.test.js",
@@ -50,6 +50,7 @@
     "test:flyver": "node --experimental-sqlite scripts/test-flyver-visibility.js && node --test tests/flyver_goto_bon.test.js",
     "test:portioner": "node scripts/test-portions-decimal.js",
     "test:kasser": "node --experimental-sqlite scripts/test-delivery-boxes.js",
+    "test:planning-tree": "node --experimental-sqlite scripts/test-planning-tree.js && node --experimental-sqlite scripts/test-planning-production.js",
     "test:tegngraense": "node --experimental-sqlite scripts/test-booking-textlimit.js",
     "test:prep-ahead-link": "node scripts/test-prep-ahead-link.js",
     "test:event-retur": "node --experimental-sqlite scripts/test-event-return-trace.js",
@@ -145,7 +146,7 @@
     "test:cashflow": "node --experimental-sqlite scripts/test-cashflow-sync.js && node --experimental-sqlite scripts/test-cashflow-reconcile.js && node --experimental-sqlite scripts/test-payment-rhythm.js && node --experimental-sqlite scripts/test-economic-ledger.js && node --experimental-sqlite scripts/test-ledger-matching.js",
     "test:lag1a": "node scripts/test-producibility.js && node scripts/test-ravarer-render.js && node scripts/test-conversion-gate.js",
     "test:produktion": "node scripts/test-production-unit.js && node scripts/test-production-yield.js && node scripts/test-auto-batch.js && node --experimental-sqlite scripts/test-autobatch-packing.js && node scripts/test-convert-units.js && node scripts/test-preview-produced.js",
-    "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js && node --experimental-sqlite scripts/test-kostpris-effekt.js && node --experimental-sqlite scripts/test-kostpris-vindue.js && node --experimental-sqlite scripts/test-kostpris-overslag.js",
+    "test:kostpris": "node scripts/test-recipe-cost.js && node --experimental-sqlite scripts/test-cost-wiring.js && node --experimental-sqlite scripts/test-cost-unknown-display.js && node --experimental-sqlite scripts/test-kostpris-effekt.js && node --experimental-sqlite scripts/test-kostpris-vindue.js && node --experimental-sqlite scripts/test-kostpris-overslag.js && node --experimental-sqlite scripts/test-kostpris-log.js",
     "audit:udbytte": "node --env-file=.env --experimental-sqlite scripts/audit-recipe-yield.js",
     "audit:priser": "node --env-file=.env scripts/audit-grocy-prices.js",
     "test:autobatch-packing": "node --experimental-sqlite scripts/test-autobatch-packing.js",
@@ -174,9 +175,11 @@
     "test:optaelling-felter": "node scripts/test-optaelling-felter.js",
     "test:optaelling-log": "node --experimental-sqlite --test tests/stock_counts.test.js",
     "audit:optaellinger": "node --experimental-sqlite scripts/audit-stock-counts.js",
+    "audit:indkob-enheder": "node --experimental-sqlite scripts/audit-indkob-enheder.js",
     "test:opskrift-tilstand": "node scripts/test-recipe-editor-state.js",
     "test:web-order-fejl": "node --experimental-sqlite --test tests/web_order_failure.test.js",
-    "test:indkob-pris": "node scripts/test-indkob-pris.js && node scripts/test-indkob-arbejdsliste.js"
+    "test:indkob-pris": "node scripts/test-indkob-pris.js && node scripts/test-indkob-arbejdsliste.js",
+    "test:drawer-lobo": "node scripts/test-drawer-lobo-reset.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -388,6 +388,77 @@ function getRecipesRaw() {
 }
 
 /**
+ * Alle tilgange i `stock_log` (antal > 0, ikke fortrudt) — i ét opslag, side
+ * for side (#695).
+ *
+ * Tidligere spurgte kostprisen ét kald pr. produkt plus `/stock/products/:id`
+ * for varer uden køb: 277 kald og ~9 s mod grocy-hq. Loggen har ~3.500 tilgange
+ * i alt, og ét kald tager ~0,3 s.
+ *
+ * - UDEN datofilter: trin 2 bruger seneste køb uanset alder.
+ * - Sorteret på `id`, ikke på tidsstempel. 82 rækker deler tidsstempel med en
+ *   anden, og en sidegrænse skal skære et entydigt sted.
+ * - Side for side med `offset`, så et loft aldrig kan skære de ældste rækker
+ *   væk uden at nogen opdager det. `/objects/stock_log` svarer desuden 500 på
+ *   den ufiltrerede tabel uden `limit`.
+ * - Filtrene gentages i koden: en Grocy der ignorerer en query, må ikke kunne
+ *   lukke forbrug eller fortrudte køb ind i en kostpris.
+ */
+const STOCK_LOG_PAGE = 5000;
+async function fetchStockLogIntakes(pageSize = STOCK_LOG_PAGE) {
+    const alle = [];
+    const set = new Set();
+    for (let offset = 0; ; offset += pageSize) {
+        const side = await grocyFetch('/objects/stock_log'
+            + '?query%5B%5D=undone%3D0'
+            + '&query%5B%5D=amount%3E0'
+            + `&order=id%3Adesc&limit=${pageSize}&offset=${offset}`);
+        if (!Array.isArray(side)) throw new Error('Grocy stock_log svarede ikke med en liste');
+        for (const r of side) {
+            if (set.has(r.id)) continue;
+            set.add(r.id);
+            if (Number(r.undone) === 1 || !(Number(r.amount) > 0)) continue;
+            alle.push(r);
+        }
+        if (side.length < pageSize) break;
+    }
+    return alle;
+}
+
+// De tilgange Grocy lader bestemme `last_price`. Målt mod grocy-hq 25/9 2026:
+// Grocys tal følger den nyeste af dem, også når det er en optælling efter et
+// køb (15 af 15). `stock-edit-old` er tilstanden FØR en rettelse og
+// `product-opened` flytter ingen vare ind — ingen af dem er en pris.
+const PRICED_INTAKE_TYPES = new Set(['purchase', 'inventory-correction', 'self-production', 'stock-edit-new']);
+
+/**
+ * Den pris Grocy ville have kaldt `last_price`, udledt af loggen. Afløser
+ * `/stock/products/:id` i trin 3 (#695).
+ *
+ * Som Grocy: nyeste KØBSDATO vinder. En rettelse af en gammel lagerpost bærer
+ * den gamle dato og slår derfor ikke en nyere egenproduktion (kikærter: 40,58
+ * og ikke 40). Ved samme dato vinder den senest skrevne; Grocy tager her en
+ * vilkårlig — målt forskel 2,6 % på Frisk Grønt.
+ *
+ * Typen følger med, så en pris der ikke stammer fra et køb kan kendes.
+ */
+function lastEntryFromLog(rows) {
+    let bedst = null;
+    for (const r of rows || []) {
+        if (!PRICED_INTAKE_TYPES.has(r.transaction_type) || !(Number(r.price) > 0)) continue;
+        if (!bedst) { bedst = r; continue; }
+        const d = String(r.purchased_date || '').localeCompare(String(bedst.purchased_date || ''));
+        if (d > 0 || (d === 0 && Number(r.id) > Number(bedst.id))) bedst = r;
+    }
+    if (!bedst) return null;
+    return {
+        last_price: Number(bedst.price),
+        last_price_type: bedst.transaction_type,
+        last_price_date: String(bedst.purchased_date || bedst.row_created_timestamp || '').slice(0, 10) || null,
+    };
+}
+
+/**
  * Enhedskost pr. produkt (kr pr. LAGER-enhed, ex moms) MED ophav.
  *
  * PRISEN REGNES AF KØBSHISTORIKKEN, IKKE AF GROCYS TAL (#557)
@@ -396,15 +467,12 @@ function getRecipesRaw() {
  * hverken Grocys `avg_price` eller et snit over al tid duer — står i
  * `services/recipeCost.js` ved `unitCostDetail`.
  *
- * ÉT LOG-OPSLAG PR. PRODUKT
- * `/objects/stock_log` svarer **500 uden `limit`** (hele tabellen læses ind før
- * den skæres til), så der spørges pr. produkt med filtre på. Filtrene er ikke
- * kosmetik: uden `order=…desc` returnerer Grocy de ÆLDSTE rækker først, og et
- * `limit` ville så skære de nye væk — præcis dem vi skal bruge.
- *
- * `/stock/products/:id` spørges KUN for de produkter der ingen køb har i loggen
- * overhovedet. Det er fallback-trin 3, og det er en håndfuld varer — ikke de
- * ~225 opslag reglen kostede da Grocys eget gennemsnit var ankeret.
+ * ÉT LOG-OPSLAG FOR HELE KATALOGET (#695)
+ * Købene og trin 3's "seneste pris" hentes af `fetchStockLogIntakes` i ét
+ * opslag. `/stock/products/:id` spørges ikke længere: dens `last_price` er
+ * blot den nyeste tilgang med pris, og den kan læses af samme log
+ * (`lastEntryFromLog`). Sammenlignet mod den gamle vej på grocy-hq 25/9 2026:
+ * samme pris og kilde på alle 226 varer.
  *
  * Lagerpostens pris fra `/objects/stock` er trin 3's FØRSTE led (ikke et
  * nødspor): den er det nyeste vi ved om varen når loggen intet siger.
@@ -414,7 +482,8 @@ function getRecipesRaw() {
  * ikke deres pris — `kål` står til 0 selvom Spidskål koster 24 og Hvidkål
  * 14,50, og kålen ligger i Frisk Grønt, som er nestet i 26 menuer.
  *
- * @param {number} concurrency  samtidige opslag (default 6)
+ * @param {number} concurrency  ubrugt siden #695 (ét opslag). Beholdt så
+ *                              kaldere ikke skal ændres.
  * @param {object} [opts]
  *   fresh       springer cachen over. Det natlige job og "Opdater priser"-
  *               knappen skal have friske tal — det er hele deres formål.
@@ -474,39 +543,37 @@ async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
     // kl. 02 dansk sommertid, og vinduet ville rykke sig en dag om natten.
     const since = offsetISO(-windowDays);
 
+    // Hele loggens tilgange i ét opslag (#695) — ikke ét pr. produkt. Kaster
+    // hvis loggen ikke kan læses: et svar bygget uden købshistorik ville se
+    // rigtigt ud, blive cachet i ti minutter og give forkerte kostpriser.
+    const tilgange = await fetchStockLogIntakes();
+    const pr = new Map();
+    for (const r of tilgange) {
+        const pid = String(r.product_id);
+        if (!pr.has(pid)) pr.set(pid, []);
+        pr.get(pid).push(r);
+    }
+
     const detaljer = new Map();
-    let i = 0;
-    await Promise.all(Array.from({ length: Math.max(1, concurrency) }, async () => {
-        while (i < maal.length) {
-            const p = maal[i++];
-            const pid = String(p.id);
+    for (const p of maal) {
+        const pid = String(p.id);
+        const rows = pr.get(pid) || [];
+        const koeb = rows.filter(r => r.transaction_type === 'purchase');
 
-            let koeb = null;
-            try {
-                koeb = await grocyFetch(
-                    `/objects/stock_log?query%5B%5D=product_id%3D${p.id}`
-                    + `&query%5B%5D=transaction_type%3Dpurchase`
-                    + `&query%5B%5D=undone%3D0`
-                    + `&order=row_created_timestamp%3Adesc&limit=200`);
-            } catch (e) {
-                koeb = null;   // loggen kunne ikke læses → fald igennem til trin 3
-            }
-            if (!Array.isArray(koeb)) koeb = null;
+        // Trin 3 får kun et bud når intet køb bærer en pris. Tidligere spurgte
+        // vi Grocy (`/stock/products/:id`) kun når der slet ingen købsrækker
+        // var, så en vare med et prisløst køb stod uden pris selvom Grocy
+        // kendte én (Salat boks firkantede, kikærter - udblødt).
+        const harPrisetKoeb = koeb.some(r => Number(r.price) > 0);
+        const grocyRow = harPrisetKoeb ? null : lastEntryFromLog(rows);
 
-            // Grocys egne tal hentes KUN når loggen intet har at sige.
-            let grocyRow = null;
-            if (!koeb || !koeb.length) {
-                grocyRow = await grocyFetch('/stock/products/' + p.id).catch(() => null);
-            }
-
-            const det = unitCostDetail(grocyRow, koeb, {
-                since, windowDays,
-                stockRowPrice: nyeste.get(pid) ? nyeste.get(pid).price : null,
-            });
-            if (det) detaljer.set(pid, det);
-            // Ellers: uden pris — resolveren rapporterer den som manglende.
-        }
-    }));
+        const det = unitCostDetail(grocyRow, koeb, {
+            since, windowDays,
+            stockRowPrice: nyeste.get(pid) ? nyeste.get(pid).price : null,
+        });
+        if (det) detaljer.set(pid, det);
+        // Ellers: uden pris — resolveren rapporterer den som manglende.
+    }
 
     // Forældre arver gennemsnittet af de børn der HAR en pris.
     for (const p of maal) {
@@ -1769,6 +1836,8 @@ module.exports = {
     getRecipesRaw,
     getProductUnitCosts,
     getProductUnitCostDetails,
+    fetchStockLogIntakes,
+    lastEntryFromLog,
     readRecipeCostCache,
     getRecipesRawMap,
     getEconomicProductMap,

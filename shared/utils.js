@@ -1444,119 +1444,37 @@ function unitPaxHint(pax, units, hasFoodLines) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   DAWA-ADRESSESØGNING — København først
+   ADRESSESØGNING — gennem vores egen server
    ══════════════════════════════════════════════════════════════
 
-   DAWA's autocomplete rangerer ikke efter nærhed: "Vesterbrogade 10"
-   giver Viborg, Kolding, Gilleleje og otte etager i Hedensted — og
-   København V dukker ikke op i de første 30. At hente flere og sortere
-   klient-side hjælper derfor ikke; adressen er der slet ikke.
+   Reglen (København først, præcist husnummer først, uden dubletter) bor
+   i services/addressSearch.js og nås via GET /embed/adresse/soeg. Den lå
+   før i tre kopier i browserkoden, og browseren talte direkte med
+   api.dataforsyningen.dk — hvilket en firma-firewall kan blokere lydløst.
+   Nu spørger alle skærme vores egen server, som kunden allerede kan nå.
 
-   I stedet spørges DAWA to gange parallelt: én gang afgrænset til
-   hovedstadsområdet (kommunekode-filter) og én gang uden filter. De
-   lokale hits vises først, resten bagefter, hver blok sorteret efter
-   postnummer (laveste = København). Dubletter (samme adresse-id) fjernes.
-
-   Fælde: DAWA returnerer 0 hits når `fuzzy=true` kombineres med et
-   filter, så den lokale forespørgsel kører altid UDEN fuzzy — kun den
-   globale får det, hvis kalderen beder om det.
-
-   `public/embed/bestilling.html` er single-file uden imports og bærer en
-   KOPI af samme regel (dawaSearch). Ændres reglen her, ændres den dér. */
-
-var DAWA_BASE = 'https://api.dataforsyningen.dk';
-
-/** Hovedstadsområdet som DAWA-kommunekoder — det "nære" i søgningen. */
-var DAWA_LOCAL_KOMMUNER = [
-    '0101', // København
-    '0147', // Frederiksberg
-    '0151', // Ballerup
-    '0153', // Brøndby
-    '0155', // Dragør
-    '0157', // Gentofte
-    '0159', // Gladsaxe
-    '0161', // Glostrup
-    '0163', // Herlev
-    '0165', // Albertslund
-    '0167', // Hvidovre
-    '0169', // Høje-Taastrup
-    '0173', // Lyngby-Taarbæk
-    '0175', // Rødovre
-    '0183', // Ishøj
-    '0185', // Tårnby
-    '0187', // Vallensbæk
-    '0190', // Furesø
-    '0230', // Rudersdal
-    '0240', // Egedal
-];
-
-/** Stabil sortering efter postnummer; ukendt postnr sidst. */
-function dawaSortByPostnr(items) {
-    return (items || [])
-        .map(function(it, i) { return { it: it, i: i }; })
-        .sort(function(a, b) {
-            var pa = parseInt((a.it.adresse || {}).postnr, 10), pb = parseInt((b.it.adresse || {}).postnr, 10);
-            if (isNaN(pa)) pa = 99999;
-            if (isNaN(pb)) pb = 99999;
-            return (pa - pb) || (a.i - b.i);
-        })
-        .map(function(x) { return x.it; });
-}
+   Svaret har DAWA's autocomplete-form
+   (`{ tekst, adresse: { id, vejnavn, husnr, postnr, postnrnavn, x, y, … } }`),
+   så kaldere bruger item.adresse direkte. */
 
 /**
- * Ren flette-regel: lokale hits først, så resten — begge efter postnr,
- * uden dubletter, højst `limit`. Adskilt fra fetch så den kan testes.
- */
-function dawaMergeSuggestions(local, global, limit) {
-    var seen = {};
-    var out = [];
-    var take = function(list) {
-        dawaSortByPostnr(list).forEach(function(it) {
-            var key = (it.adresse && it.adresse.id) || it.tekst;
-            if (!key || seen[key]) return;
-            seen[key] = true;
-            out.push(it);
-        });
-    };
-    take(local);
-    take(global);
-    return out.slice(0, limit);
-}
-
-/**
- * Søg adresser i DAWA med København først.
- *
- * Returnerer samme item-form som `/adresser/autocomplete`
- * (`{ tekst, adresse: { id, vejnavn, husnr, postnr, postnrnavn, x, y, … } }`),
- * så eksisterende kaldere kan bytte deres `fetch` ud én-til-én.
- *
- * Fejler den lokale forespørgsel, vises den globale alene — søgningen må
- * ikke dø fordi ranking-laget gjorde det. Fejler den globale, kastes som før.
+ * Søg adresser. Kaster hvis opslaget ikke svarer — kalderen skal kunne se
+ * forskel på "ingen adresser" og "opslaget er nede".
  *
  * @param {string} q
  * @param {{limit?: number, fuzzy?: boolean, fetch?: Function}} [opts]
  */
 async function dawaAutocomplete(q, opts) {
     opts = opts || {};
-    var limit = opts.limit || 10;
     var fetchImpl = opts.fetch || (typeof fetch === 'function' ? fetch : null);
     if (!fetchImpl) throw new Error('fetch mangler');
-    var enc = encodeURIComponent(q);
-    var localUrl  = DAWA_BASE + '/adresser/autocomplete?q=' + enc + '&per_side=' + limit
-                  + '&kommunekode=' + DAWA_LOCAL_KOMMUNER.join('|');
-    var globalUrl = DAWA_BASE + '/adresser/autocomplete?q=' + enc + '&per_side=' + limit
-                  + (opts.fuzzy ? '&fuzzy=true' : '');
-    var get = function(url) {
-        return fetchImpl(url).then(function(r) {
-            if (!r.ok) throw new Error('DAWA ' + r.status);
-            return r.json();
-        }).then(function(d) { return Array.isArray(d) ? d : []; });
-    };
-    var results = await Promise.all([
-        get(localUrl).catch(function() { return []; }),
-        get(globalUrl),
-    ]);
-    return dawaMergeSuggestions(results[0], results[1], limit);
+    var url = '/embed/adresse/soeg?q=' + encodeURIComponent(q)
+            + '&limit=' + (opts.limit || 10)
+            + (opts.fuzzy ? '&fuzzy=1' : '');
+    var r = await fetchImpl(url);
+    if (!r.ok) throw new Error('Adresseopslag ' + r.status);
+    var d = await r.json();
+    return Array.isArray(d) ? d : [];
 }
 
 // ════════════════════════════════════════════════════════════

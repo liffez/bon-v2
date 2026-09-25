@@ -820,15 +820,6 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
 .m-svc-company {
     color: var(--color-text-dim); font-weight: 400;
 }
-.m-svc-last-sent {
-    display: inline-block;
-    padding: 0 4px; border-radius: 50%;
-    font-size: 14px; margin-left: 2px;
-}
-.m-svc-last-sent.s-positive { background: #e6f7f0; }
-.m-svc-last-sent.s-neutral { background: #fbf3e2; }
-.m-svc-last-sent.s-negative { background: #fbe9e9; }
-
 .m-svc-meta {
     font-size: 13px; color: var(--color-text-dim);
     margin-bottom: 2px;

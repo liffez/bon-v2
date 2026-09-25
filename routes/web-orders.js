@@ -444,6 +444,7 @@ async function handleWebOrder(data) {
     const orderType = data.ordertype || 'catering';
     const deliveryType = orderType === 'pickup' ? 'pickup' : 'delivery';
     let addressId = null;
+    let addressUnverified = false;
 
     if (deliveryType === 'delivery' && data.validatedAddress) {
       const addr = typeof data.validatedAddress === 'string'
@@ -451,7 +452,9 @@ async function handleWebOrder(data) {
         : data.validatedAddress;
 
       if (addr?.tekst) {
-        const vejMatch = addr.tekst.match(/^(.+?)\s+(\d+\S*),/);
+        // Gade + husnummer: første tal efter gadenavnet. Kommaet er ikke
+        // krævet — en adresse skrevet i hånden (nødudgangen) har det ikke altid.
+        const vejMatch = addr.tekst.match(/^(.+?)\s+(\d+[A-Za-zÆØÅæøå]?)(?=[\s,]|$)/);
         const streetName = vejMatch ? vejMatch[1] : addr.tekst.split(',')[0];
         const streetNr   = vejMatch ? vejMatch[2] : null;
 
@@ -461,6 +464,21 @@ async function handleWebOrder(data) {
         `).run(streetName, streetNr, addr.postnr || null, addr.by || null,
                addr.lat || null, addr.lon || null);
         addressId = Number(res.lastInsertRowid);
+
+        // Adressen kom uden om listen, fordi adresseopslaget ikke svarede hos
+        // kunden (nødudgangen i formularen). Den har ingen koordinater, og
+        // ingen har set den matche en rigtig adresse — så kontoret skal vide
+        // det, og geokodningen prøver bagefter. Fire-and-forget: den må
+        // aldrig vælte bestillingen.
+        if (addr.unverified) {
+          addressUnverified = true;
+          const aid = addressId;
+          setImmediate(() => {
+            require('../services/geocode').geocodeAddress(aid).catch(err => {
+              console.warn('[web-order] geokodning af ikke-verificeret adresse fejlede:', err.message);
+            });
+          });
+        }
       }
     }
 
@@ -485,6 +503,9 @@ async function handleWebOrder(data) {
       day_contact_phone: data.contact_phone || null,
       end_customer_name: endCustomerName,
       delivery_notes: deliveryNotes,
+      internal_notes: addressUnverified
+        ? '⚠ Leveringsadressen er ikke verificeret — adresseopslaget svarede ikke hos kunden. Tjek at adressen findes.'
+        : null,
       changelog_field: 'web_order',
       // Forklarer HVORFOR bonnen ligger hvor den ligger, når det ikke er det
       // firmanavn der blev tastet. Uden linjen ser det ud som om nogen har
@@ -631,13 +652,28 @@ async function handleWebOrder(data) {
 // ─── Auto-generér bon-linjer fra kundens menu-valg (#382) ────────────────────
 // Kaldes fra handleWebOrder inde i en try/catch — må aldrig kaste videre.
 async function generateLinesFromMenuItems(db, bonId, data) {
+  const { resolveMenuItemLines, chipItemsFromWishes } = require('../services/menuItemsToLines');
   const items = Array.isArray(data.menu_items)
     ? data.menu_items.filter(i => i && Number(i.count) > 0)
     : [];
+
+  // Kost-knapper der svarer til en vare ("Glutenfri: 2" → 2 glutenfri boller).
+  // Har kunden selv valgt samme vare i menuen, er dét hendes antal — vi lægger
+  // ikke knappens tal oveni.
+  let chipRecipes = null;
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'bestilling.chip_recipes'").get();
+    if (row?.value) chipRecipes = JSON.parse(row.value);
+  } catch (e) {
+    console.warn('[web-order] bestilling.chip_recipes kan ikke læses:', e.message);
+  }
+  const chosen = new Set(items.map(i => String(i.id)));
+  for (const c of chipItemsFromWishes(data.wishes, chipRecipes)) {
+    if (!chosen.has(c.id)) items.push(c);
+  }
   if (!items.length) return;
 
   const grocyAdapter = require('../services/grocyAdapter');
-  const { resolveMenuItemLines } = require('../services/menuItemsToLines');
   const { insertBonLines } = require('../db/helpers');
 
   // Bonens priskategori — festival-events rammer festival-prisen, ellers catering.

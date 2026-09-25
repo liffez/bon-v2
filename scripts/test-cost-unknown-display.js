@@ -322,6 +322,21 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
     };
     // Gemmes FØR stubben, så HTTP-kaldet til vores egen route nedenfor ikke
     // også løber ind i Grocy-attrappen.
+    function logRaekker() {
+        // Det samlede opslag (#695): alle tilgange, ikke ét kald pr. produkt.
+        let id = 1;
+        const ud = [];
+        for (const [pid, rows] of Object.entries(KOEB)) {
+            for (const r of rows) ud.push({ id: id++, product_id: Number(pid), transaction_type: 'purchase', undone: 0, ...r });
+        }
+        // Trin 3 for varer uden køb: den nyeste tilgang med pris (optælling).
+        for (const [pid, g] of Object.entries(PRODUKT_PRIS)) {
+            if (g.last_price > 0) ud.push({ id: 1000 + Number(pid), product_id: Number(pid),
+                transaction_type: 'inventory-correction', undone: 0, amount: 1, price: g.last_price,
+                purchased_date: offsetISO(-3) });
+        }
+        return ud.sort((a, b) => b.id - a.id);
+    }
     const logOpslag = [];
     const rigtigFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
@@ -332,15 +347,13 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
         // Købsposteringerne spørges pr. produkt, så produkt-id'et står i
         // query'en og ikke i stien.
         if (sti.endsWith('/objects/stock_log')) {
-            const q = decodeURIComponent(String(url)).match(/product_id=(\d+)/);
-            if (q) logOpslag.push(q[1]);
-            return { ok: true, status: 200, json: async () => (q ? KOEB[q[1]] : null) || [] };
+            logOpslag.push(String(url));
+            return { ok: true, status: 200, json: async () => logRaekker() };
         }
         const n = Object.keys(SVAR).find(k => sti.endsWith(k));
         if (n) return { ok: true, status: 200, json: async () => SVAR[n] };
-        // Enkeltopslag for varer uden lager: øllen har ingen prishistorik.
-        const pm = sti.match(/\/stock\/products\/(\d+)$/);
-        if (pm) return { ok: true, status: 200, json: async () => PRODUKT_PRIS[pm[1]] || {} };
+        // `/stock/products/:id` spørges ikke længere (#695) — trin 3 læser loggen.
+        if (/\/stock\/products\/\d+$/.test(sti)) throw new Error('uventet enkeltopslag: ' + url);
         throw new Error('uventet kald: ' + url);
     };
 
@@ -424,14 +437,20 @@ console.log('\nS · Skriver knappen og natjobbet det samme?\n');
     ok(Math.abs(kaalLinje.cost - 38) < 0.005,
        `forælderen arver børnenes snit 19 × 2 kg = 38 (fik ${kaalLinje.cost})`);
     ok(kaalLinje.cost_inherited === true, 'og panelet siger at prisen er arvet');
-    ok(logOpslag.length > 0 && logOpslag.length <= 3,
-       `klik-stien prissætter kun opskriftens varer + deres børn, ikke hele kataloget `
-       + `(${logOpslag.length} opslag)`);
+    ok(logOpslag.length === 1,
+       `klik-stien spørger loggen ÉN gang — ikke pr. vare (${logOpslag.length} opslag)`);
 
     const rk = (svar.recipes || []).find(x => x.grocy_recipe_id === 4) || {};
     const adv = rk.cost_price_warnings || [];
-    ok(adv.length === 1, 'routen sender advarslen med ud til skærmen');
-    ok(/Remoulade/.test(adv[0]?.text || ''), 'færdigformuleret af serveren, så alle flader siger det samme');
+    const remAdv = adv.find(w => w.kind === 'produced_stock_price_differs');
+    ok(remAdv && remAdv.product_id === '30', 'routen sender advarslen med ud til skærmen');
+    ok(/Remoulade/.test(remAdv?.text || ''), 'færdigformuleret af serveren, så alle flader siger det samme');
+    // #695: Mayonaisens pris kommer fra en optælling, ikke et køb. Den bruges,
+    // men den skal kunne ses — ellers står et tastet tal som en betalt pris.
+    const mayoAdv = adv.find(w => w.kind === 'price_not_purchased');
+    ok(mayoAdv && mayoAdv.product_id === '40' && /lagerrettelse/.test(mayoAdv.text || ''),
+       'en pris fra en lagerrettelse bruges, men mærkes: ' + (mayoAdv?.text || '(ingen advarsel)'));
+    ok(adv.length === 2, `og der er ikke andre advarsler på opskriften (fik ${adv.length})`);
     ok((svar.summary?.price_warning_count ?? 0) >= 2, 'og tæller dem i opsummeringen');
     ok(rk.cost_is_minimum === false && rk.cost_unknown === false,
        'uden at rækken markeres som ufuldstændig');

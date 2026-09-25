@@ -13,6 +13,13 @@
 - docs/CLAUDE_CO2.md (hvis du rører CO₂ — F0–F7 er bygget; §1 kildehierarki + §3 `na` + §7 motor)
 - docs/CLAUDE_ECONOMIC_ADAPTER.md (spec — ikke bygget endnu)
 - docs/CLAUDE_MENU_AGENT.md (spec — ikke bygget endnu)
+- docs/indkob/CLAUDE_VARER_OG_PRISER.md (hvis du rører indkøbets Varer/Produkter, varenumre eller leverandørpriser — koncept godkendt 22/9, ikke bygget)
+- docs/CLAUDE_LAGEROPTAELLING.md (hvis du rører optællingen — epic #649, v0.3)
+- docs/CLAUDE_OPSKRIFT_DESIGNER.md (hvis du rører opskrift-designeren — den er også importens editor)
+- docs/CLAUDE_OPSKRIFT_IMPORT.md + CLAUDE_OPSKRIFT_IMPORT_OVERSAETTELSE.md (spec — F-1 bygget, resten ikke)
+- docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md (spec — ikke bygget endnu)
+- docs/indkob/CLAUDE_INDKOB_STATUS.md (LÆS FØRST ved indkøb — hvad vi har nu, arbejdsgangen, og hvor den knækker)
+- docs/indkob/CLAUDE_INDKOB_FASE_A.md + CLAUDE_INDKOB_FASE_B.md (hvis du rører indkøb — fejlene og løgnene; akse 3 afgjort 22/9)
 
 ### Scan for nye specs
 Kør `ls docs/CLAUDE_*.md docs/**/CLAUDE_*.md 2>/dev/null` ved sessionsstart for at
@@ -152,6 +159,7 @@ bon-v2/
 │   ├── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
 │   ├── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
 │   ├── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
+│   ├── address.js    ← /embed/adresse/soeg + /afstand (public — DAWA/OSRM gennem vores server; bestilling, smagsprøve og office)
 │   ├── contact-points.js ← /api/contact-points/* (CRUD + toggle-public for kontaktpunkter)
 │   ├── flags.js      ← /api/flags/* (entity_flags CRUD + ack/dismiss — påmindelser på kunder/firmaer)
 │   ├── stock-counts.js ← /api/stock-counts/* (optællingen som objekt: start, linjer, luk — #673)
@@ -168,6 +176,7 @@ bon-v2/
 │   ├── delivery_log.js       ← Booking-events + actual cost + sync delivery_method (Spor 1)
 │   ├── routing.js            ← ORS vej-routing (getDistance/getRoute) + geo_calculations-cache (Spor 2)
 │   ├── geocode.js            ← DAWA-geokodning af adresser (Spor 2)
+│   ├── addressSearch.js      ← Adresseforslag: København først + præcist husnummer først — ÉN kopi, kaldt via /embed/adresse/soeg
 │   ├── delivery_calc.js      ← Single-bon leverings-forslag: afstand + vogn-anbefaling (Spor 2)
 │   ├── route_planner.js      ← Rute-orchestrator: computeRoute/applyRouteProposal (Spor 2)
 │   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
@@ -9646,6 +9655,61 @@ fanget** (26 mutationer i alt). Browser-verificeret mod grocy-test med rigtige k
 Enter, pakkepris 350/1000 på et varenummer → Grocys `last_price` 0,35,
 foretrukket-valg, "115 kr for tolv" afvist); grocy-test rullet tilbage bagefter.
 
+### Adresseopslag gennem vores egen server (25. september 2026)
+
+Danner (Nansensgade 1) kunne ikke bestille: adresselisten kom aldrig frem, heller
+ikke i inkognito. Browseren talte direkte med `api.dataforsyningen.dk`, og en
+firma-firewall blokerede den lydløst — mens formularen kun godkendte en adresse
+valgt fra listen. Ingen udvej.
+
+- **`GET /embed/adresse/soeg`** (`routes/address.js` → `services/addressSearch.js`)
+  henter fra DAWA på serveren. Kunden skal kun kunne nå vores domæne, som hun
+  allerede har fået siden fra. Grænse pr. IP (120/min) og 5 min cache — ruten er
+  offentlig. DAWA nede → **502**, så klienten kan skelne "ingen adresser" fra
+  "opslaget svarer ikke".
+- **Reglen findes ét sted.** "København først" lå i tre kopier (utils.js,
+  bestillingssiden, smagsprøven) holdt ens af en test. Nu kalder alle skærme —
+  office, bestilling, smagsprøve — samme rute. Reglen fik samtidig **præcist
+  husnummer først**: DAWA matcher på starten, så "Nansensgade 1" gav 10, 12, 14…
+  og nr. 1 lå på plads 11, uden for listen.
+- **Intet opslag nr. 2 ved valg.** Forslaget bærer allerede postnr, by og
+  koordinater (`adresse.x/y`), så `/adresser/:id`-kaldet er væk — ét kald mindre
+  der kan fejle.
+- **`GET /embed/adresse/afstand`** erstatter bestillingssidens direkte OSRM-kald.
+  Regner kun fra huset (`bestilling.base_*`), så ruten ikke er en åben ruteplanlægger.
+- **Nødudgang i bestillingsformularen:** svarer opslaget ikke, må adressen sendes
+  skrevet i hånden, hvis den ligner en adresse (gade, nummer, postnr). Bonen får
+  `internal_notes` "⚠ Leveringsadressen er ikke verificeret", og geokodningen
+  prøver bagefter. Smagsprøven tog allerede en håndskrevet adresse og siger det nu.
+- **nginx:** `kontakt.ristetrug.dk` er en allowlist — `/embed/adresse/soeg` er
+  skrevet ind (smagsprøven kan ligge dér). Skal kopieres til serveren og nginx
+  genindlæses.
+- **Ikke rørt:** Chromes egen adresseudfyldning (den sorte boks) kan stadig lægge
+  sig over listen; `autocomplete="off"` ignoreres af Chrome for adressefelter.
+
+**Tests:** `npm run test:dawa` — 33 (reglen, forespørgslerne, ruten over HTTP,
+klienterne, nødudgangen hele vejen til bonen). Mutations-testet: 14 mutationer,
+alle fanget.
+
+### Planlægning (ny) — drill-down, fase 1 (24. september 2026)
+> Spec: `docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md` §18–19. Kører SIDE OM SIDE med den gamle.
+
+- `POST /api/bons/planning/tree` (`services/planningTree.js`) bygger hele træet for
+  niveau 1–3 (Kategorier · Varer · Ønsker) i ét kald. Frontenden navigerer og formaterer
+  kun — ingen summering af bonlinjer, ingen moms i browseren.
+- Enheder = `bonUnitsExpr` (samme tal som `bons.total_units`); ekstra-linjer via den nye
+  `unitsForLines()`. Bokse foldes ud i deres sælgelige børn med `splitOre` + servings.
+- Kost/salg er rettigheder pr. rolle (`plan_kost`/`plan_salg`, migration 190) og afgøres
+  på serveren — et tal man ikke må se, står ikke i svaret.
+- Standard-statusser (`planning_default_statuses`) er en admin-indstilling i Settings →
+  System; LEVERET og frem er fra som standard. Vundne tilbud og event-salg tæller aldrig.
+- `shared/periodPicker.js` er ny delt komponent (Dag · 3 dage · Uge · Periode).
+- Køkken: `kitchen/planning-ny.html`. Office: Bons → **Planlægning (ny)**.
+- Fase 2 (25/9): niveau 4 Skal laves + 5 Råvarer i `services/planningProduction.js`
+  (resolver + produktionspolitik + `recipeCost.lineUnitCost` + `co2Engine.resolveIngredient`).
+  Niveau 5 = behov for bonlinjerne + de batches der skal laves. Fase 3 (tjekliste) er ikke bygget.
+- Resolverens `shortfall_purchase` havde en flydende-tal-fejl (1,12 → 1,13; 2 sække → 3) — rettet med epsilon.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -10024,6 +10088,7 @@ GET    /api/bons/later?days=28                            routes/kitchen.js
 GET    /api/bons/calendar?year=&month=&status=            routes/kitchen.js
 GET    /api/bons/planning?from=&to=&status=              routes/kitchen.js
 GET    /api/bons/planning/ingredients?ids=               routes/kitchen.js
+POST   /api/bons/planning/tree   { bon_ids, extras }     routes/kitchen.js (Planlægning ny — drill-down-træ, kost/salg pr. rolle)
 GET    /api/bons?date=&status=&q=&location=              routes/bons.js
 GET    /api/bons/:id                                     routes/bons.js
 POST   /api/bons                                         routes/bons.js
@@ -10220,6 +10285,8 @@ POST   /webhook/bestilling                                 routes/web-orders.js 
 GET    /embed/bestilling?menu=                             routes/embed.js (public, CSP frame-ancestors)
 GET    /embed/config                                       routes/embed.js (public)
 GET    /embed/menus/:id.json                               routes/embed.js (public, 60s cache, manual/grocy via menu_source)
+GET    /embed/adresse/soeg?q=&limit=&fuzzy=1           routes/address.js (public, adresseforslag, grænse pr. IP)
+GET    /embed/adresse/afstand?lat=&lon=                routes/address.js (public, km fra huset via OSRM)
 GET    /embed/grocy-preview                                routes/embed.js (auth, tvungen Grocy-render til import-modal)
 GET    /api/settings/bestilling/menu/:id                   routes/settings.js (admin)
 PUT    /api/settings/bestilling/menu/:id                   routes/settings.js (admin, validér + auto-bump version)

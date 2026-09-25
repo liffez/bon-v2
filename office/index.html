@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="../shared/dashboard_chart.css">
   <link rel="stylesheet" href="../shared/calendar.css">
   <link rel="stylesheet" href="../shared/planning.css?v=2026-05-22">
+  <link rel="stylesheet" href="../shared/periodPicker.css?v=2026-09-24">
+  <link rel="stylesheet" href="../shared/planning_drill.css?v=2026-09-25e">
   <link rel="stylesheet" href="../shared/modal.css">
   <link rel="stylesheet" href="../shared/flyver.css">
   <link rel="stylesheet" href="../shared/mail_thread.css">
@@ -888,6 +890,8 @@
   <script src="../shared/mail_thread.js"></script>
   <script src="../shared/mail_compose.js"></script>
   <script src="../shared/crm_followup.js"></script>
+  <script src="../shared/crm_contact_context.js"></script>
+  <script src="../shared/crm_call_draft.js"></script>
   <script src="../BonConfig.js"></script>
   <script src="../BonConfigBar.js"></script>
   <script src="../shared/kunde_soeg.js"></script>
@@ -902,6 +906,8 @@
   <script src="../shared/flyver.js"></script>
   <script src="../shared/calendar.js"></script>
   <script src="../shared/planning.js"></script>
+  <script src="../shared/periodPicker.js?v=2026-09-25c"></script>
+  <script src="../shared/planning_drill.js?v=2026-09-25f"></script>
   <script src="/assets/leaflet/leaflet.js"></script>
   <script src="/assets/leaflet/leaflet-heat.js"></script>
   <script src="views/bons-list.js"></script>
@@ -909,6 +915,7 @@
   <script src="views/activity-log.js"></script>
   <script src="views/bons-calendar.js"></script>
   <script src="views/planning.js"></script>
+  <script src="views/planning-ny.js?v=2026-09-24"></script>
   <script src="views/dashboard.js"></script>
   <script src="views/crm-dashboard.js"></script>
   <script src="views/crm-kunde360.js"></script>
@@ -1080,6 +1087,10 @@
           init: () => initOfficePlanning(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupOfficePlanning === 'function') cleanupOfficePlanning(); },
         },
+        'planning-ny': {
+          init: () => initOfficePlanningNy(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupOfficePlanningNy === 'function') cleanupOfficePlanningNy(); },
+        },
         'crm-dashboard': {
           init: () => initCrmDashboard(contentEl, { openDrawer, openKunde360 }),
           cleanup: () => { if (typeof cleanupCrmDashboard === 'function') cleanupCrmDashboard(); },
@@ -1221,6 +1232,7 @@
           { id: 'kalender', label: 'Kalender' },
           { id: 'uge', label: 'Ugeoversigt' },
           { id: 'plan', label: 'Planlægning' },
+          { id: 'plan2', label: 'Planlægning (ny)' },
           { id: 'nye', label: 'Ubekræftede', badge: 'bons_nye' },
           { id: 'log', label: 'Log' },
         ],
@@ -1270,6 +1282,7 @@
           kalender: 'calendar',
           uge: 'ugeoversigt',
           plan: 'planning',
+          plan2: 'planning-ny',
           nye: 'web-orders',
           log: 'activity-log',
         },
@@ -1520,7 +1533,7 @@
         // Update help system page context
         var helpNames = {
           'dashboard':'Office — Dashboard', 'bons':'Office — Bonliste',
-          'planning':'Office — Planlægning', 'calendar':'Office — Kalender',
+          'planning':'Office — Planlægning', 'planning-ny':'Office — Planlægning (ny)', 'calendar':'Office — Kalender',
           'crm-dashboard':'Office — CRM', 'crm-kunde360':'Office — Kunder',
           'kontakter':'Office — Kontakter',
           'crm-inbox':'Office — CRM Indbakke', 'fakturering':'Office — Fakturering',
@@ -1853,6 +1866,7 @@
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_created', data);
           if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_created', data);
           if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_created', data);
+          if (typeof _pdHandleSSE === 'function') _pdHandleSSE('bon_created', data);
           if (data && data.source === 'web_order') {
             _showAttentionToast('🛒 Ny web-bestilling: #' + (data.bon_number || data.id) + ' — klik for at åbne');
           }
@@ -1869,6 +1883,7 @@
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_updated', data);
           if (typeof _logHandleSSE === 'function') _logHandleSSE('bon_updated', data);
           if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_updated', data);
+          if (typeof _pdHandleSSE === 'function') _pdHandleSSE('bon_updated', data);
           scheduleBadgeReload();  // acknowledge-flag på bons_nye kan ændre sig
           scheduleAttentionReload();
         },
@@ -1882,6 +1897,7 @@
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_status', data);
           if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_status', data);
           if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_status', data);
+          if (typeof _pdHandleSSE === 'function') _pdHandleSSE('bon_status', data);
           scheduleBadgeReload();  // LEVERET → fakturering-køen
           scheduleAttentionReload();
         },
