@@ -209,15 +209,24 @@ function unitCostDetail(grocyRow, purchases = null, opts = {}) {
     const lagerpost = _pos(stockRowPrice);
     if (lagerpost != null) return { ...base, cost: lagerpost, source: 'stock_row' };
 
+    // Siden #695 kommer rækken fra loggen (`lastEntryFromLog`), og så følger
+    // posteringens type og dato med. En pris fra en optælling eller en
+    // egenproduktion er ikke noget vi har betalt — typen lader kostprisen sige det.
     const gLast = _pos(grocyRow && grocyRow.last_price);
-    if (gLast != null) return { ...base, cost: gLast, source: 'last', last_price: gLast };
+    if (gLast != null) {
+        return { ...base, cost: gLast, source: 'last', last_price: gLast,
+                 last_price_type: (grocyRow && grocyRow.last_price_type) || null,
+                 last_price_date: (grocyRow && grocyRow.last_price_date) || null };
+    }
 
     const gAvg = _pos(grocyRow && (grocyRow.avg_price ?? grocyRow.average_price));
     if (gAvg != null) return { ...base, cost: gAvg, source: 'avg', avg_price: gAvg };
 
     const value  = Number(grocyRow && grocyRow.value);
     const amount = Number(grocyRow && grocyRow.amount);
-    if (Number.isFinite(value) && Number.isFinite(amount) && amount > 1e-9) {
+    // 0 kr er ikke en pris (samme regel som `_pos`): en lagerværdi på 0 må
+    // ikke blive til en "komplet" kostpris på 0.
+    if (Number.isFinite(value) && value > 0 && Number.isFinite(amount) && amount > 1e-9) {
         return { ...base, cost: value / amount, source: 'stock_value' };
     }
     return null;
@@ -515,6 +524,15 @@ function lineUnitCost(product, recipeId, ctx, memo, stack) {
                 kind: 'estimated_price',
                 product_id: pid, product: name, price: stockPrice,
             });
+        } else if (d && d.source === 'last' && d.last_price_type && d.last_price_type !== 'purchase') {
+            // Intet køb med pris, så prisen kommer fra en anden tilgang (#695).
+            // Kostprisen er komplet, men tallet er ikke betalt — typisk tastet
+            // ved en optælling. Det skal kunne ses og rettes, ikke gemmes.
+            warnings.set(`unpurchased:${pid}`, {
+                kind: 'price_not_purchased',
+                product_id: pid, product: name, price: stockPrice,
+                entry_type: d.last_price_type, entry_date: d.last_price_date || null,
+            });
         } else if (d && d.warn) {
             warnings.set(`price:${pid}`, {
                 kind: 'last_vs_avg',
@@ -637,6 +655,15 @@ function describeWarning(w) {
         case 'estimated_price':
             return `${w.product}: prisen ${kr(w.price)} er et manuelt overslag, ikke en målt `
                  + `indkøbspris. Kobl varen til et varenummer når det kendes.`;
+        case 'price_not_purchased': {
+            const hvor = {
+                'inventory-correction': 'en lagerrettelse',
+                'self-production':      'en egenproduktion',
+                'stock-edit-new':       'en rettet lagerpost',
+            }[w.entry_type] || 'en lagerpostering';
+            return `${w.product}: prisen ${kr(w.price)} er ikke et køb — den kommer fra ${hvor}`
+                 + `${w.entry_date ? ' ' + w.entry_date : ''}. Tjek den, eller kobl varen til et varenummer.`;
+        }
         case 'last_vs_avg':
             return `${w.product}: seneste køb ${kr(w.last_price)} ligger ${pct(w.deviation_pct)} `
                  + `fra ${w.window_days || PRICE_WINDOW_DAYS_DEFAULT}-dages gennemsnittet ${kr(w.avg_price)}. `
