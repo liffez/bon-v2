@@ -1,6 +1,6 @@
 # CLAUDE_PLANLAEGNING_DRILLDOWN.md — Planlægningen som drill-down
 
-> Status: SPEC — klar til implementering (revideret 24. september 2026, se §18)
+> Status: Fase 1 BYGGET side om side med den gamle (24. september 2026) — fase 2–3 ikke bygget. Se §18–19.
 > Oprettet: 20. september 2026
 > Mockup (klikbar, iPad + 27"): https://claude.ai/artifact/V9Sj2i3SnwuxrHxLx9b921
 > Berører: `shared/planning.js/.css`, `kitchen/planning.html`, `office/views/planning.js`,
@@ -386,3 +386,52 @@ Tre faser, hver testes i drift fra branchen før den næste startes.
 
 Indkøbets nettomangel/tilstande (§8) kommer fra indkøbs-sessionen og kobles på når den
 findes — ikke en del af de tre faser.
+
+## 19. Fase 1 — hvad der er bygget (24. september 2026)
+
+Kører **side om side** med den gamle planlægning, så de to kan sammenlignes på samme
+data: køkkenet `kitchen/planning-ny.html` (link fra den gamle side), office pillen
+**Bons → Planlægning (ny)**. Når den nye er godkendt i drift, overtager den den gamles
+plads, og den gamle kode fjernes i en separat PR.
+
+| Del | Fil |
+|---|---|
+| Træet (niveau 1–3) | `services/planningTree.js` · `POST /api/bons/planning/tree` (`routes/kitchen.js`) |
+| Enheder for ekstra-linjer | `db/helpers.js` `unitsForLines()` — samme SQL som `recalcBonTotalUnits` |
+| Periodevælger | `shared/periodPicker.js/.css` |
+| Frontend | `shared/planning_drill.js/.css`, `office/views/planning-ny.js` |
+| Indstillinger | migration 190: `planning_default_statuses` + rettighederne `plan_kost`/`plan_salg` |
+| Test | `npm run test:planning-tree` |
+
+**Afvigelser fra §11 der er værd at kende:**
+- Svaret er normaliseret: knuderne står én gang i `nodes`, og `levels`/`children` er
+  id-lister. En vare står både under sin kategori og i Varer-fanen, og en kilde under
+  både vare og ønske — ellers ville svaret sende det samme flere gange.
+- `include_sale` findes ikke. Kost/salg afgøres alene af rollens rettigheder (§7).
+- En boks' tal (enheder, kost, salg) fordeles på børnene med `splitOre` og nestingens
+  `servings` — samme fordeling som e-conomic-udkastet. Summen ændres ikke en øre.
+  CO₂ fordeles proportionalt.
+- Et udfoldet barn står under sin egen Grocy-kategori (fx `04 Slider`), ikke under
+  boksens. Den samlede enhedstal er uændret.
+- Salg er efter bonens rabat (`bonDiscount.discountForLine`), og sponsorat/modregning
+  (`counts_as_revenue = 0`) giver 0 kr — samme regler som rapporterne.
+
+- **Pr. dag er en tabel** (afgjort 25.09): med knappen slået til vises kun den kolonne
+  man står i, som en bred tabel med én kolonne pr. dag + "I alt" (+ den valgte Vis-værdi).
+  Kun dage der har noget på (`tree.days`). Bundlinjen er forælderens dagstal, eller
+  `totals.units_days` på øverste niveau — intet summeres i browseren.
+- **Standardperioden er 10 dage fra i morgen** (afgjort 25.09): planlægger man om
+  mandagen, skal hele næste arbejdsuge med — en kalenderuge rækker ikke. Knapperne er
+  Dag · 3 dage · 10 dage · Uge · Periode. `periodPicker` forstår `'<N>days'` som
+  rullende N dage.
+- Status-knapperne har kalenderens udseende (udfyldt/bleg), men 44 px trykflade.
+
+**Enheder mod den gamle sammentælling:** den gamle talte alle kategorier med
+(`is_accessory` er aldrig sat), altså også emballage og drikke. Den nye bruger
+enhedsreglen (`unit_count_categories`) — samme tal som `bons.total_units`, ugeoversigten
+og kapaciteten. Emballage m.fl. vises dæmpet med "tæller ikke som enheder". Det er
+derfor forventet at den nye viser færre enheder end den gamle sammentælling.
+
+**Standarder sat af migration 190** (kan ændres i Settings → Rollerettigheder):
+admin + office ser kost og salg; kitchen ser kost hvis den gamle "Vis priser i
+planlægningsbon" var slået til, aldrig salg; kitchen_personal og delivery ser ingen af dem.

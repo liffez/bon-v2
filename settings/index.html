@@ -534,10 +534,12 @@
       <h2>Rollerettigheder</h2>
       <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:12px;">
         Styrer hvilke moduler hver rolle har adgang til i mobilzonen og office.
+        <br><strong>Plan: kost</strong> og <strong>Plan: salg</strong> styrer om rollen ser kostpris og salgspris/DB
+        i den nye planlægning. Er et tal slået fra, sender serveren det slet ikke.
       </p>
       <table class="st-table" id="roles-matrix">
         <thead><tr>
-          <th>Rolle</th><th>CRM</th><th>Tilbud</th><th>Økonomi</th><th>Rapporter</th><th>Settings</th><th>Modtag</th>
+          <th>Rolle</th><th>CRM</th><th>Tilbud</th><th>Økonomi</th><th>Rapporter</th><th>Settings</th><th>Modtag</th><th title="Kostpris i planlægningen (ny)">Plan: kost</th><th title="Salgspris og DB i planlægningen (ny)">Plan: salg</th>
         </tr></thead>
         <tbody id="roles-matrix-body"></tbody>
       </table>
@@ -1216,7 +1218,17 @@
           <input type="checkbox" id="planning-prices-enabled" onchange="togglePlanningPrices()">
           <span class="st-toggle-slider"></span>
         </label>
-        <span style="font-size:11px;color:var(--color-text-dim)">Salgspris (m/moms), kostpris, margin</span>
+        <span style="font-size:11px;color:var(--color-text-dim)">Salgspris (m/moms), kostpris, margin — kun den gamle planlægning. Den nye styres pr. rolle under Rollerettigheder (Plan: kost / Plan: salg).</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px">
+        <label style="width:280px;font-size:14px;font-weight:500;padding-top:4px">Planlægning (ny): statusser valgt fra start</label>
+        <div style="flex:1;max-width:560px">
+          <div id="plan-default-statuses" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+          <div style="font-size:11px;color:var(--color-text-dim);margin-top:6px;line-height:1.5">
+            Leverede bons og frem har trukket lageret — med dem i behovet tælles varerne to gange.
+            Brugeren kan stadig slå andre statusser til i planlægningen. Tilbud vises indtil de er vundet.
+          </div>
+        </div>
       </div>
 
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Leveringsmetode-ikoner</h3>
@@ -1978,6 +1990,7 @@ async function init() {
     loadDeductStatus();          // egen fetch — må ikke blokere resten hvis den fejler
     loadCapacitySettings();
     loadPlanningPricesSettings();
+    loadPlanningDefaultStatuses();
     loadUnitCategoriesSettings();
     loadAutoFeeSettings();
     renderDeliveryIcons();
@@ -2224,7 +2237,7 @@ var ROLE_LABELS = {
   kitchen_personal: 'K. personlig',
   delivery: 'Levering'
 };
-var PERM_MODULES = ['crm', 'tilbud', 'okonomi', 'rapporter', 'settings', 'modtag'];
+var PERM_MODULES = ['crm', 'tilbud', 'okonomi', 'rapporter', 'settings', 'modtag', 'plan_kost', 'plan_salg'];
 
 async function loadRolesMatrix() {
   var perms = await fetchRolePermissions();
@@ -3258,6 +3271,35 @@ function loadPlanningPricesSettings() {
   var enabled = allSettings['show_prices_in_planning'] === '1';
   var el = document.getElementById('planning-prices-enabled');
   if (el) el.checked = enabled;
+}
+
+// Planlægning (ny): standard-statusser. Gemmes som JSON-array af statuskoder.
+async function loadPlanningDefaultStatuses() {
+  var el = document.getElementById('plan-default-statuses');
+  if (!el) return;
+  var selected = [];
+  try { selected = JSON.parse(allSettings['planning_default_statuses'] || '[]'); } catch (e) { selected = []; }
+  if (!Array.isArray(selected)) selected = [];
+  var statuses = [];
+  try { statuses = await fetchStatuses(); } catch (e) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--color-danger,#c0392b)">Statusserne kunne ikke hentes.</span>';
+    return;
+  }
+  el.innerHTML = statuses.filter(function(st) { return st.code !== 'AFLYST' && st.code !== 'TILBUD'; }).map(function(st) {
+    var on = selected.indexOf(st.code) !== -1;
+    return '<label style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:14px;cursor:pointer;font-size:13px;border:1px solid ' +
+      esc(st.color || '#999') + ';' + (on ? 'background:' + esc(st.color || '#999') + ';color:#fff' : 'color:var(--color-text)') + '">' +
+      '<input type="checkbox" style="margin:0" data-code="' + esc(st.code) + '"' + (on ? ' checked' : '') +
+      ' onchange="savePlanningDefaultStatuses()">' + esc(st.label || st.code) + '</label>';
+  }).join('');
+}
+
+async function savePlanningDefaultStatuses() {
+  var codes = Array.prototype.map.call(
+    document.querySelectorAll('#plan-default-statuses input:checked'),
+    function(cb) { return cb.dataset.code; });
+  try { await saveSetting('planning_default_statuses', JSON.stringify(codes)); } catch (e) { /* toast vist */ }
+  loadPlanningDefaultStatuses();
 }
 
 async function togglePlanningPrices() {

@@ -932,6 +932,31 @@ function unitCountablePredicate() {
 }
 
 /**
+ * Enheder for linjer der IKKE står i bon_lines (fx planlægningens ekstra-linjer).
+ * Kører samme SQL-udtryk som recalcBonTotalUnits over en VALUES-tabel, så
+ * reglen ikke findes i en JS-kopi der kan drive fra den rigtige.
+ *
+ * rows: [{ quantity, category, grocy_recipe_id, is_accessory? }] → [units]
+ */
+function unitsForLines(db, rows) {
+    if (!Array.isArray(rows) || !rows.length) return [];
+    const { contrib, join, args } = bonUnitsExpr();
+    const values = rows.map(() => '(?,?,?,?)').join(',');
+    const vArgs = [];
+    rows.forEach((r, i) => vArgs.push(i, Number(r.quantity) || 0, r.category ?? null,
+        r.grocy_recipe_id != null ? Number(r.grocy_recipe_id) : null));
+    // CTE-værdierne står FØR contrib i SQL-teksten, så deres parametre bindes først.
+    const out = db.prepare(`
+        WITH bl(idx, quantity, category, grocy_recipe_id) AS (VALUES ${values})
+        SELECT bl.idx AS idx, ${contrib} AS u
+          FROM bl ${join}
+    `).all(...vArgs, ...args);
+    const res = rows.map(() => 0);
+    for (const o of out) res[o.idx] = rows[o.idx].is_accessory ? 0 : (Number(o.u) || 0);
+    return res;
+}
+
+/**
  * Genberegn total_units på en bon — boks-aware (se bonUnitsExpr).
  * Returnerer den nye total.
  */
@@ -1254,7 +1279,7 @@ module.exports = {
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getRecipeCostWindowDays, invalidateRecipeCostWindowCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
-    bonUnitsExpr, unitCountablePredicate,
+    bonUnitsExpr, unitCountablePredicate, unitsForLines,
     recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal, insertBonLines, hasDeliveryLine, findDeliveryLine,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql, bonOwnsStockCostSql,
     driftLocationSql,
