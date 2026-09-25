@@ -53,6 +53,24 @@ function amounts(i) {
     return { unit, need, stock, short, need_display: fmt(need), stock_display: fmt(stock), short_display: fmt(short) };
 }
 
+/**
+ * Det tjeklisten (fane 6) skal bruge for at logge og rette en vare gennem
+ * optællingens egne endpoints (#673): Grocy-lokation, lager og behov i
+ * LAGER-enhed, og den fysiske enhed varen sidst blev talt i.
+ */
+function checkInfo(i, product) {
+    if (!product) return null;
+    const uf = product.userfields || {};
+    return {
+        product_id: Number(i.product_id),
+        location_id: Number(product.location_id) || null,
+        stock_qty: Number(i.stock_amount) || 0,
+        need_qty: Number(i.needed_stock) || 0,
+        stock_unit: shortUnit(i.stock_unit_name),
+        physical_unit_name: (uf.LastCheckedUnit && String(uf.LastCheckedUnit).trim()) || null,
+    };
+}
+
 function groupLabel(name) {
     const s = String(name || '').trim();
     return s ? s.replace(/^\d+\s+/, '') : 'Uden varegruppe';
@@ -206,6 +224,7 @@ async function buildProductionLevels(input, deps = {}) {
                 missing: (i.make_shortfalls || []).map(s => s.product_name),
             },
             used_in: usedIn.get(pid) || null,
+            check: type === 'to_stock' ? checkInfo(i, productById.get(pid)) : null,
             days: {},
             values: publicVal(sum, perms),
             children: [],
@@ -274,6 +293,7 @@ async function buildProductionLevels(input, deps = {}) {
             qty: round(amounts(i).need, 3), qty_display: fmtQty(amounts(i).need), unit: amounts(i).unit,
             status: i.status,
             stock_display: amounts(i).stock_display,
+            check: checkInfo(i, product),
             // Indkøbslisten som i Råvarer-modalen i dag: mængden er oprundet på
             // serveren (shortfall_purchase). Nettomangel mod indkøbslisten og
             // bestillinger hører til indkøbs-sessionen (spec §8).

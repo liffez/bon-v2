@@ -155,3 +155,22 @@
     display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 16px; background: #fff; }
 .pd-recipe-link:hover { background: #f2efe9; }
+
+/* Tjekliste (fane 6) */
+.pd-check-bar { height: 6px; background: #f0ece6; }
+.pd-check-bar span { display: block; height: 100%; background: #2e8b2e; transition: width .2s; }
+.pd-ck-row { align-items: center; }
+.pd-ck-row.ck-ok, .pd-ck-row.ck-fixed { background: #fbfdfb; }
+.pd-ck-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.pd-ck-ok { border-color: #9fcf9f; }
+.pd-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; border-color: var(--brand-primary, #8e631f); font-weight: 700; }
+.pd-btn:disabled { opacity: .5; cursor: default; }
+.pd-ck-done { font-size: 14px; font-weight: 700; }
+.pd-ck-done.ok { color: #1f6b1f; }
+.pd-ck-done.fixed { color: #7a4f00; }
+.pd-ck-undo { border: none; background: none; color: var(--color-text-dim, #888); text-decoration: underline; cursor: pointer; min-height: 44px; font-family: inherit; }
+.pd-ck-edit { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
+.pd-ck-input { width: 90px; min-height: 44px; padding: 0 8px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px; font-size: 16px; text-align: right; font-family: inherit; }
+.pd-check-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px; border-top: 1px solid var(--color-border, #d7d1ca); background: #faf8f4; }
+.pd-ck-reset { margin-left: auto; }
+.pd-ck-summary { font-weight: 700; }

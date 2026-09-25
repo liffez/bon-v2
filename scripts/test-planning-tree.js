@@ -195,6 +195,7 @@ const extras = [{ grocy_recipe_id: 11, quantity: 4, price_category: 'catering' }
     app.use(express.json());
     app.use((req, _res, next) => { req.session = { userId: Number(req.headers['x-user']), userRole: req.headers['x-role'] }; next(); });
     app.use('/api/bons', require('../routes/kitchen'));
+    app.use('/api/bons', require('../routes/bons'));
     const srv = http.createServer(app);
     await new Promise(r => srv.listen(0, r));
     const port = srv.address().port;
@@ -212,6 +213,22 @@ const extras = [{ grocy_recipe_id: 11, quantity: 4, price_category: 'catering' }
     const off = await post(902, 'office');
     check('rute: office får salgspris', /"sale_ex"/.test(off.body));
     check('rute: office får kostpris', /"cost_ex"/.test(off.body));
+    // §10b Råvarer ✓ (tjeklisten): historik + kun når feltet faktisk skifter
+    const patch = (body) => new Promise((resolve, reject) => {
+        const r = http.request({ port, path: '/api/bons/1/prep', method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'x-user': 902, 'x-role': 'office' } }, res => {
+            let d = ''; res.on('data', c => d += c); res.on('end', () => resolve({ status: res.statusCode, body: d }));
+        });
+        r.on('error', reject); r.end(JSON.stringify(body));
+    });
+    const log = () => db.prepare(`SELECT * FROM changelog WHERE entity_type='bon' AND entity_id=1 AND field_name='prep_ingredients_ready'`).all();
+    const p1 = await patch({ ingredients_ready: true, note: 'fra planlægningens tjekliste' });
+    eq('prep: 200', p1.status, 200);
+    const l1 = log();
+    eq('prep: én historik-linje', l1.length, 1);
+    eq('prep: bruger fra sessionen + note', [l1[0] && l1[0].user_id, l1[0] && l1[0].notes, l1[0] && l1[0].new_value], [902, 'fra planlægningens tjekliste', '1']);
+    await patch({ ingredients_ready: true });
+    eq('prep: samme værdi igen logger ikke', log().length, 1);
     srv.close();
 
     // §11 Migration 190

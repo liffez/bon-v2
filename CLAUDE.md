@@ -9556,7 +9556,10 @@ alle fanget.
 - Køkken: `kitchen/planning-ny.html`. Office: Bons → **Planlægning (ny)**.
 - Fase 2 (25/9): niveau 4 Skal laves + 5 Råvarer i `services/planningProduction.js`
   (resolver + produktionspolitik + `recipeCost.lineUnitCost` + `co2Engine.resolveIngredient`).
-  Niveau 5 = behov for bonlinjerne + de batches der skal laves. Fase 3 (tjekliste) er ikke bygget.
+  Niveau 5 = behov for bonlinjerne + de batches der skal laves.
+- Fase 3 (25/9): fane 6 Tjekliste — ✓ er der / passer ikke (rigtigt tal → Grocy rettes) gennem
+  optællingens egne endpoints (én optælling pr. Grocy-lokation), Råvarer ✓ på bonsene når alt er dækket.
+  `PATCH /api/bons/:id/prep` skriver nu historik og sender `bon_updated`.
 - Resolverens `shortfall_purchase` havde en flydende-tal-fejl (1,12 → 1,13; 2 sække → 3) — rettet med epsilon.
 
 ## Næste opgave

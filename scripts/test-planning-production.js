@@ -73,7 +73,8 @@ const PRODUCTS = [
     [P.BOUILLON, 'Bouillon', null, 4], [P.BEN, 'Suppeben', G.KOED, 4], [P.MEL, 'Hvedemel', G.BROED, 4, 6],
     [P.PICKLES, 'Pickles', null, 4], [P.AGURK, 'Agurk', null, 4],
 ].map(([id, name, grp, qu, pu]) => ({ id, name, product_group_id: grp, qu_id_stock: qu, qu_id_purchase: pu || qu,
-    userfields: id === P.GRIS_RAA ? { co2e_per_kg: '5' } : id === P.SALT ? { co2e_per_kg: '1' } : {} }));
+    location_id: id === P.GRIS_RAA ? 2 : null,
+    userfields: id === P.GRIS_RAA ? { co2e_per_kg: '5', LastCheckedUnit: 'KØL-1' } : id === P.SALT ? { co2e_per_kg: '1' } : {} }));
 const STOCK = [
     { product_id: P.BROED, amount: 1 }, { product_id: P.GRIS, amount: 0.3 }, { product_id: P.SALT, amount: 5 },
     { product_id: P.AESKE, amount: 3 }, { product_id: P.MEL, amount: 0.1 }, { product_id: P.PICKLES, amount: 5 },
@@ -173,6 +174,12 @@ const itemRecipes = new Map([[1, 'Grisen på Rug'], [2, 'Falaflen'], [3, 'Suppe'
     const a2 = _amounts({ needed_stock: 0.04, stock_amount: 0.01, display_factor: 1000, unit: 'Gram' });
     eq('små mængder bliver i g', [a2.need_display, a2.stock_display, a2.short_display], ['40 g', '10 g', '30 g']);
     eq('Gram/Kilo → g/kg', [_shortUnit('Gram'), _shortUnit('Kilo'), _shortUnit('Antal'), _shortUnit('pose')], ['g', 'kg', 'stk', 'pose']);
+
+    // §6c Tjekliste-info: det optællingens endpoints skal bruge, i LAGER-enhed
+    eq('svinekam: check-info', N['raw:200'].check, { product_id: 200, location_id: 2, stock_qty: 0, need_qty: 1.12,
+        stock_unit: 'kg', physical_unit_name: 'KØL-1' });
+    check('forud-produceret vare er på tjeklisten', !!N['prep:125'].check);
+    eq('laves ved levering er ikke (laves først når bonen leveres)', N['prep:300'].check, null);
 
     // §7 Tomt grundlag
     const empty = await buildProductionLevels({ lines: [], itemRecipes, perms: { cost: true } });

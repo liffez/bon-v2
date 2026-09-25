@@ -29,6 +29,7 @@ var PD_TABS = [
     { key: 'requests',   n: 3, label: 'Ønsker' },
     { key: 'prep',       n: 4, label: 'Skal laves', fase2: true },
     { key: 'raw',        n: 5, label: 'Råvarer',    fase2: true },
+    { key: 'check',      n: 6, label: 'Tjekliste' },
 ];
 var PD_WEEKDAYS = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
 var PD_COUNT_UNITS = { stk: 1, antal: 1, portion: 1, '': 1 };
@@ -230,6 +231,13 @@ function _pdRenderShell() {
         _pdRenderDrill();
     });
     byId('pdCols').addEventListener('click', _pdOnRowClick);
+    // Tjekliste: Enter i tal-feltet = Ret lager, Escape = annullér.
+    byId('pdCols').addEventListener('keydown', function (e) {
+        if (e.target.id !== 'pdCkInput') return;
+        var row = e.target.closest('.pd-ck-edit');
+        if (e.key === 'Enter') { e.preventDefault(); var b = row && row.querySelector('[data-ck="save"]'); if (b) b.click(); }
+        else if (e.key === 'Escape') { var c2 = row && row.querySelector('[data-ck="cancel"]'); if (c2) c2.click(); }
+    });
 
     // Antal kolonner følger bredden (spec §4): samme komponent på iPad og 27".
     if (typeof ResizeObserver === 'function') {
@@ -536,6 +544,13 @@ function _pdRenderDrill() {
 
     var t = _pd.tree, nodes = t.nodes;
     var tab = PD_TABS.filter(function (x) { return x.key === _pd.tab; })[0];
+    if (_pd.tab === 'check') {
+        crumbsEl.innerHTML = '<span class="pd-crumb">Tjekliste</span>' + (_pd.loading ? ' <span class="pd-dim pd-loading">opdaterer…</span>' : '');
+        warnEl.innerHTML = (t.meta.warnings || []).map(function (x) { return '<div>' + _pdEsc(x) + '</div>'; }).join('');
+        cols.style.setProperty('--pd-cols', 1);
+        cols.innerHTML = _pdCheckHtml();
+        return;
+    }
 
     // Brødkrumme
     var crumbs = '<button type="button" data-depth="0" class="pd-crumb">' + _pdEsc(tab.label) + '</button>';
@@ -876,6 +891,8 @@ function _pdOnRowClick(e) {
     var cart = e.target.closest('.pd-cart');
     if (cart) { _pdOnCartClick(cart); return; }
     if (e.target.closest('[data-section-toggle]')) { _pd.coveredOpen = !_pd.coveredOpen; _pdRenderDrill(); return; }
+    var ck = e.target.closest('[data-ck]');
+    if (ck) { _pdCheckAction(ck); return; }
     var r = e.target.closest('.pd-row.clickable');
     if (!r) return;
     var n = _pd.tree.nodes[r.dataset.id];
@@ -922,4 +939,226 @@ function _pdRenderStaff() {
                     '</span> ' + _pdEsc(s.first_name || s.employee_name || '?') + '</div>';
             }).join('') + '</div>';
     }).join('') + '</div>';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TJEKLISTE (fase 3) — gå lageret igennem, rigtigt tal ind hvis det ikke passer
+   ══════════════════════════════════════════════════════════════
+   Ingen ny lagerlogik: tjeklisten kalder optællingens egne endpoints (#673).
+     ✓ er der     → optællingslinje "uændret" + LastCheckedAt
+     passer ikke  → postGrocyInventory med count (Grocy rettes, linjen logges
+                    først når Grocy tog imod) + LastCheckedAt
+   Én optælling pr. Grocy-lokation, oprettet første gang en vare derfra tjekkes,
+   lukket når tjeklisten afsluttes. Afkrydsningerne huskes på tabletten for netop
+   dette grundlag (periode + bons + ekstra) indtil det skifter. */
+
+function _pdCheckKey() {
+    var ids = Array.from(_pd.selected).sort(function (a, b) { return a - b; });
+    var ex = _pd.extras.map(function (x) { return x.grocy_recipe_id + 'x' + x.quantity; }).join(',');
+    return 'planning2_check:' + _pd.from + ':' + _pd.to + ':' + ids.join(',') + ':' + ex;
+}
+function _pdCheckState() {
+    var key = _pdCheckKey();
+    if (!_pd.ck || _pd.ck.key !== key) {
+        var saved = null;
+        try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { saved = null; }
+        _pd.ck = { key: key, items: (saved && saved.items) || {}, counts: (saved && saved.counts) || {},
+                   finished: !!(saved && saved.finished), prepDone: !!(saved && saved.prepDone), editing: null, busy: {} };
+    }
+    return _pd.ck;
+}
+function _pdCheckSave() {
+    var c = _pd.ck; if (!c) return;
+    _pdSave(c.key, JSON.stringify({ items: c.items, counts: c.counts, finished: c.finished, prepDone: c.prepDone }));
+}
+
+/** Varerne på listen: forud-producerede først, så råvarerne i deres varegrupper. */
+function _pdCheckGroups() {
+    var t = _pd.tree, N = t.nodes, groups = [];
+    var made = (t.levels.prep || []).filter(function (id) { return N[id] && N[id].check; });
+    if (made.length) groups.push({ title: 'Færdige varer (laves i forvejen)', ids: made });
+    (t.levels.raw || []).forEach(function (gid) {
+        var ids = (N[gid].children || []).filter(function (id) { return N[id] && N[id].check; });
+        if (ids.length) groups.push({ title: N[gid].name, ids: ids });
+    });
+    return groups;
+}
+
+function _pdFmtNum(v) { return String(Math.round((Number(v) || 0) * 1000) / 1000).replace('.', ','); }
+
+function _pdCheckHtml() {
+    var c = _pdCheckState(), N = _pd.tree.nodes;
+    var groups = _pdCheckGroups();
+    var all = [].concat.apply([], groups.map(function (g) { return g.ids; }));
+    if (!all.length) return '<div class="pd-col"><div class="pd-empty">Ingen varer at tjekke for det valgte.</div></div>';
+    var done = all.filter(function (id) { var st = c.items[N[id].check.product_id]; return st && (st.state === 'ok' || st.state === 'fixed'); }).length;
+
+    var html = '<div class="pd-col pd-check"><div class="pd-col-head"><span class="pd-col-title">Tjekliste — er varerne fysisk på lager?</span>' +
+        '<span class="pd-col-sum"><strong>' + done + ' af ' + all.length + '</strong> tjekket</span></div>' +
+        '<div class="pd-check-bar"><span style="width:' + Math.round(done / all.length * 100) + '%"></span></div>';
+
+    groups.forEach(function (g) {
+        html += '<div class="pd-sec-head"><span class="pd-sec-title">' + _pdEsc(g.title) + '</span> <span class="pd-sec-count">' + g.ids.length + '</span></div>';
+        g.ids.forEach(function (id) { html += _pdCheckRow(N[id], c); });
+    });
+
+    html += '<div class="pd-check-foot">' + _pdCheckFoot(c, done, all) + '</div></div>';
+    return html;
+}
+
+function _pdCheckRow(n, c) {
+    var k = n.check, st = c.items[k.product_id] || {}, pid = k.product_id;
+    var unit = k.stock_unit || '';
+    var busy = c.busy[pid];
+    // Behov og lager i LAGER-enheden — den tallet tastes i. Visningsenheden (fx
+    // "5 stk" brød) i parentes, når den er en anden.
+    var disp = n.need_display || (n.qty_display + ' ' + (n.unit || ''));
+    var needStock = _pdFmtNum(k.need_qty) + ' ' + unit;
+    var info = '<span class="pd-row-sub">behov ' + _pdEsc(needStock) +
+        (n.unit && unit && String(n.unit).toLowerCase() !== String(unit).toLowerCase() ? ' (' + _pdEsc(disp) + ')' : '') +
+        ' · lager ' + _pdEsc(_pdFmtNum(k.stock_qty) + ' ' + unit) + '</span>';
+    var right = '';
+    if (busy) {
+        right = '<span class="pd-dim">' + (c.editing === pid ? 'Retter lageret…' : 'Gemmer…') + '</span>';
+    } else if (c.editing === pid) {
+        right = '<span class="pd-ck-edit">talt <input type="text" inputmode="decimal" class="pd-ck-input" id="pdCkInput" value="' +
+            _pdEsc(_pdFmtNum(k.stock_qty)) + '"> ' + _pdEsc(unit) +
+            ' <button type="button" class="pd-btn pd-btn-primary" data-ck="save" data-pid="' + pid + '">Ret lager</button>' +
+            ' <button type="button" class="pd-btn" data-ck="cancel" data-pid="' + pid + '">Annullér</button></span>';
+    } else if (st.state === 'ok') {
+        right = '<span class="pd-ck-done ok">✓ er der</span> <button type="button" class="pd-ck-undo" data-ck="undo" data-pid="' + pid + '">fortryd</button>';
+    } else if (st.state === 'fixed') {
+        right = '<span class="pd-ck-done fixed">talt ' + _pdEsc(_pdFmtNum(st.counted) + ' ' + unit) + ' · lager rettet</span>';
+    } else {
+        right = '<button type="button" class="pd-btn pd-ck-ok" data-ck="ok" data-pid="' + pid + '"' + (busy ? ' disabled' : '') + '>✓ er der</button>' +
+            ' <button type="button" class="pd-btn" data-ck="bad" data-pid="' + pid + '"' + (busy ? ' disabled' : '') + '>passer ikke</button>';
+    }
+    var err = st.error ? '<span class="pd-row-sub pd-missing">' + _pdEsc(st.error) + '</span>' : '';
+    var cart = n.cart && (st.state === 'fixed' || n.status !== 'ok')
+        ? ' <button type="button" class="pd-cart" data-cart="' + _pdEsc(n.id) + '" title="Læg ' +
+          _pdEsc(String(n.cart.amount).replace('.', ',') + ' ' + (n.cart.unit || '')) + ' på indkøbslisten">🛒</button>' : '';
+    var dot = n.kind === 'raw' ? _pdStatusBadge(n) : '';
+    return '<div class="pd-row pd-ck-row' + (st.state ? ' ck-' + st.state : '') + '" data-id="' + _pdEsc(n.id) + '">' +
+        '<span class="pd-row-main"><span class="pd-row-line"><strong>' + _pdEsc(n.name) + '</strong>' + dot + '</span>' + info + err + '</span>' +
+        '<span class="pd-ck-actions">' + right + cart + '</span></div>';
+}
+
+function _pdCheckFoot(c, done, all) {
+    var N = _pd.tree.nodes;
+    if (!c.finished) {
+        var left = all.length - done;
+        return '<button type="button" class="pd-btn pd-btn-primary" data-ck="finish"' + (left ? ' disabled' : '') + '>Afslut tjekliste</button>' +
+            (left ? ' <span class="pd-dim">' + left + ' mangler at blive tjekket</span>' : '') +
+            ' <button type="button" class="pd-btn pd-ck-reset" data-ck="reset">Start forfra</button>';
+    }
+    // Råvarer ✓ kun når alle råvarer (niveau 5) nu står dækket — efter rettelserne.
+    var short = (_pd.tree.levels.raw || []).reduce(function (a, gid) {
+        return a.concat((N[gid].children || []).filter(function (id) { return N[id].status !== 'ok'; }));
+    }, []);
+    var bons = _pdCheckBons();
+    var out = '<span class="pd-ck-summary">✓ Tjeklisten er afsluttet.</span> ';
+    var bonTxt = bons.length + (bons.length === 1 ? ' bon' : ' bons');
+    if (c.prepDone) out += '<span class="pd-ck-done ok">Råvarer ✓ er sat på ' + bonTxt + '</span>';
+    else if (short.length) {
+        out += '<span class="pd-missing">' + short.length + ' råvare' + (short.length === 1 ? '' : 'r') + ' mangler stadig (' +
+            _pdEsc(short.slice(0, 5).map(function (id) { return N[id].name; }).join(', ')) + (short.length > 5 ? ' …' : '') +
+            ') — Råvarer ✓ sættes ikke.</span>';
+    } else if (bons.length) {
+        out += '<button type="button" class="pd-btn pd-btn-primary" data-ck="prep">Sæt Råvarer ✓ på ' + bonTxt + '</button>';
+    }
+    return out + ' <button type="button" class="pd-btn pd-ck-reset" data-ck="reset">Start forfra</button>';
+}
+
+/** De bons Råvarer ✓ sættes på: valgte, produktion (ikke event-salg/udgift), ikke tilbud. */
+function _pdCheckBons() {
+    return _pd.bons.filter(function (b) {
+        return _pd.selected.has(b.id) && !b.is_offer && b.event_role !== 'sales' && b.event_role !== 'expense';
+    });
+}
+
+async function _pdEnsureCount(locationId, physicalName) {
+    var c = _pd.ck;
+    if (!locationId) return null;
+    if (c.counts[locationId]) return c.counts[locationId];
+    var r = await createStockCount(locationId, null, physicalName || null);
+    c.counts[locationId] = r.count.id;
+    _pdCheckSave();
+    return r.count.id;
+}
+
+async function _pdCheckAction(btn) {
+    var c = _pdCheckState(), N = _pd.tree.nodes;
+    var act = btn.dataset.ck, pid = Number(btn.dataset.pid);
+    var node = null;
+    if (pid) Object.keys(N).some(function (id) { if (N[id].check && N[id].check.product_id === pid) { node = N[id]; return true; } return false; });
+    var k = node && node.check;
+
+    if (act === 'bad') { c.editing = pid; _pdRenderDrill(); var inp = document.getElementById('pdCkInput'); if (inp) { inp.focus(); inp.select(); } return; }
+    if (act === 'cancel') { c.editing = null; _pdRenderDrill(); return; }
+    if (act === 'undo') { delete c.items[pid]; _pdCheckSave(); _pdRenderDrill(); return; }
+    if (act === 'reset') {
+        if (!confirm('Start tjeklisten forfra? Det der allerede er rettet i lageret, bliver stående.')) return;
+        await _pdFinishCounts();
+        localStorage.removeItem(c.key); _pd.ck = null; _pdRenderDrill(); return;
+    }
+    if (act === 'finish') { await _pdFinishCounts(); c.finished = true; _pdCheckSave(); _pdRenderDrill(); return; }
+    if (act === 'prep') {
+        var bons = _pdCheckBons();
+        btn.disabled = true; btn.textContent = 'Sætter…';
+        var fejl = 0;
+        for (var i = 0; i < bons.length; i++) {
+            try { await patchBonPrep(bons[i].id, true, undefined, 'fra planlægningens tjekliste'); } catch (e) { fejl++; }
+        }
+        if (fejl) { btn.disabled = false; btn.textContent = 'Prøv igen (' + fejl + ' fejlede)'; return; }
+        c.prepDone = true; _pdCheckSave(); _pdRenderDrill(); return;
+    }
+    if (!k) return;
+
+    var physical = k.physical_unit_name || 'Tjekliste (planlægning)';
+    // Læs tallet FØR der tegnes om — ellers er feltet væk.
+    var raw = act === 'save' ? ((document.getElementById('pdCkInput') || {}).value || '') : '';
+    if (c.busy[pid]) return;   // et tryk er allerede på vej
+    c.busy[pid] = true; delete (c.items[pid] || {}).error;
+    // Grocy kan være et par sekunder om det — vis at der sker noget, og lås knapperne.
+    _pdRenderDrill();
+    try {
+        var countId = await _pdEnsureCount(k.location_id, k.physical_unit_name);
+        if (act === 'ok') {
+            if (countId) {
+                var r1 = await postStockCountLines(countId, [{ product_id: pid, product_name: node.name, expected_qty: k.stock_qty,
+                    outcome: 'unchanged', lines: [{ physical_unit_name: physical, stock_qty: k.stock_qty }] }]);
+                if (r1 && r1.errors && r1.errors.length) throw new Error('ikke logget: ' + r1.errors[0].error);
+            }
+            c.items[pid] = { state: 'ok', at: Date.now(), error: countId ? null : 'Varen har ingen lokation i Grocy — tjekket, men ikke logget.' };
+        } else if (act === 'save') {
+            var amount = Number(String(raw).replace(/\s/g, '').replace(',', '.'));
+            if (!Number.isFinite(amount) || amount < 0) throw new Error('Skriv et tal (0 eller mere).');
+            var r2 = await postGrocyInventory(pid, amount, undefined, undefined, countId ? {
+                id: countId, product_name: node.name, expected_qty: k.stock_qty,
+                lines: [{ physical_unit_name: physical, stock_qty: amount }] } : null);
+            c.items[pid] = { state: 'fixed', counted: amount, at: Date.now(),
+                error: r2 && r2.log_error ? 'Lageret er rettet, men ikke logget: ' + r2.log_error
+                     : (countId ? null : 'Varen har ingen lokation i Grocy — lageret er rettet, men ikke logget.') };
+            c.editing = null;
+            _pdLoadTree();   // nyt lagertal og ny status fra serveren
+        }
+        // Et tjek uden ændring er også et tjek (#613).
+        try { await putGrocyProductUserfields(pid, { LastCheckedAt: new Date().toISOString() }); } catch (e) { /* ikke kritisk */ }
+    } catch (err) {
+        c.items[pid] = Object.assign({}, c.items[pid] || {}, { error: (err && err.message) || 'Fejl' });
+    } finally {
+        delete c.busy[pid];
+        _pdCheckSave();
+        _pdRenderDrill();
+    }
+}
+
+async function _pdFinishCounts() {
+    var c = _pd.ck; if (!c) return;
+    var ids = Object.keys(c.counts);
+    for (var i = 0; i < ids.length; i++) {
+        try { await finishStockCount(c.counts[ids[i]]); } catch (e) { /* allerede lukket */ }
+    }
+    c.counts = {};
+    _pdCheckSave();
 }
