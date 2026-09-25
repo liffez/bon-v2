@@ -120,7 +120,7 @@
     "test:opskrift-visning": "node scripts/test-recipe-lines.js",
     "test:opskrift-maalvaegt": "node --experimental-sqlite scripts/test-recipe-maalvaegt.js",
     "test:opskrift-udfold": "node scripts/test-recipe-udfold.js",
-    "test:opskrift-editor": "node scripts/test-recipe-search.js && node scripts/test-recipe-lines.js && node scripts/test-recipe-draft.js && node scripts/test-recipe-breakdown.js && node scripts/test-recipe-steps.js && node scripts/test-recipe-writer.js && node scripts/test-recipe-udfold.js && node scripts/test-recipe-editor-state.js",
+    "test:opskrift-editor": "node scripts/test-recipe-search.js && node scripts/test-recipe-lines.js && node scripts/test-recipe-draft.js && node scripts/test-recipe-breakdown.js && node scripts/test-recipe-steps.js && node scripts/test-recipe-writer.js && node scripts/test-recipe-udfold.js && node scripts/test-recipe-editor-state.js && node --experimental-sqlite --test tests/opskrift_spor.test.js",
     "test:grocy-userfields": "node scripts/test-grocy-userfields.js",
     "grocy:userfields": "node scripts/ensure-grocy-userfields.js",
     "test:designer-gem": "node --test tests/recipe_designer_save.test.js && node --experimental-sqlite scripts/test-produceret-vare-cache.js",
@@ -177,6 +177,7 @@
     "audit:optaellinger": "node --experimental-sqlite scripts/audit-stock-counts.js",
     "audit:indkob-enheder": "node --experimental-sqlite scripts/audit-indkob-enheder.js",
     "test:opskrift-tilstand": "node scripts/test-recipe-editor-state.js",
+    "test:opskrift-spor": "node --experimental-sqlite --test tests/opskrift_spor.test.js && node scripts/test-recipe-editor-state.js",
     "test:web-order-fejl": "node --experimental-sqlite --test tests/web_order_failure.test.js",
     "test:drawer-lobo": "node scripts/test-drawer-lobo-reset.js"
   },

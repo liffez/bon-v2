@@ -480,6 +480,8 @@ Bekræft desuden i Grocy-instansen: findes userfield til målvægt, eller skal d
 | Kladde + beregning (§13) | `services/recipeDraft.js` | ✅ |
 | Gem (§12) | `services/recipeWriter.js` + `shared/recipe_diff.js` | ✅ |
 | Startskærm + picker (§4.1) | `shared/recipe_designer.js` | genbrugt uændret |
+| Stamdata-spor (#683) | `services/stamdataLog.js` + `GET /:id/historik` | ✅ |
+| Udbytte-advarsel (#683) | `udbytteFlytter` i editoren + `yield.used_by` fra `/beregn` | ✅ |
 
 **Tests:** `test:opskrift-soeg` (75) · `test:opskrift-visning` (108) ·
 `test:opskrift-kladde` (66) · `test:opskrift-linjer` (48) · `test:opskrift-trin` (74) ·
@@ -504,6 +506,8 @@ Bekræft desuden i Grocy-instansen: findes userfield til målvægt, eller skal d
 | B13 | **Mobil: tal-cellerne ligger i `.re-nums`** med `display: contents` på brede skærme | To grid-celler kan ikke dele én celle. Beholderen er ingen boks på desktop (gridet er uændret) og bliver ét felt på mobil — ÉN rendering-vej, ikke to der kan drive |
 | B11 | **Editoren får 1280 px mens den er monteret**; `recipe_designer.js` ejer klassen | 900 px var den gamle designers mål (én kolonne). Editoren har to, så navne-kolonnen blev 156 px. Editoren skal ikke kende den side den er monteret i — og kan så heller ikke glemme at rydde op |
 | B9 | **Den gamle designer-vej står tilbage** bag `window.RD_LEGACY` | En omskrivning man ikke kan slå fra, kan ikke sammenlignes med det den erstattede. Ryddes når editoren er godkendt i drift |
+| B14 | **Sporet skrives i RUTEN, ikke i `writeRecipe`** (#683) | Writeren er delt med importen, som logger i `import_plan_item`. Den returnerer sin `plan`; hver kalder skriver sit eget spor |
+| B15 | **Udbytte-advarslen har sit EGET element** (`#reYieldWarn`) | `tegnUdbytte` er et rent innerHTML-skift, og feltets input-handler gentegner bevidst ikke kortet — ellers rives feltet væk under fingrene. Advarslen opdateres derfor for sig |
 
 ### Fundet undervejs — rettet
 
@@ -536,6 +540,8 @@ Bekræft desuden i Grocy-instansen: findes userfield til målvægt, eller skal d
 | Å6 | Overblikket på iPad (vandret bånd) er utestet — tallene skal være synlige mens man skriver |
 | Å7 | Prislister: catering · festival · store · produktion · waiste. Default-valg mangler stadig |
 | Å8 | ~~Udfoldningen skalerer ikke~~ — **løst (B8)**: `GET /api/opskrifter/:id/indhold?kind=&bruger=` skalerer på serveren. Dækket af `test:opskrift-udfold` |
+| Å10 | ~~Opskrifter efterlader intet spor~~ — **løst (#683)**: `grocy_recipe` i changelog + foldet Historik i overblikket. Dækket af `test:opskrift-spor` |
+| Å11 | ~~Ingen advarsel når udbyttet flyttes på en producerende opskrift~~ — **løst (#683)**: live ved feltet + bekræftelse ved Gem. Dækker alle **tre** felter der indgår i udbyttet, ikke kun `recipeunitnumber` |
 | Å9 | ~~Målvægt gemmes ikke~~ — **løst**: norm pr. Grocy-kategori (`recipe_db_targets.target_weight_g`, migration 187) + afvigelse pr. opskrift (`recipe_target_weights`). Dækket af `test:opskrift-maalvaegt` |
 
 ---

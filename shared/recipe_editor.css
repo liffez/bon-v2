@@ -62,6 +62,23 @@
 .re-yield-lead { font-size: var(--font-size-md); font-weight: 600; }
 .re-yield-note { font-size: var(--font-size-xs); color: var(--color-text-dim); }
 
+/* Udbytte-advarslen (#683). Ravgul flade — en oplysning man skal handle på,
+   ikke en fejl. Rød er reserveret til det der ER galt. */
+.re-yield-warn {
+    margin-top: 6px; padding: 7px 10px; border-radius: 6px;
+    background: #fdf6e3; border: 1px solid #e0c98a; color: #6b4e12;
+    font-size: var(--font-size-xs); line-height: 1.45;
+}
+
+/* Historikken (#683) — foldet, som lageroversigtens ✎-dialog. */
+.re-hist { margin-top: 10px; font-size: var(--font-size-xs); }
+.re-hist > summary { cursor: pointer; color: var(--color-text-dim); }
+.re-hist-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.re-hist-row { padding: 5px 0; border-top: 1px solid var(--color-border); }
+.re-hist-row:first-child { border-top: 0; }
+.re-hist-what { color: var(--color-text); }
+.re-hist-meta { color: var(--color-text-dim); }
+
 .re-inp {
     font-family: inherit; text-align: center; padding: 9px 6px;
     border: 1px solid var(--color-border); border-radius: 6px;

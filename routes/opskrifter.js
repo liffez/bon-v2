@@ -26,9 +26,61 @@ const recipeSearch = require('../services/recipeSearch');
 const RecipeLines = require('../shared/recipe_lines');
 const { writeRecipe, WriterError } = require('../services/recipeWriter');
 const { målvægtFor, gemMålvægt } = require('../services/recipeTargets');
+const stamdataLog = require('../services/stamdataLog');
 
 const router = express.Router();
 
+
+/**
+ * Skriv sporet for et gem (#683).
+ *
+ * #666 gav produkterne et spor: hvem ændrede hvad, hvornår, fra hvilken skærm.
+ * Opskrifterne havde intet — og det er dér udbyttet bor, som er divisoren i
+ * kostprisen for den vare opskriften producerer. #680 er historien om at det
+ * felt blev overskrevet på otte opskrifter uden at nogen kunne se det.
+ *
+ * Tre regler, de samme som produktsporets:
+ *   1. Brugeren kommer fra SESSIONEN, aldrig fra request-body (Patch D, #316).
+ *   2. Kun EFTER en vellykket skrivning. At logge en ændring der ikke skete,
+ *      er værre end at mangle en linje.
+ *   3. Et spor der fejler vælter ikke gemmet — men det siges højt i svaret.
+ *      Ellers var det præcis den fejlklasse sporet findes for (#305, #319).
+ *
+ * En NY opskrift logges som ÉN linje. Hver af dens ingredienser er «tilføjet»,
+ * og den liste er opskriften selv — den kan åbnes. Ved en ÆNDRING er
+ * forskellen derimod hele pointen, og der logges felt for felt.
+ */
+async function sporGem(req, r, orig) {
+    // `!r.wrote` er i dag REDUNDANT og kan ikke fældes af en mutationstest:
+    // writeRecipe svarer kun `wrote: false` når `plan.isEmpty`, og så er der
+    // heller ikke noget at logge. Den bliver stående som den direkte
+    // formulering af betingelsen der faktisk betyder noget — «gik der noget
+    // til Grocy?» — frem for at udlede det samme af at to funktioner
+    // tilfældigvis returnerer tomme lister. Fjernes den i en oprydning, er
+    // sporet afhængigt af et sammenfald i stedet for af en regel.
+    if (!r.wrote || !r.recipeId) return {};
+    try {
+        const navne = await stamdataLog.hentOpskriftNavne(grocy);
+        const fælles = {
+            recipeId: r.recipeId,
+            userId: req.session ? req.session.userId : null,
+            kilde: stamdataLog.kildeFra(req),
+        };
+        if (r.plan.isNew) {
+            return stamdataLog.skrivOpskrift(Object.assign({}, fælles, {
+                handling: 'create',
+                ændret: [{ felt: 'name', fra: null, til: r.plan.recipe.name || null }],
+            }));
+        }
+        const ændret = stamdataLog.opskriftFelter(r.plan, orig, navne)
+            .concat(stamdataLog.opskriftLinjer(r.plan, orig, navne));
+        if (!ændret.length) return {};
+        return stamdataLog.skrivOpskrift(Object.assign({}, fælles, { ændret }));
+    } catch (err) {
+        console.error(`[stamdata] OPSKRIFTEN ER GEMT, men sporet fejlede for ${r.recipeId}:`, err.message);
+        return { log_error: err.message };
+    }
+}
 
 /**
  * Gem gennem den fælles writer.
@@ -70,13 +122,13 @@ async function gem(req, res, origId) {
                 console.error('[opskrifter] målvægt kunne ikke gemmes:', e.message);
             }
         }
-        res.json({
+        res.json(Object.assign({
             target_weight_error: målvægtFejl,
             recipe_id: r.recipeId,
             wrote: r.wrote,
             change_count: r.changeCount,
             created_products: r.createdProducts,
-        });
+        }, await sporGem(req, r, orig)));
     } catch (err) {
         if (err instanceof WriterError) {
             return res.status(400).json({
@@ -233,6 +285,28 @@ router.get('/:id/editor', handle(async (req, res) => {
 
     Object.assign(kladde, målvægtFor(getDb(), id, kladde.group));
     res.json({ draft: kladde, overview: await recipeDraft.computeDraft(kladde, g) });
+}));
+
+/**
+ * GET /:id/historik — hvem ændrede hvad på opskriften (#683).
+ *
+ * Uden en visning er sporet ligegyldigt: det ville ligge i databasen præcis
+ * som Grocys egen log ligger i Grocy, uden at nogen ser det. Samme
+ * begrundelse som produktsporets visning i lageroversigtens ✎-dialog.
+ */
+router.get('/:id/historik', handle((req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ugyldigt opskrift-id' });
+    const limit = Math.min(parseInt(req.query.limit, 10) || 25, 200);
+    res.json(getDb().prepare(`
+        SELECT c.id, c.action, c.field_name, c.old_value, c.new_value,
+               c.notes, c.created_at, c.user_id, u.name AS user_name
+        FROM changelog c
+        LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.entity_type = ? AND c.entity_id = ?
+        ORDER BY c.created_at DESC, c.id DESC
+        LIMIT ?
+    `).all(stamdataLog.ENTITY_RECIPE, id, limit));
 }));
 
 module.exports = router;
