@@ -1,6 +1,6 @@
 # CLAUDE_PLANLAEGNING_DRILLDOWN.md — Planlægningen som drill-down
 
-> Status: Fase 1 BYGGET side om side med den gamle (24. september 2026) — fase 2–3 ikke bygget. Se §18–19.
+> Status: Fase 1 + 2 BYGGET side om side med den gamle (september 2026) — fase 3 (tjekliste) ikke bygget. Se §18–20.
 > Oprettet: 20. september 2026
 > Mockup (klikbar, iPad + 27"): https://claude.ai/artifact/V9Sj2i3SnwuxrHxLx9b921
 > Berører: `shared/planning.js/.css`, `kitchen/planning.html`, `office/views/planning.js`,
@@ -435,3 +435,39 @@ derfor forventet at den nye viser færre enheder end den gamle sammentælling.
 **Standarder sat af migration 190** (kan ændres i Settings → Rollerettigheder):
 admin + office ser kost og salg; kitchen ser kost hvis den gamle "Vis priser i
 planlægningsbon" var slået til, aldrig salg; kitchen_personal og delivery ser ingen af dem.
+
+## 20. Fase 2 — niveau 4 og 5 (25. september 2026)
+
+`services/planningProduction.js`, kaldt af træet. Regner intet selv:
+
+| Tal | Kilde |
+|---|---|
+| Behov, lager, status, batches | `resolveIngredients` — samme som lagertræk og "Lav snart" |
+| Hvem laver hvad | `buildProductionPolicy` (#329) |
+| Kostpris (aktuel) | `recipeCost.lineUnitCost` — opskriften vinder for producerede varer (#558) |
+| CO₂ (aktuel) | `co2Engine.resolveIngredient` (nu eksporteret) |
+| "Bruges i" | `collectRecipeNeedsFlat` |
+| 🛒-mængde | resolverens `shortfall_purchase` |
+
+- **Niveau 4** = de varer resolveren kalder producerbare. Forud-producerede (`to_stock`)
+  står først med status *dækket · kan laves (lav N batch) · mangler · udbytte mangler*;
+  dem Bon laver ved levering (`on_demand`) står sidst, mærket "laves ved levering".
+  Tryk → råvarerne i de batches der skal laves.
+- **Niveau 5**: resolveren stopper ved en produceret vare, så råvarerne til den står ikke
+  i råvarelisten af sig selv. Niveau 5 er derfor resolverens behov for bonlinjerne PLUS
+  de batches der skal laves. Producerede varer udelades (de står på niveau 4). Grupperet
+  efter varegruppe; uden varegruppe og emballage sidst.
+- **Tre afsnit** (afgjort 25.09 efter første drifttest — listen var svær at overskue):
+  *Skal laves i forvejen* · *Laves ved levering* · *Dækket af lager* (foldet sammen).
+  Hovedtallet er **"lav N batches"**; under det "mangler X (behov Y · lager Z)" i samme
+  enhed og skala (kg når et tal er over 1000 g), manglende råvarer med rødt, og
+  "bruges i N retter" (navnene i tooltip når der er flere end to).
+- Siden henter ikke træet igen mens en beregning er i gang — nye SSE-opdateringer venter
+  og kører én gang bagefter (kold Grocy-cache gav seks samtidige kald ved start).
+- En producent uden erklæret udbytte (#372) regnes ikke ind i niveau 5 — det siges i en
+  advarsel frem for at blive gættet.
+- Salg findes ikke på 4–5. Pr. dag heller ikke (behovet er samlet for perioden).
+- **Rettet i den fælles resolver:** `shortfall_purchase` rundede 1,12 op til 1,13 og
+  2,0000000000000004 sække op til 3. Epsilon før `Math.ceil` — gælder også Råvarer-modalen.
+
+Test: `npm run test:planning-tree` (62 + 34, mutations-testet).

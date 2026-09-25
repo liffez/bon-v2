@@ -183,7 +183,10 @@ const extras = [{ grocy_recipe_id: 11, quantity: 4, price_category: 'catering' }
     const down = await buildPlanningTree(db, { bonIds: [1, 2], extras, perms: ALL }, { grocy: grocyDown });
     check('Grocy nede: boksen står som boks', !!down.nodes['item:r:20']);
     eq('Grocy nede: enhederne er de samme', down.totals.units, dbUnits);
-    check('Grocy nede: advarsel om boksene og ekstra', down.meta.warnings.length === 2);
+    check('Grocy nede: advarsel om boksene', down.meta.warnings.some(w => /bokse/.test(w)));
+    check('Grocy nede: advarsel om ekstra-linjerne', down.meta.warnings.some(w => /Ekstra-linjerne/.test(w)));
+    check('Grocy nede: niveau 4–5 tomme med advarsel, ikke en fejl', Array.isArray(down.levels.prep) && down.levels.prep.length === 0
+        && down.meta.warnings.some(w => /Skal laves og Råvarer/.test(w)));
 
     // §10 Ruten: rollen afgør hvad der sendes
     db.prepare(`INSERT INTO users (id, name, email, role, is_active) VALUES (901,'K','k@test','kitchen',1),(902,'O','o@test','office',1)`).run();

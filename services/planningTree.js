@@ -283,7 +283,36 @@ async function buildPlanningTree(db, input, deps = {}) {
         else flat.push(a);
     }
 
-    return assemble(flat, { perms, warnings, excluded, bonCount: bons.length, extraCount: extraRows.length });
+    const tree = assemble(flat, { perms, warnings, excluded, bonCount: bons.length, extraCount: extraRows.length });
+
+    // ── Fase 2: niveau 4 (Skal laves) og 5 (Råvarer) ──
+    // Bygger på atomerne FØR udfoldning: resolveren folder selv bokse ud via
+    // deres nestings, så en boks må ikke tælles både som boks og som indhold.
+    const itemRecipes = new Map();
+    for (const id of tree.levels.items) {
+        const n = tree.nodes[id];
+        const m = /^item:r:(\d+)$/.exec(id);
+        if (m) itemRecipes.set(Number(m[1]), n.name);
+    }
+    try {
+        const { buildProductionLevels } = require('./planningProduction');
+        const prod = await buildProductionLevels({
+            lines: atoms.filter(a => a.grocy_recipe_id).map(a => ({ grocy_recipe_id: a.grocy_recipe_id, quantity: a.qty })),
+            itemRecipes, perms,
+        }, deps.production || {});
+        Object.assign(tree.nodes, prod.nodes);
+        tree.levels.prep = prod.levels.prep;
+        tree.levels.raw = prod.levels.raw;
+        tree.level_totals = prod.level_totals;
+        tree.sections = prod.sections || {};
+        tree.meta.warnings.push(...prod.warnings);
+    } catch (e) {
+        tree.levels.prep = [];
+        tree.levels.raw = [];
+        tree.level_totals = null;
+        tree.meta.warnings.push('Skal laves og Råvarer kunne ikke beregnes: ' + (e.message || e));
+    }
+    return tree;
 }
 
 /**

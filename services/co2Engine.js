@@ -504,5 +504,5 @@ function breakdownRecipe(recipeId, data) {
     };
 }
 
-module.exports = { computeAll, computeRecipe, computedProductFactors, recipeCacheUpdates, producedYieldStock, breakdownRecipe, buildCtx, inheritedFactor,
+module.exports = { computeAll, computeRecipe, computedProductFactors, recipeCacheUpdates, producedYieldStock, breakdownRecipe, buildCtx, inheritedFactor, resolveIngredient,
                    stockToKg, readFactor, isExcluded, findKiloId };
