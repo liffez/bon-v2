@@ -224,6 +224,10 @@ const extras = [{ grocy_recipe_id: 11, quantity: 4, price_category: 'catering' }
     eq('Dag = i morgen', PeriodPicker._startAnchor('day', { day: 1 }, '2026-12-31'), '2027-01-01');
     eq('Uge = næste uge', PeriodPicker._startAnchor('week', { week: 1 }, '2026-09-24'), '2026-09-28');
     eq('3 dage ◀ = tre dage tilbage', PeriodPicker._step('3days', '2026-03-30', -1), '2026-03-27');
+    eq('10 dage fra mandag = tir → tor næste uge', PeriodPicker._rangeFor('10days', PeriodPicker._startAnchor('10days', { '10days': 1 }, '2026-09-28')),
+        { from: '2026-09-29', to: '2026-10-08' });
+    eq('10 dage ▶ = ti dage frem', PeriodPicker._step('10days', '2026-09-29', 1), '2026-10-09');
+    eq('10 dage: etiket', PeriodPicker._label('10days', { from: '2026-09-29', to: '2026-10-08' }), '29.09–08.10.2026');
 
     console.log(`\n${fail === 0 ? '✅ ALLE' : '❌'} — ${pass} pass / ${fail} fail`);
     process.exit(fail === 0 ? 0 : 1);

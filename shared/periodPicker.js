@@ -1,15 +1,15 @@
 /**
  * shared/periodPicker.js — delt periodevælger
  * ════════════════════════════════════════════════════════════
- * [Dag | 3 dage | Uge | Periode]  ◀  {interval}  ▶  [I dag]
+ * [Dag | 3 dage | 10 dage | Uge | Periode]  ◀  {interval}  ▶  [I dag]
  *
  * Spec: docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md §10. Bygger på driftsregnskabets
  * vælger; driftsregnskabet migreres til den når der alligevel arbejdes i det.
  *
  *   var pp = PeriodPicker.create(el, {
- *       modes:   ['day', '3days', 'week', 'period'],   // hvilke knapper
- *       offsets: { day: 1, '3days': 1, week: 1 },      // start: i morgen / næste uge
- *       initial: 'week',
+ *       modes:   ['day', '3days', '10days', 'week', 'period'],  // '<N>days' = rullende N dage
+ *       offsets: { day: 1, '3days': 1, '10days': 1, week: 1 },  // start: i morgen / næste uge
+ *       initial: '10days',
  *       storageKey: 'planning2_period',                // valgfri — husker mode
  *       onChange: function(p) { p.from, p.to, p.mode }
  *   });
@@ -22,7 +22,10 @@
  * ════════════════════════════════════════════════════════════
  */
 (function (root) {
-    var LABELS = { day: 'Dag', '3days': '3 dage', week: 'Uge', period: 'Periode' };
+    var LABELS = { day: 'Dag', week: 'Uge', period: 'Periode' };
+    // Rullende mode: '<N>days' = N dage fra ankeret (fx '3days', '10days').
+    function rollDays(mode) { var m = /^(\d+)days$/.exec(String(mode)); return m ? +m[1] : 0; }
+    function modeLabel(mode) { var n = rollDays(mode); return n ? n + ' dage' : (LABELS[mode] || mode); }
     var WEEKDAYS = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
 
     function parse(iso) {
@@ -54,7 +57,8 @@
     /** Intervallet for et mode, med `anchor` som første dag. Ren funktion. */
     function rangeFor(mode, anchor) {
         if (mode === 'week') { var f = monday(anchor); return { from: f, to: addDays(f, 6) }; }
-        if (mode === '3days') return { from: anchor, to: addDays(anchor, 2) };
+        var n = rollDays(mode);
+        if (n) return { from: anchor, to: addDays(anchor, n - 1) };
         return { from: anchor, to: anchor };                    // day
     }
 
@@ -67,13 +71,13 @@
 
     /** Ét interval frem/tilbage. */
     function step(mode, anchor, dir) {
-        var n = mode === 'week' ? 7 : mode === '3days' ? 3 : 1;
+        var n = mode === 'week' ? 7 : (rollDays(mode) || 1);
         return addDays(anchor, n * dir);
     }
 
     function label(mode, r) {
         if (mode === 'week') return 'Uge ' + isoWeek(r.from) + ' · ' + dm(r.from) + '–' + dm(r.to);
-        if (mode === '3days') return dm(r.from) + '–' + dm(r.to) + '.' + r.to.slice(0, 4);
+        if (rollDays(mode)) return dm(r.from) + '–' + dm(r.to) + '.' + r.to.slice(0, 4);
         var d = parse(r.from);
         return WEEKDAYS[d.getUTCDay()] + ' ' + dm(r.from) + '.' + r.from.slice(0, 4);
     }
@@ -118,7 +122,7 @@
             var html = '<div class="pp-wrap"><div class="pp-modes" role="group">' +
                 modes.map(function (m) {
                     return '<button type="button" class="pp-mode' + (m === state.mode ? ' active' : '') +
-                        '" data-mode="' + m + '">' + esc(LABELS[m] || m) + '</button>';
+                        '" data-mode="' + m + '">' + esc(modeLabel(m)) + '</button>';
                 }).join('') + '</div>';
             if (state.mode === 'period') {
                 html += '<label class="pp-field">Fra <input type="date" class="pp-from" value="' + esc(state.from) + '"></label>' +

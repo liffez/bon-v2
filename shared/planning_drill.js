@@ -168,10 +168,13 @@ function _pdRenderShell() {
     var byId = function (id) { return _pd.el.querySelector('#' + id); };
 
     _pd.picker = PeriodPicker.create(byId('pdPeriod'), {
-        modes: ['day', '3days', 'week', 'period'],
-        offsets: { day: 1, '3days': 1, week: 1 },
-        initial: 'week',
-        storageKey: 'planning2_period_mode',
+        // 10 dage fra i morgen som standard: planlægger man mandag, skal hele
+        // næste arbejdsuge med — en kalenderuge rækker ikke.
+        modes: ['day', '3days', '10days', 'week', 'period'],
+        offsets: { day: 1, '3days': 1, '10days': 1, week: 1 },
+        initial: '10days',
+        // Ny nøgle, så et gemt "Uge" fra afprøvningen ikke skjuler den nye standard.
+        storageKey: 'planning2_period_mode_v2',
         onChange: function (p) {
             _pd.from = p.from; _pd.to = p.to;
             // Periode-skift: ekstra-linjerne er engangs og hører til det der blev

@@ -420,6 +420,10 @@ plads, og den gamle kode fjernes i en separat PR.
   man står i, som en bred tabel med én kolonne pr. dag + "I alt" (+ den valgte Vis-værdi).
   Kun dage der har noget på (`tree.days`). Bundlinjen er forælderens dagstal, eller
   `totals.units_days` på øverste niveau — intet summeres i browseren.
+- **Standardperioden er 10 dage fra i morgen** (afgjort 25.09): planlægger man om
+  mandagen, skal hele næste arbejdsuge med — en kalenderuge rækker ikke. Knapperne er
+  Dag · 3 dage · 10 dage · Uge · Periode. `periodPicker` forstår `'<N>days'` som
+  rullende N dage.
 - Status-knapperne har kalenderens udseende (udfyldt/bleg), men 44 px trykflade.
 
 **Enheder mod den gamle sammentælling:** den gamle talte alle kategorier med
