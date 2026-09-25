@@ -1,0 +1,121 @@
+/* shared/planning_drill.css — Planlægning (ny). Touch: rækker ≥ 60 px, knapper ≥ 44 px. */
+
+.pd-wrap { display: flex; flex-direction: column; gap: 12px; color: var(--color-text, #333); }
+.pd-dim { color: var(--color-text-dim, #888); font-weight: 400; }
+.pd-empty { padding: 18px 12px; color: var(--color-text-dim, #888); font-size: 14px; }
+.pd-empty-sm { padding: 8px 4px; font-size: 13px; }
+
+.pd-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+.pd-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; border-radius: 22px; cursor: pointer; font-size: 15px; font-family: inherit; }
+.pd-toggle-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--brand-primary, #8e631f); }
+.pd-toggle.active .pd-toggle-dot { background: var(--brand-primary, #8e631f); }
+
+/* Vagtplan — som i den gamle planlægning */
+.pd-vagtplan { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 10px; }
+.pd-vagtplan-toggle { width: 100%; text-align: left; border: none; background: none; min-height: 44px; padding: 0 14px;
+    font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; color: var(--color-text, #333); }
+.pd-vagtplan-content { display: none; padding: 0 14px 12px; }
+.pd-vagtplan-content.open { display: block; }
+.pd-vagt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.pd-vagt-label { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.pd-vagt-shift { font-size: 13px; padding: 2px 0; }
+
+/* Faner + Vis-vælger */
+.pd-tabsbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pd-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.pd-tab { min-height: 48px; padding: 0 16px; border: 1px solid var(--color-border, #d7d1ca); background: #fff; border-radius: 10px;
+    font-size: 15px; font-family: inherit; cursor: pointer; color: var(--color-text, #333); }
+.pd-tab.active { background: var(--brand-primary, #8e631f); border-color: var(--brand-primary, #8e631f); color: #fff; }
+.pd-tab:disabled { opacity: .45; cursor: default; }
+.pd-tab-n { display: inline-block; min-width: 20px; font-weight: 700; opacity: .7; }
+.pd-soon { font-size: 11px; opacity: .8; }
+.pd-metric { display: flex; align-items: center; gap: 8px; }
+.pd-seg { display: inline-flex; border: 1px solid var(--color-border, #d7d1ca); border-radius: 10px; overflow: hidden; }
+.pd-seg button { border: none; background: #fff; min-height: 44px; padding: 0 14px; font-size: 15px; font-family: inherit; cursor: pointer; }
+.pd-seg button + button { border-left: 1px solid var(--color-border, #d7d1ca); }
+.pd-seg button.active { background: var(--brand-primary-light, #f1e6b2); font-weight: 700; }
+
+/* Krop: bonkolonne + drill-down */
+.pd-body { display: grid; grid-template-columns: 430px minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (min-width: 1600px) { .pd-body { grid-template-columns: 560px minmax(0, 1fr); } }
+@media (max-width: 1000px) { .pd-body { grid-template-columns: minmax(0, 1fr); } }
+
+.pd-bons { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.pd-chips { display: flex; flex-wrap: wrap; gap: 0 4px; margin: -4px 0; }
+/* Som kalenderens filterknapper (shared/calendar.css .cal-filter-btn): udfyldt
+   når valgt, bleg når ikke. Selve knappen er 44 px høj for touch; det synlige
+   mærke sidder indeni. */
+.pd-chip { min-height: 44px; padding: 0 2px; border: none; background: none; cursor: pointer; font-family: inherit; }
+.pd-chip-face { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .3px; line-height: 1.3;
+    border: 2px solid var(--b, var(--c)); background: var(--c); color: var(--t); transition: all .15s; }
+.pd-chip:not(.active) .pd-chip-face { background: color-mix(in srgb, var(--c) 12%, white);
+    color: color-mix(in srgb, var(--c) 55%, #777); border-color: color-mix(in srgb, var(--b, var(--c)) 35%, #ddd); opacity: .8; }
+.pd-chip:hover .pd-chip-face { opacity: 1; filter: brightness(1.05); }
+.pd-chip-offer { margin-left: 6px; }
+.pd-bons-head { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.pd-h { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--color-text-dim, #888); }
+.pd-bons-count { flex: 1; font-size: 13px; color: var(--color-text-dim, #888); }
+.pd-btn { min-height: 44px; padding: 0 14px; border: 1px solid var(--color-border, #d7d1ca); background: #fff; border-radius: 10px;
+    font-size: 14px; font-family: inherit; cursor: pointer; }
+.pd-extras-head { border-top: 1px solid var(--color-border, #d7d1ca); padding-top: 10px; }
+.pd-bonlist { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
+.pd-bon { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 6px 4px; border-bottom: 1px solid #f0ece6; cursor: pointer; }
+.pd-bon input { width: 24px; height: 24px; flex: none; accent-color: var(--brand-primary, #8e631f); }
+.pd-bon-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pd-bon-l1 { font-size: 15px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pd-bon-l2 { font-size: 14px; color: var(--color-text-dim, #666); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-bon-day { font-size: 13px; color: var(--color-text-dim, #888); }
+.pd-bon-units { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.pd-bon.is-offer .pd-bon-main { opacity: .8; }
+.pd-bon.no-work { opacity: .6; }
+.pd-status { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+.pd-extra { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; font-size: 15px; border-bottom: 1px solid #f0ece6; }
+.pd-x { min-width: 44px; min-height: 44px; border: none; background: none; font-size: 22px; cursor: pointer; color: var(--color-text-dim, #888); }
+
+.pd-drill { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.pd-crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 44px; }
+.pd-crumb { min-height: 44px; padding: 0 10px; border: none; background: none; font-size: 15px; font-family: inherit; cursor: pointer;
+    color: var(--brand-primary, #8e631f); font-weight: 700; border-radius: 8px; }
+.pd-crumb:hover { background: #f2efe9; }
+.pd-loading { font-size: 13px; }
+.pd-warn:empty { display: none; }
+.pd-warn { background: #fff8e1; border: 1px solid #f1d98a; border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.5; }
+
+.pd-cols { display: grid; grid-template-columns: repeat(var(--pd-cols, 1), minmax(0, 1fr)); gap: 12px; }
+.pd-col { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 12px; overflow: hidden; min-width: 0; }
+.pd-col-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px 14px;
+    background: #faf8f4; border-bottom: 1px solid var(--color-border, #d7d1ca); }
+.pd-col-title { font-weight: 700; font-size: 15px; }
+.pd-col-sum { font-size: 13px; color: var(--color-text-dim, #666); text-align: right; }
+
+.pd-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 60px; padding: 8px 14px; border: none;
+    border-bottom: 1px solid #f0ece6; background: #fff; text-align: left; font-family: inherit; color: inherit; font-size: 16px; }
+.pd-row.clickable { cursor: pointer; }
+.pd-row.clickable:hover { background: #faf8f4; }
+.pd-row.selected { background: var(--brand-primary-light, #f1e6b2); }
+.pd-row.dim { color: var(--color-text-dim, #888); }
+.pd-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pd-row-line { overflow-wrap: anywhere; }
+.pd-qty { font-variant-numeric: tabular-nums; }
+.pd-row-sub { font-size: 13px; color: var(--color-text-dim, #888); }
+.pd-row-val { font-size: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pd-chev { font-size: 22px; color: var(--color-text-dim, #aaa); }
+.pd-badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
+.pd-badge-amber { background: #fdecc8; color: #8a5a00; }
+.pd-q { color: #b0501a; font-weight: 700; }
+
+/* Pr. dag-tabel */
+.pd-tscroll { overflow-x: auto; }
+.pd-trow { display: grid; align-items: center; gap: 0 4px; min-width: max-content; }
+.pd-trow.pd-row { display: grid; }
+.pd-thead { padding: 10px 14px; background: #faf8f4; border-bottom: 1px solid var(--color-border, #d7d1ca); font-size: 13px; }
+.pd-tfoot { padding: 12px 14px; background: #faf8f4; font-weight: 700; font-size: 15px; }
+.pd-tname { min-width: 0; overflow-wrap: anywhere; position: sticky; left: 0; background: inherit; z-index: 1; }
+.pd-trow.pd-row .pd-tname { background: #fff; }
+.pd-trow.pd-row.clickable:hover .pd-tname { background: #faf8f4; }
+.pd-thead .pd-tname { font-weight: 700; font-size: 15px; }
+.pd-tnum { text-align: right; font-variant-numeric: tabular-nums; }
+.pd-ttotal { font-weight: 700; }
+.pd-tval { font-size: 14px; }

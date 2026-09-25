@@ -256,6 +256,15 @@ function fetchBonsPlanning(from, to, statuses) {
     return apiFetch('/bons/planning' + qs);
 }
 
+// Planlægning (ny): hele drill-down-træet i ét kald. Kost/salg er kun med
+// hvis rollen må se dem — det afgør serveren.
+function fetchPlanningTree(bonIds, extras) {
+    return apiFetch('/bons/planning/tree', {
+        method: 'POST',
+        body: JSON.stringify({ bon_ids: bonIds || [], extras: extras || [] }),
+    });
+}
+
 /* ── SMARTPLAN ────────────────────────────────────────────── */
 
 function fetchSmartplanShifts(from, to) {
