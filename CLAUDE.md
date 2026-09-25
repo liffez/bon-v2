@@ -9554,7 +9554,10 @@ alle fanget.
   System; LEVERET og frem er fra som standard. Vundne tilbud og event-salg tæller aldrig.
 - `shared/periodPicker.js` er ny delt komponent (Dag · 3 dage · Uge · Periode).
 - Køkken: `kitchen/planning-ny.html`. Office: Bons → **Planlægning (ny)**.
-- Fase 2 (Skal laves + Råvarer) og fase 3 (tjekliste) er ikke bygget.
+- Fase 2 (25/9): niveau 4 Skal laves + 5 Råvarer i `services/planningProduction.js`
+  (resolver + produktionspolitik + `recipeCost.lineUnitCost` + `co2Engine.resolveIngredient`).
+  Niveau 5 = behov for bonlinjerne + de batches der skal laves. Fase 3 (tjekliste) er ikke bygget.
+- Resolverens `shortfall_purchase` havde en flydende-tal-fejl (1,12 → 1,13; 2 sække → 3) — rettet med epsilon.
 
 ## Næste opgave
 
