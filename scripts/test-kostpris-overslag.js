@@ -76,6 +76,16 @@ const SVAR = {
     '/objects/stock_entries': [],
 };
 
+function logRaekker() {
+    // Det samlede opslag (#695): alle tilgange, ikke ét kald pr. produkt.
+    let id = 1;
+    const ud = [];
+    for (const [pid, rows] of Object.entries(KOEB)) {
+        for (const r of rows) ud.push({ id: id++, product_id: Number(pid), transaction_type: 'purchase', undone: 0, ...r });
+    }
+    return ud.sort((a, b) => b.id - a.id);
+}
+
 globalThis.fetch = async (url) => {
     const sti = String(url).split('?')[0];
     if (sti.endsWith('/objects/product_barcodes')) {
@@ -83,13 +93,9 @@ globalThis.fetch = async (url) => {
         return { ok: true, status: 200, json: async () => BARCODES };
     }
     if (sti.endsWith('/objects/products')) return { ok: true, status: 200, json: async () => PRODUKTER };
-    if (sti.endsWith('/objects/stock_log')) {
-        const q = decodeURIComponent(String(url)).match(/product_id=(\d+)/);
-        return { ok: true, status: 200, json: async () => (q ? KOEB[q[1]] : null) || [] };
-    }
+    if (sti.endsWith('/objects/stock_log')) return { ok: true, status: 200, json: async () => logRaekker() };
     const n = Object.keys(SVAR).find(k => sti.endsWith(k));
     if (n) return { ok: true, status: 200, json: async () => SVAR[n] };
-    if (/\/stock\/products\/\d+$/.test(sti)) return { ok: true, status: 200, json: async () => ({}) };
     throw new Error('uventet kald: ' + url);
 };
 
