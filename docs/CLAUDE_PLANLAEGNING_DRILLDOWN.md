@@ -457,6 +457,13 @@ planlægningsbon" var slået til, aldrig salg; kitchen_personal og delivery ser 
   i råvarelisten af sig selv. Niveau 5 er derfor resolverens behov for bonlinjerne PLUS
   de batches der skal laves. Producerede varer udelades (de står på niveau 4). Grupperet
   efter varegruppe; uden varegruppe og emballage sidst.
+- **Tre afsnit** (afgjort 25.09 efter første drifttest — listen var svær at overskue):
+  *Skal laves i forvejen* · *Laves ved levering* · *Dækket af lager* (foldet sammen).
+  Hovedtallet er **"lav N batches"**; under det "mangler X (behov Y · lager Z)" i samme
+  enhed og skala (kg når et tal er over 1000 g), manglende råvarer med rødt, og
+  "bruges i N retter" (navnene i tooltip når der er flere end to).
+- Siden henter ikke træet igen mens en beregning er i gang — nye SSE-opdateringer venter
+  og kører én gang bagefter (kold Grocy-cache gav seks samtidige kald ved start).
 - En producent uden erklæret udbytte (#372) regnes ikke ind i niveau 5 — det siges i en
   advarsel frem for at blive gættet.
 - Salg findes ikke på 4–5. Pr. dag heller ikke (behovet er samlet for perioden).

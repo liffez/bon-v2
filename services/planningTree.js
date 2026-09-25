@@ -304,6 +304,7 @@ async function buildPlanningTree(db, input, deps = {}) {
         tree.levels.prep = prod.levels.prep;
         tree.levels.raw = prod.levels.raw;
         tree.level_totals = prod.level_totals;
+        tree.sections = prod.sections || {};
         tree.meta.warnings.push(...prod.warnings);
     } catch (e) {
         tree.levels.prep = [];

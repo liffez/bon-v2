@@ -33,6 +33,26 @@ function fmtQty(q) {
     const r = round(q, 2);
     return Number.isInteger(r) ? String(r) : String(r).replace('.', ',');
 }
+// Grocy har enheder uden kort navn ("Gram", "Kilo") ved siden af dem med ("g",
+// "kg"), så samme liste kunne vise begge. Kun visning — mængden er uændret.
+const UNIT_SHORT = { gram: 'g', gr: 'g', kilo: 'kg', kilogram: 'kg', liter: 'l', milliliter: 'ml', antal: 'stk' };
+function shortUnit(u) { const k = String(u || '').trim(); return UNIT_SHORT[k.toLowerCase()] || k; }
+
+/** Behov, lager og mangel i SAMME enhed — resolverens display_factor på alle tre. */
+function amounts(i) {
+    let f = Number(i.display_factor) || 1;
+    let unit = shortUnit(i.unit);
+    // Én skala for alle tre tal: er et af dem over 1000 g, vises alt i kg
+    // ("lager 2010 g" → "2,01 kg"). Ren visning.
+    const big = Math.max(Number(i.needed_stock) || 0, Number(i.stock_amount) || 0) * f;
+    if (big >= 1000 && (unit === 'g' || unit === 'ml')) { f = f / 1000; unit = unit === 'g' ? 'kg' : 'l'; }
+    const need = (Number(i.needed_stock) || 0) * f;
+    const stock = (Number(i.stock_amount) || 0) * f;
+    const short = Math.max(0, need - stock);
+    const fmt = (v) => fmtQty(v) + (unit ? ' ' + unit : '');
+    return { unit, need, stock, short, need_display: fmt(need), stock_display: fmt(stock), short_display: fmt(short) };
+}
+
 function groupLabel(name) {
     const s = String(name || '').trim();
     return s ? s.replace(/^\d+\s+/, '') : 'Uden varegruppe';
@@ -162,16 +182,18 @@ async function buildProductionLevels(input, deps = {}) {
         const type = policy.get(pid) || 'to_stock';
         const v = valueOf(pid, Number(i.needed_stock) || 0);
         const sum = emptyVal(); addVal(sum, v); addVal(prepTotal, v);
+        const am = amounts(i);
         const node = nodes['prep:' + pid] = {
             id: 'prep:' + pid, kind: 'prep', name: i.product_name,
-            qty: round(i.amount_needed, 3), qty_display: fmtQty(i.amount_needed), unit: i.unit,
+            qty: round(am.need, 3), qty_display: fmtQty(am.need), unit: am.unit,
+            need_display: am.need_display, short_display: am.short_display,
             production_type: type,
             // Niveau 4 spørger "kan den laves?", ikke "er der noget på hylden?":
             // dækket → ok · råvarerne er der → kan_laves · ellers opskriftens egen
             // status (mangler/lav/ukendt). Alle tre er resolverens tal.
             status: (i.effective_status === 'ok' || i.effective_status === 'kan_laves')
                 ? i.effective_status : (i.make_status || i.effective_status || i.status),
-            stock_display: fmtQty(i.amount_stock) + ' ' + (i.stock_unit || ''),
+            stock_display: am.stock_display,
             make: {
                 batches: i.make_batches ?? null,
                 recipe_id: i.make_recipe_id ?? null,
@@ -195,8 +217,8 @@ async function buildProductionLevels(input, deps = {}) {
                 const cs = emptyVal(); addVal(cs, cv);
                 nodes[cid] = {
                     id: cid, kind: 'prep_raw', name: c.product_name,
-                    qty: round(c.amount_needed, 3), qty_display: fmtQty(c.amount_needed), unit: c.unit,
-                    status: c.status, stock_display: fmtQty(c.amount_stock) + ' ' + (c.stock_unit || ''),
+                    qty: round(amounts(c).need, 3), qty_display: fmtQty(amounts(c).need), unit: amounts(c).unit,
+                    status: c.status, stock_display: amounts(c).stock_display,
                     days: {}, values: publicVal(cs, perms), children: [],
                 };
                 node.children.push(cid);
@@ -204,14 +226,26 @@ async function buildProductionLevels(input, deps = {}) {
         }
         out.levels.prep.push(node.id);
     }
-    // Det der ikke kan laves af det der er, øverst — det kræver indkøb, ikke bare tid.
+    // Tre afsnit (afgjort 25.09): det der skal laves i forvejen, det Bon laver
+    // ved levering, og det der er dækket af lager (foldet sammen i visningen).
+    // Inden for et afsnit: det der ikke kan laves af det der er, øverst — det
+    // kræver indkøb, ikke bare tid.
     const PREP_RANK = { mangler: 0, lav: 1, ukendt: 2, kan_laves: 3, ok: 4 };
-    out.levels.prep.sort((a, b) => {
-        const na = nodes[a], nb = nodes[b];
-        return (na.production_type === 'on_demand') - (nb.production_type === 'on_demand')
-            || (PREP_RANK[na.status] ?? 5) - (PREP_RANK[nb.status] ?? 5)
-            || String(na.name).localeCompare(String(nb.name), 'da');
-    });
+    const byRank = (a, b) => (PREP_RANK[nodes[a].status] ?? 5) - (PREP_RANK[nodes[b].status] ?? 5)
+        || String(nodes[a].name).localeCompare(String(nodes[b].name), 'da');
+    const secs = { to_stock: [], on_demand: [], covered: [] };
+    for (const id of out.levels.prep) {
+        const n = nodes[id];
+        if (n.status === 'ok') secs.covered.push(id);
+        else secs[n.production_type === 'on_demand' ? 'on_demand' : 'to_stock'].push(id);
+    }
+    out.sections = { prep: [
+        { key: 'to_stock',  title: 'Skal laves i forvejen', ids: secs.to_stock.sort(byRank) },
+        { key: 'on_demand', title: 'Laves ved levering',    ids: secs.on_demand.sort(byRank),
+          note: 'Bon laver dem selv når bonen leveres' },
+        { key: 'covered',   title: 'Dækket af lager',       ids: secs.covered.sort(byRank), collapsed: true },
+    ].filter(x => x.ids.length) };
+    out.levels.prep = out.sections.prep.flatMap(x => x.ids);
 
     /* ── Niveau 5: Råvarer, grupperet efter varegruppe ──────── */
     const rawTotal = emptyVal();
@@ -234,9 +268,9 @@ async function buildProductionLevels(input, deps = {}) {
         const rid = 'raw:' + pid;
         nodes[rid] = {
             id: rid, kind: 'raw', name: i.product_name,
-            qty: round(i.amount_needed, 3), qty_display: fmtQty(i.amount_needed), unit: i.unit,
+            qty: round(amounts(i).need, 3), qty_display: fmtQty(amounts(i).need), unit: amounts(i).unit,
             status: i.status,
-            stock_display: fmtQty(i.amount_stock) + ' ' + (i.stock_unit || ''),
+            stock_display: amounts(i).stock_display,
             // Indkøbslisten som i Råvarer-modalen i dag: mængden er oprundet på
             // serveren (shortfall_purchase). Nettomangel mod indkøbslisten og
             // bestillinger hører til indkøbs-sessionen (spec §8).
@@ -269,4 +303,4 @@ async function buildProductionLevels(input, deps = {}) {
     return out;
 }
 
-module.exports = { buildProductionLevels };
+module.exports = { buildProductionLevels, _amounts: amounts, _shortUnit: shortUnit };

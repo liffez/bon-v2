@@ -443,6 +443,11 @@ function _pdToggleExtraPicker() {
    ══════════════════════════════════════════════════════════════ */
 function _pdLoadTree() {
     if (!_pd) return;
+    // Er en beregning i gang, venter vi på den og kører så ÉN gang til. Ellers
+    // starter hver SSE-opdatering en ny tung beregning oven i den første — ved
+    // kold Grocy-cache blev det til seks samtidige kald ved sidens start.
+    if (_pd.treeInflight) { _pd.treePending = true; return; }
+    _pd.treeInflight = true;
     var bonIds = Array.from(_pd.selected);
     var extras = _pd.extras.map(function (x) {
         return { grocy_recipe_id: x.grocy_recipe_id, quantity: x.quantity, price_category: x.price_category };
@@ -450,8 +455,14 @@ function _pdLoadTree() {
     var seq = ++_pd.treeSeq;
     _pd.loading = true;
     _pdRenderDrill();
+    var done = function () {
+        if (!_pd) return;
+        _pd.treeInflight = false;
+        if (_pd.treePending) { _pd.treePending = false; _pdLoadTree(); }
+    };
     fetchPlanningTree(bonIds, extras).then(function (tree) {
-        if (!_pd || seq !== _pd.treeSeq) return;   // et nyere kald er på vej
+        done();
+        if (!_pd || seq !== _pd.treeSeq || _pd.treeInflight) return;   // et nyere kald er på vej
         _pd.tree = tree; _pd.loading = false; _pd.error = null;
         // Hold stien så længe knuderne findes — en SSE-genindlæsning må ikke
         // smide brugeren tilbage til toppen.
@@ -459,7 +470,8 @@ function _pdLoadTree() {
         _pdRenderMetric();
         _pdRenderDrill();
     }).catch(function (err) {
-        if (!_pd || seq !== _pd.treeSeq) return;
+        done();
+        if (!_pd || seq !== _pd.treeSeq || _pd.treeInflight) return;
         _pd.loading = false; _pd.error = err.message || 'Ukendt fejl';
         _pdRenderDrill();
     });
@@ -626,10 +638,30 @@ function _pdColumnHtml(col, depth) {
     var nodes = _pd.tree.nodes;
     var selected = _pd.path[depth];
     var head = _pdColumnHead(col);
-    var rows = col.ids.length ? col.ids.map(function (id) { return _pdRowHtml(nodes[id], depth, id === selected); }).join('')
+    var secs = (depth === 0 && _pd.tab === 'prep' && _pd.tree.sections && _pd.tree.sections.prep) || null;
+    var rows = secs ? _pdSectionsHtml(secs, depth, selected)
+        : col.ids.length ? col.ids.map(function (id) { return _pdRowHtml(nodes[id], depth, id === selected); }).join('')
         : '<div class="pd-empty">' + (_pd.tab === 'requests' && depth === 0 ? 'Ingen særlige ønsker i det valgte.' : 'Intet at vise.') + '</div>';
     return '<div class="pd-col"><div class="pd-col-head"><span class="pd-col-title">' + _pdEsc(col.title) + '</span>' +
         '<span class="pd-col-sum">' + head + '</span></div><div class="pd-col-rows">' + rows + '</div></div>';
+}
+
+/* Skal laves: tre afsnit. "Dækket af lager" er foldet sammen — det er ikke
+   noget der skal gøres, men det skal kunne findes. */
+function _pdSectionsHtml(secs, depth, selected) {
+    var nodes = _pd.tree.nodes;
+    if (!secs.length) return '<div class="pd-empty">Intet skal laves i det valgte.</div>';
+    return secs.map(function (sec) {
+        var open = !sec.collapsed || _pd.coveredOpen;
+        var head = '<' + (sec.collapsed ? 'button type="button" data-section-toggle="1"' : 'div') + ' class="pd-sec-head' +
+            (sec.collapsed ? ' toggle' : '') + '">' +
+            (sec.collapsed ? '<span class="pd-sec-arrow">' + (open ? '▾' : '▸') + '</span> ' : '') +
+            '<span class="pd-sec-title">' + _pdEsc(sec.title) + '</span> <span class="pd-sec-count">' + sec.ids.length + '</span>' +
+            (sec.note ? '<span class="pd-sec-note">' + _pdEsc(sec.note) + '</span>' : '') +
+            '</' + (sec.collapsed ? 'button' : 'div') + '>';
+        var rows = open ? sec.ids.map(function (id) { return _pdRowHtml(nodes[id], depth, id === selected); }).join('') : '';
+        return head + rows;
+    }).join('');
 }
 
 /** Kolonnehovedet summerer ikke — det viser forælderens (eller totalens) færdige tal. */
@@ -638,7 +670,13 @@ function _pdColumnHead(col) {
     if (_pdIsFase2()) {
         var fv = col.parent ? col.parent.values : (t.level_totals && t.level_totals[_pd.tab]);
         if (_pd.metric === 'antal') {
-            if (!col.parent) return col.ids.length + (_pd.tab === 'prep' ? ' varer' : ' varegrupper');
+            if (!col.parent && _pd.tab === 'prep') {
+                var ss = (t.sections && t.sections.prep) || [];
+                var todo = 0, cov = 0;
+                ss.forEach(function (x) { if (x.key === 'covered') cov += x.ids.length; else todo += x.ids.length; });
+                return todo + ' skal laves' + (cov ? ' · ' + cov + ' dækket' : '');
+            }
+            if (!col.parent) return col.ids.length + ' varegrupper';
             return col.parent.kind === 'raw_group' ? col.ids.length + ' råvarer' : '';
         }
         if (_pd.metric === 'salg' || _pd.metric === 'db') return 'findes ikke her';
@@ -692,6 +730,7 @@ function _pdRowTitle(n) {
 
 function _pdRowHtml(n, depth, isSel) {
     if (!n) return '';
+    if (n.kind === 'prep') return _pdPrepRowHtml(n, depth, isSel);
     var hasKids = n.children && n.children.length;
     var dim = n.kind === 'category' && !n.counts_as_unit;
     var sub = [];
@@ -739,6 +778,43 @@ function _pdStatusBadge(n) {
     if (s2) out += ' <span class="pd-badge pd-badge-' + s2.cls + '">' + s2.text + '</span>';
     return out;
 }
+function _pdBatchText(n) {
+    var m = n.make || {};
+    if (n.status === 'ok') return 'dækket';
+    if (m.estimated || n.status === 'ukendt') return 'antal batches ukendt';
+    if (m.batches) return 'lav ' + m.batches + (m.batches === 1 ? ' batch' : ' batches');
+    return 'skal laves';
+}
+
+function _pdPrepRowHtml(n, depth, isSel) {
+    var m = n.make || {};
+    var hasKids = n.children && n.children.length;
+    var tone = n.status === 'ok' ? 'ok' : (n.status === 'mangler' || n.status === 'lav') ? 'bad'
+        : n.status === 'ukendt' ? 'dim' : 'warn';
+    var sub = [];
+    if (n.status === 'ok') sub.push('behov ' + n.need_display + ' · lager ' + n.stock_display);
+    else sub.push('mangler ' + n.short_display + ' (behov ' + n.need_display + ' · lager ' + n.stock_display + ')');
+    var rn = m.recipe_name && m.recipe_name.trim().toLowerCase() !== String(n.name).trim().toLowerCase() ? m.recipe_name : '';
+    if (rn && n.status !== 'ok') sub.push('opskrift: ' + rn);
+    if (n.status === 'ukendt') sub.push('udbyttet er ikke oplyst i Grocy');
+    var missing = (n.status === 'mangler' || n.status === 'lav') && m.missing && m.missing.length
+        ? '<span class="pd-row-sub pd-missing">mangler råvarer: ' + _pdEsc(m.missing.join(', ')) + '</span>' : '';
+    var used = n.used_in || [];
+    var usedHtml = !used.length ? '' : used.length <= 2
+        ? '<span class="pd-row-sub">bruges i ' + _pdEsc(used.join(', ')) + '</span>'
+        : '<span class="pd-row-sub" title="' + _pdEsc(used.join(', ')) + '">bruges i ' + used.length + ' retter</span>';
+    var right = _pd.metric !== 'antal' && n.values ? _pdMetricLabel(n.values, false) : '';
+    var tag = hasKids ? 'button type="button"' : 'div';
+    return '<' + tag + ' class="pd-row pd-prep' + (isSel ? ' selected' : '') + (n.status === 'ok' ? ' dim' : '') +
+        (hasKids ? ' clickable' : '') + '" data-id="' + _pdEsc(n.id) + '" data-depth="' + depth + '">' +
+        '<span class="pd-row-main"><span class="pd-row-line"><strong>' + _pdEsc(n.name) + '</strong>' +
+            ' <span class="pd-action pd-action-' + tone + '">' + _pdEsc(_pdBatchText(n)) + '</span></span>' +
+            '<span class="pd-row-sub">' + _pdEsc(sub.join(' · ')) + '</span>' + missing + usedHtml + '</span>' +
+        (right ? '<span class="pd-row-val">' + right + '</span>' : '') +
+        (hasKids ? '<span class="pd-chev">›</span>' : '') +
+    '</' + (hasKids ? 'button' : 'div') + '>';
+}
+
 function _pdPrepSub(n) {
     var out = [];
     var m = n.make || {};
@@ -770,6 +846,7 @@ function _pdOnCartClick(btn) {
 function _pdOnRowClick(e) {
     var cart = e.target.closest('.pd-cart');
     if (cart) { _pdOnCartClick(cart); return; }
+    if (e.target.closest('[data-section-toggle]')) { _pd.coveredOpen = !_pd.coveredOpen; _pdRenderDrill(); return; }
     var r = e.target.closest('.pd-row.clickable');
     if (!r) return;
     var n = _pd.tree.nodes[r.dataset.id];

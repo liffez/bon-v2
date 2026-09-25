@@ -34,7 +34,7 @@ const near = (label, got, want) => check(label, Math.abs((got ?? NaN) - want) < 
 //                         + en æske (emballage)
 // Menu 3 "Suppe":         0,2 kg bouillon (produkt 400, RR Produktion UDEN udbytte)
 const P = { BROED: 205, GRIS_RAA: 200, SALT: 201, TAHINI: 204, FALAFEL_RAA: 206, AESKE: 207,
-            GRIS: 125, TAHIN: 300, BOUILLON: 400, BEN: 208, MEL: 209 };
+            GRIS: 125, TAHIN: 300, BOUILLON: 400, BEN: 208, MEL: 209, PICKLES: 500, AGURK: 210 };
 const G = { BROED: 30, KOED: 31, KRYDDERI: 40, EMBALLAGE: 10 };
 
 const RAW = new Map([
@@ -46,6 +46,8 @@ const RAW = new Map([
            userfields: { grupper: 'RR Produktion', recipeunit: 'Kilo', recipeunitnumber: '1' } }],
     [98, { id: 98, name: 'Tahin dressing', base_servings: 1, product_id: P.TAHIN,
            userfields: { grupper: 'RR produktion Hurtig', recipeunit: 'Kilo', recipeunitnumber: '1' } }],
+    [60, { id: 60, name: 'Pickles', base_servings: 1, product_id: P.PICKLES,
+           userfields: { grupper: 'RR Produktion', recipeunit: 'Kilo', recipeunitnumber: '1' } }],
     [50, { id: 50, name: 'Bouillon', base_servings: 1, product_id: P.BOUILLON,
            userfields: { grupper: 'RR Produktion' } }],   // intet udbytte → kan ikke regnes
 ]);
@@ -57,6 +59,8 @@ const POS = [
     { recipe_id: 2,  product_id: P.AESKE,       amount: 1,    qu_id: 5, ingredient_group: 'Emballage' },
     { recipe_id: 3,  product_id: P.BOUILLON,    amount: 0.20, qu_id: 4 },
     { recipe_id: 4,  product_id: P.MEL,         amount: 0.20, qu_id: 4 },
+    { recipe_id: 4,  product_id: P.PICKLES,     amount: 0.05, qu_id: 4 },
+    { recipe_id: 60, product_id: P.AGURK,       amount: 1,    qu_id: 4 },
     { recipe_id: 28, product_id: P.GRIS_RAA,    amount: 1.12, qu_id: 4 },
     { recipe_id: 28, product_id: P.SALT,        amount: 0.01, qu_id: 4 },
     { recipe_id: 98, product_id: P.TAHINI,      amount: 0.50, qu_id: 4 },
@@ -67,11 +71,12 @@ const PRODUCTS = [
     [P.TAHINI, 'Tahini', G.KRYDDERI, 4], [P.FALAFEL_RAA, 'Kikærter', null, 4], [P.AESKE, 'Æske', G.EMBALLAGE, 5],
     [P.GRIS, 'Langtids stegt Gris', G.KOED, 4], [P.TAHIN, 'Tahin dressing', G.KRYDDERI, 4],
     [P.BOUILLON, 'Bouillon', null, 4], [P.BEN, 'Suppeben', G.KOED, 4], [P.MEL, 'Hvedemel', G.BROED, 4, 6],
+    [P.PICKLES, 'Pickles', null, 4], [P.AGURK, 'Agurk', null, 4],
 ].map(([id, name, grp, qu, pu]) => ({ id, name, product_group_id: grp, qu_id_stock: qu, qu_id_purchase: pu || qu,
     userfields: id === P.GRIS_RAA ? { co2e_per_kg: '5' } : id === P.SALT ? { co2e_per_kg: '1' } : {} }));
 const STOCK = [
     { product_id: P.BROED, amount: 1 }, { product_id: P.GRIS, amount: 0.3 }, { product_id: P.SALT, amount: 5 },
-    { product_id: P.AESKE, amount: 3 }, { product_id: P.MEL, amount: 0.1 },
+    { product_id: P.AESKE, amount: 3 }, { product_id: P.MEL, amount: 0.1 }, { product_id: P.PICKLES, amount: 5 },
 ];
 const COSTS = new Map([[P.GRIS_RAA, { cost: 50 }], [P.SALT, { cost: 10 }], [P.BROED, { cost: 20 }],
     [P.TAHINI, { cost: 40 }], [P.AESKE, { cost: 2 }]]);
@@ -103,8 +108,16 @@ const itemRecipes = new Map([[1, 'Grisen på Rug'], [2, 'Falaflen'], [3, 'Suppe'
     const N = r.nodes;
 
     // §1 Niveau 4 = de producerbare varer
-    eq('niveau 4: gris, bouillon, tahin', r.levels.prep.slice().sort(), ['prep:125', 'prep:300', 'prep:400']);
-    eq('on_demand står sidst', r.levels.prep[r.levels.prep.length - 1], 'prep:300');
+    eq('niveau 4: gris, bouillon, tahin, pickles', r.levels.prep.slice().sort(), ['prep:125', 'prep:300', 'prep:400', 'prep:500']);
+    // Tre afsnit (afgjort 25.09)
+    eq('afsnit', r.sections.prep.map(x => x.key), ['to_stock', 'on_demand', 'covered']);
+    eq('i forvejen: gris (mangler) før bouillon (udbytte ukendt)', r.sections.prep[0].ids, ['prep:125', 'prep:400']);
+    eq('ved levering: tahin', r.sections.prep[1].ids, ['prep:300']);
+    eq('dækket: pickles, foldet sammen', [r.sections.prep[2].ids, r.sections.prep[2].collapsed], [['prep:500'], true]);
+    eq('gris: mangler 0,7 kg (behov 1 − lager 0,3), samme enhed', [N['prep:125'].short_display, N['prep:125'].need_display, N['prep:125'].stock_display],
+        ['0,7 kg', '1 kg', '0,3 kg']);
+    check('dækket vare får ingen batch-råvarer i niveau 5', !r.levels.raw.flatMap(g => N[g].children).includes('raw:210'));
+    eq('niveau-listen følger afsnittene', r.levels.prep, r.sections.prep.flatMap(x => x.ids));
     eq('gris er to_stock', N['prep:125'].production_type, 'to_stock');
     eq('tahin er on_demand', N['prep:300'].production_type, 'on_demand');
     near('gris: behov 4 × 0,25 kg', N['prep:125'].qty, 1);
@@ -151,6 +164,14 @@ const itemRecipes = new Map([[1, 'Grisen på Rug'], [2, 'Falaflen'], [3, 'Suppe'
     // §6 Rettighed
     const noCost = await buildProductionLevels({ lines, itemRecipes, perms: { cost: false } });
     check('uden kost-rettighed: ingen cost_ex', !/"cost_ex"/.test(JSON.stringify(noCost)));
+
+    // §6b Visning: samme enhed og skala for behov, lager og mangel
+    const { _amounts, _shortUnit } = require('../services/planningProduction');
+    const a1 = _amounts({ needed_stock: 0.04, stock_amount: 2.01, display_factor: 1000, unit: 'Gram' });
+    eq('lager over 1000 g → alt i kg', [a1.need_display, a1.stock_display, a1.short_display], ['0,04 kg', '2,01 kg', '0 kg']);
+    const a2 = _amounts({ needed_stock: 0.04, stock_amount: 0.01, display_factor: 1000, unit: 'Gram' });
+    eq('små mængder bliver i g', [a2.need_display, a2.stock_display, a2.short_display], ['40 g', '10 g', '30 g']);
+    eq('Gram/Kilo → g/kg', [_shortUnit('Gram'), _shortUnit('Kilo'), _shortUnit('Antal'), _shortUnit('pose')], ['g', 'kg', 'stk', 'pose']);
 
     // §7 Tomt grundlag
     const empty = await buildProductionLevels({ lines: [], itemRecipes, perms: { cost: true } });
