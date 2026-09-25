@@ -8,6 +8,10 @@
 //   2. Grocys indkøbsenhed      → Grocys lagerenhed          (kasse  → kg)
 //   3. Leverandørens basisenhed ⟷ Grocys indkøbsenhed        (pose   → ?)
 //
+// Pakkeindholdet læses fra Grocys egne felter på stregkoden (`amount` + `qu_id`).
+// Det blev afgjort 22.09.2026 at de er eneste sandhed; userfieldet
+// `pack_size_stock_unit` vises kun som "gammelt felt" så efterslæbet kan ses.
+//
 // Spring 2 klarer `resolveToStockAmount()` (#358). Spring 1 er Fase A's A2.
 // Spring 3 har ingen ejer — og uden det kan en bestilling på "1 karton"
 // ikke oversættes til noget lageret forstår. Se docs/indkob/CLAUDE_INDKOB_FASE_A.md §5.4.
@@ -56,6 +60,12 @@ const HOKA_LOCATION_NAME = 'Hørkram';
 function fmt(v, fallback = '—') {
     if (v === null || v === undefined || v === '') return fallback;
     return String(v);
+}
+
+// Tom, null eller nul tæller alle som "ikke udfyldt" — et pakkeindhold på 0
+// er lige så ubrugeligt som ingen værdi, og må ikke se ud som et målt tal.
+function harVaerdi(v) {
+    return v !== null && v !== undefined && v !== '' && Number(v) !== 0;
 }
 
 function pad(s, n) {
@@ -119,11 +129,16 @@ async function main() {
             grocy_kob:      unitName(kob),
             grocy_lager:    unitName(lager),
             omregning:      faktor,                       // null = mangler
-            bc_enhed:       unitName(bc.qu_id),           // stregkodens egen enhed
-            bc_maengde:     bc.amount,                    // … og mængde
+            // Pakkeindholdet: Grocys egne felter er eneste sandhed (afgjort 22.09.2026,
+            // CLAUDE_VARER_OG_PRISER.md §14.2). Userfieldet `pack_size_stock_unit`
+            // udledes af dem og skrives ikke længere — det læses kun for at kunne
+            // sige hvor mange rækker der stadig bærer det gamle felt.
+            indhold:        harVaerdi(bc.amount) ? Number(bc.amount) : null,
+            indhold_enhed:  unitName(bc.qu_id),
+            pris:           harVaerdi(bc.last_price) ? Number(bc.last_price) : null,
             lev_enhed:      uf.supplier_unit_code || null,
             lev_antal:      uf.supplier_unit_qty || null,
-            pakstorrelse:   uf.pack_size_stock_unit || null,
+            gammelt_felt:   uf.pack_size_stock_unit || null,
             aftale:         uf.is_agreement_item === '1',
             // fyldes af --hoka
             hoka_enheder:   null,   // fx "kt×5 / ps"
@@ -146,7 +161,7 @@ async function main() {
         else if (r.akse3 === 'mangler')  r.mangler = 'vægt pr. leverandør-enhed';
         else if (r.akse3 === 'volumen')  r.mangler = 'liter mod kilo';
         else if (!r.lev_enhed)           r.mangler = 'enhed på koblingen';
-        else if (!r.pakstorrelse)        r.mangler = 'pakstørrelse';
+        else if (r.indhold === null)     r.mangler = 'pakkeindhold';
         else                             r.mangler = null;
     }
 
@@ -154,7 +169,7 @@ async function main() {
     const manglerAkse3     = rows.filter(r => r.mangler === 'vægt pr. leverandør-enhed');
     const manglerVolumen   = rows.filter(r => r.mangler === 'liter mod kilo');
     const manglerEnhed     = rows.filter(r => r.mangler === 'enhed på koblingen');
-    const manglerPak       = rows.filter(r => r.mangler === 'pakstørrelse');
+    const manglerPak       = rows.filter(r => r.mangler === 'pakkeindhold');
     const klar             = rows.filter(r => !r.mangler);
     const hoka             = rows.filter(r => r.leverandor === HOKA_LOCATION_NAME);
 
@@ -168,8 +183,18 @@ async function main() {
         console.log(`Liter mod kilo:                        ${manglerVolumen.length}   ← akse 3: vi køber i liter, Hørkram regner i kg`);
     }
     console.log(`Mangler leverandørens enhed:           ${manglerEnhed.length}   ← skærmen gætter enheden`);
-    console.log(`Mangler pakstørrelse:                  ${manglerPak.length}   ← mængden regnes som 1 pr. pakke`);
+    console.log(`Mangler pakkeindhold:                  ${manglerPak.length}   ← mængden regnes som 1 pr. pakke`);
     console.log(`Komplette:                             ${klar.length}\n`);
+
+    // Tallene ovenfor er en OPDELING: hver kobling tælles ét sted — dér hvor det
+    // næste skridt er. Mangler en kobling både enhed og indhold, står den kun under
+    // enheden. Derfor også råtallene, ellers ser efterslæbet mindre ud end det er.
+    const raa = (f) => rows.filter(f).length;
+    console.log('Råtal pr. felt (samme kobling kan mangle flere ting):');
+    console.log(`  uden leverandørenhed:                ${raa(r => !r.lev_enhed)}`);
+    console.log(`  uden pakkeindhold:                   ${raa(r => r.indhold === null)}`);
+    console.log(`  uden pris:                           ${raa(r => !r.pris)}`);
+    console.log(`  bærer stadig det gamle felt:         ${raa(r => r.gammelt_felt)}\n`);
 
     const visGruppe = (titel, liste, note) => {
         if (!liste.length) return;
@@ -193,8 +218,8 @@ async function main() {
         'Vi køber i liter, Hørkram regner i kg. Vand er 1:1, olie er ikke — bind det pr. vare.');
     visGruppe('Mangler leverandørens enhed', manglerEnhed,
         'Sættes ved koblingen i Indstillinger → Indkøb → Hørkram, eller ved at koble varen igen.');
-    visGruppe('Mangler pakstørrelse', manglerPak,
-        'pack_size_stock_unit på stregkoden — hvor meget af lagerenheden der er i én pakke.');
+    visGruppe('Mangler pakkeindhold', manglerPak,
+        'Grocys `amount` + enhed på stregkoden — hvor meget én salgsenhed indeholder. Kan sættes i Indkøb → Varer.');
 
     if (!WITH_HOKA) {
         console.log('Kør med --hoka for at se hvilke salgsenheder Hørkram faktisk har på varerne.\n');
@@ -202,8 +227,8 @@ async function main() {
 
     if (CSV_PATH) {
         const head = ['produkt', 'produkt_id', 'leverandor', 'varenr', 'grocy_kob', 'grocy_lager',
-            'omregning', 'stregkode_enhed', 'stregkode_maengde', 'lev_enhed', 'lev_antal',
-            'pakstorrelse', 'aftale', 'hoerkram_salgsenheder', 'hoerkram_basisenhed',
+            'omregning', 'lev_enhed', 'lev_antal',
+            'indhold', 'indhold_enhed', 'gammelt_felt', 'aftale', 'hoerkram_salgsenheder', 'hoerkram_basisenhed',
             'kg_pr_basisenhed', 'kg_kilde', 'akse3', 'mangler', 'beslutning'];
         const esc = v => {
             const s = v === null || v === undefined ? '' : String(v);
@@ -212,8 +237,8 @@ async function main() {
         const lines = [head.join(';')];
         for (const r of rows) {
             lines.push([r.produkt, r.produkt_id, r.leverandor, r.varenr, r.grocy_kob, r.grocy_lager,
-                r.omregning === null ? 'MANGLER' : r.omregning, r.bc_enhed, r.bc_maengde,
-                r.lev_enhed, r.lev_antal, r.pakstorrelse, r.aftale ? 'ja' : '',
+                r.omregning === null ? 'MANGLER' : r.omregning,
+                r.lev_enhed, r.lev_antal, r.indhold, r.indhold_enhed, r.gammelt_felt, r.aftale ? 'ja' : '',
                 r.hoka_enheder, r.hoka_basis, r.hoka_kg, r.hoka_kg_kilde, r.akse3,
                 r.mangler, ''].map(esc).join(';'));
         }
