@@ -580,6 +580,10 @@ class BonDrawer {
     async load(bonId, opts) {
         // Flush ventende gruppe-gem for den FORRIGE bon før vi skifter væk.
         if (this.bonId && this.bonId !== bonId) { try { await this._flushGroupSave(); } catch (e) {} }
+        // By-ex-panelerne bor uden for _render() og overlever derfor et bon-skift.
+        // Blev de stående, viste B4321 B4322's reference og kontakt — og "Bestil
+        // rigtigt bud" ville sende de felter afsted på den forkerte bon.
+        if (this.bonId !== bonId) this._resetLoboUi();
         this.bonId = bonId;
         this.dirty = false;
         this._pendingChanges = {};
@@ -928,9 +932,11 @@ class BonDrawer {
     async _loadLoboStatus() {
         const host = this.el.querySelector('.drawer-lobo-status');
         if (!host || typeof fetchLoboOrderStatus !== 'function') return;
+        const bonId = this.bonId;
         let data;
-        try { data = await fetchLoboOrderStatus(this.bonId); }
-        catch { host.hidden = true; return; }
+        try { data = await fetchLoboOrderStatus(bonId); }
+        catch { if (this.bonId === bonId) host.hidden = true; return; }
+        if (this.bonId !== bonId) return;
         if (!data || !data.booked) { host.hidden = true; return; }
         host.hidden = false;
         this._renderLoboStatus(host, data);
@@ -966,6 +972,18 @@ class BonDrawer {
        BY-EXPRESSEN se-og-ret-panel (trin 2)
        ══════════════════════════════════════════════════════ */
 
+    // Ryd alt By-ex-UI der hører til en bestemt bon. Kaldes ved bon-skift.
+    _resetLoboUi() {
+        this._loboOverrides = {};
+        this._loboData = null;
+        this._loboPanelBonId = null;
+        if (!this.el) return;
+        for (const sel of ['.drawer-lobo-panel', '.drawer-lobo-quote', '.drawer-lobo-status']) {
+            const el = this.el.querySelector(sel);
+            if (el) { el.hidden = true; el.innerHTML = ''; el.className = sel.slice(1); }
+        }
+    }
+
     _toggleLoboPanel() {
         const host = this.el.querySelector('.drawer-lobo-panel');
         if (!host) return;
@@ -993,15 +1011,21 @@ class BonDrawer {
     async _loboFetchPreview() {
         const host = this.el.querySelector('.drawer-lobo-panel');
         if (!host) return;
+        const bonId = this.bonId;
+        this._loboPanelBonId = null;
         host.className = 'drawer-lobo-panel loading';
         host.textContent = 'Henter fra By-expressen…';
         let sandbox = false;
         try { const st = await fetchLoboStatus(); sandbox = !!(st && st.use_sandbox); } catch { /* */ }
         try {
-            const data = await previewLoboBooking({ bon_id: this.bonId, ...(this._loboOverrides || {}) });
+            const data = await previewLoboBooking({ bon_id: bonId, ...(this._loboOverrides || {}) });
+            // Skiftede draweren bon mens vi ventede, hører svaret til en anden bon.
+            if (this.bonId !== bonId) return;
             this._loboData = data;
+            this._loboPanelBonId = bonId;
             this._loboRenderPanel(host, data, sandbox);
         } catch (err) {
+            if (this.bonId !== bonId) return;
             host.className = 'drawer-lobo-panel err';
             host.textContent = (err && err.code === 'config') ? 'By-ex er ikke konfigureret endnu (mangler API-opsætning).'
                 : (err && err.code === 'address_not_found') ? (err.message || 'Adressen kunne ikke verificeres hos By-expressen — brug "Bestil hos…" (manuel).')
@@ -1125,10 +1149,17 @@ class BonDrawer {
             if (!confirm('Du sender nu et RIGTIGT bud til By-expressen.\n\nDet kan IKKE afbestilles via systemet — kun ved at ringe til dem. Fortsæt?')) return;
         }
         const host = this.el.querySelector('.drawer-lobo-panel');
+        // Panelets felter skal være hentet for DENNE bon — ellers sender vi en
+        // anden bons reference og kontakt afsted som et rigtigt bud.
+        if (this._loboPanelBonId !== this.bonId) {
+            this._loboShowError(host, 'Panelet hører til en anden bon — tryk "↻ Hent vindue & pris" først.');
+            return;
+        }
+        const bonId = this.bonId;
         const btn = host && host.querySelector('.lbp-book');
         if (btn) { btn.disabled = true; btn.textContent = 'Bestiller…'; }
         try {
-            const data = { bon_id: this.bonId, ...(this._loboOverrides || {}) };
+            const data = { bon_id: bonId, ...(this._loboOverrides || {}) };
             if (!sandbox) data.confirm = true;
             await bookLoboDelivery(data);
             if (host) { host.className = 'drawer-lobo-panel ok'; host.innerHTML = `<div class="lbp-done">✓ Booket hos By-expressen${sandbox ? ' (sandkasse)' : ''}</div>`; }
@@ -1231,8 +1262,10 @@ class BonDrawer {
                     quoteEl.className = 'drawer-lobo-quote loading';
                     quoteEl.textContent = 'Henter By-ex pris…';
                 }
+                const bonId = this.bonId;
                 try {
-                    const q = await fetchLoboQuote(this.bonId, quoteBoxes);
+                    const q = await fetchLoboQuote(bonId, quoteBoxes);
+                    if (this.bonId !== bonId) return;
                     quoteBoxes = q.boxes;  // synk til det serveren regnede med
                     const dist = q.routedistance != null ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
                     const marginCls = q.margin == null ? '' : (q.margin < 0 ? 'neg' : 'pos');
@@ -1253,6 +1286,7 @@ class BonDrawer {
                             (dist ? `<div class="lq-row lq-dim"><span>${dist}</span></div>` : '')) +
                         (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');
                 } catch (err) {
+                    if (this.bonId !== bonId) return;
                     quoteEl.className = 'drawer-lobo-quote err';
                     if (err.code === 'config') {
                         quoteEl.textContent = 'By-ex er ikke konfigureret endnu (mangler API-opsætning).';
