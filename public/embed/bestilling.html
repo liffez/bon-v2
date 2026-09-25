@@ -978,80 +978,83 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.autocomplete-wrap')) addrSugg.style.display = 'none';
 });
 
-// ── DAWA med København først ──────────────────────────────────────
-// KOPI af dawaAutocomplete i shared/utils.js — siden er single-file uden
-// imports. Ændres reglen dér, ændres den her.
-//
-// DAWA rangerer ikke efter nærhed ("Vesterbrogade 10" giver Viborg og
-// Kolding, og København V er ikke blandt de første 30), så der spørges to
-// gange: afgrænset til hovedstadsområdet + uden filter. Lokale hits først,
-// begge blokke efter postnr. Fælde: fuzzy + filter giver 0 hits hos DAWA,
-// så kun den globale forespørgsel er fuzzy.
-const DAWA_LOCAL_KOMMUNER = ['0101','0147','0151','0153','0155','0157','0159','0161','0163','0165',
-  '0167','0169','0173','0175','0183','0185','0187','0190','0230','0240'];
-function dawaSortByPostnr(items) {
-  return (items || []).map((it, i) => ({ it, i })).sort((a, b) => {
-    let pa = parseInt((a.it.adresse || {}).postnr, 10), pb = parseInt((b.it.adresse || {}).postnr, 10);
-    if (isNaN(pa)) pa = 99999; if (isNaN(pb)) pb = 99999;
-    return (pa - pb) || (a.i - b.i);
-  }).map(x => x.it);
+// ── Adresseopslag gennem vores egen server ────────────────────────
+// Reglen (København først, præcist husnummer først) bor i
+// services/addressSearch.js. Browseren talte før direkte med
+// api.dataforsyningen.dk, og en firma-firewall kunne blokere det lydløst —
+// så kom listen aldrig, og bestillingen kunne ikke sendes. Nu går opslaget
+// til bon.ristetrug.dk, som kunden allerede har fået siden fra.
+let addrItems = {};          // adresse-id → forslag fra seneste liste
+let addrLookupDown = false;  // opslaget svarede ikke — nødudgangen er åben
+
+async function addrSearch(q) {
+  const r = await fetch('/embed/adresse/soeg?q=' + encodeURIComponent(q) + '&limit=10&fuzzy=1');
+  if (!r.ok) throw new Error('Adresseopslag ' + r.status);
+  const d = await r.json();
+  return Array.isArray(d) ? d : [];
 }
-function dawaMergeSuggestions(local, global, limit) {
-  const seen = {}, out = [];
-  const take = list => dawaSortByPostnr(list).forEach(it => {
-    const key = (it.adresse && it.adresse.id) || it.tekst;
-    if (!key || seen[key]) return;
-    seen[key] = true; out.push(it);
-  });
-  take(local); take(global);
-  return out.slice(0, limit);
-}
-async function dawaSearch(q, limit = 10) {
-  const enc = encodeURIComponent(q);
-  const get = url => fetch(url).then(r => { if (!r.ok) throw new Error('DAWA ' + r.status); return r.json(); })
-                               .then(d => Array.isArray(d) ? d : []);
-  const [local, global] = await Promise.all([
-    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&kommunekode=${DAWA_LOCAL_KOMMUNER.join('|')}`).catch(() => []),
-    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&fuzzy=true`),
-  ]);
-  return dawaMergeSuggestions(local, global, limit);
+
+function escAttr(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 async function searchAddr(q) {
   if (q.length < 2) { addrSugg.style.display = 'none'; return; }
   try {
-    const d = await dawaSearch(q);
+    const d = await addrSearch(q);
+    if (addrLookupDown) {
+      addrLookupDown = false;
+      if (!validatedAddress) setAddrStatus('', '');
+    }
+    addrItems = {};
+    d.forEach(x => { if (x?.adresse?.id) addrItems[x.adresse.id] = x; });
     if (d.length) {
-      addrSugg.innerHTML = d.map(x => `<li data-id="${x.adresse.id}">${x.tekst}</li>`).join('');
+      addrSugg.innerHTML = d.map(x => `<li data-id="${escAttr(x.adresse.id)}">${escAttr(x.tekst)}</li>`).join('');
       addrSugg.style.display = 'block';
     } else {
       addrSugg.style.display = 'none';
     }
     postHeight();
-  } catch { addrSugg.style.display = 'none'; }
+  } catch {
+    addrSugg.style.display = 'none';
+    addrLookupDown = true;
+    setAddrStatus('warn', '⚠️ Adresseopslaget svarer ikke lige nu. Skriv hele adressen med postnummer — så tjekker vi den, når vi modtager bestillingen.');
+    postHeight();
+  }
 }
 
-async function selectAddr(id, txt) {
+// Forslaget bærer allerede postnr, by og koordinater (DAWA's autocomplete-
+// form), så der er ikke brug for et opslag mere — ét kald mindre der kan fejle.
+function selectAddr(id, txt) {
+  const a = addrItems[id]?.adresse || {};
   addrInput.value = txt;
   addrSugg.style.display = 'none';
-  setAddrStatus('checking', '⏳ Verificerer adresse...');
-  try {
-    const r = await fetch(`https://api.dataforsyningen.dk/adresser/${id}`);
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-    validatedAddress = {
-      id, tekst: txt,
-      postnr: d.adgangsadresse.postnummer.nr,
-      by:     d.adgangsadresse.postnummer.navn,
-      lat:    d.adgangsadresse.adgangspunkt.koordinater[1],
-      lon:    d.adgangsadresse.adgangspunkt.koordinater[0]
-    };
-    setAddrStatus('ok', '✅ Adresse verificeret');
-    updateDeliveryEstimate();
-  } catch {
-    validatedAddress = null;
-    setAddrStatus('err', '❌ Kunne ikke verificere adresse');
-  }
+  const lat = Number(a.y), lon = Number(a.x);
+  validatedAddress = {
+    id, tekst: txt,
+    postnr: a.postnr ? String(a.postnr) : null,
+    by:     a.postnrnavn || null,
+    lat:    Number.isFinite(lat) ? lat : null,
+    lon:    Number.isFinite(lon) ? lon : null,
+  };
+  setAddrStatus('ok', '✅ Adresse verificeret');
+  updateDeliveryEstimate();
+}
+
+/**
+ * Nødudgangen: svarer adresseopslaget ikke, må kunden sende adressen som
+ * tekst. Den skal ligne en hel adresse — gade, nummer og et postnummer —
+ * ellers er der ikke noget at levere til. Kontoret ser den som
+ * "ikke verificeret" på bonen.
+ */
+function unverifiedAddress() {
+  const txt = (addrInput?.value || '').trim();
+  // Postnummeret er det SIDSTE firecifrede tal efter gadenavnet — så et
+  // husnummer som "1" eller en etage bagefter ikke forveksles med det.
+  const zips = [...txt.matchAll(/(?:^|[\s,])(\d{4})(?=$|[\s,])\s*([a-zæøå][^,\d]*)?/gi)];
+  const zip = zips[zips.length - 1];
+  if (!/[a-zæøå]{2,}\D*\d/i.test(txt) || !zip) return null;
+  return { tekst: txt, postnr: zip[1], by: (zip[2] || '').trim() || null, lat: null, lon: null, unverified: true };
 }
 
 function setAddrStatus(type, msg) {
@@ -1080,9 +1083,10 @@ async function updateDeliveryEstimate() {
 
   let dist = null;
   try {
-    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${CFG.base.lon},${CFG.base.lat};${validatedAddress.lon},${validatedAddress.lat}?overview=false`);
-    const d = await r.json();
-    if (d.routes?.length) dist = parseFloat((d.routes[0].distance / 1000).toFixed(1));
+    if (validatedAddress.lat != null && validatedAddress.lon != null) {
+      const r = await fetch(`/embed/adresse/afstand?lat=${validatedAddress.lat}&lon=${validatedAddress.lon}`);
+      if (r.ok) { const d = await r.json(); if (Number.isFinite(d.km)) dist = d.km; }
+    }
   } catch {}
 
   let icon = '🚴';
@@ -1560,10 +1564,12 @@ function validateForm() {
       valid = false;
     }
   });
-  if (orderType === 'catering' && !validatedAddress?.id) {
+  if (orderType === 'catering' && !validatedAddress?.id && !(addrLookupDown && unverifiedAddress())) {
     const field = document.getElementById('field-address');
     if (field) field.classList.add('field-error');
-    setAddrStatus('err', '❌ Vælg en gyldig adresse fra listen');
+    setAddrStatus('err', addrLookupDown
+      ? '❌ Skriv hele adressen: gade, nummer og postnummer (fx Nansensgade 1, 1366 København K)'
+      : '❌ Vælg en gyldig adresse fra listen');
     if (!firstError) firstError = document.getElementById('address-input');
     valid = false;
   }
@@ -1616,7 +1622,8 @@ document.getElementById('order-form').addEventListener('submit', async e => {
 
   const fd = new FormData(e.target);
   const data = Object.fromEntries(fd.entries());
-  data.validatedAddress = validatedAddress;
+  data.validatedAddress = validatedAddress?.id ? validatedAddress
+    : (orderType === 'catering' && addrLookupDown ? unverifiedAddress() : validatedAddress);
   data.submittedAt = new Date().toISOString();
   delete data.website;
 

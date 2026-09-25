@@ -159,6 +159,7 @@ bon-v2/
 │   ├── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
 │   ├── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
 │   ├── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
+│   ├── address.js    ← /embed/adresse/soeg + /afstand (public — DAWA/OSRM gennem vores server; bestilling, smagsprøve og office)
 │   ├── contact-points.js ← /api/contact-points/* (CRUD + toggle-public for kontaktpunkter)
 │   ├── flags.js      ← /api/flags/* (entity_flags CRUD + ack/dismiss — påmindelser på kunder/firmaer)
 │   ├── stock-counts.js ← /api/stock-counts/* (optællingen som objekt: start, linjer, luk — #673)
@@ -175,6 +176,7 @@ bon-v2/
 │   ├── delivery_log.js       ← Booking-events + actual cost + sync delivery_method (Spor 1)
 │   ├── routing.js            ← ORS vej-routing (getDistance/getRoute) + geo_calculations-cache (Spor 2)
 │   ├── geocode.js            ← DAWA-geokodning af adresser (Spor 2)
+│   ├── addressSearch.js      ← Adresseforslag: København først + præcist husnummer først — ÉN kopi, kaldt via /embed/adresse/soeg
 │   ├── delivery_calc.js      ← Single-bon leverings-forslag: afstand + vogn-anbefaling (Spor 2)
 │   ├── route_planner.js      ← Rute-orchestrator: computeRoute/applyRouteProposal (Spor 2)
 │   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
@@ -9502,6 +9504,42 @@ den ægte route med adapteren stubbet). **53 mutationer i alt, alle fanget.**
 > ⚠️ Testens egen stub af `_ibBuildGroups` skjulte først netop den funktion §6d skulle
 > måle. Den ægte gemmes nu som `__byg` før stubben sættes.
 
+### Adresseopslag gennem vores egen server (25. september 2026)
+
+Danner (Nansensgade 1) kunne ikke bestille: adresselisten kom aldrig frem, heller
+ikke i inkognito. Browseren talte direkte med `api.dataforsyningen.dk`, og en
+firma-firewall blokerede den lydløst — mens formularen kun godkendte en adresse
+valgt fra listen. Ingen udvej.
+
+- **`GET /embed/adresse/soeg`** (`routes/address.js` → `services/addressSearch.js`)
+  henter fra DAWA på serveren. Kunden skal kun kunne nå vores domæne, som hun
+  allerede har fået siden fra. Grænse pr. IP (120/min) og 5 min cache — ruten er
+  offentlig. DAWA nede → **502**, så klienten kan skelne "ingen adresser" fra
+  "opslaget svarer ikke".
+- **Reglen findes ét sted.** "København først" lå i tre kopier (utils.js,
+  bestillingssiden, smagsprøven) holdt ens af en test. Nu kalder alle skærme —
+  office, bestilling, smagsprøve — samme rute. Reglen fik samtidig **præcist
+  husnummer først**: DAWA matcher på starten, så "Nansensgade 1" gav 10, 12, 14…
+  og nr. 1 lå på plads 11, uden for listen.
+- **Intet opslag nr. 2 ved valg.** Forslaget bærer allerede postnr, by og
+  koordinater (`adresse.x/y`), så `/adresser/:id`-kaldet er væk — ét kald mindre
+  der kan fejle.
+- **`GET /embed/adresse/afstand`** erstatter bestillingssidens direkte OSRM-kald.
+  Regner kun fra huset (`bestilling.base_*`), så ruten ikke er en åben ruteplanlægger.
+- **Nødudgang i bestillingsformularen:** svarer opslaget ikke, må adressen sendes
+  skrevet i hånden, hvis den ligner en adresse (gade, nummer, postnr). Bonen får
+  `internal_notes` "⚠ Leveringsadressen er ikke verificeret", og geokodningen
+  prøver bagefter. Smagsprøven tog allerede en håndskrevet adresse og siger det nu.
+- **nginx:** `kontakt.ristetrug.dk` er en allowlist — `/embed/adresse/soeg` er
+  skrevet ind (smagsprøven kan ligge dér). Skal kopieres til serveren og nginx
+  genindlæses.
+- **Ikke rørt:** Chromes egen adresseudfyldning (den sorte boks) kan stadig lægge
+  sig over listen; `autocomplete="off"` ignoreres af Chrome for adressefelter.
+
+**Tests:** `npm run test:dawa` — 33 (reglen, forespørgslerne, ruten over HTTP,
+klienterne, nødudgangen hele vejen til bonen). Mutations-testet: 14 mutationer,
+alle fanget.
+
 ### Planlægning (ny) — drill-down, fase 1 (24. september 2026)
 > Spec: `docs/CLAUDE_PLANLAEGNING_DRILLDOWN.md` §18–19. Kører SIDE OM SIDE med den gamle.
 
@@ -10093,6 +10131,8 @@ POST   /webhook/bestilling                                 routes/web-orders.js 
 GET    /embed/bestilling?menu=                             routes/embed.js (public, CSP frame-ancestors)
 GET    /embed/config                                       routes/embed.js (public)
 GET    /embed/menus/:id.json                               routes/embed.js (public, 60s cache, manual/grocy via menu_source)
+GET    /embed/adresse/soeg?q=&limit=&fuzzy=1           routes/address.js (public, adresseforslag, grænse pr. IP)
+GET    /embed/adresse/afstand?lat=&lon=                routes/address.js (public, km fra huset via OSRM)
 GET    /embed/grocy-preview                                routes/embed.js (auth, tvungen Grocy-render til import-modal)
 GET    /api/settings/bestilling/menu/:id                   routes/settings.js (admin)
 PUT    /api/settings/bestilling/menu/:id                   routes/settings.js (admin, validér + auto-bump version)
