@@ -544,6 +544,59 @@ console.log('\n=== §4 Gem ===');
         eq(f && f.status, 400, 'nul indhold afvises');
     }
 
+    console.log('\n=== §9 To dele: mangler pris / kun købspris ===');
+    {
+        const k = lavKlient();
+        const o = k._isPriceOverview;
+        // Kostprisen kender 89 og 20 fra køb; resten kender den ikke. 30 og 25 bruges i opskrifter.
+        for (const id of Object.keys(o)) { o[id].cost = { known: false }; o[id].in_recipes = 0; }
+        o[89].cost = { known: true, price: 12.5, source: 'last_purchase' };
+        o[20].cost = { known: true, price: 48.1, source: 'avg_window' };
+        o[30].in_recipes = 3; o[25].in_recipes = 1;
+        const alle = k._isAllProducts;
+        const mangler = alle.filter(k._isManglerPris).map(p => p.id);
+        const koeb = alle.filter(k._isKunKoebspris).map(p => p.id);
+        eq(koeb.sort((a, b) => a - b).join(','), '20,89', 'kun købspris = de varer kostprisen kender fra køb');
+        eq(mangler.length + koeb.length, alle.filter(k._isUdenPris).length,
+            'de to dele er tilsammen præcis "uden pris" — ingen falder mellem dem');
+        ok(!mangler.includes(89) && !mangler.includes(20), 'en vare med købspris står ikke på "mangler pris"');
+
+        // Kan serveren ikke svare om kostprisen, lander alt på "mangler pris".
+        const k2 = lavKlient();
+        eq(k2._isAllProducts.filter(k2._isKunKoebspris).length, 0, 'uden cost-felt: intet på "kun købspris"');
+        eq(k2._isAllProducts.filter(k2._isManglerPris).length, k2._isAllProducts.filter(k2._isUdenPris).length,
+            '… alt står på "mangler pris" (aldrig omvendt)');
+
+        // Filter + sortering: opskriftsvarer øverst.
+        k._isRenderTab = () => {};
+        k._isProdFilter.nopris = 'mangler';
+        k._isProdFilterAndRender();
+        const ids = k._isProducts.map(p => p.id);
+        ok(ids.indexOf(25) < ids.indexOf(150) && ids.indexOf(30) < ids.indexOf(150),
+            '"mangler pris": varer der bruges i en opskrift står øverst');
+        ok(!ids.includes(89), '… og kun-købspris-varer er ikke med');
+        k._isProdFilter.nopris = 'kobspris';
+        k._isProdFilterAndRender();
+        eq(k._isProducts.map(p => p.id).sort((a, b) => a - b).join(','), '20,89', '"kun købspris" viser kun dem');
+
+        // Linjen i cellen.
+        const l89 = k._isWorkCostLine(o[89]);
+        ok(/kostprisen bruger i dag 12,50 kr\/stk/.test(l89) && /seneste køb/.test(l89),
+            'kun købspris: cellen siger hvad kostprisen bruger og hvorfra');
+        ok(!/akut/.test(l89), '… og det er ikke akut');
+        const l30 = k._isWorkCostLine(o[30]);
+        ok(/kostprisen kender ingen pris/.test(l30) && /bruges i 3 opskrifter/.test(l30) && /akut/.test(l30),
+            'mangler + i opskrift: fremhævet');
+        ok(/bruges ikke i nogen opskrift/.test(k._isWorkCostLine(o[150])) && !/akut/.test(k._isWorkCostLine(o[150])),
+            'mangler men ikke i opskrift: ikke fremhævet');
+        eq(k2._isWorkCostLine(k2._isPriceOverview[150]), '', 'uden cost-felt: ingen linje (vi påstår intet)');
+
+        // Et gem genopbygger rækken fra serveren — kostprisens viden skal følge med.
+        await k._isWorkRefresh(89);
+        ok(k._isPriceOverview[89].cost && k._isPriceOverview[89].cost.known === true
+            && k._isPriceOverview[89].in_recipes === 0, 'et gem taber ikke kostprisens viden på rækken');
+    }
+
     console.log(`\n${fail ? '\x1b[31m' : '\x1b[32m'}${pass} PASS · ${fail} FAIL\x1b[0m`);
     process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

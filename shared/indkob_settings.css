@@ -454,6 +454,12 @@
     font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .is-prod-nopris.on { background: #6b3f9e; color: #fff; }
+/* "Kun købspris": kostprisen kender prisen — det er ikke akut, så dæmpet. */
+.is-prod-nopris.is-prod-kobspris { border-color: var(--color-border, #d7d1ca); color: var(--color-text-dim, #6b5f53); background: transparent; }
+.is-prod-nopris.is-prod-kobspris.on { background: #6b5f53; border-color: #6b5f53; color: #fff; }
+/* Hvad kostprisen bruger i dag, og om varen er i en opskrift. */
+.is-work-cost { font-size: 11px; line-height: 1.35; color: var(--color-text-dim, #6b5f53); margin-top: 1px; }
+.is-work-cost.akut { color: #a3610b; font-weight: 600; }
 
 /* Arbejdslisten: prisen sættes i rækken */
 .is-work-th-hint { font-weight: 400; color: var(--color-text-dim); font-size: 11px; text-transform: none; letter-spacing: 0; }
