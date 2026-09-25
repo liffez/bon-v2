@@ -177,7 +177,8 @@
     "audit:optaellinger": "node --experimental-sqlite scripts/audit-stock-counts.js",
     "audit:indkob-enheder": "node --experimental-sqlite scripts/audit-indkob-enheder.js",
     "test:opskrift-tilstand": "node scripts/test-recipe-editor-state.js",
-    "test:web-order-fejl": "node --experimental-sqlite --test tests/web_order_failure.test.js"
+    "test:web-order-fejl": "node --experimental-sqlite --test tests/web_order_failure.test.js",
+    "test:drawer-lobo": "node scripts/test-drawer-lobo-reset.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
