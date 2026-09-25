@@ -97,6 +97,9 @@ async function buildProductionLevels(input, deps = {}) {
     const groupById = new Map((groups || []).map(g => [Number(g.id), g]));
     const unitNumber = new Map((sellable || []).map(r => [Number(r.id), Number(r.unit_number) || 1]));
     const policy = R.buildProductionPolicy(rawMap);
+    // Hvem laver varen — også når den er dækket af lager og resolveren derfor
+    // ikke nævner en opskrift. Samme indeks (og samme valg ved flere) som resolveren.
+    const producers = R.buildProducerIndex(rawMap);
     const rawList = [...rawMap.entries()].map(([id, r]) => ({ ...r, id: r.id ?? id }));
 
     /* ── Værdisætning: aktuelle priser og CO₂ ───────────────── */
@@ -196,8 +199,8 @@ async function buildProductionLevels(input, deps = {}) {
             stock_display: am.stock_display,
             make: {
                 batches: i.make_batches ?? null,
-                recipe_id: i.make_recipe_id ?? null,
-                recipe_name: i.make_recipe_name ?? null,
+                recipe_id: i.make_recipe_id ?? (producers.get(pid)?.[0]?.id ?? null),
+                recipe_name: i.make_recipe_name ?? (producers.get(pid)?.[0]?.name ?? null),
                 estimated: !!i.make_estimated,
                 make_status: i.make_status ?? null,
                 missing: (i.make_shortfalls || []).map(s => s.product_name),

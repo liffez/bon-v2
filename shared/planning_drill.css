@@ -148,3 +148,10 @@
 .pd-action-dim { background: #eee; color: #555; }
 .pd-missing { color: #a01818; }
 .pd-row.pd-prep.dim { color: inherit; opacity: .75; }
+
+/* Links: bon og opskrift */
+.pd-open { font-size: 13px; font-weight: 700; color: var(--brand-primary, #8e631f); white-space: nowrap; }
+.pd-recipe-link { margin-left: 10px; font-size: 13px; font-weight: 700; color: var(--brand-primary, #8e631f); text-decoration: none;
+    display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 16px; background: #fff; }
+.pd-recipe-link:hover { background: #f2efe9; }
