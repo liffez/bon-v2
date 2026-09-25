@@ -117,6 +117,7 @@ const itemRecipes = new Map([[1, 'Grisen på Rug'], [2, 'Falaflen'], [3, 'Suppe'
     eq('gris: mangler 0,7 kg (behov 1 − lager 0,3), samme enhed', [N['prep:125'].short_display, N['prep:125'].need_display, N['prep:125'].stock_display],
         ['0,7 kg', '1 kg', '0,3 kg']);
     check('dækket vare får ingen batch-råvarer i niveau 5', !r.levels.raw.flatMap(g => N[g].children).includes('raw:210'));
+    eq('dækket vare kender stadig sin opskrift (til linket)', [N['prep:500'].make.recipe_id, N['prep:500'].make.batches], [60, null]);
     eq('niveau-listen følger afsnittene', r.levels.prep, r.sections.prep.flatMap(x => x.ids));
     eq('gris er to_stock', N['prep:125'].production_type, 'to_stock');
     eq('tahin er on_demand', N['prep:300'].production_type, 'on_demand');

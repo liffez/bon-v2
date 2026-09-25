@@ -591,7 +591,7 @@ function _pdTableHtml(col, depth) {
     var t = _pd.tree, nodes = t.nodes;
     var days = t.days || [];
     var metric = _pd.metric !== 'antal';
-    var tpl = 'minmax(150px, 1fr) repeat(' + days.length + ', 52px) 64px' + (metric ? ' 108px' : '') + ' 20px';
+    var tpl = 'minmax(150px, 1fr) repeat(' + days.length + ', 52px) 64px' + (metric ? ' 108px' : '') + ' 56px';
     var style = ' style="grid-template-columns:' + tpl + '"';
 
     var head = '<div class="pd-trow pd-thead"' + style + '><span class="pd-tname">' + _pdEsc(col.title) + '</span>' +
@@ -607,7 +607,7 @@ function _pdTableHtml(col, depth) {
         var n = nodes[id];
         if (!n) return '';
         var hasKids = n.children && n.children.length;
-        var clickable = hasKids || (n.kind === 'source' && n.source && n.source.bon_id && _pd.opts.onEdit);
+        var clickable = hasKids || _pdCanOpenBon(n);
         var dim = n.kind === 'category' && !n.counts_as_unit;
         var tag = clickable ? 'button type="button"' : 'div';
         var badge = n.badge ? ' <span class="pd-badge pd-badge-' + (n.badge.tone || 'amber') + '">' + _pdEsc(n.badge.text) + '</span>' : '';
@@ -617,7 +617,7 @@ function _pdTableHtml(col, depth) {
             days.map(function (d) { return '<span class="pd-tnum">' + _pdNum(n.days && n.days[d]) + '</span>'; }).join('') +
             '<span class="pd-tnum pd-ttotal">' + _pdEsc(_pdQtyText(n)) + '</span>' +
             (metric ? '<span class="pd-tnum pd-tval">' + (n.values ? _pdMetricLabel(n.values, false) : '') + '</span>' : '') +
-            '<span class="pd-chev">' + (hasKids ? '›' : '') + '</span>' +
+            '<span class="pd-chev">' + (hasKids ? '›' : (_pdCanOpenBon(n) ? '<span class="pd-open">åbn ›</span>' : '')) + '</span>' +
         '</' + (clickable ? 'button' : 'div') + '>';
     }).join('');
 
@@ -642,7 +642,8 @@ function _pdColumnHtml(col, depth) {
     var rows = secs ? _pdSectionsHtml(secs, depth, selected)
         : col.ids.length ? col.ids.map(function (id) { return _pdRowHtml(nodes[id], depth, id === selected); }).join('')
         : '<div class="pd-empty">' + (_pd.tab === 'requests' && depth === 0 ? 'Ingen særlige ønsker i det valgte.' : 'Intet at vise.') + '</div>';
-    return '<div class="pd-col"><div class="pd-col-head"><span class="pd-col-title">' + _pdEsc(col.title) + '</span>' +
+    return '<div class="pd-col"><div class="pd-col-head"><span class="pd-col-title">' + _pdEsc(col.title) +
+        _pdRecipeLink(col.parent) + '</span>' +
         '<span class="pd-col-sum">' + head + '</span></div><div class="pd-col-rows">' + rows + '</div></div>';
 }
 
@@ -662,6 +663,18 @@ function _pdSectionsHtml(secs, depth, selected) {
         var rows = open ? sec.ids.map(function (id) { return _pdRowHtml(nodes[id], depth, id === selected); }).join('') : '';
         return head + rows;
     }).join('');
+}
+
+/* Link til opskriften bag en vare der skal laves. Samme URL-regel som "Lav
+   snart" (recipeUrl i shared/utils.js): batch-tallet kun når udbyttet er kendt —
+   ellers åbner vieweren på opskriftens eget portionstal frem for et gæt. */
+function _pdRecipeLink(n) {
+    if (!n || n.kind !== 'prep' || !n.make || !n.make.recipe_id || typeof recipeUrl !== 'function') return '';
+    var url = recipeUrl({ recipeId: n.make.recipe_id, batches: n.make.batches,
+        trustBatches: !n.make.estimated && n.status !== 'ok' });
+    return ' <a class="pd-recipe-link" href="' + _pdEsc(url) + '" target="_blank" rel="noopener" title="Åbn opskriften ' +
+        _pdEsc(n.make.recipe_name || '') + (n.make.batches && !n.make.estimated && n.status !== 'ok' ? ' i ' + n.make.batches + ' batch' + (n.make.batches === 1 ? '' : 'es') : '') +
+        ' (ny fane)">Åbn opskrift →</a>';
 }
 
 /** Kolonnehovedet summerer ikke — det viser forælderens (eller totalens) færdige tal. */
@@ -747,7 +760,7 @@ function _pdRowHtml(n, depth, isSel) {
         right += '<button type="button" class="pd-cart" data-cart="' + _pdEsc(n.id) + '" title="Læg ' +
             _pdEsc(String(n.cart.amount).replace('.', ',') + ' ' + (n.cart.unit || '')) + ' på indkøbslisten">🛒</button>';
     }
-    var clickable = hasKids || (n.kind === 'source' && n.source && n.source.bon_id && _pd.opts.onEdit);
+    var clickable = hasKids || _pdCanOpenBon(n);
     return '<' + (clickable ? 'button type="button"' : 'div') + ' class="pd-row' + (isSel ? ' selected' : '') + (dim ? ' dim' : '') +
         (clickable ? ' clickable' : '') + '" data-id="' + _pdEsc(n.id) + '" data-depth="' + depth + '">' +
         '<span class="pd-row-main"><span class="pd-row-line"><strong class="pd-qty">' + _pdEsc(_pdQtyText(n)) + '</strong> × ' +
@@ -755,6 +768,7 @@ function _pdRowHtml(n, depth, isSel) {
             (sub.length ? '<span class="pd-row-sub">' + _pdEsc(sub.join(' · ')) + '</span>' : '') + '</span>' +
         (right ? '<span class="pd-row-val">' + right + '</span>' : '') +
         (hasKids ? '<span class="pd-chev">›</span>' : '') +
+        (!hasKids && _pdCanOpenBon(n) ? '<span class="pd-open">åbn bon ›</span>' : '') +
     '</' + (clickable ? 'button' : 'div') + '>';
 }
 
@@ -811,6 +825,9 @@ function _pdPrepRowHtml(n, depth, isSel) {
             ' <span class="pd-action pd-action-' + tone + '">' + _pdEsc(_pdBatchText(n)) + '</span></span>' +
             '<span class="pd-row-sub">' + _pdEsc(sub.join(' · ')) + '</span>' + missing + usedHtml + '</span>' +
         (right ? '<span class="pd-row-val">' + right + '</span>' : '') +
+        // Uden børn er der ingen kolonne at sætte linket i — så står det på rækken.
+        // (Et link inde i en <button> er ikke tilladt, derfor kun her.)
+        (!hasKids ? _pdRecipeLink(n) : '') +
         (hasKids ? '<span class="pd-chev">›</span>' : '') +
     '</' + (hasKids ? 'button' : 'div') + '>';
 }
@@ -843,6 +860,18 @@ function _pdOnCartClick(btn) {
     });
 }
 
+/* ── Åbn en bon fra en kilde-række ─────────────────────────
+   Office: bon-draweren (onEdit). Køkkenet: bon-info-visningen fra
+   shared/modal.js med "Gå til bon →" — samme vej som kalenderen bruger. */
+function _pdCanOpenBon(n) {
+    return !!(n && n.kind === 'source' && n.source && n.source.bon_id
+        && (_pd.opts.onEdit || typeof showBonInfo === 'function'));
+}
+function _pdOpenBon(bonId, bonNr) {
+    if (_pd.opts.onEdit) _pd.opts.onEdit(bonId);
+    else if (typeof showBonInfo === 'function') showBonInfo(bonId, { showGotoButton: true, bonNumber: bonNr });
+}
+
 function _pdOnRowClick(e) {
     var cart = e.target.closest('.pd-cart');
     if (cart) { _pdOnCartClick(cart); return; }
@@ -854,8 +883,8 @@ function _pdOnRowClick(e) {
     if (n.children && n.children.length) {
         _pd.path = _pd.path.slice(0, depth).concat(n.id);
         _pdRenderDrill();
-    } else if (n.kind === 'source' && n.source && n.source.bon_id && _pd.opts.onEdit) {
-        _pd.opts.onEdit(n.source.bon_id);
+    } else if (_pdCanOpenBon(n)) {
+        _pdOpenBon(n.source.bon_id, n.source.bon_nr);
     }
 }
 
