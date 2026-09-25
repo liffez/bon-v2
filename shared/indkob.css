@@ -923,6 +923,13 @@ body.zone-office .ib-toolbar { top: 0; }
    — de to felter hører til samme kobling. */
 .ib-lp-sub { font-size: 11px; font-weight: 700; color: var(--color-text, #333); margin-bottom: 4px; }
 .ib-lp-hint { font-size: 10px; color: var(--color-text-dim, #999); margin: -4px 0 8px; line-height: 1.35; }
+
+/* Prisen som den står på fakturaen: "[115] kr for [25] stk".
+   Felterne er smalle og teksten imellem dem lav, så rækken læses som én
+   sætning og ikke som to løsrevne inputs. */
+.ib-pris-row { align-items: center; flex-wrap: wrap; }
+.ib-pris-inp { flex: 0 0 84px; width: 84px; box-sizing: border-box; }
+.ib-pris-txt { font-size: 12px; color: var(--color-text-dim, #777); white-space: nowrap; }
 .ib-lp-source { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--color-text-dim, #999); margin-bottom: 8px; }
 .ib-lp-note { font-size: 11px; color: var(--color-text-dim, #777); margin-bottom: 6px; }
 .ib-lp-note a { color: var(--brand-primary); font-weight: 700; }
@@ -1297,6 +1304,19 @@ body.ib-focus-mode .ib-group.ib-focused { display: block; }
     white-space: nowrap;
 }
 .ib-item-sup.warn { color: #7a5200; background: var(--ib-orange-light, #fef3d6); }
+
+/* Nummeret hører til en anden leverandør — dæmpet advarsel, ikke en spærring:
+   varen kan stadig bestilles, den kommer bare uden nummer. */
+.ib-foreign-nr {
+    font-size: 11px;
+    color: #7a5200;
+    background: var(--ib-orange-light, #fef3d6);
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin-top: 4px;
+    line-height: 1.4;
+}
+.ib-foreign-nr .ib-lp-link { font-size: 11px; }
 
 /* ── ORDREMAIL SOM KLADDE ──
    Bygger på cart-blocked-modalens overlay, men bredere: her skal en hel mail

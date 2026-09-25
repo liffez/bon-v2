@@ -539,6 +539,76 @@ function post(sti, body) {
     eq(bl.__rullet.length, 1, 'kun ÉN linje markeres — den der ikke allerede var bestilt');
     eq(bl.__rullet[0] && bl.__rullet[0].id, 2, 'og det er den åbne');
 
+    console.log('\n=== §6e Et fremmed varenummer må ikke i bestillingen ===');
+    // Drifts-scenariet: `Gafler` stod under Serviwet med KUN en Hørkram-kobling,
+    // og Hørkrams nummer røg med i mailen til Serviwet.
+    function medKoblinger(koblinger, produktLok) {
+        const c = lavKlient();
+        c._ibProducts = { 60: { id: 60, name: 'Gafler', shopping_location_id: produktLok, qu_id_stock: 1 } };
+        c._ibQUnits = { 1: { id: 1, name: 'Antal' } };
+        c._ibLocations = { 2: { id: 2, name: 'Hørkram' }, 7: { id: 7, name: 'Emballage' },
+                           9: { id: 9, name: 'Convifood' } };
+        // Hørkram dækker BÅDE lokation 2 og 9 — det er hele pointen.
+        c._ibHandelssteder = [
+            { grocy_location_id: 2, supplier_id: 1, supplier_name: 'Hørkram', integration_type: 'api' },
+            { grocy_location_id: 9, supplier_id: 1, supplier_name: 'Hørkram', integration_type: 'api' },
+            { grocy_location_id: 7, supplier_id: 5, supplier_name: 'Serviwet', integration_type: 'email',
+              contact_email: 'rikke@example.invalid' },
+        ];
+        c._ibProductGroups = {};
+        c._ibBarcodes = koblinger;
+        c._ibShoppingList = [{ id: 1, product_id: 60, amount: 20, userfields: {} }];
+        c.__byg();
+        const g = c._ibGroups[String(produktLok)];
+        return { c, g, e: g && g.items.find(x => x.product.id === 60) };
+    }
+    const HK = { id: 1, product_id: 60, barcode: '18281705', note: 'Gaffel flergangsplast PP', shopping_location_id: 2, userfields: {} };
+    const SW = { id: 2, product_id: 60, barcode: 'INT-0020', note: 'Gafler, Serviwet', shopping_location_id: 7, userfields: {} };
+
+    // 1) Kun Hørkrams nummer, men varen står under Serviwet
+    const kun = medKoblinger([HK], 7);
+    eq(kun.e && kun.e.foreignBarcode, true,
+       'nummeret er en ANDEN leverandørs — det ses på varen');
+    eq(S.supplierNumber(kun.c._ibOrderItem(kun.e)), '',
+       'og det kommer IKKE med i bestillingen til Serviwet');
+    ok(S.supplierLabel(kun.c._ibOrderItem(kun.e)).includes('Gaffel'),
+       'betegnelsen bærer stadig linjen — varen kan bestilles uden nummer');
+
+    // 2) Begge numre: Serviwets vælges, selvom Hørkrams står først
+    const begge = medKoblinger([HK, SW], 7);
+    eq(begge.e && begge.e.selectedBarcode && begge.e.selectedBarcode.barcode, 'INT-0020',
+       'har vi et nummer hos leverandøren selv, er det DET der vælges');
+    eq(begge.e && begge.e.foreignBarcode, false, 'og så er der intet fremmed at advare om');
+
+    // 3) Foretrukket hos en ANDEN leverandør må ikke vinde
+    const favHK = Object.assign({}, HK, { userfields: { is_preferred: '1' } });
+    const favner = medKoblinger([favHK, SW], 7);
+    eq(favner.e && favner.e.selectedBarcode && favner.e.selectedBarcode.barcode, 'INT-0020',
+       'leverandøren vinder over "foretrukket" — et nummer hos den forkerte er ikke bedre');
+
+    // 4) Hørkram dækker flere handelssteder: et Hørkram-nummer på en
+    //    Convifood-vare er RIGTIGT, for det er samme leverandør.
+    const convi = medKoblinger([HK], 9);
+    eq(convi.e && convi.e.foreignBarcode, false,
+       'samme leverandør på tværs af handelssteder er ikke fremmed');
+    eq(S.supplierNumber(convi.c._ibOrderItem(convi.e)), '18281705',
+       'og nummeret kommer med');
+
+    // Advarslen skal SES — en tavs udeladelse er lige så svær at forstå som
+    // det fremmede nummer var.
+    const raekke = kun.c._ibRenderItem(kun.e, kun.g, false);
+    ok(/ib-foreign-nr/.test(raekke), 'varerækken bærer en advarsel');
+    ok(/Hørkram/.test(raekke), 'og navngiver hvis nummer det er');
+    ok(/kommer ikke med i bestillingen/.test(raekke), 'og siger hvad konsekvensen er');
+    ok(/open-link/.test(raekke), 'med en vej til at koble varen hos den rigtige');
+    const renRaekke = kun.c._ibRenderItem(begge.e, begge.g, false);
+    ok(!/ib-foreign-nr/.test(renRaekke), 'og den vises ikke når nummeret er leverandørens eget');
+
+    // 5) Vi gætter ikke: uden leverandør på gruppen markeres intet
+    const uden = medKoblinger([HK], 99);
+    eq(uden.e && uden.e.foreignBarcode, false,
+       'en gruppe uden leverandør giver ingen advarsel — vi markerer kun det vi kan se');
+
     console.log('\n=== §7 Mailen sendes ikke uden varsel ===');
     const b = gruppeMed(true);
     b.__confirmSvar = false;                      // brugeren siger nej
@@ -704,6 +774,7 @@ function lavKlient(felter) {
                     body: el() },
         setTimeout, clearTimeout, Promise, JSON, Math, String, Number, Array, Object, Date, parseInt, parseFloat, isNaN, RegExp,
         SupplierOrderLines: S,
+        InvoicePrice: require(path.join(__dirname, '..', 'shared', 'invoice_price')),
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
         __kopieret: null, __ordre: null, __oprettet: null,
         __confirmTekst: null, __confirmSvar: true, __toast: null,

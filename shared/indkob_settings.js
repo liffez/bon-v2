@@ -35,6 +35,11 @@ var _isDeadChecked  = false;
 var _isPriceOverview = null; // #657: { [pid]: { price, stock_unit, barcodes:[{id,stock_price,note}] } } fra Grocy
 var _isAddPackProductId = null;  // product_id with open pack-size search panel
 
+// Arbejdslisten "N uden pris" (Produkter-fanen): hvad der er tastet, hvad der
+// gemmes lige nu, og beskeden pr. vare. Overlever en genrendering (søgning),
+// så et halvt tastet tal ikke forsvinder.
+var _isWork = { draft: {}, saving: {}, msg: {} };
+
 // Tab 4 data (duplikat-kandidater)
 var _isDupRows      = [];
 var _isDupFilter    = 'pending';
@@ -136,10 +141,16 @@ function _isRenderShell() {
             '<div class="is-body" id="isBody"></div>' +
         '</div>';
 
-    // Event delegation on container
+    // Event delegation on container. Mountes containeren igen (office skifter
+    // view og tilbage), må lytterne ikke komme på én gang til — så ville ét
+    // klik fyre to gange, og et gem blive sendt dobbelt.
+    if (_isContainer.__isBound) return;
+    _isContainer.__isBound = true;
     _isContainer.addEventListener('click', _isHandleClick);
     _isContainer.addEventListener('change', _isHandleChange);
     _isContainer.addEventListener('input', _isHandleInput);
+    _isContainer.addEventListener('keydown', _isHandleKeydown);
+    _isContainer.addEventListener('focusout', _isHandleFocusOut);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -192,6 +203,11 @@ function _isHandleClick(e) {
     // ─── Tab 2: Products ───
     if (action === 'prod-save')    { _isProdBulkSave(); return; }
     if (action === 'prod-discard') { _isProdDirty = {}; _isRenderTab(1); return; }
+    if (action === 'work-pref') {
+        _isWorkChoose(parseInt(t.dataset.pid), parseInt(t.dataset.id));
+        return;
+    }
+    if (action === 'work-save') { _isWorkSave(parseInt(t.dataset.pid), true); return; }
     if (action === 'col-toggle') {
         var col = t.dataset.col;
         _isProdCols[col] = !_isProdCols[col];
@@ -249,6 +265,14 @@ function _isHandleChange(e) {
 
 function _isHandleInput(e) {
     var t = e.target;
+    if (t.dataset && _isWorkField(t)) {
+        var wpid = parseInt(t.dataset.pid);
+        var d = _isWork.draft[wpid] || (_isWork.draft[wpid] = { pris: '', antal: '' });
+        d[{ 'work-pris': 'pris', 'work-antal': 'antal', 'work-indhold': 'indhold' }[t.dataset.is]] = t.value;
+        delete _isWork.msg[wpid];
+        _isWorkUpdateHint(wpid);
+        return;
+    }
     if (t.dataset && t.dataset.is === 'prod-search') {
         _isProdFilter.q = t.value.toLowerCase();
         // Søgefeltet er INDE i den re-renderede tab — bevar fokus + markør.
@@ -727,10 +751,21 @@ function _isRenderProducts(body) {
     // i en liste på 181. En liste i et issue ville være forældet i samme
     // sekund nogen retter en vare; det her er rigtigt hver gang man åbner det.
     var manglerN = _isAllProducts.filter(_isUdenPris).length;
-    if (manglerN > 0) {
+    // Står man på listen, bliver knappen — også når den sidste pris er sat,
+    // ellers var der ingen vej ud af filteret igen.
+    if (manglerN > 0 || _isProdFilter.nopris) {
         html += '<button class="is-prod-nopris' + (_isProdFilter.nopris ? ' on' : '') +
             '" data-is="prod-filter-nopris" title="Varer uden en pris — s\u00e6t et foretrukket varenummer eller et overslag">' +
             manglerN + ' uden pris</button>';
+        // Varer vi laver selv, er ikke på listen — men de skal kunne ses som
+        // talt fra, ellers ligner færre varer bare færre.
+        var selvN = _isPriceOverview ? Object.keys(_isPriceOverview).filter(function(k) {
+            var o = _isPriceOverview[k]; return o.price == null && o.produced_by;
+        }).length : 0;
+        if (_isProdFilter.nopris && selvN) {
+            html += '<span class="is-work-selv" title="Kostprisen på varer vi selv laver kommer fra opskriften (#558)">' +
+                '+ ' + selvN + ' i egen produktion — pris fra opskriften</span>';
+        }
     }
 
     if (dirtyCount > 0) {
@@ -740,19 +775,24 @@ function _isRenderProducts(body) {
 
     // Product table
     html += '<div style="overflow-x:auto"><table class="is-prod-tbl"><thead><tr>';
+    // På arbejdslisten står prisfeltet lige efter navnet: det er dét man er
+    // her for, og Tab skal gå pris → antal → næste vare.
+    var work = _isProdFilter.nopris && !!_isPriceOverview;
+    var noTab = work ? ' tabindex="-1"' : '';
     html += '<th>Produkt</th>';
+    if (work) html += '<th>Pris ex moms <span class="is-work-th-hint">— skriv beløbet fra fakturaen · Tab eller Enter gemmer</span></th>';
     if (_isColOn('supplier'))  html += '<th>Leverandør</th>';
     if (_isColOn('min_stock')) html += '<th>Min. grænse</th>';
     if (_isColOn('unit'))      html += '<th>Enhed</th>';
     if (_isColOn('group'))     html += '<th>Gruppe</th>';
-    if (_isColOn('price_kg'))  html += '<th>Pris ex moms</th>';
+    if (_isColOn('price_kg') && !work) html += '<th>Pris ex moms</th>';
     if (_isColOn('updated'))   html += '<th>Opdateret</th>';
     html += '</tr></thead><tbody>';
 
     _isProducts.forEach(function(p) {
         var dirty = _isProdDirty[p.id];
         var cls = dirty ? ' class="dirty"' : '';
-        html += '<tr' + cls + '>';
+        html += '<tr' + cls + (work ? ' data-work-pid="' + p.id + '"' : '') + '>';
 
         // Name
         html += '<td><div class="is-prod-name">';
@@ -761,10 +801,15 @@ function _isRenderProducts(body) {
         if (_isColOn('group') && p.group) html += '<div class="is-prod-group">' + _isEsc(p.group) + '</div>';
         html += '</td>';
 
+        if (work) {
+            html += '<td class="is-work-cell" data-work-cell="' + p.id + '">' +
+                _isWorkCellHtml(p.id) + '</td>';
+        }
+
         // Supplier dropdown
         if (_isColOn('supplier')) {
             var curSup = dirty && dirty.shopping_location_id !== undefined ? dirty.shopping_location_id : p.shopping_location_id;
-            html += '<td><select class="is-cell-sel" data-is="prod-supplier" data-pid="' + p.id + '">';
+            html += '<td><select class="is-cell-sel" data-is="prod-supplier" data-pid="' + p.id + '"' + noTab + '>';
             html += '<option value="">—</option>';
             _isGrocyLocs.forEach(function(l) {
                 var sel = curSup == l.grocy_location_id ? ' selected' : '';
@@ -777,7 +822,7 @@ function _isRenderProducts(body) {
         if (_isColOn('min_stock')) {
             var curMin = dirty && dirty.min_stock_amount !== undefined ? dirty.min_stock_amount : p.min_stock_amount;
             html += '<td><input class="is-cell-num" type="number" min="0" step="1" value="' + (curMin || 0) +
-                '" data-is="prod-minstock" data-pid="' + p.id + '"></td>';
+                '" data-is="prod-minstock" data-pid="' + p.id + '"' + noTab + '></td>';
         }
 
         // Unit (read-only)
@@ -791,7 +836,7 @@ function _isRenderProducts(body) {
         // Price/kg
         // #657: prisen der GÆLDER for varen — læst fra stregkoderne i Grocy.
         var po = _isPriceOverview && _isPriceOverview[p.id];
-        if (_isColOn('price_kg')) {
+        if (_isColOn('price_kg') && !work) {
             // Et manuelt overslag er også en pris, men ikke en leverandørs — og
             // her står vi netop og kigger på leverandører. Det mærkes derfor.
             var priceCell = po && po.price != null
@@ -867,12 +912,435 @@ function _isProdFieldChange(el) {
     }
 }
 
-/** Mangler varen en pris? Ét sted, så knappens tal og listen ikke kan skride. */
+/** Mangler varen en pris? Ét sted, så knappens tal og listen ikke kan skride.
+ *  Oversigten rummer kun AKTIVE varer (priceOverview springer inaktive over),
+ *  så en vare der ikke står i den, er ikke i brug og mangler ingen pris. Før
+ *  talte knappen dem med — 169 i stedet for 133 mod grocy-test 22/9. */
 function _isUdenPris(p) {
     if (!_isPriceOverview) return false;
     var o = _isPriceOverview[p.id];
-    return !o || o.price == null;
+    // En vare vi selv laver, mangler ingen leverandørpris — kostprisen kommer
+    // fra opskriften (#558). 18 af de 133 mod grocy-test 22/9.
+    return !!o && o.price == null && !o.produced_by;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   ARBEJDSLISTEN "N uden pris" — prisen sættes i rækken
+   ══════════════════════════════════════════════════════════════
+   Før var listen noget man læste og så forlod: en pris kunne kun sættes fra
+   lageroversigtens ✎, og den viser kun varer med en lagerpost — mod grocy-test
+   22/9 kunne mindst 48 af de 133 varer uden pris slet ikke nås den vej.
+
+   Hver række får ét af tre udfald, afgjort af varens varenumre (_isWorkPlan):
+     · vælg     — flere varenumre, ingen foretrukket. Der mangler ikke en pris,
+                  kun et valg. Ét klik pr. vare.
+     · pris     — på det varenummer der gælder (det foretrukne, eller det eneste),
+                  eller som overslag når varen intet varenummer har.
+     · færdig   — prisen er sat; rækken bliver stående med kvitteringen.
+
+   Browseren DIVIDERER fakturaens pakkepris med antallet (shared/invoice_price.js)
+   og intet andet. Omregningen fra varenummerets enhed til lager-enheden bor i
+   services/supplierPrices.js — en kopi her kostede faktor 1000 i #352. Hvilken
+   pris der så gælder for varen, spørger vi også serveren om bagefter, i stedet
+   for at regne det selv. */
+
+/** Et varenummer som man kan genkende det: leverandørens tekst, ellers nummeret. */
+function _isWorkBcLabel(b) {
+    var loc = _isGrocyLocs.find(function(l) { return l.grocy_location_id == b.shopping_location_id; });
+    // `text` er leverandørens betegnelse (Grocys note på stregkoden); `note`
+    // er serverens forklaring på en manglende pris og må ikke stå som navn.
+    var navn = b.text ? b.text + ' (' + b.barcode + ')' : String(b.barcode);
+    return { navn: navn, leverandor: loc ? loc.grocy_location_name : '' };
+}
+
+/**
+ * Hvad skal der ske i rækken? Ren funktion af oversigtens post.
+ * @returns {{ mode: 'done'|'choose'|'price'|'none', text: string,
+ *             choices?: Array, target?: {kind:'barcode'|'estimate', id?:number, label?:string} }}
+ */
+/**
+ * Hvem køber vi varen hos, og hvad slags leverandør er det?
+ * @returns {{ locId, navn, type }|null}  type: api | email | manual | webshop | intern | null
+ */
+function _isWorkSupplier(product) {
+    if (!product || !product.shopping_location_id) return null;
+    var loc = _isGrocyLocs.find(function(l) { return l.grocy_location_id == product.shopping_location_id; });
+    if (!loc) return null;
+    var sup = loc.linked_supplier_id
+        ? _isSupDropdown.find(function(x) { return x.id == loc.linked_supplier_id; }) : null;
+    return { locId: loc.grocy_location_id, navn: loc.display_name || loc.grocy_location_name,
+             type: sup ? sup.integration_type : null };
+}
+
+function _isWorkPlan(po, product) {
+    if (!po) return { mode: 'none', text: 'varen er ikke i brug' };
+    if (po.price != null) return { mode: 'done', text: po.reason_text || '' };
+    // Vi laver den selv: kostprisen kommer fra opskriften (#558), ikke fra en leverandør.
+    if (po.produced_by) {
+        return { mode: 'produced', text: 'egen produktion — opskriften ' + po.produced_by.name +
+            ' — kostprisen kommer derfra' };
+    }
+    var bcs = (po.barcodes || []).filter(function(b) { return !b.is_estimate; });
+    var ukonv = function(b) { return !!b.note && /omregnes/.test(b.note); };
+
+    // Flere varenumre og ingen foretrukket: der mangler et valg, ikke en pris.
+    // (ambiguous = flere MED pris; missing med flere = flere UDEN pris — i begge
+    // tilfælde kan vi ikke vide hvilket der gælder.)
+    var pref = bcs.filter(function(b) { return b.is_preferred; });
+    if (pref.length === 0 && bcs.length > 1) {
+        return {
+            mode: 'choose', choices: bcs,
+            text: po.reason === 'ambiguous'
+                ? 'flere varenumre med pris — vælg hvilket der gælder'
+                : 'flere varenumre uden pris — vælg hvilket der gælder, så kan prisen skrives',
+        };
+    }
+
+    var target = pref.length === 1 ? pref[0] : (bcs.length === 1 ? bcs[0] : null);
+    if (target && !ukonv(target)) {
+        var lbl = _isWorkBcLabel(target);
+        return {
+            mode: 'price',
+            target: { kind: 'barcode', id: target.id, label: lbl.navn, unit: target.unit || null },
+            text: (pref.length === 1 ? 'det foretrukne varenummer ' : 'varenummeret ') +
+                lbl.navn + (lbl.leverandor ? ' hos ' + lbl.leverandor : '') + ' har ingen pris',
+            choices: pref.length === 1 && bcs.length > 1 ? bcs : null,
+            // Leverandøren HAR en pris, men stregkoden mangler sit indhold, så
+            // "Opdater priser nu" kan ikke regne den om. Det vises — ikke regnes.
+            supplierPrice: target.supplier_unit_price != null && !(Number(target.amount) > 0)
+                ? target.supplier_unit_price : null,
+        };
+    }
+    // Varenummerets enhed kan ikke omregnes: en pris dér ville serveren afvise.
+    // Overslaget er den vej der virker — og vi siger hvorfor.
+    if (target) {
+        return {
+            mode: 'price', target: { kind: 'estimate' },
+            text: 'enheden på varenummeret ' + _isWorkBcLabel(target).navn +
+                ' kan ikke omregnes til lager-enheden — overslag i stedet (ret enheden i Grocy)',
+        };
+    }
+    // Intet varenummer. Hvad der er rigtigt, afhænger af leverandøren:
+    var sup = _isWorkSupplier(product);
+    // Et indkøbssted UDEN koblet leverandør (type null) behandles som en
+    // faktura-leverandør (#706 §15 trin 2): man køber der og har en regning,
+    // så prisen er en rigtig pris — ikke et gæt. Et overslag ville skjule det.
+    if (sup && (sup.type === null || sup.type === 'email' || sup.type === 'manual' || sup.type === 'webshop')) {
+        // Leverandøren har ingen varenumre, men fakturaen er en rigtig pris.
+        // Et internt varenummer hos dem gør den til en leverandørpris i ét hug.
+        return {
+            mode: 'price', target: { kind: 'internal', locId: sup.locId, label: sup.navn },
+            text: 'intet varenummer hos ' + sup.navn + ' — prisen gemmes på et nyt internt varenummer dér' +
+                (sup.type === null ? ' (indkøbsstedet er ikke koblet til en leverandør endnu)' : ''),
+        };
+    }
+    if (sup && sup.type === 'api') {
+        // Hørkram har rigtige varenumre. Et internt nummer ville ikke kunne
+        // opdateres; kobl det rigtige, så følger prisen med af sig selv.
+        return {
+            mode: 'price', target: { kind: 'estimate' },
+            text: 'intet varenummer — kobl ' + sup.navn + 's varenummer under Hørkram → Ny kobling, ' +
+                'så følger prisen med. Ellers et overslag',
+        };
+    }
+    return { mode: 'price', target: { kind: 'estimate' }, text: 'intet varenummer — overslag' };
+}
+
+function _isWorkProduct(pid) {
+    return _isAllProducts.find(function(p) { return p.id == pid; }) || null;
+}
+
+function _isWorkUnitShort(po) {
+    var u = String((po && po.stock_unit) || '').toLowerCase();
+    return { kilo: 'kg', kg: 'kg', liter: 'l', l: 'l', antal: 'stk', stk: 'stk' }[u] || u || 'enhed';
+}
+
+/* Hvad fakturaens tal bliver til, mens man taster. */
+function _isWorkHintHtml(pid) {
+    var po = _isPriceOverview && _isPriceOverview[pid];
+    var d = _isWork.draft[pid] || {};
+    if (!d.pris) return '';
+    var pr = InvoicePrice.priceFromInvoice(d.pris, d.antal);
+    if (pr === null) return '<span class="is-work-err">kan ikke læses</span>';
+    return '= ' + _isFmtPrice(pr, po && po.stock_unit);
+}
+
+function _isWorkCellHtml(pid) {
+    var po = _isPriceOverview && _isPriceOverview[pid];
+    var plan = _isWorkPlan(po, _isWorkProduct(pid));
+    var msg = _isWork.msg[pid];
+    var h = '';
+
+    if (plan.mode === 'done') {
+        h += '<div class="is-work-done">✓ ' + _isFmtPrice(po.price, po.stock_unit) +
+             ' <span class="is-work-reason">' + _isEsc(plan.text) + '</span></div>';
+        if (msg) h += '<div class="is-work-msg' + (msg.err ? ' err' : '') + '">' + _isEsc(msg.text) + '</div>';
+        return h;
+    }
+    if (plan.mode === 'none' || plan.mode === 'produced') {
+        return '<span class="is-work-reason' + (plan.mode === 'produced' ? ' is-work-produced' : '') + '">' +
+            _isEsc(plan.text) + '</span>';
+    }
+
+    var busy = !!_isWork.saving[pid];
+    h += '<div class="is-work-reason">' + _isEsc(plan.text) + '</div>';
+
+    if (plan.mode === 'price') {
+        var d = _isWork.draft[pid] || {};
+        var dis = busy ? ' disabled' : '';
+        h += '<div class="is-work-row">';
+        h += '<input class="is-work-inp" data-is="work-pris" data-pid="' + pid + '" inputmode="decimal"' +
+             ' placeholder="kr" value="' + _isEsc(d.pris || '') + '"' + dis +
+             ' aria-label="Pris ex moms fra fakturaen">';
+        h += '<span class="is-work-txt">kr for</span>';
+        h += '<input class="is-work-inp is-work-antal" data-is="work-antal" data-pid="' + pid + '" inputmode="decimal"' +
+             ' placeholder="1" value="' + _isEsc(d.antal || '') + '"' + dis +
+             ' aria-label="Hvor mange ' + _isEsc(_isWorkUnitShort(po)) + ' prisen dækker">';
+        h += '<span class="is-work-txt">' + _isEsc(_isWorkUnitShort(po)) + '</span>';
+        h += '<span class="is-work-hint" data-work-hint="' + pid + '">' + _isWorkHintHtml(pid) + '</span>';
+        var kind = { estimate: 'overslag', barcode: 'på varenummeret', internal: 'nyt varenummer' }[plan.target.kind];
+        h += '<span class="is-work-kind' + (plan.target.kind === 'estimate' ? ' est' : '') + '">' + kind + '</span>';
+        if (busy) h += '<span class="is-work-busy">gemmer…</span>';
+        h += '</div>';
+        if (plan.supplierPrice != null) {
+            // Den holdbare vej: stregkodens indhold. Så regner Hørkram-opdateringen
+            // prisen selv, hver gang — i stedet for et tal der bliver forældet.
+            var du = _isWorkUnitShort({ stock_unit: plan.target.unit });
+            h += '<div class="is-work-supp">Leverandøren oplyser <b>' + _isEsc(_isFmtKrPlain(plan.supplierPrice)) +
+                 ' kr</b> pr. salgsenhed, men stregkoden mangler sit indhold. ' +
+                 '1 salgsenhed indeholder ' +
+                 '<input class="is-work-inp is-work-antal" data-is="work-indhold" data-pid="' + pid + '" inputmode="decimal"' +
+                 ' value="' + _isEsc(d.indhold || '') + '"' + dis + ' aria-label="Hvor mange ' + _isEsc(du) +
+                 ' én salgsenhed indeholder"> ' + _isEsc(du) +
+                 ' — så henter "Opdater priser" prisen selv. Eller skriv fakturaprisen ovenfor.</div>';
+        }
+    }
+
+    // Vælgeren: ved "vælg" er den selve handlingen; ved et foretrukket nummer
+    // uden pris står den som mulighed for at vælge et andet i stedet.
+    if (plan.choices && plan.choices.length) {
+        var curPref = plan.mode === 'price' && plan.target.kind === 'barcode' ? plan.target.id : null;
+        h += '<div class="is-work-choices' + (plan.mode === 'price' ? ' alt' : '') + '">';
+        if (plan.mode === 'price') h += '<span class="is-work-txt">eller vælg et andet:</span>';
+        plan.choices.forEach(function(b) {
+            if (b.id === curPref) return;
+            var lbl = _isWorkBcLabel(b);
+            var pris = b.stock_price != null ? _isFmtPrice(b.stock_price, po.stock_unit) : 'ingen pris';
+            h += '<button type="button" class="is-work-chip" data-is="work-pref" data-pid="' + pid +
+                 '" data-id="' + b.id + '"' + (busy ? ' disabled' : '') +
+                 ' title="Gør dette varenummer til det der gælder for varen">' +
+                 '<b>' + _isEsc(pris) + '</b> ' + _isEsc(lbl.navn) +
+                 (lbl.leverandor ? ' · ' + _isEsc(lbl.leverandor) : '') +
+                 (b.is_agreement ? ' <span class="is-work-agr">aftale</span>' : '') + '</button>';
+        });
+        h += '</div>';
+    }
+    if (msg) h += '<div class="is-work-msg' + (msg.err ? ' err' : '') + '">' + _isEsc(msg.text) + '</div>';
+    return h;
+}
+
+function _isWorkUpdateHint(pid) {
+    var el = _isContainer && _isContainer.querySelector('[data-work-hint="' + pid + '"]');
+    if (el) el.innerHTML = _isWorkHintHtml(pid);
+}
+
+/* Tegn én række om — aldrig hele listen, så fokus i næste række står. */
+function _isWorkRerender(pid) {
+    var cell = _isContainer && _isContainer.querySelector('[data-work-cell="' + pid + '"]');
+    if (cell) {
+        cell.innerHTML = _isWorkCellHtml(pid);
+        var tr = cell.closest ? cell.closest('tr') : null;
+        if (tr && tr.classList) {
+            var po = _isPriceOverview && _isPriceOverview[pid];
+            tr.classList.toggle('is-work-saved', !!(po && po.price != null));
+        }
+    }
+    var btn = _isContainer && _isContainer.querySelector('[data-is="prod-filter-nopris"]');
+    if (btn) btn.textContent = _isAllProducts.filter(_isUdenPris).length + ' uden pris';
+}
+
+/* Serverens svar på "hvilken pris gælder nu" — oversigtens post bygges af det,
+   ikke af hvad vi selv tror vi lige har sat. */
+async function _isWorkRefresh(pid) {
+    var r = await fetchSupplierPrice(pid);
+    var gl = (_isPriceOverview && _isPriceOverview[pid]) || {};
+    _isPriceOverview[pid] = {
+        price: r.price, reason: r.reason, reason_text: r.reason_text,
+        barcode: r.barcode || null, fetched_at: gl.fetched_at || null,
+        stock_unit: r.stock_unit || gl.stock_unit || null,
+        is_estimate: r.reason === 'estimate',
+        estimate_price: r.estimate_price != null ? r.estimate_price : null,
+        produced_by: gl.produced_by || null,
+        barcodes: (r.candidates || []).map(function(c) {
+            return {
+                id: c.id, barcode: c.barcode, stock_price: c.stock_price, note: c.note, text: c.text,
+                is_estimate: c.is_estimate, is_preferred: c.is_preferred, is_agreement: c.is_agreement,
+                shopping_location_id: c.shopping_location_id, unit: c.unit, amount: c.amount,
+                supplier_unit_price: c.supplier_unit_price, fetched_at: c.fetched_at,
+            };
+        }),
+    };
+}
+
+/* Næste vare på listen med et prisfelt — "tast, tab, videre" også med Enter. */
+function _isWorkFocusNext(pid) {
+    var rows = _isContainer ? Array.prototype.slice.call(_isContainer.querySelectorAll('tr[data-work-pid]')) : [];
+    var i = rows.findIndex(function(r) { return r.getAttribute('data-work-pid') == pid; });
+    for (var j = i + 1; j < rows.length; j++) {
+        var inp = rows[j].querySelector('[data-is="work-pris"]');
+        if (inp && !inp.disabled) { inp.focus(); return; }
+    }
+}
+
+function _isWorkFocus(pid) {
+    var inp = _isContainer && _isContainer.querySelector('[data-is="work-pris"][data-pid="' + pid + '"]');
+    if (inp) inp.focus();
+}
+
+/**
+ * Gem rækkens pris. `viaEnter`: fokus står i rækken, så det flyttes videre ved
+ * succes (og tilbage i feltet ved fejl). Ved Tab er brugeren allerede videre.
+ */
+async function _isWorkSave(pid, viaEnter) {
+    if (_isWork.saving[pid]) return;
+    var po = _isPriceOverview && _isPriceOverview[pid];
+    var plan = _isWorkPlan(po, _isWorkProduct(pid));
+    if (plan.mode !== 'price') return;
+    var d = _isWork.draft[pid] || {};
+    // Stregkodens indhold vinder over en tastet pris: det er den vej prisen
+    // holdes ajour af sig selv. Serveren regner; vi sender kun tallet.
+    if (String(d.indhold || '').trim() && plan.supplierPrice != null) {
+        return _isWorkSaveContent(pid, plan, d, viaEnter);
+    }
+    if (!String(d.pris || '').trim()) return;          // intet tastet = intet at gemme
+    var pris = InvoicePrice.priceFromInvoice(d.pris, d.antal);
+    if (pris === null) {
+        // Et tal vi ikke kan læse, gemmes ALDRIG som noget andet end det der stod.
+        _isWork.msg[pid] = { err: true, text: 'Prisen kan ikke læses — skriv fx 115 kr for 25' };
+        _isWorkRerender(pid);
+        if (viaEnter) _isWorkFocus(pid);
+        return;
+    }
+
+    _isWork.saving[pid] = true;
+    delete _isWork.msg[pid];
+    _isWorkRerender(pid);
+    try {
+        if (plan.target.kind === 'estimate') await setEstimatePrice(pid, pris, false, 'indkob');
+        else if (plan.target.kind === 'internal') await createInternalBarcodePrice(pid, plan.target.locId, pris, 'indkob');
+        else await setBarcodeStockPrice(plan.target.id, pris, 'indkob');
+    } catch (err) {
+        _isWork.saving[pid] = false;
+        _isWork.msg[pid] = { err: true, text: 'Ikke gemt: ' + (err.message || 'ukendt fejl') };
+        _isWorkRerender(pid);
+        if (viaEnter) _isWorkFocus(pid);
+        return;
+    }
+    // Prisen ER gemt. Kan status ikke hentes bagefter, siges det — men det
+    // gemte tal bliver stående, for det lykkedes.
+    delete _isWork.draft[pid];
+    try {
+        await _isWorkRefresh(pid);
+    } catch (err) {
+        _isPriceOverview[pid] = Object.assign({}, po, {
+            price: pris, reason: plan.target.kind === 'estimate' ? 'estimate' : 'only',
+            reason_text: plan.target.kind === 'estimate' ? 'manuelt overslag' : 'gemt på varenummeret',
+            is_estimate: plan.target.kind === 'estimate',
+        });
+        _isWork.msg[pid] = { err: true, text: 'Gemt — men varens status kunne ikke hentes igen' };
+    }
+    _isWork.saving[pid] = false;
+    var nu = _isPriceOverview[pid];
+    if (nu && nu.price == null && !_isWork.msg[pid]) {
+        // Serveren tog imod, men varen har stadig ingen pris (fx en anden regel
+        // afgør den). Det må ikke se ud som om det lykkedes.
+        _isWork.msg[pid] = { err: true, text: 'Gemt på ' + (plan.target.label || 'varen') +
+            ', men varen har stadig ingen pris: ' + (nu.reason_text || '') };
+    }
+    _isWorkRerender(pid);
+    if (viaEnter) _isWorkFocusNext(pid);
+}
+
+async function _isWorkSaveContent(pid, plan, d, viaEnter) {
+    var indhold = InvoicePrice.numFromInput(d.indhold);
+    if (indhold === null || indhold <= 0) {
+        _isWork.msg[pid] = { err: true, text: 'Indholdet kan ikke læses — skriv fx 500' };
+        _isWorkRerender(pid);
+        if (viaEnter) _isWorkFocus(pid);
+        return;
+    }
+    _isWork.saving[pid] = true;
+    delete _isWork.msg[pid];
+    _isWorkRerender(pid);
+    var r;
+    try {
+        r = await setBarcodeContent(plan.target.id, indhold, 'indkob');
+    } catch (err) {
+        _isWork.saving[pid] = false;
+        _isWork.msg[pid] = { err: true, text: 'Ikke gemt: ' + (err.message || 'ukendt fejl') };
+        _isWorkRerender(pid);
+        if (viaEnter) _isWorkFocus(pid);
+        return;
+    }
+    delete _isWork.draft[pid];
+    try { await _isWorkRefresh(pid); } catch (err) { /* svaret nedenfor siger det vigtigste */ }
+    _isWork.saving[pid] = false;
+    if (r && r.price == null) {
+        // Indholdet ER gemt, men Hørkram kunne stadig ikke prissætte det.
+        _isWork.msg[pid] = { err: true, text: 'Indholdet er gemt, men prisen kunne ikke hentes: ' +
+            (r.unpriced_reason || (r.refresh_errors && r.refresh_errors.length ? 'Hørkram svarede ikke' : 'ukendt')) };
+    }
+    _isWorkRerender(pid);
+    if (viaEnter) _isWorkFocusNext(pid);
+}
+
+/* Vælg det varenummer der gælder. Har det en pris, er varen færdig; ellers
+   står prisfeltet for netop det nummer klar. */
+async function _isWorkChoose(pid, barcodeId) {
+    if (_isWork.saving[pid]) return;
+    _isWork.saving[pid] = true;
+    delete _isWork.msg[pid];
+    _isWorkRerender(pid);
+    try {
+        await setPreferredBarcode(pid, barcodeId, 'indkob');
+    } catch (err) {
+        _isWork.saving[pid] = false;
+        _isWork.msg[pid] = { err: true, text: 'Ikke gemt: ' + (err.message || 'ukendt fejl') };
+        _isWorkRerender(pid);
+        return;
+    }
+    try { await _isWorkRefresh(pid); }
+    catch (err) { _isWork.msg[pid] = { err: true, text: 'Valgt — men varens status kunne ikke hentes igen' }; }
+    _isWork.saving[pid] = false;
+    _isWorkRerender(pid);
+    if (_isWorkPlan(_isPriceOverview[pid], _isWorkProduct(pid)).mode === 'price') _isWorkFocus(pid);
+}
+
+function _isWorkField(t) {
+    var a = t && t.dataset && t.dataset.is;
+    return a === 'work-pris' || a === 'work-antal' || a === 'work-indhold';
+}
+
+function _isHandleKeydown(e) {
+    var t = e.target;
+    if (!t || !t.dataset) return;
+    if (_isWorkField(t) && e.key === 'Enter') {
+        e.preventDefault();
+        _isWorkSave(parseInt(t.dataset.pid), true);
+    }
+}
+
+/* Tab ud af rækken gemmer. Tab fra pris til antal i SAMME række gør ikke —
+   ellers ville "115" blive gemt som 115 kr pr. stk før "25" var skrevet. */
+function _isHandleFocusOut(e) {
+    var t = e.target;
+    if (!t || !t.dataset || !_isWorkField(t)) return;
+    var row = t.closest('tr[data-work-pid]');
+    var til = e.relatedTarget;
+    if (row && til && row.contains(til)) return;
+    _isWorkSave(parseInt(t.dataset.pid), false);
+}
+
 
 function _isProdFilterAndRender() {
     _isProducts = _isAllProducts.filter(function(p) {
@@ -1782,6 +2250,11 @@ function _isBarcodePrice(bc) {
 }
 
 /** 82.53, 'Kilo' → '82,53 kr/kg' */
+/** 49.29 → '49,29' */
+function _isFmtKrPlain(n) {
+    return Number(n).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function _isFmtPrice(price, unitName) {
     var u = String(unitName || '').toLowerCase();
     var short = { kilo: 'kg', kg: 'kg', liter: 'l', l: 'l', antal: 'stk', stk: 'stk' }[u] || u;

@@ -853,6 +853,10 @@ router.get('/:id/composition', handle(async (req, res) => {
             cost_inherited: (købt && pris && pris.source === 'parent_avg') || undefined,
             // Prisen er et manuelt overslag, ikke noget vi har betalt (#657).
             cost_estimated: (købt && pris && pris.source === 'estimate') || undefined,
+            // Prisen er leverandørens pris på varenummeret (katalog eller faktura),
+            // ikke et registreret køb (#706 §11). En rigtig pris — men man skal
+            // kunne se hvor den kommer fra, når den afviger fra det man betalte.
+            cost_from_supplier: (købt && pris && pris.source === 'supplier') || undefined,
             // Prisen kommer fra opskriften bag varen, ikke fra et køb (#558).
             cost_from_recipe: (linje && linje.source === 'recipe') || undefined,
             // Klikbar kun hvis produktet har sin EGEN opskrift (og ikke er den vi står på).

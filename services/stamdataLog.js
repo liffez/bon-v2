@@ -69,6 +69,7 @@ const KILDER = new Map([
     ['optaelling',      'optællingen'],
     ['opret-produkt',   'Opret produkt'],
     ['indkob',          'indkøbsindstillinger'],
+    ['indkobsliste',    'indkøbslisten'],
     ['varemodtagelse',  'varemodtagelsen'],
     ['opskrifter',      'Opskrifter & priser'],
     ['opskrift-editor', 'opskrift-editoren'],

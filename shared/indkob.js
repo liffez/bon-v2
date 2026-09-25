@@ -59,6 +59,16 @@ var _ibLinkNoteDraft   = {};
 /* Sat når panelet retter et EKSISTERENDE varenummer (chippens ✎) i stedet for
    at lægge et nyt til. Holder barcode-id'et, ikke produktets. */
 var _ibLinkEditBcId    = null;
+/* Prisen mens den tastes: { [pid]: { pris, indhold } }.
+   `pris` er fakturaens tal, `indhold` hvor mange lager-enheder den pris dækker
+   — så man kan skrive "115 kr for 25 stk" af fakturaen frem for at dividere i
+   hovedet. Serveren får kun resultatet (kr pr. lager-enhed); omregningen fra
+   stregkodens enhed til lagerets bor ÉT sted, i services/supplierPrices.js. */
+var _ibPriceDraft      = {};
+/* Serverens kendte pris pr. lager-enhed for et varenummer, { [bcId]: number|null }.
+   Hentes når panelet åbnes på en eksisterende kobling, så feltet kan forudfyldes
+   uden at browseren selv regner last_price om — den regel må ikke få en kopi. */
+var _ibStockPrice      = {};
 var _ibMoOpen          = null;
 var _ibBusy            = false;
 var _ibFocusGroup      = null;  // grocy_location_id in focus mode
@@ -414,8 +424,9 @@ function _ibBuildGroups() {
         var stockQuId = product.qu_id_stock;
         var needUnit = (_ibQUnits[stockQuId] && _ibQUnits[stockQuId].name) || 'stk';
 
-        // Sort barcodes
-        var sortedBc = _ibSortBarcodes(allBarcodes);
+        // Sort barcodes — gruppens egen leverandør først
+        var grpSupplierId = (hsMap[shopLocId] || {}).supplier_id || null;
+        var sortedBc = _ibSortBarcodes(allBarcodes, grpSupplierId);
 
         // Build entry
         var entry = {
@@ -434,6 +445,10 @@ function _ibBuildGroups() {
             needUnit: needUnit,
             qty: _ibCalcQty(totalNeed, sortedBc[0] || null),
             inCart: false,
+            // Sandt når det eneste nummer vi har, hører til en ANDEN leverandør.
+            // Så må det ikke i bestillingen — leverandøren kender det ikke, lige
+            // så lidt som vores egne INT-numre.
+            foreignBarcode: !!sortedBc[0] && !_ibBarcodeMatcherLeverandoer(sortedBc[0], grpSupplierId),
             isOrdered: isOrdered,
             orderedAt: uf.ordered_at || null,
             orderedSupplier: uf.ordered_supplier || null,
@@ -510,8 +525,45 @@ function _ibReconcileCart() {
 }
 
 /* ── Barcode sorting ───────────────────────────────────────── */
-function _ibSortBarcodes(barcodes) {
+/* Hvilken leverandør hører et Grocy-handelssted til?
+ * Hørkram dækker tre (Hørkram, Convifood, Drikkevarer), så et Hørkram-nummer
+ * på en Convifood-vare er RIGTIGT — det er samme leverandør. Sammenlign derfor
+ * på leverandør, ikke på lokation.
+ */
+function _ibSupplierIdForLocation(locId) {
+    if (!locId) return null;
+    for (var i = 0; i < _ibHandelssteder.length; i++) {
+        if (String(_ibHandelssteder[i].grocy_location_id) === String(locId)) {
+            return _ibHandelssteder[i].supplier_id || null;
+        }
+    }
+    return null;
+}
+
+/* Hører koblingen til den leverandør vi bestiller hos?
+ * Ved vi det ikke (gruppen har ingen leverandør, eller koblingen ingen
+ * lokation), svarer vi TRUE: vi markerer kun det vi positivt kan se er
+ * en andens — et gæt ville sætte et advarselsmærke på halve indkøbslisten.
+ */
+function _ibBarcodeMatcherLeverandoer(bc, groupSupplierId) {
+    if (!bc || !groupSupplierId) return true;
+    if (!bc.shopping_location_id) return true;
+    var s = _ibSupplierIdForLocation(bc.shopping_location_id);
+    if (!s) return true;
+    return String(s) === String(groupSupplierId);
+}
+
+function _ibSortBarcodes(barcodes, groupSupplierId) {
     return barcodes.slice().sort(function(a, b) {
+        // 0. Koblinger hos DEN leverandør vi bestiller hos.
+        //
+        // Uden dette tog vi bare den første: `Gafler` stod under Serviwet med
+        // kun en Hørkram-kobling, og Hørkrams varenummer røg med i mailen til
+        // Serviwet. Leverandøren vinder over alt andet — et nummer hos den
+        // forkerte er ikke bedre fordi det er foretrukket eller billigt.
+        var aEgen = _ibBarcodeMatcherLeverandoer(a, groupSupplierId) ? 0 : 1;
+        var bEgen = _ibBarcodeMatcherLeverandoer(b, groupSupplierId) ? 0 : 1;
+        if (aEgen !== bEgen) return aEgen - bEgen;
         // 1. Foretrukken
         var aFav = (a.userfields && a.userfields.is_preferred === '1') ? 0 : 1;
         var bFav = (b.userfields && b.userfields.is_preferred === '1') ? 0 : 1;
@@ -1189,6 +1241,17 @@ function _ibRenderItem(entry, group, showSupplier) {
         if (selPriceKg) h += ' · <span style="color:var(--brand-primary);font-weight:700">' + _ibFmtNum(selPriceKg) + ' kr/kg valgt</span>';
         h += '</div>';
 
+        // Nummeret hører til en anden leverandør. Det udelades i bestillingen,
+        // og dét skal kunne ses — en tavs udeladelse er lige så svær at forstå
+        // som det fremmede nummer var.
+        if (entry.foreignBarcode) {
+            var fremmed = _ibSupplierLabelForLocation(entry.selectedBarcode.shopping_location_id);
+            h += '<div class="ib-foreign-nr">⚠ Varenummeret er ' +
+                 _ibEsc(fremmed || 'en anden leverandørs') + 's — det kommer ikke med i bestillingen. ' +
+                 '<button class="ib-lp-link" data-ib="open-link" data-product-id="' + p.id +
+                 '">Kobl hos ' + _ibEsc((group && group.displayName) || 'leverandøren') + '</button></div>';
+        }
+
         // Badges
         var badges = _ibGetBadges(entry);
         if (badges.length) {
@@ -1314,6 +1377,75 @@ function _ibGetBadges(entry) {
 function _ibClearLinkDraft(productId) {
     delete _ibLinkDraft[productId];
     delete _ibLinkNoteDraft[productId];
+    delete _ibPriceDraft[productId];
+}
+
+/* Fakturaens tal → kr pr. lager-enhed. Reglen bor i shared/invoice_price.js,
+ * som arbejdslisten i Indkøb → ⚙ → Produkter også bruger — to kopier ville
+ * skride fra hinanden. Browseren dividerer; omregningen fra stregkodens enhed
+ * til lagerets bor på serveren (services/supplierPrices.js, jf. #352). */
+function _ibPriceFromInvoice(prisTekst, indholdTekst) {
+    return InvoicePrice.priceFromInvoice(prisTekst, indholdTekst);
+}
+
+function _ibFmtKr(n) {
+    if (n === null || n === undefined || !isFinite(n)) return '';
+    // Fire decimaler kan være nødvendige (gram-varer), men tre nuller til sidst
+    // er støj på en pakkepris.
+    var s = (Math.round(n * 10000) / 10000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    return s.replace('.', ',');
+}
+
+/* Prisfeltet. Står i BEGGE tilstande: prisen står på fakturaen ved siden af
+   varenummeret, så den skal kunne tastes i samme omgang som koblingen laves —
+   ikke først efter at man har gemt og åbnet panelet igen. */
+function _ibRenderPriceBlock(entry, editBc, supLabel) {
+    var pid = entry.product.id;
+    var enhed = entry.needUnit || 'stk';
+    var d = _ibPriceDraft[pid] || {};
+    var pr = _ibPriceFromInvoice(d.pris, d.indhold);
+
+    var h = '<div class="ib-lp-block ib-lp-pris">';
+    h += '<div class="ib-lp-note"><b>Pris hos ' + _ibEsc(supLabel) + '</b>' +
+         ' — som den står på fakturaen, ex moms.</div>';
+    h += '<div class="ib-lp-row ib-pris-row">';
+    h += '<input class="ib-lp-inp ib-pris-inp" inputmode="decimal" placeholder="fx 115"' +
+         ' data-ib="lp-pris" data-product-id="' + pid + '"' +
+         ' value="' + _ibEsc(d.pris || '') + '">';
+    h += '<span class="ib-pris-txt">kr for</span>';
+    h += '<input class="ib-lp-inp ib-pris-inp" inputmode="decimal" placeholder="1"' +
+         ' data-ib="lp-indhold" data-product-id="' + pid + '"' +
+         ' value="' + _ibEsc(d.indhold || '') + '">';
+    h += '<span class="ib-pris-txt">' + _ibEsc(enhed) + '</span>';
+    if (editBc) {
+        h += '<button class="ib-lp-btn" data-ib="lp-save-pris" data-product-id="' + pid + '"' +
+             ' data-bc-id="' + editBc.id + '">Gem pris</button>';
+    }
+    h += '</div>';
+
+    // Udregningen vises, så man kan se hvad der gemmes — ikke bare stole på den.
+    h += '<div class="ib-lp-hint" data-ib="lp-pris-ud" data-product-id="' + pid + '">' +
+         _ibPriceHintHtml(entry, editBc, pr) + '</div>';
+    h += '<div class="ib-lp-msg" data-ib="lp-pris-msg" data-product-id="' + pid + '"></div>';
+    h += '</div>';
+    return h;
+}
+
+function _ibPriceHintHtml(entry, editBc, beregnet) {
+    var enhed = entry.needUnit || 'stk';
+    if (beregnet !== null) {
+        return '= <b>' + _ibFmtKr(beregnet) + ' kr</b> pr. ' + _ibEsc(enhed) + '.' +
+               (editBc ? '' : ' Prisen gemmes sammen med varenummeret.');
+    }
+    var kendt = editBc ? _ibStockPrice[editBc.id] : undefined;
+    if (kendt === null) return 'Der står ingen pris på varenummeret endnu.';
+    if (typeof kendt === 'number') {
+        return 'Står nu til <b>' + _ibFmtKr(kendt) + ' kr</b> pr. ' + _ibEsc(enhed) + '.';
+    }
+    // Ved en NY kobling er der ingen "Gem pris"-knap — prisen følger nummeret.
+    // Det skal stå der, ellers leder man efter en knap der ikke findes.
+    return (editBc ? '' : 'Prisen gemmes sammen med varenummeret. ') +
+           'Er den allerede pr. ' + _ibEsc(enhed) + ', så lad feltet til højre stå tomt.';
 }
 
 function _ibRenderLinkPanel(entry) {
@@ -1366,9 +1498,14 @@ function _ibRenderLinkPanel(entry) {
     h += '<div class="ib-lp-msg" data-ib="lp-msg" data-product-id="' + pid + '"></div>';
     h += '</div>';
 
+    if (!editBc) {
+        h += _ibRenderPriceBlock(entry, null, supLabel);
+    }
+
     // Under redigering giver hverken katalog-søgning eller INT-generering mening
     // — begge ville lave et NYT nummer ved siden af det man er i gang med at rette.
     if (editBc) {
+        h += _ibRenderPriceBlock(entry, editBc, supLabel);
         // Sletningen står som en stille linje, ikke som en rød knap ved siden af
         // "Gem": den er sjældnere end at rette, og en fyldt rød knap dér læses som
         // hovedhandlingen. Den navngiver også sit eget omfang — "Fjern" alene kunne
@@ -1473,9 +1610,32 @@ function _ibOpenEditVarenr(productId, barcodeId) {
     _ibLinkEditBcId = barcodeId;
     _ibLinkDraft[productId] = bc.barcode || '';
     _ibLinkNoteDraft[productId] = bc.note || '';
+    delete _ibPriceDraft[productId];
     _ibRender();
+
+    // Den kendte pris hentes fra SERVEREN, ikke regnet af last_price her:
+    // omregningen fra stregkodens enhed til lagerets bor i supplierPrices.js,
+    // og en kopi kunne skride uden at nogen så det. Fejler kaldet, står linjen
+    // bare uden "Står nu til …" — panelet virker uændret.
+    _ibLoadStockPrice(productId, barcodeId);
     var inp = _ibContainer && _ibContainer.querySelector('[data-ib="lp-varenr"][data-product-id="' + productId + '"]');
     if (inp) { inp.focus(); inp.select(); }
+}
+
+/* Hent serverens pris pr. lager-enhed for ét varenummer og vis den i panelet. */
+async function _ibLoadStockPrice(productId, barcodeId) {
+    try {
+        var r = await fetchSupplierPrice(productId);
+        var c = (r && r.candidates || []).filter(function(x) { return Number(x.id) === Number(barcodeId); })[0];
+        _ibStockPrice[barcodeId] = c && typeof c.stock_price === 'number' ? c.stock_price : null;
+    } catch (e) {
+        return;   // ingen forudfyldning — men panelet er brugbart
+    }
+    // Kun hvis panelet stadig står på samme kobling: svaret kan nå frem efter
+    // at brugeren er gået videre til en anden vare.
+    if (_ibLinkPanelId === productId && _ibLinkEditBcId === barcodeId) {
+        _ibUpdatePriceHint(productId);
+    }
 }
 
 /* Fjern et varenummer helt. Varen mister leverandøren, ikke omvendt — så hvis
@@ -1559,6 +1719,66 @@ async function _ibTogglePreferred(productId, barcodeId) {
     }
 }
 
+/* Skriver udregningen ("= 4,60 kr pr. stk") uden at bygge felterne om. */
+function _ibUpdatePriceHint(productId) {
+    var el = _ibContainer && _ibContainer.querySelector('[data-ib="lp-pris-ud"][data-product-id="' + productId + '"]');
+    if (!el) return;
+    var entry = _ibFindEntry(productId);
+    if (!entry) return;
+    var editBc = null;
+    if (_ibLinkEditBcId) {
+        editBc = entry.barcodes.filter(function(b) { return b.id === _ibLinkEditBcId; })[0] || null;
+    }
+    var d = _ibPriceDraft[productId] || {};
+    el.innerHTML = _ibPriceHintHtml(entry, editBc, _ibPriceFromInvoice(d.pris, d.indhold));
+}
+
+/* Gem prisen på et EKSISTERENDE varenummer. */
+async function _ibSavePrice(productId, barcodeId) {
+    if (_ibBusy) return;
+    var msgEl = _ibContainer && _ibContainer.querySelector('[data-ib="lp-pris-msg"][data-product-id="' + productId + '"]');
+    var d = _ibPriceDraft[productId] || {};
+    var pris = _ibPriceFromInvoice(d.pris, d.indhold);
+    if (pris === null) {
+        if (msgEl) msgEl.innerHTML = '<span class="ib-lp-err">Skriv prisen først — og hvor mange enheder den dækker</span>';
+        return;
+    }
+    _ibBusy = true;
+    try {
+        await setBarcodeStockPrice(barcodeId, pris, 'indkobsliste');
+        _ibStockPrice[barcodeId] = pris;
+        delete _ibPriceDraft[productId];
+        _ibToast('Pris gemt: ' + _ibFmtKr(pris) + ' kr');
+        _ibBarcodes = await fetchProductBarcodes();
+        _ibBuildGroups();
+        _ibRender();
+    } catch (err) {
+        var t = err.message || 'Kunne ikke gemme prisen';
+        if (msgEl) msgEl.innerHTML = '<span class="ib-lp-err">' + _ibEsc(t) + '</span>';
+        _ibToast(t, true);
+    } finally {
+        _ibBusy = false;
+    }
+}
+
+/* Prisen på et NYT varenummer — skrives efter at koblingen findes.
+ *
+ * Slår den fejl, står koblingen uden pris. Det siges HØJT frem for at lade
+ * "Varenr. koblet"-kvitteringen stå alene: en bivirkning der fejler i stilhed
+ * opdages først når kostprisen er forkert (jf. #305/#319).
+ */
+async function _ibSavePriceForNew(barcodeId, pris) {
+    try {
+        await setBarcodeStockPrice(barcodeId, pris, 'indkobsliste');
+        _ibStockPrice[barcodeId] = pris;
+        return true;
+    } catch (err) {
+        _ibToast('Varenummeret er koblet, men prisen blev IKKE gemt: ' +
+                 (err.message || 'ukendt fejl') + ' — tast den igen på chippens ✎', true);
+        return false;
+    }
+}
+
 /* Gemmer leverandørens eget varenummer på gruppens egen lokation. */
 async function _ibSaveFreeVarenr(productId) {
     var inp = _ibContainer && _ibContainer.querySelector('[data-ib="lp-varenr"][data-product-id="' + productId + '"]');
@@ -1590,7 +1810,21 @@ async function _ibSaveFreeVarenr(productId) {
     var groupKey = _ibFindGroupForEntry(entry);
     var locId = parseInt(groupKey) || null;
 
-    await _ibLinkBarcode(productId, varenr, note, locId, msgEl);
+    await _ibLinkBarcode(productId, varenr, note, locId, msgEl, _ibReadPrice(productId));
+}
+
+/* Prisen som den står i panelet lige nu. DOM'en først — draften opdateres af
+   input-eventet, og et autoudfyldt felt fyrer det ikke altid. */
+function _ibReadPrice(productId) {
+    var q = function(navn) {
+        var el = _ibContainer && _ibContainer.querySelector('[data-ib="' + navn + '"][data-product-id="' + productId + '"]');
+        return el ? el.value : null;
+    };
+    var d = _ibPriceDraft[productId] || {};
+    var pris = q('lp-pris');
+    var indhold = q('lp-indhold');
+    return _ibPriceFromInvoice(pris === null ? d.pris : pris,
+                               indhold === null ? d.indhold : indhold);
 }
 
 /* Ret et eksisterende varenummer. Lokationen røres ikke — det er stadig samme
@@ -1662,7 +1896,9 @@ function _ibOrderItem(e) {
     return {
         product_name: e.product.name,
         note: bc ? (bc.note || null) : null,
-        barcode: bc ? bc.barcode : null,
+        // Er nummeret en anden leverandørs, sendes det ikke: betegnelsen bærer
+        // linjen, og et fremmed varenummer er værre end ingen.
+        barcode: (bc && !e.foreignBarcode) ? bc.barcode : null,
         quantity: e.qty,
         unit: e.needUnit,
     };
@@ -1919,6 +2155,10 @@ function _ibHandleClick(e) {
             _ibSaveFreeVarenr(parseInt(productId));
             break;
 
+        case 'lp-save-pris':
+            _ibSavePrice(parseInt(productId), parseInt(btn.getAttribute('data-bc-id')));
+            break;
+
         case 'lp-search':
             _ibLinkSearch(parseInt(productId));
             break;
@@ -2122,6 +2362,15 @@ function _ibHandleInput(e) {
         _ibLinkNoteDraft[el.getAttribute('data-product-id')] = el.value;
         return;
     }
+    if (el.getAttribute('data-ib') === 'lp-pris' || el.getAttribute('data-ib') === 'lp-indhold') {
+        var ppid = el.getAttribute('data-product-id');
+        if (!_ibPriceDraft[ppid]) _ibPriceDraft[ppid] = {};
+        _ibPriceDraft[ppid][el.getAttribute('data-ib') === 'lp-pris' ? 'pris' : 'indhold'] = el.value;
+        // Udregningen skrives direkte i sin egen linje — en _ibRender() her
+        // ville bygge felterne om og koste markørens plads midt i et tal.
+        _ibUpdatePriceHint(ppid);
+        return;
+    }
     if (el.getAttribute('data-ib') === 'qty-input') {
         var pid = el.getAttribute('data-product-id');
         var entry = _ibFindEntry(pid);
@@ -2137,11 +2386,14 @@ function _ibHandleKeydown(e) {
     if (e.key !== 'Enter') return;
     var el = e.target;
     var action = el.getAttribute && el.getAttribute('data-ib');
-    if (action !== 'lp-varenr' && action !== 'lp-input') return;
+    var prisFelt = action === 'lp-pris' || action === 'lp-indhold';
+    if (action !== 'lp-varenr' && action !== 'lp-input' && !prisFelt) return;
     e.preventDefault();
     var pid = parseInt(el.getAttribute('data-product-id'));
     if (action === 'lp-varenr') _ibSaveFreeVarenr(pid);
-    else _ibLinkSearch(pid);
+    else if (action === 'lp-input') _ibLinkSearch(pid);
+    else if (_ibLinkEditBcId) _ibSavePrice(pid, _ibLinkEditBcId);
+    else _ibSaveFreeVarenr(pid);   // ny kobling: prisen følger med nummeret
 }
 
 /* ── Actions ───────────────────────────────────────────────── */
@@ -2722,21 +2974,35 @@ function _ibRenderLinkResult(item, productId, isFav) {
  * leverandør der også bruger tal. Kalderen ved hvor nummeret kommer fra; det
  * gør denne funktion ikke.
  */
-async function _ibLinkBarcode(productId, varenr, name, locationId, msgEl) {
+async function _ibLinkBarcode(productId, varenr, name, locationId, msgEl, stockPrice) {
     if (_ibBusy) return;
     _ibBusy = true;
 
     try {
-        await createProductBarcode({
+        var svar = await createProductBarcode({
             product_id: parseInt(productId),
             barcode: String(varenr),
             shopping_location_id: locationId || null,
             note: name,
         });
 
+        // Prisen kan først skrives når koblingen har et id. Grocy svarer med
+        // created_object_id; mangler det, er prisen tabt og det skal siges.
+        var prisOk = null;
+        if (stockPrice !== null && stockPrice !== undefined) {
+            var nytId = svar && (svar.created_object_id || svar.id);
+            prisOk = nytId ? await _ibSavePriceForNew(parseInt(nytId), stockPrice) : false;
+            if (!nytId) {
+                _ibToast('Varenummeret er koblet, men prisen blev IKKE gemt — tast den igen på chippens ✎', true);
+            }
+        }
+
         _ibLinkPanelId = null;
         _ibClearLinkDraft(productId);
-        _ibToast('Varenr. ' + varenr + ' koblet til ' + name);
+        if (prisOk !== false) {
+            _ibToast('Varenr. ' + varenr + ' koblet til ' + name +
+                     (prisOk ? ' · pris ' + _ibFmtKr(stockPrice) + ' kr' : ''));
+        }
 
         // Refresh
         _ibBarcodes = await fetchProductBarcodes();
@@ -3056,7 +3322,7 @@ async function _ibAddProductConfirm() {
         // en beslutning nogen har truffet den anden vej.
         var genaktiveret = false;
         if (_ibAddProdSelected.inactive) {
-            await putGrocyProduct(_ibAddProdSelected.id, { active: 1 }, 'indkob');
+            await putGrocyProduct(_ibAddProdSelected.id, { active: 1 }, 'indkobsliste');
             genaktiveret = true;
             var gp = _ibProducts[_ibAddProdSelected.id];
             if (gp) gp.active = 1;

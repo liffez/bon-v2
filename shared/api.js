@@ -1539,6 +1539,21 @@ function setEstimatePrice(productId, stockPrice, recompute, kilde) {
     });
 }
 
+/** Stregkodens indhold (pr. leverandørens basisenhed) — serveren henter prisen hos Hørkram igen. */
+function setBarcodeContent(barcodeId, amount, kilde) {
+    return apiFetch('/purchasing/prices/barcode/' + barcodeId + '/content', {
+        method: 'PUT', headers: _kildeHeaders(kilde), body: JSON.stringify({ amount: amount }),
+    });
+}
+
+/** Nyt internt varenummer hos leverandøren med fakturaprisen (kr pr. lager-enhed, ex moms). */
+function createInternalBarcodePrice(productId, shoppingLocationId, stockPrice, kilde) {
+    return apiFetch('/purchasing/prices/product/' + productId + '/internal', {
+        method: 'POST', headers: _kildeHeaders(kilde),
+        body: JSON.stringify({ shopping_location_id: shoppingLocationId, stock_price: stockPrice }),
+    });
+}
+
 /** Markér ét varenummer som foretrukket (barcodeId = null rydder). */
 function setPreferredBarcode(productId, barcodeId, kilde) {
     return apiFetch('/purchasing/prices/product/' + productId + '/preferred', {

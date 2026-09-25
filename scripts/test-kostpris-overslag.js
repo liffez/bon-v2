@@ -46,6 +46,11 @@ const PRODUKTER = [
     { id: 12, name: 'kål',      qu_id_stock: 1, qu_id_purchase: 1 },
     { id: 20, name: 'Sirup',    qu_id_stock: 1, qu_id_purchase: 1 },
     { id: 21, name: 'Mel',      qu_id_stock: 1, qu_id_purchase: 1 },
+    // #706 §11 — leverandørprisen, før overslaget
+    { id: 30, name: 'Glutenfri Bolle', qu_id_stock: 1, qu_id_purchase: 1 },
+    { id: 31, name: 'Oliven',   qu_id_stock: 1, qu_id_purchase: 1 },
+    { id: 32, name: 'Kapers',   qu_id_stock: 1, qu_id_purchase: 1 },
+    { id: 33, name: 'Senep',    qu_id_stock: 1, qu_id_purchase: 1 },
 ];
 const KOEB = {
     10: [{ price: 20, amount: 1, purchased_date: offsetISO(-5) }],
@@ -56,6 +61,22 @@ let BARCODES = [
     { id: 900, product_id: 20, barcode: 'OVERSLAG-20', qu_id: 1, amount: 1, last_price: 77 },
     { id: 901, product_id: 21, barcode: 'OVERSLAG-21', qu_id: 1, amount: 1, last_price: 999 },
     { id: 902, product_id: 12, barcode: 'OVERSLAG-12', qu_id: 1, amount: 1, last_price: 500 },
+    // Mel har OGSÅ en leverandørpris — købet skal stadig vinde
+    { id: 903, product_id: 21, barcode: '1111', qu_id: 1, amount: 1, last_price: 55 },
+    // Glutenfri Bolle: fakturapris på et internt nummer + et gammelt overslag
+    { id: 910, product_id: 30, barcode: 'INT-0001', qu_id: 1, amount: 1, last_price: 4.5 },
+    { id: 911, product_id: 30, barcode: 'OVERSLAG-30', qu_id: 1, amount: 1, last_price: 99 },
+    // Oliven: to prissatte varenumre, intet foretrukket → flertydigt; overslaget fanger
+    { id: 920, product_id: 31, barcode: '2221', qu_id: 1, amount: 1, last_price: 40 },
+    { id: 921, product_id: 31, barcode: '2222', qu_id: 1, amount: 1, last_price: 60 },
+    { id: 922, product_id: 31, barcode: 'OVERSLAG-31', qu_id: 1, amount: 1, last_price: 50 },
+    // Kapers: flertydigt og INTET overslag → ingen pris (vi gætter ikke på den billigste)
+    { id: 930, product_id: 32, barcode: '3331', qu_id: 1, amount: 1, last_price: 30 },
+    { id: 931, product_id: 32, barcode: '3332', qu_id: 1, amount: 1, last_price: 35 },
+    // Senep: to prissatte, det ene foretrukket → det gælder
+    { id: 940, product_id: 33, barcode: '4441', qu_id: 1, amount: 1, last_price: 18,
+      userfields: { is_preferred: '1' } },
+    { id: 941, product_id: 33, barcode: '4442', qu_id: 1, amount: 1, last_price: 12 },
 ];
 let barcodesFejler = false;
 
@@ -133,6 +154,33 @@ async function main() {
         const txt = describeWarning(w);
         ok(/Sirup/.test(txt) && /overslag/.test(txt) && /varenummer/.test(txt),
            'advarslen siger hvad man kan gøre ved det: ' + txt);
+    }
+
+    console.log('\n5 · Leverandørens pris før overslaget (#706 §11, beslutning 14.3)');
+    grocy.clearCache();
+    d = await grocy.getProductUnitCostDetails(4);
+    ok(d.get('30')?.source === 'supplier' && near(d.get('30')?.cost, 4.5),
+       `Glutenfri Bolle: fakturaprisen 4,5 vinder over overslaget 99 (fik ${d.get('30')?.cost} / ${d.get('30')?.source})`);
+    ok(d.get('30')?.supplier_barcode === 'INT-0001',
+       'og det står hvilket varenummer prisen kommer fra');
+    ok(near(d.get('21')?.cost, 12) && d.get('21')?.source !== 'supplier',
+       'Mel: et målt køb (12) vinder stadig over leverandørens listepris (55)');
+    ok(d.get('31')?.source === 'estimate' && near(d.get('31')?.cost, 50),
+       `Oliven: flertydigt valg → overslaget, ikke et gæt på et af varenumrene (fik ${d.get('31')?.source})`);
+    ok(!d.has('32'),
+       'Kapers: flertydigt og intet overslag → ingen pris, ikke den billigste');
+    ok(d.get('33')?.source === 'supplier' && near(d.get('33')?.cost, 18),
+       'Senep: det foretrukne varenummer gælder, også når et andet er billigere');
+    {
+        const w = computeAll({
+            recipes: [{ id: 2, name: 'Bolle', base_servings: 1, userfields: { sellable: '1' } }],
+            pos: [{ id: 9, recipe_id: 2, product_id: 30, amount: 2, qu_id: 1 }],
+            nestings: [], products: PRODUKTER, units: SVAR['/objects/quantity_units'], conversions: [],
+            priceByProduct: new Map([...d].map(([k, v]) => [k, v.cost])),
+            priceDetailByProduct: d,
+        }).get(2);
+        ok(near(w.cost, 9) && w.missing_price.size === 0, `kostprisen regnes med leverandørprisen: 2 × 4,5 = ${w.cost}`);
+        ok(!w.warnings.has('estimate:30'), 'en leverandørpris er ikke et gæt — ingen overslags-advarsel');
     }
 
     console.log('\n4 · Kan varenumrene ikke læses, falder kostprisen bare tilbage');

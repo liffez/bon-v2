@@ -189,6 +189,7 @@ function lavKlient() {
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
         grocyProductActive: uCtx.grocyProductActive,
         SupplierOrderLines: require(path.join(ROD, 'shared', 'supplier_order_lines')),
+        InvoicePrice: require(path.join(ROD, 'shared', 'invoice_price')),
         __putProduct: null, __added: null, __toast: null, __rækkefølge: [], __manglede: null,
     };
     ctx.window = ctx;

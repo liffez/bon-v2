@@ -9504,6 +9504,175 @@ den ægte route med adapteren stubbet). **53 mutationer i alt, alle fanget.**
 > ⚠️ Testens egen stub af `_ibBuildGroups` skjulte først netop den funktion §6d skulle
 > måle. Den ægte gemmes nu som `__byg` før stubben sættes.
 
+### Et fremmed varenummer og en pris fra fakturaen (22. september 2026)
+
+Fortsættelse af sektionen ovenfor, begge fundet i drift dagen efter.
+
+**`Gafler` bar Hørkrams varenummer i en Serviwet-bestilling.** En vare kan have
+flere koblinger, og `_ibSortBarcodes` valgte den første efter `is_preferred` →
+aftale → billigst — uden at se på HVILKEN leverandør man bestiller hos. Nummeret
+ville være røget med i mailen til Rikke, som ikke kender det.
+
+- **Kriterium 0 i sorteringen: gruppens egen leverandør først.** Koblingen bærer
+  `shopping_location_id`, og `supplier_grocy_locations` oversætter det til en
+  leverandør — samme kæde som gruppen selv bygges af. Er den bedste kobling
+  alligevel en andens, mærkes linjen `foreignBarcode`, og **nummeret udelades af
+  bestillingen** (`_ibOrderItem` sender `barcode: null`), så leverandøren får sin
+  egen betegnelse i stedet.
+- **Det siges på linjen**, ikke kun i koden: *"⚠ Varenummeret er Hørkrams — det
+  kommer ikke med i bestillingen. Kobl hos Serviwet"* med en knap der åbner
+  kobl-panelet. Et tavst fravalg ville være samme fejlklasse som #305/#319.
+- **Kender vi ikke gruppens leverandør** — lokationen står ikke i
+  `supplier_grocy_locations` — siger vi ingenting. Vi kan ikke vide om nummeret er
+  fremmed, og et gæt ville mærke halvdelen af listen.
+
+**Prisen kunne ikke tastes nogen steder.** Alle 15 Serviwet-koblinger i grocy-hq
+havde `last_price` tom, så kostprisen (#558) faldt tilbage på et overslag eller
+ingenting. Serverens `PUT /api/purchasing/prices/barcode/:id` fandtes, men ingen
+skærm kaldte den for en leverandør-kobling.
+
+Fælden er enheden: fakturaen skriver en **pakkepris** ("115,00 · Transportkasse,
+25 stk."), mens `last_price` er pr. enhed. Tastede man 115 råt, ville Bon tro at
+én kasse koster 115 kr — 25 gange for meget.
+
+- **To felter i kobl-panelet: `[115] kr for [25] stk`** med udregningen skrevet
+  under mens man taster (`= 4,6 kr pr. stk`). Fakturaens to tal, ingen hovedregning.
+- **Klienten dividerer, og intet andet.** Omregningen fra stregkodens enhed til
+  varens lager-enhed bor ét sted, i `services/supplierPrices.js`. En kopi i
+  browseren ville kunne skride — det var netop to uenige enhedsregler der kostede
+  faktor 1000 i #352. En test holder fast i at `_ibPriceFromInvoice` ikke nævner
+  `qu_id` med et ord, og forudfyldningen henter serverens tal i stedet for at regne
+  `last_price` om.
+- **Et tomt indholds-felt betyder 1** (prisen ER pr. enhed). Men står der noget vi
+  ikke kan læse, afvises hele prisen frem for at regne som om feltet var tomt —
+  "115 kr for tolv" må ikke blive til 115 kr pr. stk. Fundet af testen, ikke af koden.
+- **Ved en ny kobling følger prisen nummeret** (ingen "Gem pris"-knap; den kan først
+  skrives når koblingen har et id). Fejler prisen, står koblingen — og det **siges
+  som en fejl** med vejen tilbage ("tast den igen på chippens ✎"), så den grønne
+  kvittering ikke kommer til at dække over den.
+- **Ny kilde-nøgle `indkobsliste`** i #666's stamdata-spor. `indkob` er
+  indkøbs*indstillingerne*; en prisændring fra indkøbs*listen* er en anden skærm, og
+  hele pointen med sporet er at kunne se hvilken. `indkob.js`' eksisterende brug er
+  rettet med.
+
+**Tests:** `npm run test:indkob-pris` (80 asserts — udregningen, panelet i begge
+tilstande, begge gem-veje, forudfyldning, kladden og selve wiringen af felter,
+knap og Enter). **Mutations-testet: 23 mutationer, alle fanget.** To huller blev
+fundet undervejs og lukket: §4 målte ikke kilden (kun §3 gjorde), og en assert
+bestod uden at måle noget. Regression grøn: bestillingslinjer 142 (+14 for
+`foreignBarcode`), tilfoej-vare 27, tilfoej-server 23, stamdata 21,
+leverandorpriser 101, modtag 123.
+
+Browser-verificeret mod grocy-test med rigtige museklik: advarslen på `Gafler` mens
+`kaffekopper - Låg` (hvis foretrukne er Serviwets) står uden, prisen tastet både på
+en eksisterende kobling og sammen med en ny, tallene efterprøvet i Grocy og sporet
+i changeloggen. Alt rullet tilbage bagefter.
+
+> ⚠️ **Browser-panelet skalerede koordinater med 1,375** (viewport 1100 mod ramme
+> 800), så de første klik ramte ved siden af uden at fejle. Målt med en
+> capture-lytter der noterer `clientX/Y`, og koordinaterne divideret med forholdet.
+
+
+### Arbejdslisten "N uden pris": prisen sættes i rækken (22. september 2026)
+
+Indkøb → ⚙ → Produkter → **"N uden pris"** var en liste man læste og så forlod:
+en pris kunne kun sættes fra lageroversigtens ✎, og den viser kun varer med en
+lagerpost. Målt mod grocy-test 22/9: 189 aktive varer, **133 uden pris**, og
+lageroversigten viser 85 — mindst 48 kunne slet ikke nås.
+
+De 133 fordeler sig sådan (ikke "112 uden varenummer", som det så ud):
+
+| Varer | Situation | Rækken |
+|---|---|---|
+| 95 | intet varenummer | prisfelt → **overslag** |
+| 16 | ét varenummer uden pris | prisfelt → prisen **på varenummeret** (ikke et overslag) |
+| 19 | flere varenumre med pris, intet foretrukket | **vælg** — ét klik |
+| 1 | flere varenumre uden pris, intet foretrukket | **vælg** → så prisfelt for det valgte |
+| 2 | foretrukket varenummer uden pris | prisfelt på det + de andre som alternativ |
+
+Fem af dem har et varenummer hvis enhed ikke kan omregnes til lager-enheden
+(sodavand pr. flaske) — dér ville serveren afvise prisen, så rækken tilbyder et
+overslag og siger hvorfor.
+
+- **`_isWorkPlan(po)`** i `shared/indkob_settings.js` afgør rækkens vej ud fra
+  varens varenumre. Ren funktion af oversigtens post.
+- **Prisfeltet er fakturaens tal**: `[115] kr for [25] stk`, med udregningen
+  vist mens man taster. **Tab ud af rækken gemmer**, Tab fra pris til antal i
+  samme række gør ikke (ellers blev "115" gemt som 115 kr/stk før "25" var
+  skrevet). Enter gemmer og flytter videre. Leverandør- og min.-grænse-felterne
+  får `tabindex="-1"` på listen, så Tab går pris → antal → næste vare.
+- **Browseren dividerer — intet andet.** Reglen er flyttet til
+  **`shared/invoice_price.js`** (`InvoicePrice.priceFromInvoice`), som både
+  kobl-panelet i indkøbslisten og arbejdslisten bruger. Omregningen fra
+  varenummerets enhed til lager-enheden bor i `services/supplierPrices.js`
+  (#352). Hvilken pris der så **gælder**, spørges serveren om bagefter
+  (`fetchSupplierPrice`) — rækken bygges af svaret, ikke af hvad vi selv satte.
+- Kun den gemte række tegnes om, så fokus i næste række står. Det tastede
+  overlever en genrendering (søgning). En gemt vare bliver stående med
+  kvitteringen indtil listen filtreres igen.
+- Ingen ny route, ingen migration. `priceOverview` fik `is_preferred`,
+  `is_agreement`, `shopping_location_id` og **`text`** (leverandørens betegnelse
+  = Grocys note) på varenumrene. `note` er stadig serverens forklaring på en
+  manglende pris og må ikke bruges som navn — det gjorde første udgave.
+- **Knappens tal talte inaktive varer med** (169 mod 133): oversigten rummer kun
+  aktive, og `_isUdenPris` tolkede "ikke i oversigten" som "uden pris".
+- Knappen bliver stående mens man er på listen, også når den sidste er sat.
+- Lytterne på containeren bindes kun én gang (`__isBound`) — ellers fyrede et
+  gem to gange når office monterede panelet igen.
+
+**Efter PR #703's enhedsaudit — tre veje mere (samme dag):**
+
+Målt mod grocy-test er 19 af de 133 varer nogen vi **selv laver** efter en
+opskrift. De mangler ingen leverandørpris — kostprisen kommer fra opskriften
+(#558). `priceOverview` bærer nu `produced_by` (laveste opskrift-id, samme valg
+som kostprisen), og de tælles fra: listen er 114, med noten "+ 19 laves selv".
+
+For en vare **uden varenummer** afgør leverandøren vejen:
+
+| Leverandør | Rækken |
+|---|---|
+| uden varenumre (email/manual/webshop — Emballage, Drikkevarer) | fakturaprisen gemmes på et **nyt internt varenummer** (INT-nnnn) hos dem — en leverandørpris, ikke et gæt |
+| Hørkram (api) | overslag, med anvisning om at koble Hørkrams rigtige nummer under Hørkram → Ny kobling (et internt nummer kan ikke opdateres) |
+| intern / ingen | overslag |
+
+`POST /api/purchasing/prices/product/:id/internal { shopping_location_id, stock_price }`
+opretter nummeret på serveren (`supplierPrices.createInternalBarcode`): i varens
+lager-enhed med `amount: 1`, så `last_price` ER prisen pr. lager-enhed. Afvist
+med 409 hvis varen allerede har et nummer hos leverandøren. Oprettelserne køres
+én ad gangen, så to samtidige ikke får samme nummer.
+
+**Hørkram-varenumre uden indhold** (6 i grocy-test): Hørkram HAR en pris
+(`hk_price_per_unit`), men stregkoden mangler sit `amount`, så "Opdater priser
+nu" kan ikke regne om. Rækken viser stykprisen og et felt: *1 salgsenhed
+indeholder [500] stk*. `PUT /api/purchasing/prices/barcode/:id/content { amount }`
+skriver indholdet og kører **den samme** `refreshHorkramPrices` for det ene
+nummer — serveren regner (346,02 ÷ 500), og prisen holdes derefter ajour af sig
+selv. Der fandtes ingen skærm i Bon til stregkodens indhold før.
+
+**Tests:** `test-indkob-arbejdsliste.js` (118, kører nu under `test:indkob-pris`)
+— den ægte `indkob_settings.js` i en vm-sandkasse. **13 mutationer, alle
+fanget** (26 mutationer i alt). Browser-verificeret mod grocy-test med rigtige klik (overslag via
+Enter, pakkepris 350/1000 på et varenummer → Grocys `last_price` 0,35,
+foretrukket-valg, "115 kr for tolv" afvist); grocy-test rullet tilbage bagefter.
+
+**Rettet før merge (#706 §15 trin 2, 25. september 2026):**
+
+- **Kostprisen bruger leverandørens pris før overslaget** (beslutning 14.3:
+  *vi gætter ikke på priser, medmindre det er bevidst*). Rækkefølgen er nu målt
+  køb → Grocys lagertal → forældres snit → **leverandørens pris** → overslag.
+  `supplierPrices.costFallbackPrices` bruger SAMME afgørelse som varemodtagelsen
+  (`resolveProductPrice`), så "Klar" i arbejdslisten og kostprisen ikke kan være
+  uenige. Et flertydigt valg giver ingen pris — ikke den billigste. Kilden hedder
+  `supplier`, og drill-downet i Opskrifter & priser mærker den `lev.pris`.
+  Målt mod grocy-test: 10 varer fik en kostpris de ikke havde; ingen målt pris flyttede sig.
+- **Et indkøbssted uden koblet leverandør** giver nu et internt varenummer, ikke
+  et overslag — man har en regning, så prisen er rigtig.
+- "laves selv" hedder **"egen produktion"**.
+
+Tests: `test-kostpris-overslag` 12 → **20**, `test-indkob-arbejdsliste` 118 → **122**.
+Mutations-testet: leverandørprisen ignoreret (4 falder), flertydigt → billigste (2),
+indkøbssted uden leverandør → overslag (3).
+
 ### Adresseopslag gennem vores egen server (25. september 2026)
 
 Danner (Nansensgade 1) kunne ikke bestille: adresselisten kom aldrig frem, heller

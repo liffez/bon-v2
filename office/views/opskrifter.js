@@ -931,6 +931,8 @@ function _opsCompBodyHtml(data) {
         ? '<div class="ops-comp-note">~ = pris arvet som gennemsnit af en forældre-vares underprodukter.</div>'
         : ings.some(i => i.cost_estimated)
         ? '<div class="ops-comp-note">overslag = prisen er skrevet i hånden, ikke målt på et indkøb.</div>'
+        : ings.some(i => i.cost_from_supplier)
+        ? '<div class="ops-comp-note">lev.pris = leverandørens pris på varenummeret — varen er ikke modtaget med en pris endnu.</div>'
         : '';
 
     // Advarslerne hører til HER og ikke kun på rækken: panelet er stedet man
@@ -987,6 +989,9 @@ function _opsStockDot(inStock) {
  * Klikbart, så prisen kan rettes hvor man ser den.
  */
 function _opsEstimateTag(i) {
+    if (i.product_id && i.cost_from_supplier) {
+        return `<span class="ops-supplier-tag" title="Leverandørens pris på varenummeret — endnu ikke et registreret køb">lev.pris</span>`;
+    }
     if (!i.product_id || !i.cost_estimated) return '';
     return `<button class="ops-estimated" data-est-pid="${i.product_id}" data-est-unit="${_opsEsc(i.stock_unit || '')}"
             title="Manuelt overslag — ikke en målt indkøbspris. Klik for at rette.">overslag</button>`;
