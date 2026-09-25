@@ -61,6 +61,10 @@ function friskTilstand() {
         searchSeq: 0,
         newLine: null,           // formularen for «+ Ny vare»
         review: null,            // gennemgangspanelet (§8.4)
+        // Historikken (#683). Åben-tilstanden og de hentede rækker bor HER og
+        // ikke i DOM'en: overblikket gentegnes ved hver beregning, og uden
+        // dette ville panelet klappe i under fingrene på den der læser det.
+        hist: { open: false, rows: null, busy: false, error: null },
         editLineKey: null,       // linjen der redigeres inline
         menu: null,              // åben ⋯-menu
         priceTarget: null,       // DB%-skyderen — en norm pr. kategori, ikke pr. browser
@@ -145,7 +149,10 @@ function dybKopi(o) { return o == null ? null : JSON.parse(JSON.stringify(o)); }
 
 async function api(sti, opts) {
     const r = await fetch(sti, Object.assign({
-        headers: { 'Content-Type': 'application/json' },
+        // Kilden sættes på ALLE kald, ikke kun på gem. Så kan ingen kaldevej
+        // glemme den, og sporet (#683) kan sige hvilken skærm ændringen kom
+        // fra. Det er kun en etiket: den autoriserer intet.
+        headers: { 'Content-Type': 'application/json', 'X-Bon-Kilde': 'opskrift-editor' },
     }, opts || {}));
     const t = await r.text();
     let j = null;
@@ -233,6 +240,74 @@ function målvægtÆndret() {
     const egen = (d) => (d && d.target_weight_source === 'recipe' && d.target_weight_g != null)
         ? Number(d.target_weight_g) : null;
     return egen(S.orig) !== egen(S.draft);
+}
+
+/**
+ * Flytter dette gem udbyttet på en opskrift der producerer en vare? (#683)
+ *
+ * Udbyttet er ikke et felt som de andre. Prisen pr. lager-enhed af den vare
+ * opskriften lægger på lageret ER
+ *
+ *     opskriftens kostpris / udbyttet i lager-enhed        (recipeCost.js)
+ *
+ * så et nyt udbytte flytter kostprisen på hver ret der bruger varen, og
+ * lagertrækket trækker en anden mængde. Ingen af delene er synlige fra den
+ * opskrift man står i.
+ *
+ * TRE felter indgår i udbyttet, ikke ét:
+ *
+ *     udbytte i lager-enhed = recipeunitnumber × base_servings × faktor(recipeunit)
+ *
+ * `base_servings` er den lumske: ingrediensmængderne står stille, så
+ * kostprisen for holdet er uændret — men udbyttet fordobles, og prisen pr.
+ * enhed halveres. Advarede vi kun om tallet i «1 portion er», kunne man
+ * halvere kostprisen på en snes retter uden at få besked.
+ *
+ * Reglen for HVAD der er ændret er `RecipeDiff` — den samme serveren skriver
+ * efter. En egen sammenligning her ville kunne skride fra den.
+ *
+ * @returns null, eller { felter: string[], used: {count, names} }
+ */
+function udbytteFlytter() {
+    if (!S.orig) return null;                       // ny opskrift: intet at flytte
+    const y = S.draft.yield || {};
+    if (y.product_id == null || y.product_id === '') return null;   // producerer intet
+    if (typeof RecipeDiff === 'undefined' || !RecipeDiff.diffRecipe) return null;
+
+    let plan;
+    try { plan = RecipeDiff.diffRecipe(S.orig, medTrin(S.draft)); }
+    catch (e) { return null; }
+
+    const felter = [];
+    if ('recipeunitnumber' in (plan.userfields || {})) felter.push('udbyttet');
+    if ('recipeunit' in (plan.userfields || {}))       felter.push('udbyttets enhed');
+    if ('base_servings' in (plan.recipe || {}))        felter.push('antal portioner');
+    if (!felter.length) return null;
+
+    const used = (S.overview && S.overview.yield && S.overview.yield.used_by) || { count: 0, names: [] };
+    return { felter, used };
+}
+
+/** «udbyttet og antal portioner» — ikke «udbyttet, antal portioner». */
+function ogListe(a) {
+    if (a.length <= 1) return a[0] || '';
+    return a.slice(0, -1).join(', ') + ' og ' + a[a.length - 1];
+}
+
+/**
+ * Hvad ændringen koster, i én sætning. Bruges både i noten ved feltet og i
+ * bekræftelsen ved Gem — ellers ville de to kunne sige hver sit.
+ */
+function udbytteAdvarselTekst(f) {
+    const n = f.used.count;
+    const hvem = n === 0
+        ? 'Ingen andre opskrifter bruger varen lige nu'
+        : (n === 1 ? '1 anden opskrift bruger varen' : n + ' andre opskrifter bruger varen');
+    const navne = f.used.names && f.used.names.length
+        ? ' (' + f.used.names.join(', ') + (n > f.used.names.length ? ' …' : '') + ')'
+        : '';
+    return 'Du ændrer ' + ogListe(f.felter) + '. Det er dét lagertrækket og ' +
+           'kostprisen regner på. ' + hvem + navne + '.';
 }
 
 function antalÆndringer() {
@@ -387,6 +462,7 @@ function tegn() {
 
     tegnHoved();
     tegnUdbytte();
+    opdaterUdbytteAdvarsel();
     tegnListe();
     tegnTilføj();
     tegnTrin();
@@ -493,6 +569,12 @@ function tegnUdbytte() {
         (vare ? produktionsNote(vare)
               : '<div class="re-yield-note">Opskriften lægger ingen vare på lageret. ' +
                 '<button class="re-link" id="reYPick">Skal den det?</button></div>') +
+        // Advarslen hænger på UDBYTTET, ikke på at varens navn kan slås op.
+        // Lå den inde i `produktionsNote`, forsvandt den for en vare der ikke
+        // står i `meta.products` — og så ville Gem stadig advare mens skærmen
+        // tav. Elementet fyldes af `opdaterUdbytteAdvarsel`; det kan ikke
+        // tegnes her, fordi kortet ikke gentegnes mens man taster (#683).
+        '<div class="re-yield-warn" id="reYieldWarn" hidden></div>' +
       '</div>';
 }
 
@@ -508,8 +590,27 @@ function produktionsNote(vare) {
     const hvordan = t === 'on_demand'
         ? 'Laves automatisk når en bon leveres.'
         : (t === 'to_stock' ? 'Laves efter plan og lægges på lager.' : '');
+    // Advarslen har sit EGET element og fyldes af `opdaterUdbytteAdvarsel`.
+    // Den kan ikke tegnes med resten af kortet: `tegnUdbytte` er et rent
+    // innerHTML-skift, og udbyttefeltet gentegnes derfor ikke mens man taster
+    // — ellers ville feltet blive revet væk under fingrene (samme fælde som
+    // mængdefeltet, #683). Så advarslen opdateres for sig.
     return '<div class="re-yield-note">Lægger <strong>' + esc(vare.name) +
            '</strong> på lageret. ' + esc(hvordan) + '</div>';
+}
+
+/**
+ * Fyld eller tøm advarslen — uden at røre resten af udbyttekortet.
+ *
+ * Konsekvensen skal ses MENS man arbejder, ikke først når man trykker Gem.
+ * Den spærrer ikke: at ændre udbyttet er ofte præcis det rigtige.
+ */
+function opdaterUdbytteAdvarsel() {
+    const el = document.getElementById('reYieldWarn');
+    if (!el) return;                     // opskriften producerer ingen vare
+    const f = udbytteFlytter();
+    el.hidden = !f;
+    el.innerHTML = f ? '⚠ ' + esc(udbytteAdvarselTekst(f)) : '';
 }
 
 function findVare(id) {
@@ -1041,7 +1142,76 @@ function tegnOverblik(fejl) {
 
     h += tegnPris(o);
     h += tegnKolonneVælger();
+    h += tegnHistorik();
     el.innerHTML = h;
+}
+
+/* ── Historik (#683) ──────────────────────────────────────────── */
+
+/** Feltnavnene som de blev skrevet i sporet → noget et menneske kan læse. */
+const HIST_FELT = {
+    name: 'Navn',
+    base_servings: 'Antal portioner',
+    product_id: 'Producerer vare',
+    description: 'Fremgangsmåde',
+    grupper: 'Gruppe',
+    recipeunitnumber: 'Udbytte',
+    recipeunit: 'Udbyttets enhed',
+    ingrediens: 'Ingrediens',
+    underopskrift: 'Underopskrift',
+};
+
+/** changelog.created_at er UTC ('YYYY-MM-DD HH:MM:SS'); vist i dansk tid. */
+function histTid(raw) {
+    const d = (typeof parseServerDate === 'function') ? parseServerDate(raw) : new Date(raw);
+    if (!d || isNaN(d.getTime())) return raw || '';
+    return d.toLocaleString('da-DK', {
+        timeZone: 'Europe/Copenhagen', day: 'numeric', month: 'short',
+        hour: '2-digit', minute: '2-digit',
+    });
+}
+
+function tegnHistorik() {
+    if (S.mode === 'new' || S.draft.recipe_id == null) return '';   // intet gemt endnu
+    const h = S.hist;
+    let krop;
+    if (h.busy)        krop = '<div class="re-dim">Henter historik …</div>';
+    else if (h.error)  krop = '<div class="re-dim">Historikken kunne ikke hentes: ' + esc(h.error) + '</div>';
+    else if (!h.rows)  krop = '';
+    else if (!h.rows.length) {
+        krop = '<div class="re-dim">Ingen ændringer registreret fra Bon endnu. ' +
+               'Ændringer lavet direkte i Grocy ses ikke her.</div>';
+    } else {
+        krop = '<ul class="re-hist-list">' + h.rows.map(function (r) {
+            const felt = HIST_FELT[r.field_name] || r.field_name || 'ændring';
+            const vis = (v) => (v === null || v === undefined || v === '') ? '—' : esc(v);
+            const hvad = r.action === 'create'
+                ? '<b>Oprettet</b>' + (r.new_value ? ' som ' + vis(r.new_value) : '')
+                : '<b>' + esc(felt) + '</b>: ' + vis(r.old_value) + ' → ' + vis(r.new_value);
+            return '<li class="re-hist-row">' +
+                '<div class="re-hist-what">' + hvad + '</div>' +
+                '<div class="re-hist-meta">' + esc(histTid(r.created_at)) +
+                    ' · ' + esc(r.user_name || 'ukendt bruger') +
+                    (r.notes ? ' · ' + esc(r.notes) : '') +
+                '</div></li>';
+        }).join('') + '</ul>';
+    }
+    return '<details class="re-hist" id="reHist"' + (h.open ? ' open' : '') + '>' +
+           '<summary>Historik</summary>' + krop + '</details>';
+}
+
+async function hentHistorik() {
+    const id = S.draft && S.draft.recipe_id;
+    if (id == null || S.hist.busy || S.hist.rows) return;
+    S.hist.busy = true; S.hist.error = null; tegnOverblik();
+    try {
+        const r = await api('/api/opskrifter/' + id + '/historik?limit=25');
+        if (S.draft && S.draft.recipe_id === id) S.hist.rows = Array.isArray(r) ? r : [];
+    } catch (e) {
+        if (S.draft && S.draft.recipe_id === id) S.hist.error = e.message;
+    } finally {
+        S.hist.busy = false; tegnOverblik();
+    }
 }
 
 function ovRow(k, v) {
@@ -1264,8 +1434,17 @@ function genhentUdfoldning(key) {
 }
 
 async function hentUdfoldning(key) {
-    const v = S.lines.lines.find(l => l.key === key);
-    if (!v) return;
+    // Et svar der lander EFTER at brugeren er skiftet til en anden opskrift
+    // hører ingen steder hjemme: `mount` har sat `expandData` til null, og en
+    // rå skrivning kaster `Cannot set properties of null`. Den fejl vælter
+    // ingenting synligt, men den fylder konsollen — og en konsol med fast støj
+    // er en konsol hvor den næste ægte fejl ikke bliver set. Samme vagt som
+    // de seks tegnere fik.
+    const seq = S.calcSeq;
+    const stadigHer = () => seq === S.calcSeq && S.expandData;
+
+    const v = S.lines && S.lines.lines.find(l => l.key === key);
+    if (!v || !stadigHer()) return;
     const rid = v.type === 'nesting' ? v.includes_recipe_id : v.semi_recipe_id;
     if (!rid) { S.expandData[key] = { error: 'opskriften er ukendt' }; tegnListe(); return; }
     // Mængden sendes med, så serveren kan skalere. Faktoren regnes ALDRIG her:
@@ -1280,12 +1459,11 @@ async function hentUdfoldning(key) {
                : (v.amount_stock != null ? v.amount_stock : v.amount);
     const q = '?kind=' + (v.type === 'nesting' ? 'nesting' : 'semi') +
               '&bruger=' + encodeURIComponent(brug == null ? '' : brug);
-    try {
-        const r = await api('/api/opskrifter/' + rid + '/indhold' + q);
-        S.expandData[key] = r;
-    } catch (e) {
-        S.expandData[key] = { error: e.message };
-    }
+    let svar;
+    try { svar = await api('/api/opskrifter/' + rid + '/indhold' + q); }
+    catch (e) { svar = { error: e.message }; }
+    if (!stadigHer()) return;       // en anden opskrift er åben nu
+    S.expandData[key] = svar;
     tegnListe();
 }
 
@@ -1296,6 +1474,15 @@ async function hentUdfoldning(key) {
 async function gem(somNy) {
     if (S.busy) return;
     if (S.lines && S.lines.blocking_count) return;     // R8.4 — håndhævet af serveren også
+
+    // «Gem som ny» skriver til en ANDEN opskrift; den eksisterende vares
+    // kostpris flytter sig ikke, så advarslen gælder ikke der.
+    if (!somNy) {
+        const flytter = udbytteFlytter();
+        if (flytter && !confirm(udbytteAdvarselTekst(flytter) +
+                '\n\nGem alligevel?')) return;
+    }
+
     S.busy = true; tegnBund();
     try {
         const sti = somNy || S.draft.recipe_id == null
@@ -1357,8 +1544,8 @@ function bind() {
         const t = e.target;
         if (t.id === 'reName') { S.draft.name = t.value; tegnBund(); return; }
         if (t.id === 'reSearch') { søg(t.value); return; }
-        if (t.id === 'reYAmt') { S.draft.yield.amount = num(t.value); planlægBeregn(); tegnBund(); return; }
-        if (t.id === 'reYServ') { S.draft.base_servings = num(t.value) || 1; planlægBeregn(); tegnBund(); return; }
+        if (t.id === 'reYAmt') { S.draft.yield.amount = num(t.value); planlægBeregn(); tegnBund(); opdaterUdbytteAdvarsel(); return; }
+        if (t.id === 'reYServ') { S.draft.base_servings = num(t.value) || 1; planlægBeregn(); tegnBund(); opdaterUdbytteAdvarsel(); return; }
         if (t.id === 'reTarget') {
             // Tomt felt = «brug gruppens norm igen», ikke «ingen målvægt».
             const v = num(t.value);
@@ -1380,7 +1567,7 @@ function bind() {
             if (S.mode === 'new' && !(S.draft.lines || []).length) hentSektionsskabelon();
             return;
         }
-        if (t.id === 'reYUnit') { S.draft.yield.unit = t.value; planlægBeregn(); tegnBund(); return; }
+        if (t.id === 'reYUnit') { S.draft.yield.unit = t.value; planlægBeregn(); tegnBund(); opdaterUdbytteAdvarsel(); return; }
         if (t.dataset.act === 'newunit') {
             const l = linjeFraKey(t.dataset.key);
             if (l && l.new_product) { l.new_product.qu_id_stock = t.value ? Number(t.value) : null; }
@@ -1449,6 +1636,17 @@ function bind() {
     el.addEventListener('mousedown', (e) => {
         if (e.target.closest('.re-step')) e.preventDefault();
     }, sig);
+
+    // <details> sender 'toggle', som ikke bobler — derfor capture (samme som
+    // lageroversigtens historik, #666). Åben-tilstanden gemmes i S, fordi
+    // overblikket gentegnes ved hver beregning og ellers ville klappe panelet
+    // i under fingrene på den der læser det.
+    el.addEventListener('toggle', (e) => {
+        const d = e.target;
+        if (!d || d.id !== 'reHist') return;
+        S.hist.open = !!d.open;
+        if (d.open) hentHistorik();
+    }, { signal: bindAfbryd.signal, capture: true });
 
     tegnBund();
 }

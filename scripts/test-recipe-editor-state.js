@@ -59,6 +59,8 @@ const els = {};
 const byId = (id) => (els[id] || (els[id] = lavEl(id)));
 
 const fetches = [];
+const spurgt = [];          // hver tekst confirm() blev stillet med
+let svarPåConfirm = true;
 const sandbox = {
     console, setTimeout, clearTimeout, JSON, Math, Date, Number, String, Object, Array, Set, Map, AbortController,
     document: {
@@ -67,7 +69,7 @@ const sandbox = {
         createElement: () => lavEl(''), addEventListener() {}, body: lavEl('body'),
     },
     localStorage: { getItem: () => null, setItem() {} },
-    confirm: () => true,
+    confirm: (m) => { spurgt.push(m); return svarPåConfirm; },
     esc: (s) => String(s == null ? '' : s),
     fetch: async (sti, opts) => {
         fetches.push({ sti, body: opts && opts.body ? JSON.parse(opts.body) : null });
@@ -88,7 +90,8 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'recipe_edi
 const RE = sandbox.window.RecipeEditor;
 const S = RE._state;
 
-const META = { grupper: ['RR Produktion'], units: [], products: [], groups: [] };
+const META = { grupper: ['RR Produktion'], units: [], groups: [],
+    products: [{ id: 50, name: 'Frisk Grønt', qu_id_stock: 1 }] };
 const kladde = (id, navn, beskrivelse) => ({
     recipe_id: id, name: navn, group: 'RR Produktion', base_servings: 1,
     description: beskrivelse, yield: { amount: 1, unit: 'kg', product_id: null },
@@ -403,6 +406,128 @@ console.log('\n── §9 «Sæt svind» er væk indtil den kan gemmes ───
         { lines: [{ draft_index: 0, name: 'Gulerødder', unit: 'Kilo', amount_stock: 1 }] }, {});
     ok(/10\s*%\s*rensesvind/.test(ud.lines[0].annotation || ''),
         `en kladde med svind viser det stadig (${ud.lines[0].annotation})`);
+}
+
+// ── §10 Udbytte-advarslen (#683) ──────────────────────────────
+// Udbyttet er divisoren i kostprisen for den vare opskriften producerer:
+//     unitCost = opskriftens kostpris / udbytte i lager-enhed   (recipeCost.js)
+// Ændres det, flytter kostprisen sig på hver ret der bruger varen — og
+// lagertrækket trækker en anden mængde. Ingen af delene ses fra den opskrift
+// man står i, så konsekvensen skal siges FØR der gemmes.
+console.log('\n── §10 Udbytte-advarsel når opskriften producerer en vare ─');
+{
+    const OVERBLIK = { yield: { used_by: { count: 3, names: ['Frikadellen', 'Grisen på Rug'] } } };
+    const medVare = (id) => Object.assign(kladde(id, 'Rødkål - Syltet', '<p>x</p>'),
+        { yield: { amount: 1, unit: 'Kilo', product_id: 50 } });
+
+    async function gemOgSe(ændr, opts) {
+        await RE.mount(byId('rod'), Object.assign(
+            { draft: medVare(14), meta: META, overview: OVERBLIK, mode: 'modify' }, opts || {}));
+        ændr(S.draft);
+        spurgt.length = 0; fetches.length = 0;
+        klik({ id: (opts && opts.knap) || 'reSave' });
+        await new Promise(r => setTimeout(r, 0));
+        return { spurgt: spurgt.slice(), sendt: fetches.some(f => /\/gem|\/ny/.test(f.sti)) };
+    }
+
+    // Ingen ændring af udbyttet ⇒ ingen advarsel.
+    let r = await gemOgSe((d) => { d.name = 'Rødkål - Syltet v2'; });
+    ok(r.spurgt.length === 0, 'et navneskift spørger ikke om udbyttet');
+    ok(r.sendt, 'og gemmet går igennem');
+
+    // Tallet i «1 portion er».
+    r = await gemOgSe((d) => { d.yield.amount = 1.4; });
+    ok(r.spurgt.length === 1, 'et ændret udbytte advarer');
+    ok(/udbyttet/.test(r.spurgt[0] || ''), `teksten nævner hvad der ændres (${JSON.stringify((r.spurgt[0] || '').slice(0, 40))})`);
+    ok(/3 andre opskrifter/.test(r.spurgt[0] || ''), 'og HVOR MANGE der bruger varen');
+    ok(/Frikadellen/.test(r.spurgt[0] || ''), 'med navnene på dem');
+
+    // base_servings er den lumske: ingrediensmængderne står stille, så
+    // kostprisen for holdet er uændret — men udbyttet fordobles, og prisen
+    // pr. enhed halveres. Advarede vi kun om tallet, kunne man halvere
+    // kostprisen på en snes retter uden besked.
+    r = await gemOgSe((d) => { d.base_servings = 2; });
+    ok(r.spurgt.length === 1, 'et ændret ANTAL PORTIONER advarer også');
+    ok(/antal portioner/.test(r.spurgt[0] || ''), 'og siger at det er dét der ændres');
+
+    // Enheden går gennem factorToStock og flytter udbyttet lige så meget.
+    r = await gemOgSe((d) => { d.yield.unit = 'Antal'; });
+    ok(r.spurgt.length === 1, 'en ændret ENHED advarer også');
+
+    // Advarslen skal være SYNLIG mens man arbejder, ikke kun dukke op i en
+    // confirm ved Gem. Browseren afslørede at den ikke var det: feltets
+    // input-handler gentegner bevidst ikke udbyttekortet (det ville rive
+    // feltet væk under fingrene), så noten stod uændret mens tallet blev
+    // rettet. En test der kun måler confirm kunne ikke se det.
+    await RE.mount(byId('rod'), { draft: medVare(14), meta: META, overview: OVERBLIK, mode: 'modify' });
+    // DOM-attrappen giver et element for ethvert id, så `byId` alene kan ikke
+    // se om boksen rent faktisk renderes. Uden denne assert består testen
+    // selvom `tegnUdbytte` holdt op med at udskrive den.
+    ok(/id="reYieldWarn"/.test(byId('reYield').innerHTML || ''),
+        'udbyttekortet udskriver advarslens element');
+
+    // En vare der ikke står i `meta.products` kan ikke navngives — men
+    // udbyttet flytter sig lige meget, og Gem advarer. Så skal skærmen også.
+    //
+    // Asserten læser den HTML kortet UDSKRIVER, ikke `byId('reYieldWarn')`:
+    // attrappen modellerer ikke at `innerHTML` rydder børn, så et element fra
+    // en tidligere mount ville svare med sin gamle tilstand og få testen til
+    // at bestå af den forkerte grund.
+    await RE.mount(byId('rod'), {
+        draft: Object.assign(kladde(14, 'x', '<p>x</p>'),
+            { yield: { amount: 1, unit: 'Kilo', product_id: 9999 } }),
+        meta: META, overview: OVERBLIK, mode: 'modify' });
+    ok(/id="reYieldWarn"/.test(byId('reYield').innerHTML || ''),
+        'en vare uden navn i meta får stadig advarslens element — Gem advarer jo også');
+
+    await RE.mount(byId('rod'), { draft: medVare(14), meta: META, overview: OVERBLIK, mode: 'modify' });
+    const boks = byId('reYieldWarn');
+    ok(boks.hidden === true, 'advarslen er skjult så længe udbyttet står urørt');
+
+    // Præcis som brugeren: tast i feltet, gennem den ÆGTE input-handler.
+    const feltAmt = Object.assign(lavEl('reYAmt'), { value: '1,2' });
+    S.el._fyr('input', { target: feltAmt });
+    ok(boks.hidden === false, 'og kommer frem så snart udbyttet rettes — uden et Gem');
+    ok(/3 andre opskrifter/.test(boks.innerHTML || ''),
+        `med konsekvensen i teksten (${JSON.stringify((boks.innerHTML || '').slice(0, 50))})`);
+
+    // Tilbage til udgangspunktet ⇒ ingen advarsel igen.
+    S.el._fyr('input', { target: Object.assign(lavEl('reYAmt'), { value: '1' }) });
+    ok(boks.hidden === true, 'og forsvinder igen når tallet sættes tilbage');
+
+    // Antal portioner har sit eget felt og skal opføre sig ens.
+    S.el._fyr('input', { target: Object.assign(lavEl('reYServ'), { value: '2' }) });
+    ok(boks.hidden === false, 'antal portioner viser den også');
+
+    // Advarslen er ikke en spærring — men et «nej» skal standse gemmet.
+    svarPåConfirm = false;
+    r = await gemOgSe((d) => { d.yield.amount = 9; });
+    ok(r.spurgt.length === 1 && !r.sendt, 'siger man nej, gemmes der ikke');
+    svarPåConfirm = true;
+    r = await gemOgSe((d) => { d.yield.amount = 9; });
+    ok(r.sendt, 'siger man ja, gemmes der — det er en advarsel, ikke en spærring');
+
+    // Producerer opskriften ingenting, rammer ændringen ingen anden ret.
+    await RE.mount(byId('rod'), { draft: kladde(14, 'x', '<p>x</p>'), meta: META, overview: OVERBLIK, mode: 'modify' });
+    S.draft.yield.amount = 2;
+    spurgt.length = 0; fetches.length = 0;
+    klik({ id: 'reSave' });
+    await new Promise(r2 => setTimeout(r2, 0));
+    ok(spurgt.length === 0, 'en opskrift uden produceret vare advarer ikke');
+
+    // En ny opskrift har intet udbytte at ændre.
+    await RE.mount(byId('rod'), { draft: medVare(null), meta: META, overview: OVERBLIK, mode: 'new' });
+    S.draft.yield.amount = 5;
+    spurgt.length = 0;
+    klik({ id: 'reSave' });
+    await new Promise(r2 => setTimeout(r2, 0));
+    ok(spurgt.length === 0, 'en NY opskrift advarer ikke — der er intet at flytte');
+
+    // «Gem som ny» skriver til en anden opskrift; den eksisterendes kostpris
+    // flytter sig ikke.
+    r = await gemOgSe((d) => { d.yield.amount = 1.4; }, { knap: 'reSaveNew' });
+    ok(r.spurgt.length === 0, '«Gem som ny» advarer ikke — den rører ikke den gamle');
+    ok(r.sendt, 'og gemmer');
 }
 
 console.log(fail ? `\n\x1b[31m${pass} PASS · ${fail} FAIL\x1b[0m\n`

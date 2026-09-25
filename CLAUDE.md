@@ -9121,6 +9121,103 @@ opgave: **#695**.
 
 ---
 
+### Opskrifter efterlader et spor — og udbyttet advarer før det flyttes (#683, 25. september 2026)
+
+De to punkter der blev parkeret på #683 da #680 blev skåret til. Begge handler
+om **udbyttet**, og hvorfor det ikke er et felt som de andre:
+
+```
+prisen pr. lager-enhed af den producerede vare
+    = opskriftens kostpris / udbyttet i lager-enhed      (recipeCost.lineUnitCost)
+
+udbyttet i lager-enhed
+    = recipeunitnumber × base_servings × faktor(recipeunit)   (RecipeYield)
+```
+
+Ændres ét af de **tre** felter, flytter kostprisen sig på hver ret der bruger
+varen, og lagertrækket trækker en anden mængde. Intet af det er synligt fra den
+opskrift man står i. #680 er historien om at `recipeunitnumber` blev overskrevet
+på otte opskrifter af et Gem der ikke bad om det — og at ingen kunne se det
+bagefter.
+
+**1. Sporet.** #666 gav produkterne et; opskrifterne havde intet. Reglerne bor
+sammen med produktsporets i [services/stamdataLog.js](services/stamdataLog.js),
+så kilde-tabellen ikke bliver to lister der driver fra hinanden. Entity er
+`grocy_recipe`, og linjerne oversættes fra `diffRecipe`s plan — som pr.
+konstruktion kun bærer det der ændrer sig (#680's værn), så der er intet at
+filtrere.
+
+- **Sporet skrives i RUTEN, ikke i writeren.** `writeRecipe` er delt med
+  importen, som logger i `import_plan_item` (dens eget hoved siger det). Writeren
+  returnerer sin `plan`; hver kalder skriver sit eget spor.
+- **Linjerne logges med navn og mængde** — `Rødløg: 0,5 → 0,8`, ikke
+  «1 ingrediens ændret». Spørger man bagefter hvorfor kostprisen flyttede sig,
+  er en sammenfatning ikke til at bruge til noget.
+- **Fremgangsmåden logges afkortet, men logget.** Den er HTML og kan være
+  kilobytes; rå ville den gøre historikken ulæselig. Men den må ikke udelades:
+  #683's dyreste fund var at et Gem SLETTEDE fem linjers fremgangsmåde, og uden
+  før-værdien kan det ikke ses. Tags væk, 180 tegn, `…`.
+- **En NY opskrift logges som ÉN linje.** Hver af dens ingredienser er
+  «tilføjet», og den liste ER opskriften — den kan åbnes.
+- Samme tre regler som produktsporet: brugeren fra **sessionen** (aldrig fra
+  body — sporet er det eneste der peger på et menneske), kun EFTER en vellykket
+  skrivning, og et spor der fejler vælter ikke gemmet men siges højt (`log_error`).
+- **Visning**: foldet «Historik» i editorens overblik +
+  `GET /api/opskrifter/:id/historik`. Uden den lå sporet i databasen præcis som
+  Grocys egen log ligger i Grocy — og det er ikke dér nogen kigger.
+
+**2. Advarslen.** Vises **live** ved udbyttefeltet så snart et af de tre felter
+rettes, og igen som bekræftelse ved Gem — dér træffes beslutningen. Den spærrer
+ikke: at ændre udbyttet er ofte præcis det rigtige.
+
+> ⚠️ **`base_servings` er den lumske.** Ingrediensmængderne står stille, så
+> holdets kostpris er uændret — men udbyttet fordobles, og prisen pr. enhed
+> halveres. Advarede vi kun om tallet i «1 portion er», kunne man halvere
+> kostprisen på 26 retter uden at få besked. Fundet ved at læse
+> `yieldInStockUnits`, ikke ved at antage.
+
+- **Antallet kommer fra serveren** (`yield.used_by` i `/beregn`), ikke fra et
+  opslag i browseren — så advarslen og kostprisen ikke kan blive uenige om hvem
+  der er berørt. Kun **direkte** brug tælles, og teksten siger derfor «bruger
+  varen», ikke «rammes»: et tal der lover mere end det måler er værre end et der
+  siger mindre.
+- **«Gem som ny» advarer ikke** — den skriver til en anden opskrift, og den
+  eksisterendes kostpris flytter sig ikke.
+- Hvad der er ændret, afgøres af `RecipeDiff` — den samme regel serveren skriver
+  efter. En egen sammenligning i browseren kunne skride fra den.
+
+> ⚠️ **Advarslen kan ikke tegnes med resten af udbyttekortet.** `tegnUdbytte` er
+> et rent `innerHTML`-skift, og feltets input-handler gentegner bevidst ikke
+> kortet — ellers rives feltet væk under fingrene (samme fælde som mængdefeltet).
+> Første udgave gjorde netop det, og advarslen dukkede aldrig op i browseren
+> selvom alle asserts var grønne. Den har derfor sit eget element
+> (`#reYieldWarn`) og opdateres for sig; testen måler nu **at den bliver synlig**,
+> ikke kun at Gem spørger.
+
+**Fundet undervejs — rettet.** `hentUdfoldning` skrev til `S.expandData[key]`
+uden at tjekke om opskriften stadig var åben. `mount` sætter feltet til `null`,
+så et svar der landede efter et skift kastede `Cannot set properties of null`.
+Den vælter ingenting synligt, men den fylder konsollen — og en konsol med fast
+støj er en konsol hvor den næste ægte fejl ikke bliver set. Samme vagt som de
+seks tegnere fik 21. september.
+
+**Tests:** `npm run test:opskrift-spor` — 21 asserts mod den ÆGTE
+`/api/opskrifter/:id/gem` over HTTP (`:memory:` af de rigtige migrations, Grocy
+stubbet) + 63 i `test-recipe-editor-state.js` (den rigtige editor i vm-sandkasse).
+**Mutations-testet: 16 mutationer, 15 fanget.** Den sidste — at fjerne `!r.wrote`
+— er dokumenteret som uopnåelig i koden: `writeRecipe` svarer kun `wrote: false`
+når planen er tom, og så er der heller ikke noget at logge. Den bliver stående
+som den direkte formulering af betingelsen frem for at gøre sporet afhængigt af
+et sammenfald. Regression grøn: opskrift-editor (556), designer-gem 79,
+stamdata 34, målvægt 18, kostpris 248, consume-policy 16.
+
+Browser-verificeret mod **grocy-test** med rigtige museklik på «Frisk Grønt»
+(26 brugere): advarslen kom frem mens tallet blev tastet, bekræftelsen ved Gem
+bar den fulde tekst, Grocy fik `1.2`, sporet skrev
+`Udbytte: 1 → 1,2 · Dev Admin · fra opskrift-editoren`, og historikken viste den
+— og blev stående gennem en genberegning. Grocy-test rullet tilbage til `1`;
+`.env` og den lokale dev-DB slettet.
+
 ### Antal kasser: kolonnen var tom, tallet lå på bonnen (20. september 2026)
 
 Bud-popoutet meldte **"Mangler: Antal kasser"** på en bon der havde både
@@ -9960,6 +10057,7 @@ GET    /api/grocy/recipes/fulfillment                    routes/grocy.js → gro
 GET    /api/grocy/recipes/:id/ingredients                routes/grocy.js → grocyAdapter
 GET    /api/opskrifter/:id/indhold?kind=&bruger=        routes/opskrifter.js (udfold en underopskrift, skaleret til det linjen bruger)
 GET    /api/opskrifter/:id/editor                        routes/opskrifter.js (gemt opskrift som kladde + tal + målvægt m. kilde)
+GET    /api/opskrifter/:id/historik?limit=               routes/opskrifter.js (stamdata-spor pr. opskrift — #683; entity `grocy_recipe`)
 GET    /api/recipes/targets                              routes/recipes_overview.js (DB%-mål OG målvægt pr. Grocy-kategori)
 PUT    /api/recipes/targets                              routes/recipes_overview.js (bulk — de to normer er uafhængige)
 PATCH  /api/recipes/targets/:category                    routes/recipes_overview.js (sæt én af dem; den anden står uberørt)

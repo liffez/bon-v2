@@ -398,6 +398,33 @@ async function loadGrocy() {
 }
 
 /**
+ * Opskrifter der bruger varen som ingrediens — ud over den der producerer den.
+ *
+ * Kun DIREKTE brug tælles. En ret der bruger varen gennem en anden blanding
+ * rammes også, men at tælle dem ville kræve at hele træet blev gået igennem,
+ * og et tal der lover mere end det måler er værre end et der siger mindre.
+ * Teksten siger derfor «bruger varen», ikke «rammes».
+ *
+ * @returns {{count:number, names:string[]}}  navne til de første få
+ */
+function brugereAf(productId, egetRecipeId, g) {
+    if (productId == null || productId === '') return { count: 0, names: [] };
+    const pid = Number(productId);
+    const ids = new Set();
+    for (const p of (g.pos || [])) {
+        if (Number(p.product_id) !== pid) continue;
+        if (Number(p.recipe_id) === Number(egetRecipeId)) continue;
+        ids.add(Number(p.recipe_id));
+    }
+    const navne = [];
+    for (const r of (g.recipes || [])) {
+        if (ids.has(Number(r.id))) navne.push(r.name);
+    }
+    navne.sort((a, b) => String(a).localeCompare(String(b), 'da'));
+    return { count: ids.size, names: navne.slice(0, 5) };
+}
+
+/**
  * Regn en kladde. `g` kan injiceres (test); ellers hentes den fra Grocy.
  * @returns overblikket i designer-spec §10
  */
@@ -569,6 +596,13 @@ async function computeDraft(draft, g) {
             product_id: y.product_id == null || y.product_id === '' ? null : Number(y.product_id),
             stock_amount: k ? k.yield_amount : null,
             stock_unit: k ? k.yield_unit : null,
+            // Hvem rammes hvis udbyttet ændres? Prisen pr. lager-enhed af den
+            // producerede vare ER `opskriftens kostpris / udbytte i lager-enhed`
+            // (`lineUnitCost`, #558), så et nyt udbytte flytter kostprisen på
+            // hver ret der bruger varen — og lagertrækket trækker en anden
+            // mængde. Tallet regnes HER og ikke i browseren, så advarslen og
+            // kostprisen ikke kan blive uenige om hvem der er berørt.
+            used_by: brugereAf(y.product_id, built.draftId, grocyData),
         },
         weight: { food_g: v.food_g, packaging_g: v.packaging_g, batch_g: v.batch_g,
                   complete: v.complete, missing: v.missing,
