@@ -1,201 +1,427 @@
 // tests/dawa_autocomplete.test.js
 // ==========================================================================
-// dawaAutocomplete(): adresseforslag med København først.
+// Adresseforslag gennem vores egen server.
 //
-// DAWA rangerer ikke efter nærhed, og "Vesterbrogade 10, København V" er
-// ikke blandt de første 30 hits på et ufiltreret opslag. Helperen spørger
-// derfor to gange (hovedstadsområdet + alt) og fletter: lokale først, hver
-// blok efter postnr, uden dubletter.
+// Danner (sep. 2026) kunne ikke bestille: deres firewall blokerede
+// api.dataforsyningen.dk, så adresselisten kom aldrig frem i bestillings-
+// formularen, og formularen godkendte kun en adresse valgt fra listen.
+// Opslaget går nu gennem GET /embed/adresse/soeg, og reglen (København
+// først, præcist husnummer først) findes ét sted: services/addressSearch.js.
 //
-// Browserkode kan ikke require's, så den rigtige shared/utils.js køres i en
-// vm-sandkasse med en fetch-attrap der svarer pr. URL. Bestillingssiden er
-// single-file og bærer en KOPI af reglen — §3 asserterer at de to giver
-// samme svar på samme input.
+//   §1 Reglen (rene funktioner)
+//   §2 Forespørgslerne mod DAWA (fetch-attrap)
+//   §3 Ruten over HTTP — cache, grænse pr. IP, 502 når DAWA er nede
+//   §4 Klienterne: office (utils.js), bestillingssiden og smagsprøven taler
+//      kun med vores server — ikke med dataforsyningen.dk
+//   §5 Bestillingssidens nødudgang: en adresse skrevet i hånden
+//   §6 ... og at den lander på bonen som "ikke verificeret"
 //
-// Kør: node --test tests/dawa_autocomplete.test.js
+// Kør: npm run test:dawa
 // ==========================================================================
+
+require('../scripts/helpers/isolated_db');
 
 const test   = require('node:test');
 const assert = require('node:assert');
 const vm     = require('node:vm');
 const fs     = require('node:fs');
 const path   = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.join(__dirname, '..');
-const UTILS = fs.readFileSync(path.join(ROOT, 'shared', 'utils.js'), 'utf8');
+const A = require('../services/addressSearch');
 
-/** Sandkassens arrays er fra en anden realm — kopiér til host før deepStrictEqual. */
-function ids(list) { return Array.prototype.slice.call(list).map(x => x.adresse.id); }
+const ids = list => Array.prototype.slice.call(list).map(x => x.adresse.id);
 
-function item(id, postnr, tekst) {
-    return { tekst, adresse: { id, postnr: String(postnr), postnrnavn: 'By', vejnavn: 'Vej', husnr: '1' } };
+function item(id, postnr, tekst, extra = {}) {
+    return { tekst, adresse: { id, postnr: String(postnr), postnrnavn: 'By', vejnavn: 'Vej', husnr: '1', etage: null, ...extra } };
 }
 
-/** fetch-attrap: `plan.local` / `plan.global` er enten et array eller en Error. */
+/** fetch-attrap: `plan.local` / `plan.global` er et array, en Error eller 'http500'. */
 function makeFetch(plan, calls) {
     return async function(url) {
         calls.push(url);
-        const isLocal = url.includes('kommunekode=');
-        const body = isLocal ? plan.local : plan.global;
+        const body = url.includes('kommunekode=') ? plan.local : plan.global;
         if (body instanceof Error) throw body;
         if (body === 'http500') return { ok: false, status: 500, json: async () => ({}) };
         return { ok: true, status: 200, json: async () => body };
     };
 }
 
+/* ──────────────────────────────────────────────────────────────
+   §1 Reglen
+   ────────────────────────────────────────────────────────────── */
+
+test('lokale hits først, hver blok sorteret efter postnr', () => {
+    const local  = [item('a', 2400, 'A'), item('b', 1360, 'B')];
+    const global = [item('c', 8800, 'C'), item('d', 3250, 'D'), item('e', 6000, 'E')];
+    assert.deepStrictEqual(ids(A.mergeSuggestions(local, global, 10)), ['b', 'a', 'd', 'e', 'c']);
+});
+
+test('dubletter vises kun én gang — og beholder den lokale plads', () => {
+    const kbh = item('x', 1620, 'Kbh');
+    assert.deepStrictEqual(ids(A.mergeSuggestions([kbh], [item('c', 8800, 'V'), kbh], 10)), ['x', 'c']);
+});
+
+test('limit klipper efter fletningen — lokale fortrænger globale', () => {
+    const local  = [1, 2, 3].map(i => item('l' + i, 2000 + i, 'L'));
+    const global = [1, 2, 3].map(i => item('g' + i, 8000 + i, 'G'));
+    assert.deepStrictEqual(ids(A.mergeSuggestions(local, global, 4)), ['l1', 'l2', 'l3', 'g1']);
+});
+
+test('ukendt postnr sidst; samme postnr beholder DAWA\'s rækkefølge', () => {
+    const list = [item('a', 2400, 'A'), item('b', '', 'B'), item('c', 2400, 'C'), item('d', 1000, 'D')];
+    assert.deepStrictEqual(ids(A.sortByPostnr(list)), ['d', 'a', 'c', 'b']);
+});
+
+test('item uden id og uden tekst springes over — ingen crash', () => {
+    assert.deepStrictEqual(ids(A.mergeSuggestions([{ tekst: '', adresse: {} }], [item('c', 8800, 'V')], 5)), ['c']);
+});
+
+test('husnummeret læses efter gadenavnet — et postnummer alene er ikke et husnummer', () => {
+    assert.equal(A.houseNumberOf('Nansensgade 1'), '1');
+    assert.equal(A.houseNumberOf('Nansensgade 1, 1366 København K'), '1');
+    assert.equal(A.houseNumberOf('Vesterbrogade 5A'), '5a');
+    assert.equal(A.houseNumberOf('nan'), null);
+    assert.equal(A.houseNumberOf('2200'), null);
+    assert.equal(A.houseNumberOf('Nansensgade'), null);
+});
+
+test('"Nansensgade 1": nr. 1 står først, også når DAWA lægger 10, 12, 14 foran', () => {
+    // Præcis det DAWA svarede i drift: prefix-match på husnummeret gav
+    // 10, 12, 14 … og nr. 1 lå på plads 11, uden for listen.
+    const n = (id, husnr, etage) => item(id, 1366, `Nansensgade ${husnr}${etage ? ', ' + etage : ''}`, { husnr, etage });
+    const local = [n('10-1', '10', '1.'), n('12-1', '12', '1.'), n('14-1', '14', '1.'),
+                   n('1-1', '1', '1.'), n('1', '1', null), n('16-1', '16', '1.')];
+    const out = ids(A.mergeSuggestions(local, [], 10, A.houseNumberOf('Nansensgade 1')));
+    assert.deepStrictEqual(out.slice(0, 2), ['1', '1-1'], 'gadedøren først, så etagerne på samme nummer');
+    assert.deepStrictEqual(out.slice(2), ['10-1', '12-1', '14-1', '16-1'], 'resten i DAWA\'s rækkefølge');
+});
+
+test('uden husnummer i søgningen er rækkefølgen uændret', () => {
+    const local = [item('a', 1366, 'A', { husnr: '10' }), item('b', 1366, 'B', { husnr: '1' })];
+    assert.deepStrictEqual(ids(A.mergeSuggestions(local, [], 10, null)), ['a', 'b']);
+});
+
+test('limit klampes: 0/vrøvl → 10, over 20 → 20', () => {
+    assert.equal(A.clampLimit(undefined), 10);
+    assert.equal(A.clampLimit('x'), 10);
+    assert.equal(A.clampLimit(0), 10);
+    assert.equal(A.clampLimit('7'), 7);
+    assert.equal(A.clampLimit(500), 20);
+});
+
+/* ──────────────────────────────────────────────────────────────
+   §2 Forespørgslerne mod DAWA
+   ────────────────────────────────────────────────────────────── */
+
+test('to forespørgsler: lokal med kommunekode (aldrig fuzzy), global fuzzy når bedt', async () => {
+    const calls = [];
+    const out = await A.searchAddresses('Vesterbrogade', {
+        fuzzy: true, limit: 7,
+        fetch: makeFetch({ local: [item('x', 1620, 'Kbh')], global: [item('c', 8800, 'Viborg')] }, calls),
+    });
+    assert.equal(calls.length, 2);
+    const local = calls.find(u => u.includes('kommunekode='));
+    const global = calls.find(u => !u.includes('kommunekode='));
+    assert.ok(local.includes('kommunekode=0101|0147'), local);
+    assert.ok(!local.includes('fuzzy'), 'fuzzy + filter giver 0 hits hos DAWA');
+    assert.ok(global.includes('fuzzy=true'));
+    assert.ok(local.includes('per_side=7') && global.includes('per_side=7'));
+    assert.deepStrictEqual(ids(out), ['x', 'c']);
+});
+
+test('med husnummer hentes 50, så det præcise nummer kan findes — men der returneres stadig limit', async () => {
+    const calls = [];
+    const many = Array.from({ length: 30 }, (_, i) => item('n' + i, 1366, 'N', { husnr: String(i + 10) }));
+    const out = await A.searchAddresses('Nansensgade 1', { limit: 10, fetch: makeFetch({ local: many, global: [] }, calls) });
+    assert.ok(calls.every(u => u.includes('per_side=50')), calls.join('\n'));
+    assert.equal(out.length, 10);
+});
+
+test('uden fuzzy-option er ingen af forespørgslerne fuzzy', async () => {
+    const calls = [];
+    await A.searchAddresses('Vester', { fetch: makeFetch({ local: [], global: [] }, calls) });
+    assert.ok(calls.every(u => !u.includes('fuzzy')));
+});
+
+test('fejler den lokale, vises den globale alene', async () => {
+    const out = await A.searchAddresses('Vester', { fetch: makeFetch({ local: new Error('net'), global: [item('c', 8800, 'V'), item('d', 3250, 'G')] }, []) });
+    assert.deepStrictEqual(ids(out), ['d', 'c']);
+});
+
+test('lokal HTTP 500 behandles som tom', async () => {
+    const out = await A.searchAddresses('Vester', { fetch: makeFetch({ local: 'http500', global: [item('c', 8800, 'V')] }, []) });
+    assert.deepStrictEqual(ids(out), ['c']);
+});
+
+test('fejler den globale, kastes — kalderen skal kunne se at opslaget ikke svarede', async () => {
+    await assert.rejects(
+        A.searchAddresses('Vester', { fetch: makeFetch({ local: [item('x', 1620, 'K')], global: new Error('net') }, []) }),
+        /net/);
+});
+
+test('svar der ikke er et array giver tom liste', async () => {
+    const out = await A.searchAddresses('Vester', { fetch: makeFetch({ local: { type: 'QueryParameterFormatError' }, global: [] }, []) });
+    assert.deepStrictEqual(ids(out), []);
+});
+
+/* ──────────────────────────────────────────────────────────────
+   §3 Ruten over HTTP
+   ────────────────────────────────────────────────────────────── */
+
+const express = require('express');
+const dbModule = require('../db/database');
+let _db = null;
+dbModule.getDb = () => _db;
+
+const realFetch = global.fetch;
+let dawaPlan = null;
+const dawaCalls = [];
+function installFakeDawa() {
+    global.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.startsWith('https://api.dataforsyningen.dk') || u.startsWith('https://router.project-osrm.org')) {
+            dawaCalls.push(u);
+            if (u.includes('project-osrm')) {
+                if (dawaPlan.osrm instanceof Error) throw dawaPlan.osrm;
+                return { ok: true, status: 200, json: async () => dawaPlan.osrm };
+            }
+            return makeFetch(dawaPlan, [])(u);
+        }
+        return realFetch(url, opts);
+    };
+}
+
+const addressRouter = require('../routes/address');
+const app = express();
+app.set('trust proxy', true);
+app.use('/embed/adresse', addressRouter);
+let server, base;
+
+function freshDb(withBase = true) {
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)');
+    if (withBase) {
+        db.prepare("INSERT INTO settings VALUES ('bestilling.base_lat','55.68'),('bestilling.base_lon','12.56')").run();
+    }
+    return db;
+}
+
+test.before(() => new Promise(r => {
+    installFakeDawa();
+    server = app.listen(0, () => { base = `http://127.0.0.1:${server.address().port}`; r(); });
+}));
+test.after(() => new Promise(r => { global.fetch = realFetch; server.close(r); }));
+
+function reset(plan) {
+    addressRouter._reset();
+    dawaCalls.length = 0;
+    dawaPlan = plan;
+    _db = freshDb();
+}
+const get = (p, ip = '10.0.0.1') => realFetch(base + p, { headers: { 'X-Forwarded-For': ip } });
+
+test('GET /soeg svarer med forslag i DAWA\'s form', async () => {
+    reset({ local: [item('x', 1366, 'Nansensgade 1, 1366 København K')], global: [] });
+    const r = await get('/embed/adresse/soeg?q=Nansensgade&fuzzy=1');
+    assert.equal(r.status, 200);
+    const d = await r.json();
+    assert.equal(d[0].tekst, 'Nansensgade 1, 1366 København K');
+    assert.ok(dawaCalls.some(u => u.includes('fuzzy=true')), 'fuzzy=1 bæres videre');
+});
+
+test('GET /soeg med under 2 tegn spørger ikke DAWA', async () => {
+    reset({ local: [], global: [] });
+    const r = await get('/embed/adresse/soeg?q=N');
+    assert.deepStrictEqual(await r.json(), []);
+    assert.equal(dawaCalls.length, 0);
+});
+
+test('GET /soeg: samme søgning to gange rammer DAWA én gang (cache)', async () => {
+    reset({ local: [item('x', 1366, 'X')], global: [] });
+    await get('/embed/adresse/soeg?q=Nansensgade');
+    const before = dawaCalls.length;
+    const r = await get('/embed/adresse/soeg?q=nansensgade');
+    assert.equal(r.status, 200);
+    assert.equal(dawaCalls.length, before, 'andet opslag fra cache');
+});
+
+test('GET /soeg: DAWA nede → 502, ikke en tom liste', async () => {
+    reset({ local: new Error('net'), global: new Error('net') });
+    const r = await get('/embed/adresse/soeg?q=Nansensgade');
+    assert.equal(r.status, 502, 'klienten skal kunne skelne "ingen adresser" fra "opslaget svarer ikke"');
+});
+
+test('GET /soeg: grænse pr. IP — og en anden IP er upåvirket', async () => {
+    reset({ local: [], global: [] });
+    let last;
+    for (let i = 0; i < 121; i++) last = await get('/embed/adresse/soeg?q=Vej' + i, '10.9.9.9');
+    assert.equal(last.status, 429);
+    const other = await get('/embed/adresse/soeg?q=Vej', '10.8.8.8');
+    assert.equal(other.status, 200);
+});
+
+test('GET /afstand regner fra husets udgangspunkt, i km med én decimal', async () => {
+    reset({ local: [], global: [], osrm: { routes: [{ distance: 3456 }] } });
+    const r = await get('/embed/adresse/afstand?lat=55.68&lon=12.57');
+    assert.equal(r.status, 200);
+    assert.deepStrictEqual(await r.json(), { km: 3.5 });
+    assert.ok(dawaCalls[0].includes('/12.56,55.68;12.57,55.68'), 'fra bestilling.base_* — ikke et startpunkt fra klienten');
+});
+
+test('GET /afstand: ugyldige koordinater → 400; intet udgangspunkt → 503; OSRM nede → 502', async () => {
+    reset({ osrm: { routes: [] } });
+    assert.equal((await get('/embed/adresse/afstand?lat=x&lon=1')).status, 400);
+    assert.equal((await get('/embed/adresse/afstand?lat=99&lon=1')).status, 400);
+    _db = freshDb(false);
+    assert.equal((await get('/embed/adresse/afstand?lat=55.6&lon=12.5')).status, 503);
+    reset({ osrm: new Error('net') });
+    assert.equal((await get('/embed/adresse/afstand?lat=55.6&lon=12.5')).status, 502);
+});
+
+/* ──────────────────────────────────────────────────────────────
+   §4 Klienterne taler kun med vores server
+   ────────────────────────────────────────────────────────────── */
+
 function loadUtils() {
+    const src = fs.readFileSync(path.join(ROOT, 'shared', 'utils.js'), 'utf8');
     const sandbox = {
         console, setTimeout, clearTimeout, Promise, Error, JSON, Object, Array, String,
         Number, Boolean, Date, Math, RegExp, parseInt, isNaN, encodeURIComponent,
-        window: {}, document: { addEventListener() {}, body: {} }, location: { href: '' },
+        document: { addEventListener() {}, body: {} }, location: { href: '' },
         navigator: {}, localStorage: { getItem() { return null; }, setItem() {} },
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(UTILS, sandbox, { filename: 'utils.js' });
+    vm.runInContext(src, sandbox, { filename: 'utils.js' });
     return sandbox;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   §1 Flette-reglen (ren funktion)
-   ────────────────────────────────────────────────────────────── */
-
-test('lokale hits først, hver blok sorteret efter postnr', () => {
-    const U = loadUtils();
-    const local  = [item('a', 2400, 'Frederiksborgvej 2'), item('b', 1360, 'Frederiksborggade 3')];
-    const global = [item('c', 8800, 'Vesterbrogade 10, Viborg'), item('d', 3250, 'Vesterbrogade 10, Gilleleje'), item('e', 6000, 'Kolding')];
-    const out = ids(U.dawaMergeSuggestions(local, global, 10));
-    assert.deepStrictEqual(out, ['b', 'a', 'd', 'e', 'c']);
-});
-
-test('dubletter (samme adresse-id) vises kun én gang — og beholder den lokale plads', () => {
-    const U = loadUtils();
-    const kbh = item('x', 1620, 'Vesterbrogade 10, 1620 København V');
-    const out = U.dawaMergeSuggestions([kbh], [item('c', 8800, 'Viborg'), kbh], 10);
-    assert.deepStrictEqual(ids(out), ['x', 'c']);
-});
-
-test('limit klipper efter fletningen, ikke før — lokale fortrænger globale', () => {
-    const U = loadUtils();
-    const local = [1, 2, 3].map(i => item('l' + i, 2000 + i, 'L' + i));
-    const global = [1, 2, 3].map(i => item('g' + i, 8000 + i, 'G' + i));
-    assert.deepStrictEqual(ids(U.dawaMergeSuggestions(local, global, 4)), ['l1', 'l2', 'l3', 'g1']);
-});
-
-test('ukendt postnr sidst; samme postnr beholder DAWA\'s rækkefølge (stabil)', () => {
-    const U = loadUtils();
-    const list = [item('a', 2400, 'A'), item('b', '', 'B'), item('c', 2400, 'C'), item('d', 1000, 'D')];
-    assert.deepStrictEqual(ids(U.dawaSortByPostnr(list)), ['d', 'a', 'c', 'b']);
-});
-
-test('item uden id og uden tekst springes over — ingen crash', () => {
-    const U = loadUtils();
-    const out = U.dawaMergeSuggestions([{ tekst: '', adresse: {} }], [item('c', 8800, 'V')], 5);
-    assert.deepStrictEqual(ids(out), ['c']);
-});
-
-/* ──────────────────────────────────────────────────────────────
-   §2 Forespørgslerne
-   ────────────────────────────────────────────────────────────── */
-
-test('spørger DAWA to gange: lokal med kommunekode (aldrig fuzzy), global med fuzzy når bedt', async () => {
+test('office: dawaAutocomplete spørger /embed/adresse/soeg med limit og fuzzy', async () => {
     const U = loadUtils();
     const calls = [];
     const out = await U.dawaAutocomplete('Vesterbrogade 10', {
         fuzzy: true, limit: 7,
-        fetch: makeFetch({ local: [item('x', 1620, 'Kbh')], global: [item('c', 8800, 'Viborg')] }, calls),
+        fetch: async (url) => { calls.push(url); return { ok: true, json: async () => [item('x', 1620, 'K')] }; },
     });
-    assert.strictEqual(calls.length, 2);
-    const local = calls.find(u => u.includes('kommunekode='));
-    const global = calls.find(u => !u.includes('kommunekode='));
-    assert.ok(local.includes('kommunekode=0101%7C0147') || local.includes('kommunekode=0101|0147'), 'lokal filtrerer på København+Frederiksberg først: ' + local);
-    assert.ok(!local.includes('fuzzy'), 'fuzzy + filter giver 0 hits hos DAWA — lokal må ikke være fuzzy');
-    assert.ok(global.includes('fuzzy=true'), 'global får fuzzy når kalderen beder om det');
-    assert.ok(local.includes('per_side=7') && global.includes('per_side=7'));
-    assert.ok(local.includes('q=Vesterbrogade%2010'));
-    assert.deepStrictEqual(ids(out), ['x', 'c']);
+    assert.deepStrictEqual(calls, ['/embed/adresse/soeg?q=Vesterbrogade%2010&limit=7&fuzzy=1']);
+    assert.deepStrictEqual(ids(out), ['x']);
 });
 
-test('uden fuzzy-option er ingen af forespørgslerne fuzzy', async () => {
+test('office: dawaAutocomplete kaster når opslaget svarer 502', async () => {
     const U = loadUtils();
-    const calls = [];
-    await U.dawaAutocomplete('Vester', { fetch: makeFetch({ local: [], global: [] }, calls) });
-    assert.ok(calls.every(u => !u.includes('fuzzy')));
+    await assert.rejects(U.dawaAutocomplete('Vester', { fetch: async () => ({ ok: false, status: 502, json: async () => ({}) }) }), /502/);
 });
 
-test('fejler den lokale forespørgsel, vises den globale alene', async () => {
-    const U = loadUtils();
-    const out = await U.dawaAutocomplete('Vester', {
-        fetch: makeFetch({ local: new Error('net'), global: [item('c', 8800, 'Viborg'), item('d', 3250, 'Gilleleje')] }, []),
+for (const rel of ['public/embed/bestilling.html', 'booking/smagning.html', 'shared/utils.js']) {
+    test(rel + ' taler ikke direkte med dataforsyningen.dk eller OSRM', () => {
+        const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+        // Kun kode — kommentarer må gerne nævne domænet.
+        const code = src.split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l)).join('\n');
+        assert.ok(!/https:\/\/api\.dataforsyningen\.dk/.test(code), 'direkte kald til dataforsyningen.dk');
+        assert.ok(!/router\.project-osrm\.org/.test(code), 'direkte kald til OSRM');
+        if (rel.endsWith('.html')) assert.ok(src.includes('/embed/adresse/soeg'), 'bruger vores rute');
     });
-    assert.deepStrictEqual(ids(out), ['d', 'c']);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   §5 Bestillingssidens nødudgang
+   ────────────────────────────────────────────────────────────── */
+
+function loadUnverified(value) {
+    const html = fs.readFileSync(path.join(ROOT, 'public', 'embed', 'bestilling.html'), 'utf8');
+    const m = html.match(/function unverifiedAddress\(\) \{[\s\S]*?\n\}\n/);
+    assert.ok(m, 'unverifiedAddress findes i bestilling.html');
+    const ctx = { addrInput: { value } };
+    vm.createContext(ctx);
+    return vm.runInContext(m[0] + ';unverifiedAddress()', ctx);
+}
+
+test('en hel adresse skrevet i hånden accepteres — med postnr og by', () => {
+    const a = loadUnverified('Nansensgade 1, 1366 København K');
+    assert.equal(a.tekst, 'Nansensgade 1, 1366 København K');
+    assert.equal(a.postnr, '1366');
+    assert.equal(a.by, 'København K');
+    assert.equal(a.unverified, true);
+    assert.equal(a.lat, null);
 });
 
-test('lokal HTTP 500 behandles som tom — ikke som fejl', async () => {
-    const U = loadUtils();
-    const out = await U.dawaAutocomplete('Vester', { fetch: makeFetch({ local: 'http500', global: [item('c', 8800, 'V')] }, []) });
-    assert.deepStrictEqual(ids(out), ['c']);
+test('postnummeret er det sidste firecifrede tal — ikke et husnummer, og en etage bagefter forstyrrer ikke', () => {
+    assert.equal(loadUnverified('Vesterbrogade 1000, 1620 København V').postnr, '1620');
+    assert.equal(loadUnverified('Nansensgade 1, 1366 København K, 2. sal').postnr, '1366');
+    assert.equal(loadUnverified('Nansensgade 1 1366').postnr, '1366');
 });
 
-test('fejler den globale, kastes — som det gamle enkelt-fetch gjorde', async () => {
-    const U = loadUtils();
-    await assert.rejects(
-        U.dawaAutocomplete('Vester', { fetch: makeFetch({ local: [item('x', 1620, 'Kbh')], global: new Error('net') }, []) }),
-        /net/,
-    );
+test('det der ikke ligner en adresse afvises: uden postnr, uden gade, uden nummer', () => {
+    assert.equal(loadUnverified('Nansensgade 1'), null);
+    assert.equal(loadUnverified('Nansensgade'), null);
+    assert.equal(loadUnverified('1366 København K'), null);
+    assert.equal(loadUnverified(''), null);
 });
 
-test('svar der ikke er et array (DAWA-fejlobjekt) giver tom liste, ikke crash', async () => {
-    const U = loadUtils();
-    const out = await U.dawaAutocomplete('Vester', { fetch: makeFetch({ local: { type: 'QueryParameterFormatError' }, global: [] }, []) });
-    assert.deepStrictEqual(Array.prototype.slice.call(out), []);
+test('formularen åbner kun nødudgangen når opslaget faktisk har fejlet', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'public', 'embed', 'bestilling.html'), 'utf8');
+    assert.match(html, /!validatedAddress\?\.id && !\(addrLookupDown && unverifiedAddress\(\)\)/,
+        'validering: en valgt adresse, ELLER opslaget er nede og teksten ligner en adresse');
+    assert.match(html, /catch \{[\s\S]{0,80}addrLookupDown = true;/, 'fejl i søgningen åbner nødudgangen');
 });
 
 /* ──────────────────────────────────────────────────────────────
-   §3 De offentlige siders kopier svarer det samme
-
-   To standalone-sider bærer hver sin kopi af opslaget, fordi de ikke kan
-   importere noget. Kopierne er et vilkår — at de driver fra hinanden er det
-   ikke: så ville den ene side rangere adresserne anderledes end den anden,
-   og ingen ville opdage det før en kunde ikke kunne finde sin vej.
+   §6 ... og en ikke-verificeret adresse lander på bonen med en note
    ────────────────────────────────────────────────────────────── */
 
-const PUBLIC_DAWA_COPIES = [
-    ['public', 'embed', 'bestilling.html'],
-    ['booking', 'smagning.html'],
-];
+test('web-bestilling med ikke-verificeret adresse: adressen gemmes, og kontoret får besked', async () => {
+    const sse = require('../shared/sse'); sse.broadcast = () => {};
+    const mail = require('../services/mailService'); mail.sendFromTemplate = async () => ({ ok: true });
+    const geocode = require('../services/geocode');
+    const geocoded = [];
+    geocode.geocodeAddress = async (id) => { geocoded.push(id); };
+    const { offsetISO } = require('../db/helpers');
 
-for (const parts of PUBLIC_DAWA_COPIES) {
-  const rel = parts.join('/');
-  test(rel + ' bærer samme flette-regel som utils.js', () => {
-    const html = fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
-    const src = html.split('<script>').slice(1).map(s => s.split('</script>')[0]).join('\n');
-    // Kun de rene funktioner — resten af siden rører DOM ved load.
-    const pick = (name) => {
-        const m = src.match(new RegExp('(?:const|function) ' + name + '[\\s\\S]*?\\n}\\n'));
-        assert.ok(m, 'fandt ikke ' + name + ' i ' + rel);
-        return m[0];
-    };
-    const kom = src.match(/const DAWA_LOCAL_KOMMUNER = \[[\s\S]*?\];/);
-    assert.ok(kom, 'DAWA_LOCAL_KOMMUNER mangler i ' + rel);
-    const ctx = { parseInt, isNaN, Array, Object };
-    vm.createContext(ctx);
-    // `const` bindes ikke på sandkassens global — hent dem via scriptets slutværdi.
-    const E = vm.runInContext(
-        kom[0] + '\n' + pick('dawaSortByPostnr') + pick('dawaMergeSuggestions')
-        + '\n;({ DAWA_LOCAL_KOMMUNER, dawaSortByPostnr, dawaMergeSuggestions })', ctx);
-    const U = loadUtils();
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    const dir = path.join(ROOT, 'db', 'migrations');
+    for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
+    db.prepare("UPDATE settings SET value='' WHERE key='webhook_secret'").run();
+    _db = db;
 
-    assert.deepStrictEqual([...E.DAWA_LOCAL_KOMMUNER], [...U.DAWA_LOCAL_KOMMUNER], 'kommunelisten er drevet fra hinanden');
+    const wapp = express();
+    wapp.use(express.json());
+    wapp.use('/webhook', require('../routes/web-orders'));
+    const s = await new Promise(r => { const x = wapp.listen(0, () => r(x)); });
+    try {
+        const res = await realFetch(`http://127.0.0.1:${s.address().port}/webhook/bestilling`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                first_name: 'Janet', last_name: 'Ravn', email: 'jar@example.dk', phone: '30788290',
+                delivery_date: offsetISO(30), delivery_time: '11:30', ordertype: 'catering', pax: '10',
+                validatedAddress: { tekst: 'Nansensgade 1, 1366 København K', postnr: '1366', by: 'København K', lat: null, lon: null, unverified: true },
+            }),
+        });
+        assert.equal(res.status, 200);
+        const bon = db.prepare('SELECT * FROM bons ORDER BY id DESC LIMIT 1').get();
+        const addr = db.prepare('SELECT * FROM addresses WHERE id = ?').get(bon.delivery_address_id);
+        assert.equal(addr.street_name, 'Nansensgade');
+        assert.equal(addr.street_nr, '1');
+        assert.equal(addr.postal_code, '1366');
+        assert.equal(addr.city, 'København K');
+        assert.match(bon.internal_notes || '', /ikke verificeret/);
+        await new Promise(r => setImmediate(r));
+        assert.deepStrictEqual(geocoded, [addr.id], 'geokodningen prøver bagefter');
 
-    const local  = [item('a', 2400, 'A'), item('b', 1360, 'B'), item('dup', 1620, 'Dup')];
-    const global = [item('c', 8800, 'C'), item('dup', 1620, 'Dup'), item('d', 3250, 'D'), item('e', '', 'E')];
-    for (const limit of [3, 5, 10]) {
-        assert.deepStrictEqual(
-            ids(E.dawaMergeSuggestions(local, global, limit)),
-            ids(U.dawaMergeSuggestions(local, global, limit)),
-            'limit ' + limit,
-        );
+        // Kontrolprøve: en valgt adresse får ingen note.
+        await realFetch(`http://127.0.0.1:${s.address().port}/webhook/bestilling`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                first_name: 'Janet', last_name: 'Ravn', email: 'jar@example.dk', phone: '30788290',
+                delivery_date: offsetISO(30), delivery_time: '11:30', ordertype: 'catering', pax: '10',
+                validatedAddress: { id: 'abc', tekst: 'Nansensgade 1, 1366 København K', postnr: '1366', by: 'København K', lat: 55.68, lon: 12.56 },
+            }),
+        });
+        const bon2 = db.prepare('SELECT * FROM bons ORDER BY id DESC LIMIT 1').get();
+        assert.ok(!/ikke verificeret/.test(bon2.internal_notes || ''));
+    } finally {
+        await new Promise(r => s.close(r));
     }
-  });
-}
+});

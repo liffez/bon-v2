@@ -963,42 +963,22 @@ document.getElementById('booking-form').addEventListener('input', e => {
 // ============================================================
 // LEVERINGSADRESSE (DAWA)
 // ============================================================
-// Tredje kopi af det her opslag (shared/utils.js + public/embed/bestilling.html
-// er de to andre). Siden er standalone og kan ikke importere, så kopien er et
-// vilkår — men tests/dawa_autocomplete.test.js holder de tre i takt.
-//
-// To forespørgsler: én afgrænset til hovedstadsområdet og én uden filter.
-// DAWA svarer 0 hits når fuzzy kombineres med et kommunefilter, så kun den
-// globale er fuzzy. Uden det lokale opslag lå København slet ikke i svaret.
-const DAWA_LOCAL_KOMMUNER = ['0101','0147','0151','0153','0155','0157','0159','0161','0163','0165',
-  '0167','0169','0173','0175','0183','0185','0187','0190','0230','0240'];
+// Forslagene kommer fra vores egen server (GET /embed/adresse/soeg), som
+// ejer reglen: København først, præcist husnummer først. Browseren talte før
+// direkte med api.dataforsyningen.dk, og en firma-firewall kan blokere den
+// lydløst. Forslaget bærer selv vej, nr, postnr, by og koordinater, så der
+// er ikke brug for et opslag mere når kunden vælger.
+let addrItems = {};
 
-function dawaSortByPostnr(items) {
-  return (items || []).map((it, i) => ({ it, i })).sort((a, b) => {
-    let pa = parseInt((a.it.adresse || {}).postnr, 10), pb = parseInt((b.it.adresse || {}).postnr, 10);
-    if (isNaN(pa)) pa = 99999; if (isNaN(pb)) pb = 99999;
-    return (pa - pb) || (a.i - b.i);
-  }).map(x => x.it);
+async function addrSearch(q) {
+  const r = await fetch('/embed/adresse/soeg?q=' + encodeURIComponent(q) + '&limit=10&fuzzy=1');
+  if (!r.ok) throw new Error('Adresseopslag ' + r.status);
+  const d = await r.json();
+  return Array.isArray(d) ? d : [];
 }
-function dawaMergeSuggestions(local, global, limit) {
-  const seen = {}, out = [];
-  const take = list => dawaSortByPostnr(list).forEach(it => {
-    const key = (it.adresse && it.adresse.id) || it.tekst;
-    if (!key || seen[key]) return;
-    seen[key] = true; out.push(it);
-  });
-  take(local); take(global);
-  return out.slice(0, limit);
-}
-async function dawaSearch(q, limit = 10) {
-  const enc = encodeURIComponent(q);
-  const get = url => fetch(url).then(r => { if (!r.ok) throw new Error('DAWA ' + r.status); return r.json(); })
-                               .then(d => Array.isArray(d) ? d : []);
-  const [local, global] = await Promise.all([
-    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&kommunekode=${DAWA_LOCAL_KOMMUNER.join('|')}`).catch(() => []),
-    get(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${enc}&per_side=${limit}&fuzzy=true`),
-  ]);
-  return dawaMergeSuggestions(local, global, limit);
+
+function escAttr(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 let validatedAddress = null;
@@ -1022,37 +1002,41 @@ async function searchAddr(q) {
   const sugg = document.getElementById('addr-sugg');
   if (q.length < 2) { sugg.style.display = 'none'; return; }
   try {
-    const d = await dawaSearch(q);
+    const d = await addrSearch(q);
+    addrItems = {};
+    d.forEach(x => { if (x?.adresse?.id) addrItems[x.adresse.id] = x; });
     if (d.length) {
-      sugg.innerHTML = d.map(x => `<li data-id="${x.adresse.id}">${x.tekst}</li>`).join('');
+      sugg.innerHTML = d.map(x => `<li data-id="${escAttr(x.adresse.id)}">${escAttr(x.tekst)}</li>`).join('');
       sugg.style.display = 'block';
     } else {
       sugg.style.display = 'none';
     }
-  } catch { sugg.style.display = 'none'; }
+  } catch {
+    // Formularen tager allerede en adresse skrevet i hånden — sig det, så
+    // kunden ikke venter på en liste der ikke kommer.
+    sugg.style.display = 'none';
+    setAddrStatus('', 'Adresseopslaget svarer ikke lige nu — skriv hele adressen med postnummer, så tjekker vi den.');
+  }
 }
 
-async function pickAddr(id, txt) {
+function pickAddr(id, txt) {
   document.getElementById('address_text').value = txt;
   document.getElementById('addr-sugg').style.display = 'none';
-  setAddrStatus('checking', 'Slår adressen op…');
-  try {
-    const r = await fetch(`https://api.dataforsyningen.dk/adresser/${id}`);
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-    const adg = d.adgangsadresse;
+  const a = addrItems[id]?.adresse;
+  if (a && a.vejnavn) {
+    const lat = Number(a.y), lon = Number(a.x);
     validatedAddress = {
       tekst:  txt,
-      street: adg.vejstykke.navn,
-      nr:     adg.husnr,
-      zip:    String(adg.postnummer.nr),
-      city:   adg.postnummer.navn,
-      lat:    adg.adgangspunkt.koordinater[1],
-      lon:    adg.adgangspunkt.koordinater[0]
+      street: a.vejnavn,
+      nr:     a.husnr || '',
+      zip:    a.postnr ? String(a.postnr) : '',
+      city:   a.postnrnavn || '',
+      lat:    Number.isFinite(lat) ? lat : null,
+      lon:    Number.isFinite(lon) ? lon : null,
     };
     setAddrStatus('ok', '✓ Adressen er fundet');
-  } catch {
-    // Vi kunne ikke slå den op — men vi smider ikke kundens indtastning væk.
+  } else {
+    // Vi kender ikke forslaget — men vi smider ikke kundens valg væk.
     // Serveren tager en adresse uden koordinater; geokodningen prøver igen.
     validatedAddress = { tekst: txt, street: txt, nr: '', zip: '', city: '', lat: null, lon: null };
     setAddrStatus('', 'Adressen kunne ikke verificeres — vi bruger den du skrev.');

@@ -208,6 +208,11 @@ app.use('/api/web-orders', webOrdersRouter);
 // Kort URL for booking-tokens — GET /b/:token → redirect til tools-side
 app.use('/b', require('./routes/booking-redirect'));
 
+// Adresseopslag (DAWA/OSRM) gennem vores server — public, bruges af både
+// bestillingsformularen, smagsprøven og office. Kundens browser skal kun
+// kunne nå vores domæne; en firma-firewall blokerede dataforsyningen.dk.
+app.use('/embed/adresse', require('./routes/address'));
+
 // Embed-bestillingsformular (public, indlejres i WordPress iframe)
 app.use('/embed', require('./routes/embed'));
 

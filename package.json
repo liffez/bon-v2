@@ -18,7 +18,7 @@
     "test:modal": "node --test tests/modal_outside_click.test.js",
     "test:grocy-url": "node --experimental-sqlite --test tests/grocy_test_url.test.js tests/migrate.test.js",
     "test:isolation": "node --test tests/isolated_test_scripts.test.js",
-    "test:dawa": "node --test tests/dawa_autocomplete.test.js",
+    "test:dawa": "node --experimental-sqlite --test tests/dawa_autocomplete.test.js",
     "test:rabat": "node --experimental-sqlite --test tests/discount_rule.test.js tests/standing_discount.test.js",
     "test:forhandler": "node --experimental-sqlite --test tests/reseller_end_customer.test.js",
     "test:ean-opslag": "node --experimental-sqlite --test tests/ean_lookup.test.js",
