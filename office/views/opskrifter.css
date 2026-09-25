@@ -314,6 +314,11 @@
 .ops-est-unit  { font-size: 11px; color: #6a6359; }
 .ops-est-save  { padding: 3px 9px; font-size: 12px; }
 .ops-est-cancel { font-size: 11px; }
+/* Kostprisen hviler på leverandørens pris, ikke et køb (#706 §11). */
+.ops-supplier-tag {
+    display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 3px;
+    background: #eaf1f9; color: #4a7ab0; font-size: 10px; font-weight: 700; cursor: help;
+}
 /* Plus-tegnet efter kostprisen: "mindst så meget". */
 .ops-inherited {
     color: #8e631f;

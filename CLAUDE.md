@@ -9655,6 +9655,24 @@ fanget** (26 mutationer i alt). Browser-verificeret mod grocy-test med rigtige k
 Enter, pakkepris 350/1000 på et varenummer → Grocys `last_price` 0,35,
 foretrukket-valg, "115 kr for tolv" afvist); grocy-test rullet tilbage bagefter.
 
+**Rettet før merge (#706 §15 trin 2, 25. september 2026):**
+
+- **Kostprisen bruger leverandørens pris før overslaget** (beslutning 14.3:
+  *vi gætter ikke på priser, medmindre det er bevidst*). Rækkefølgen er nu målt
+  køb → Grocys lagertal → forældres snit → **leverandørens pris** → overslag.
+  `supplierPrices.costFallbackPrices` bruger SAMME afgørelse som varemodtagelsen
+  (`resolveProductPrice`), så "Klar" i arbejdslisten og kostprisen ikke kan være
+  uenige. Et flertydigt valg giver ingen pris — ikke den billigste. Kilden hedder
+  `supplier`, og drill-downet i Opskrifter & priser mærker den `lev.pris`.
+  Målt mod grocy-test: 10 varer fik en kostpris de ikke havde; ingen målt pris flyttede sig.
+- **Et indkøbssted uden koblet leverandør** giver nu et internt varenummer, ikke
+  et overslag — man har en regning, så prisen er rigtig.
+- "laves selv" hedder **"egen produktion"**.
+
+Tests: `test-kostpris-overslag` 12 → **20**, `test-indkob-arbejdsliste` 118 → **122**.
+Mutations-testet: leverandørprisen ignoreret (4 falder), flertydigt → billigste (2),
+indkøbssted uden leverandør → overslag (3).
+
 ### Adresseopslag gennem vores egen server (25. september 2026)
 
 Danner (Nansensgade 1) kunne ikke bestille: adresselisten kom aldrig frem, heller

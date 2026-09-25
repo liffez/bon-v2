@@ -764,7 +764,7 @@ function _isRenderProducts(body) {
         }).length : 0;
         if (_isProdFilter.nopris && selvN) {
             html += '<span class="is-work-selv" title="Kostprisen på varer vi selv laver kommer fra opskriften (#558)">' +
-                '+ ' + selvN + ' laves selv — pris fra opskriften</span>';
+                '+ ' + selvN + ' i egen produktion — pris fra opskriften</span>';
         }
     }
 
@@ -977,7 +977,7 @@ function _isWorkPlan(po, product) {
     if (po.price != null) return { mode: 'done', text: po.reason_text || '' };
     // Vi laver den selv: kostprisen kommer fra opskriften (#558), ikke fra en leverandør.
     if (po.produced_by) {
-        return { mode: 'produced', text: 'laves selv efter opskriften ' + po.produced_by.name +
+        return { mode: 'produced', text: 'egen produktion — opskriften ' + po.produced_by.name +
             ' — kostprisen kommer derfra' };
     }
     var bcs = (po.barcodes || []).filter(function(b) { return !b.is_estimate; });
@@ -1022,12 +1022,16 @@ function _isWorkPlan(po, product) {
     }
     // Intet varenummer. Hvad der er rigtigt, afhænger af leverandøren:
     var sup = _isWorkSupplier(product);
-    if (sup && (sup.type === 'email' || sup.type === 'manual' || sup.type === 'webshop')) {
+    // Et indkøbssted UDEN koblet leverandør (type null) behandles som en
+    // faktura-leverandør (#706 §15 trin 2): man køber der og har en regning,
+    // så prisen er en rigtig pris — ikke et gæt. Et overslag ville skjule det.
+    if (sup && (sup.type === null || sup.type === 'email' || sup.type === 'manual' || sup.type === 'webshop')) {
         // Leverandøren har ingen varenumre, men fakturaen er en rigtig pris.
         // Et internt varenummer hos dem gør den til en leverandørpris i ét hug.
         return {
             mode: 'price', target: { kind: 'internal', locId: sup.locId, label: sup.navn },
-            text: 'intet varenummer hos ' + sup.navn + ' — prisen gemmes på et nyt internt varenummer dér',
+            text: 'intet varenummer hos ' + sup.navn + ' — prisen gemmes på et nyt internt varenummer dér' +
+                (sup.type === null ? ' (indkøbsstedet er ikke koblet til en leverandør endnu)' : ''),
         };
     }
     if (sup && sup.type === 'api') {

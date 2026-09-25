@@ -588,23 +588,27 @@ async function getProductUnitCostDetails(concurrency = 6, opts = {}) {
         }
     }
 
-    // Sidste udvej: et manuelt OVERSLAG (#657). Det er ikke en målt pris, men et
-    // tal nogen bevidst har skrevet — typisk på en ny vare der endnu ikke har et
-    // varenummer. Derfor står det efter ALT der er målt, og det bærer sin egen
-    // kilde, så en kostpris bygget på et gæt aldrig kan forveksles med en målt.
+    // Sidste trin: den pris der GÆLDER for varen (#706 §11, beslutning 14.3).
+    // Først leverandørens pris på varenummeret — katalogprisen fra Hørkram
+    // eller en fakturapris skrevet i Indkøb — og kun hvis ingen gælder, det
+    // manuelle OVERSLAG (#657). Samme afgørelse som varemodtagelsen bruger,
+    // så "Klar" i Indkøb og kostprisen ikke kan være uenige. Står efter ALT der
+    // er målt: et køb vinder altid over en listepris. Kilden bæres med, så en
+    // kostpris bygget på et gæt aldrig kan forveksles med en målt.
     const udenPris = maal.filter(p => !detaljer.has(String(p.id)));
     if (udenPris.length) {
-        let overslag = new Map();
+        let fallback = new Map();
         try {
-            overslag = await require('./supplierPrices').estimatePrices(module.exports);
+            fallback = await require('./supplierPrices').costFallbackPrices(module.exports);
         } catch (e) {
-            overslag = new Map();   // varenumrene kunne ikke læses — ingen overslag i denne runde
+            fallback = new Map();   // varenumrene kunne ikke læses — ingen pris fra dem i denne runde
         }
         for (const p of udenPris) {
-            const pris = overslag.get(String(p.id));
-            if (!(pris > 0)) continue;
+            const f = fallback.get(String(p.id));
+            if (!f || !(f.price > 0)) continue;
             detaljer.set(String(p.id), {
-                cost: pris, source: 'estimate',
+                cost: f.price, source: f.source,
+                supplier_reason: f.reason, supplier_barcode: f.barcode,
                 last_price: null, avg_price: null, deviation_pct: null, warn: false,
                 purchases_in_window: 0, window_days: windowDays,
             });

@@ -67,6 +67,8 @@ const OVERSIGT = () => ({
           produced_by: { id: 44, name: 'Remoulade Produktion' } },
     // intet varenummer, købes hos en leverandør UDEN varenumre (Emballage, email)
     61: { price: null, reason: 'missing', reason_text: '', stock_unit: 'Antal', barcodes: [] },
+    // intet varenummer, købes et sted der IKKE er koblet til en leverandør
+    64: { price: null, reason: 'missing', reason_text: '', stock_unit: 'Antal', barcodes: [] },
     // intet varenummer, købes hos Hørkram (api)
     62: { price: null, reason: 'missing', reason_text: '', stock_unit: 'Kilo', barcodes: [] },
     // Hørkram-varenummer: leverandøren har en pris, stregkoden mangler indhold
@@ -108,11 +110,12 @@ function lavKlient(opts) {
         { grocy_location_id: 2, grocy_location_name: 'Hørkram', linked_supplier_id: 1 },
         { grocy_location_id: 7, grocy_location_name: 'Emballage', linked_supplier_id: 2 },
         { grocy_location_id: 9, grocy_location_name: 'RR Produktion', linked_supplier_id: 3 },
+        { grocy_location_id: 11, grocy_location_name: 'Madsynergi', linked_supplier_id: null },
     ];
     ctx._isSupDropdown = [{ id: 1, integration_type: 'api' }, { id: 2, integration_type: 'email' },
                           { id: 3, integration_type: 'intern' }];
-    const lok = { 61: 7, 62: 2, 150: 9 };
-    ctx._isAllProducts = [150, 89, 20, 30, 25, 170, 60, 61, 62, 63, 5, 999]
+    const lok = { 61: 7, 62: 2, 64: 11, 150: 9 };
+    ctx._isAllProducts = [150, 89, 20, 30, 25, 170, 60, 61, 62, 63, 64, 5, 999]
         .map(id => ({ id, name: 'Vare ' + id, shopping_location_id: lok[id] || null }));
     ctx._isContainer = {
         querySelector(sel) {
@@ -170,7 +173,7 @@ console.log('\n=== §1 Hvem mangler en pris ===');
     eq(k._isUdenPris({ id: 150 }), true, 'aktiv vare uden pris tælles');
     eq(k._isUdenPris({ id: 5 }), false, 'vare med pris tælles ikke');
     eq(k._isUdenPris({ id: 999 }), false, 'en vare der ikke står i oversigten (inaktiv) mangler ingen pris');
-    eq(k._isAllProducts.filter(k._isUdenPris).length, 9, 'knappen tæller kun de aktive uden pris');
+    eq(k._isAllProducts.filter(k._isUdenPris).length, 10, 'knappen tæller kun de aktive uden pris');
     eq(k._isUdenPris({ id: 60 }), false, 'en vare vi selv laver, mangler ingen leverandørpris');
     k._isPriceOverview = null;
     eq(k._isUdenPris({ id: 150 }), false, 'kunne oversigten ikke hentes, påstår vi intet');
@@ -210,12 +213,17 @@ console.log('\n=== §2 Rækkens plan ===');
     eq(k._isWorkPlan(o[5]).mode, 'done', 'har pris → færdig');
     const prod = (id) => k._isAllProducts.find(p => p.id === id);
     const p60 = k._isWorkPlan(o[60], prod(60));
-    eq(p60.mode, 'produced', 'laves selv → ingen prisfelt');
+    eq(p60.mode, 'produced', 'egen produktion → ingen prisfelt');
+    ok(/egen produktion/.test(p60.text) && !/laves selv/.test(p60.text), '… og hedder "egen produktion"');
     ok(/Remoulade Produktion/.test(p60.text), '… og siger hvilken opskrift prisen kommer fra');
     const p61 = k._isWorkPlan(o[61], prod(61));
     eq(p61.target.kind, 'internal', 'intet varenummer hos en leverandør uden numre → nyt internt varenummer');
     eq(p61.target.locId, 7, '… hos varens egen leverandør');
     ok(/Emballage/.test(p61.text), '… og det står i årsagen');
+    const p64 = k._isWorkPlan(o[64], prod(64));
+    eq(p64.target.kind, 'internal', 'indkøbssted uden leverandør → internt varenummer, ikke overslag (#706 §15)');
+    eq(p64.target.locId, 11, '… på netop det indkøbssted');
+    ok(/Madsynergi/.test(p64.text) && /ikke koblet/.test(p64.text), '… og årsagen siger at stedet ikke er koblet');
     const p62 = k._isWorkPlan(o[62], prod(62));
     eq(p62.target.kind, 'estimate', 'intet varenummer hos Hørkram → IKKE et internt nummer (kan ikke opdateres)');
     ok(/Ny kobling/.test(p62.text), '… årsagen peger på at koble Hørkrams rigtige nummer');

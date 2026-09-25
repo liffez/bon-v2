@@ -445,6 +445,34 @@ function createInternalBarcode(grocy, productId, { shoppingLocationId, stockPric
 }
 
 /**
+ * Den pris kostprisen må bruge når intet er målt (#706 §11 / beslutning 14.3):
+ * Map(product_id → { price, source: 'supplier'|'estimate', reason, barcode }).
+ *
+ * Samme afgørelse som varemodtagelsen sender med til Grocy (resolveProductPrice),
+ * så "Klar" i arbejdslisten og kostprisen ikke kan være uenige om hvilken pris
+ * der gælder. Overslaget kommer kun med når ingen leverandørpris gælder — det
+ * er resolveren selv der falder tilbage på det.
+ *
+ * "Vi gætter ikke på priser, medmindre det er bevidst": et flertydigt valg
+ * (flere varenumre, intet foretrukket) giver INGEN pris, ikke den billigste.
+ */
+async function costFallbackPrices(grocy) {
+    const meta = await loadGrocyMeta(grocy);
+    const out = new Map();
+    for (const pid of meta.productMap.keys()) {
+        const r = resolveProductPrice(candidatesFor(meta, pid));
+        if (!(r.price > 0)) continue;
+        out.set(String(pid), {
+            price: r.price,
+            source: r.reason === 'estimate' ? 'estimate' : 'supplier',
+            reason: r.reason,
+            barcode: r.candidate ? r.candidate.barcode : null,
+        });
+    }
+    return out;
+}
+
+/**
  * Varernes overslag: Map(product_id → pris pr. lager-enhed).
  * Bruges af kostprisen som sidste udvej, efter alt der er målt.
  */
@@ -590,6 +618,7 @@ module.exports = {
     createInternalBarcode,
     nextInternalBarcode,
     estimatePrices,
+    costFallbackPrices,
     refreshHorkramPrices,
     loadGrocyMeta,
     candidatesFor,

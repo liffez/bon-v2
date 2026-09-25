@@ -255,6 +255,8 @@ async function main() {
         avg:           'Grocys avg_price',
         stock_value:   'lagerværdi/mængde',
         parent_avg:    'arvet fra børnene',
+        supplier:      'leverandørens pris på varenummeret',
+        estimate:      'manuelt overslag',
     };
     console.log(`   ${C.dim}Prisens ophav:${C.off}`);
     for (const [k, n] of [...kilder].sort((a, b) => b[1] - a[1])) {
