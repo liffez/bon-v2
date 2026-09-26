@@ -1136,7 +1136,7 @@ router.delete('/:id', requireAuth(), handle((req, res) => {
 router.patch('/:id/prep', handle((req, res) => {
     const db = getDb();
     const id = parseInt(req.params.id);
-    const { ingredients_ready, supplies_ready } = req.body;
+    const { ingredients_ready, supplies_ready, note } = req.body;
 
     const fields = [];
     const vals   = [];
@@ -1144,8 +1144,27 @@ router.patch('/:id/prep', handle((req, res) => {
     if (supplies_ready    !== undefined) { fields.push('prep_supplies_ready = ?');    vals.push(supplies_ready    ? 1 : 0); }
     if (!fields.length) return res.status(400).json({ error: 'Ingen felter at opdatere' });
 
+    const before = db.prepare(`SELECT prep_ingredients_ready, prep_supplies_ready FROM bons WHERE id = ?`).get(id);
+    if (!before) return res.status(404).json({ error: 'Bon ikke fundet' });
+
     db.prepare(`UPDATE bons SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...vals, id);
     const bon = db.prepare(`SELECT prep_ingredients_ready, prep_supplies_ready FROM bons WHERE id = ?`).get(id);
+
+    // Historik + live-opdatering. Ruten skrev ingen af delene, så et flueben
+    // sat fra én skærm hverken kunne ses på de andre eller spores bagefter.
+    // Kun felter der faktisk skifter logges. Brugeren kommer fra sessionen.
+    const changes = [
+        ['prep_ingredients_ready', before.prep_ingredients_ready, bon.prep_ingredients_ready],
+        ['prep_supplies_ready',    before.prep_supplies_ready,    bon.prep_supplies_ready],
+    ].filter(([, o, n]) => !!o !== !!n);
+    for (const [field, o, n] of changes) {
+        logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: field,
+            oldValue: o ? '1' : '0', newValue: n ? '1' : '0',
+            userId: req.session?.userId ?? null,
+            notes: typeof note === 'string' && note.trim() ? note.trim().slice(0, 200) : null });
+    }
+    if (changes.length) broadcast('bon_updated', { id });
+
     res.json({ id, prep_ingredients_ready: !!bon.prep_ingredients_ready, prep_supplies_ready: !!bon.prep_supplies_ready });
 }));
 

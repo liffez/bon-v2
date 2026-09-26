@@ -1,6 +1,6 @@
 # CLAUDE_PLANLAEGNING_DRILLDOWN.md — Planlægningen som drill-down
 
-> Status: Fase 1 + 2 BYGGET side om side med den gamle (september 2026) — fase 3 (tjekliste) ikke bygget. Se §18–20.
+> Status: Fase 1–3 BYGGET side om side med den gamle (september 2026). Den gamle fjernes når køkkenet har testet. Se §18–21.
 > Oprettet: 20. september 2026
 > Mockup (klikbar, iPad + 27"): https://claude.ai/artifact/V9Sj2i3SnwuxrHxLx9b921
 > Berører: `shared/planning.js/.css`, `kitchen/planning.html`, `office/views/planning.js`,
@@ -337,12 +337,9 @@ strukturerede varianter ("Tunen – Glutenfri Bolle") og embed-bestillingen send
 
    Emballage-reglen er ikke i fare ved skiftet: `services/ingredientResolver.js`
    sammenligner med små bogstaver, så begge stavemåder fanges.
-2. *(Forslag, ikke besluttet:)* lad "Lav tjekliste" starte en **optælling** (#673,
-   `stock_counts`) afgrænset til de valgte råvarer. Så bliver en afvigelse en rigtig
-   lagerrettelse med spor, og samtidigheds-advarslen følger med gratis.
-   **Tjekliste → `prep_ingredients_ready`:** skal en gennemgået tjekliste kunne sætte
+2. ~~**Tjekliste → `prep_ingredients_ready`:**~~ ✅ **Afgjort 25.09: ja, med et tryk** — se §21. skal en gennemgået tjekliste kunne sætte
    *Råvarer ✓* på alle valgte bons på én gang?
-3. **Tjekliste-afvigelser:** når noget ikke er der — kun markering, eller skal det
+3. ~~**Tjekliste-afvigelser:**~~ ✅ **Afgjort 25.09: tast det rigtige tal, lageret rettes og logges** — se §21. når noget ikke er der — kun markering, eller skal det
    kunne føre til lagerkorrektion i Grocy?
 4. ~~**Oprunding:** hvor ligger `Math.ceil`-oprundingen bag 🛒 i dag?~~
    ✅ **Backend.** `shortfall_purchase` regnes i `services/ingredientResolver.js`;
@@ -471,3 +468,31 @@ planlægningsbon" var slået til, aldrig salg; kitchen_personal og delivery ser 
   2,0000000000000004 sække op til 3. Epsilon før `Math.ceil` — gælder også Råvarer-modalen.
 
 Test: `npm run test:planning-tree` (62 + 34, mutations-testet).
+
+## 21. Fase 3 — tjeklisten (25. september 2026)
+
+Fane **6 Tjekliste** i planlægningen, for samme bonvalg og periode. Afgjort 25.09:
+
+| Spørgsmål | Svar |
+|---|---|
+| Hvilke varer | Råvarer (niveau 5) + de forud-producerede varer fra niveau 4 (`to_stock`). Ikke "laves ved levering" — de laves først når bonen leveres |
+| Afvigelse | "passer ikke" → tast det talte tal → Grocy rettes med det samme og logges som optælling |
+| Råvarer ✓ | Tilbydes med ét tryk når tjeklisten er afsluttet OG alle råvarer står dækket efter rettelserne |
+| Placering | Fane 6; afkrydsninger huskes på tabletten for netop dette grundlag (periode + bons + ekstra) |
+
+**Ingen ny lagerlogik** — tjeklisten kalder optællingens egne endpoints (#673):
+- **✓ er der** → `POST /api/stock-counts/:id/lines` med udfald `unchanged` + `LastCheckedAt` (#613).
+- **passer ikke** → `POST /api/grocy/stock/:id/inventory` med `count` — Grocy rettes, linjen logges
+  først når Grocy tog imod (samme vej som optællingens "Gem og luk").
+- **Én optælling pr. Grocy-lokation** (`products.location_id`), oprettet første gang en vare derfra
+  tjekkes, lukket (`saved`) når tjeklisten afsluttes eller startes forfra. Den fysiske enhed er varens
+  `LastCheckedUnit`, ellers "Tjekliste (planlægning)".
+- Tal tastes og vises i **lager-enheden** (den Grocy rettes i); visningsenheden står i parentes når
+  den er en anden ("0,6 kg (5 stk)").
+- Træet henter serveren igen efter en rettelse, så lagertal og status er friske.
+
+**`PATCH /api/bons/:id/prep`** skriver nu historik (kun felter der skifter, bruger fra sessionen,
+valgfri `note`) og sender `bon_updated`. Det gjorde ruten aldrig — heller ikke fra køkkenkortenes
+prep-badges, så et flueben hverken kunne ses live på andre skærme eller spores.
+
+Test: `npm run test:planning-tree` (66 + 47).

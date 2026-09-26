@@ -53,6 +53,24 @@ function amounts(i) {
     return { unit, need, stock, short, need_display: fmt(need), stock_display: fmt(stock), short_display: fmt(short) };
 }
 
+/**
+ * Det tjeklisten (fane 6) skal bruge for at logge og rette en vare gennem
+ * optællingens egne endpoints (#673): Grocy-lokation, lager og behov i
+ * LAGER-enhed, og den fysiske enhed varen sidst blev talt i.
+ */
+function checkInfo(i, product) {
+    if (!product) return null;
+    const uf = product.userfields || {};
+    return {
+        product_id: Number(i.product_id),
+        location_id: Number(product.location_id) || null,
+        stock_qty: Number(i.stock_amount) || 0,
+        need_qty: Number(i.needed_stock) || 0,
+        stock_unit: shortUnit(i.stock_unit_name),
+        physical_unit_name: (uf.LastCheckedUnit && String(uf.LastCheckedUnit).trim()) || null,
+    };
+}
+
 function groupLabel(name) {
     const s = String(name || '').trim();
     return s ? s.replace(/^\d+\s+/, '') : 'Uden varegruppe';
@@ -206,6 +224,12 @@ async function buildProductionLevels(input, deps = {}) {
                 missing: (i.make_shortfalls || []).map(s => s.product_name),
             },
             used_in: usedIn.get(pid) || null,
+            check: type === 'to_stock' ? checkInfo(i, productById.get(pid)) : null,
+            // Varegruppen, så tjeklisten kan dele de færdige varer op som råvarerne.
+            group_name: (() => {
+                const gid = Number(productById.get(pid)?.product_group_id) || 0;
+                return gid ? groupLabel(groupById.get(gid)?.name || `Varegruppe ${gid}`) : '';
+            })(),
             days: {},
             values: publicVal(sum, perms),
             children: [],
@@ -273,7 +297,11 @@ async function buildProductionLevels(input, deps = {}) {
             id: rid, kind: 'raw', name: i.product_name,
             qty: round(amounts(i).need, 3), qty_display: fmtQty(amounts(i).need), unit: amounts(i).unit,
             status: i.status,
+            // Mangler = behovet er større end lageret. Samme regel som gruppens
+            // "N mangler" og Råvarer-filteret — ét sted.
+            short,
             stock_display: amounts(i).stock_display,
+            check: checkInfo(i, product),
             // Indkøbslisten som i Råvarer-modalen i dag: mængden er oprundet på
             // serveren (shortfall_purchase). Nettomangel mod indkøbslisten og
             // bestillinger hører til indkøbs-sessionen (spec §8).

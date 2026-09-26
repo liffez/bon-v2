@@ -67,12 +67,14 @@ function patchBonStatus(id, statusCode, userId, force, confirmNoInvoice) {
     });
 }
 
-function patchBonPrep(id, ingredientsReady, suppliesReady) {
+// note (valgfri): forklaring i bonnens historik, fx "fra planlægningens tjekliste".
+function patchBonPrep(id, ingredientsReady, suppliesReady, note) {
     return apiFetch('/bons/' + id + '/prep', {
         method: 'PATCH',
         body: JSON.stringify({
             ingredients_ready: ingredientsReady,
             supplies_ready:    suppliesReady,
+            note:              note || undefined,
         }),
     });
 }

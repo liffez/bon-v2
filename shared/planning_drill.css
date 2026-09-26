@@ -90,7 +90,7 @@
 .pd-col-title { font-weight: 700; font-size: 15px; }
 .pd-col-sum { font-size: 13px; color: var(--color-text-dim, #666); text-align: right; }
 
-.pd-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 60px; padding: 8px 14px; border: none;
+.pd-row { box-sizing: border-box; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 60px; padding: 8px 14px; border: none;
     border-bottom: 1px solid #f0ece6; background: #fff; text-align: left; font-family: inherit; color: inherit; font-size: 16px; }
 .pd-row.clickable { cursor: pointer; }
 .pd-row.clickable:hover { background: #faf8f4; }
@@ -155,3 +155,41 @@
     display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 16px; background: #fff; }
 .pd-recipe-link:hover { background: #f2efe9; }
+
+/* Tjekliste (fane 6) */
+.pd-check-bar { height: 6px; background: #f0ece6; }
+.pd-check-bar span { display: block; height: 100%; background: #2e8b2e; transition: width .2s; }
+.pd-ck-row { align-items: center; }
+.pd-ck-row.ck-ok, .pd-ck-row.ck-fixed { background: #fbfdfb; }
+.pd-ck-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.pd-ck-ok { border-color: #9fcf9f; }
+.pd-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; border-color: var(--brand-primary, #8e631f); font-weight: 700; }
+.pd-btn:disabled { opacity: .5; cursor: default; }
+.pd-ck-done { font-size: 14px; font-weight: 700; }
+.pd-ck-done.ok { color: #1f6b1f; }
+.pd-ck-done.fixed { color: #7a4f00; }
+.pd-ck-undo { border: none; background: none; color: var(--color-text-dim, #888); text-decoration: underline; cursor: pointer; min-height: 44px; font-family: inherit; }
+.pd-ck-edit { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
+.pd-ck-input { width: 90px; min-height: 44px; padding: 0 8px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px; font-size: 16px; text-align: right; font-family: inherit; }
+.pd-check-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px; border-top: 1px solid var(--color-border, #d7d1ca); background: #faf8f4; }
+.pd-ck-reset { margin-left: auto; }
+.pd-ck-summary { font-weight: 700; }
+
+/* Råvarer-filter (Alle · Mangler · På lager) — til højre i brødkrummen. */
+.pd-rf { display: inline-flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.pd-rf-chip { min-height: 44px; padding: 0 14px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 22px;
+    background: #fff; font: inherit; font-size: 14px; cursor: pointer; }
+.pd-rf-chip.active { background: var(--brand-primary, #8e631f); border-color: var(--brand-primary, #8e631f); color: #fff; }
+.pd-rf-chip.warn:not(.active) { border-color: #e2a0a0; color: #9b1c1c; }
+.pd-rf-count { font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 2px; }
+/* Afsnit der kan foldes (Menu, Skal laves, Råvarer, Tjekliste). */
+.pd-sec-arrow { display: inline-block; width: 14px; color: var(--color-text-dim, #888); }
+.pd-sec-sum { margin-left: auto; font-size: 13px; color: var(--color-text-dim, #888); font-variant-numeric: tabular-nums; }
+.pd-sec-head.toggle:hover { background: #f2efe9; }
+.pd-sec-head.done .pd-sec-count { color: #1f6b1f; font-weight: 700; }
+.pd-foldall { display: inline-flex; gap: 6px; margin-left: auto; }
+.pd-foldall + .pd-rf { margin-left: 8px; }
+/* Kategori-række i Pr. dag-tabellen (Menu): kan foldes, bærer sine egne dagstal. */
+.pd-trow.pd-tcat { cursor: pointer; background: #faf8f4; font-weight: 700; border: none; font-family: inherit; text-align: left; }
+.pd-trow.pd-tcat .pd-tname { background: #faf8f4; }
+.pd-trow.pd-tcat:hover, .pd-trow.pd-tcat:hover .pd-tname { background: #f2efe9; }
