@@ -24,12 +24,13 @@
 var _pd = null;
 
 var PD_TABS = [
-    { key: 'categories', n: 1, label: 'Kategorier' },
-    { key: 'items',      n: 2, label: 'Varer' },
-    { key: 'requests',   n: 3, label: 'Ønsker' },
-    { key: 'prep',       n: 4, label: 'Skal laves', fase2: true },
-    { key: 'raw',        n: 5, label: 'Råvarer',    fase2: true },
-    { key: 'check',      n: 6, label: 'Tjekliste' },
+    // Kategorier og Menu er lagt sammen (26/9): Menu med kategorierne som
+    // afsnit der kan foldes — sammenfoldet ER kategori-overblikket.
+    { key: 'items',      n: 1, label: 'Menu' },
+    { key: 'requests',   n: 2, label: 'Ønsker' },
+    { key: 'prep',       n: 3, label: 'Skal laves', fase2: true },
+    { key: 'raw',        n: 4, label: 'Råvarer',    fase2: true },
+    { key: 'check',      n: 5, label: 'Tjekliste' },
 ];
 var PD_WEEKDAYS = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
 var PD_COUNT_UNITS = { stk: 1, antal: 1, portion: 1, '': 1 };
@@ -54,16 +55,18 @@ function initPlanningDrill(containerEl, options) {
         bonSeq: 0,
         loading: false,
         error: null,
-        tab: _pdLoad('planning2_tab', 'categories'),
+        tab: _pdLoad('planning2_tab', 'items'),
+        fold: _pdLoadFold(),  // "fane:afsnit" → true (foldet) / false (åben); mangler = afsnittets standard
         path: [],             // valgt knude-id pr. kolonne
         metric: _pdLoad('planning2_metric', 'antal'),
         perDay: _pdLoad('planning2_perday', '0') === '1',
+        rawFilter: _pdLoad('planning2_rawfilter', 'all'),   // Råvarer: all · short · ok
         staff: null,
         reloadTimer: null,
         sse: null,
         resizeObs: null,
     };
-    if (!PD_TABS.some(function (t) { return t.key === _pd.tab; })) _pd.tab = 'categories';
+    if (!PD_TABS.some(function (t) { return t.key === _pd.tab; })) _pd.tab = 'items';
 
     _pdRenderShell();
     _pdInitStatuses().then(function () {
@@ -225,6 +228,15 @@ function _pdRenderShell() {
         _pdRenderMetric(); _pdRenderDrill();
     });
     byId('pdCrumbs').addEventListener('click', function (e) {
+        var fa = e.target.closest('button[data-foldall]');
+        if (fa) { _pdFoldAll(fa.dataset.foldall === 'in'); return; }
+        var f = e.target.closest('button[data-rawfilter]');
+        if (f) {
+            _pd.rawFilter = f.dataset.rawfilter;
+            _pdSave('planning2_rawfilter', _pd.rawFilter);
+            _pdRenderDrill();
+            return;
+        }
         var b = e.target.closest('button[data-depth]');
         if (!b) return;
         _pd.path = _pd.path.slice(0, Number(b.dataset.depth));
@@ -545,7 +557,7 @@ function _pdRenderDrill() {
     var t = _pd.tree, nodes = t.nodes;
     var tab = PD_TABS.filter(function (x) { return x.key === _pd.tab; })[0];
     if (_pd.tab === 'check') {
-        crumbsEl.innerHTML = '<span class="pd-crumb">Tjekliste</span>' + (_pd.loading ? ' <span class="pd-dim pd-loading">opdaterer…</span>' : '');
+        crumbsEl.innerHTML = '<span class="pd-crumb">Tjekliste</span>' + (_pd.loading ? ' <span class="pd-dim pd-loading">opdaterer…</span>' : '') + _pdFoldAllHtml();
         warnEl.innerHTML = (t.meta.warnings || []).map(function (x) { return '<div>' + _pdEsc(x) + '</div>'; }).join('');
         cols.style.setProperty('--pd-cols', 1);
         cols.innerHTML = _pdCheckHtml();
@@ -559,6 +571,8 @@ function _pdRenderDrill() {
             _pdEsc(_pdRowTitle(nodes[id])) + '</button>';
     });
     if (_pd.loading) crumbs += ' <span class="pd-dim pd-loading">opdaterer…</span>';
+    crumbs += _pdFoldAllHtml();
+    if (_pd.tab === 'raw') crumbs += _pdRawFilterHtml();
     crumbsEl.innerHTML = crumbs;
 
     // Advarsler fra serveren — et hul skal kunne ses, ikke ligne et tomt svar.
@@ -572,10 +586,10 @@ function _pdRenderDrill() {
     warnEl.innerHTML = w.map(function (x) { return '<div>' + _pdEsc(x) + '</div>'; }).join('');
 
     // Kolonnerne: rod + én pr. valgt knude med børn. Vis de sidste N.
-    var all = [{ title: tab.label, ids: _pdRootIds(), parent: null }];
+    var all = [{ title: tab.label, ids: _pdRawFiltered(_pdRootIds()), parent: null }];
     _pd.path.forEach(function (id) {
         var n = nodes[id];
-        if (n && n.children && n.children.length) all.push({ title: _pdRowTitle(n), ids: n.children, parent: n });
+        if (n && n.children && n.children.length) all.push({ title: _pdRowTitle(n), ids: _pdRawFiltered(n.children), parent: n });
     });
     var n = _pdColumnCount();
     _pd.colCount = n;
@@ -618,8 +632,7 @@ function _pdTableHtml(col, depth) {
         (metric ? '<span class="pd-tnum">' + _pdEsc((_pdMetricsAvailable().filter(function (m) { return m.key === _pd.metric; })[0] || {}).label || '') + '</span>' : '') +
         '<span></span></div>';
 
-    var rows = col.ids.map(function (id) {
-        var n = nodes[id];
+    var rowHtml = function (n) {
         if (!n) return '';
         var hasKids = n.children && n.children.length;
         var clickable = hasKids || _pdCanOpenBon(n);
@@ -634,7 +647,25 @@ function _pdTableHtml(col, depth) {
             (metric ? '<span class="pd-tnum pd-tval">' + (n.values ? _pdMetricLabel(n.values, false) : '') + '</span>' : '') +
             '<span class="pd-chev">' + (hasKids ? '›' : (_pdCanOpenBon(n) ? '<span class="pd-open">åbn ›</span>' : '')) + '</span>' +
         '</' + (clickable ? 'button' : 'div') + '>';
-    }).join('');
+    };
+    var rows;
+    if (depth === 0 && _pd.tab === 'items') {
+        // Menu: kategorien er en række med sine egne dagstal, og den kan foldes.
+        rows = _pdSectionsFor('items').map(function (sec) {
+            var cn = nodes[sec.key], folded = _pdIsFolded('items', sec);
+            var h = '<button type="button" class="pd-row pd-trow pd-tcat' + (cn.counts_as_unit ? '' : ' dim') + '"' + style +
+                ' data-fold="' + _pdEsc(_pdFoldKey('items', sec)) + '" aria-expanded="' + !folded + '">' +
+                '<span class="pd-tname"><span class="pd-sec-arrow">' + (folded ? '▸' : '▾') + '</span> ' + _pdEsc(cn.name) +
+                ' <span class="pd-sec-count">' + sec.ids.length + '</span></span>' +
+                days.map(function (d) { return '<span class="pd-tnum">' + _pdNum(cn.days && cn.days[d]) + '</span>'; }).join('') +
+                '<span class="pd-tnum pd-ttotal">' + _pdEsc(cn.counts_as_unit ? cn.units + ' enh' : cn.qty_display + ' stk') + '</span>' +
+                (metric ? '<span class="pd-tnum pd-tval">' + (cn.values ? _pdMetricLabel(cn.values, false) : '') + '</span>' : '') +
+                '<span></span></button>';
+            return h + (folded ? '' : sec.ids.map(function (id) { return rowHtml(nodes[id]); }).join(''));
+        }).join('');
+    } else {
+        rows = col.ids.map(function (id) { return rowHtml(nodes[id]); }).join('');
+    }
 
     // Bundlinje: forælderens egne dagstal, eller enheder pr. dag øverst.
     var footDays = col.parent ? col.parent.days : (_pd.tab === 'requests' ? null : t.totals.units_days);
@@ -653,31 +684,140 @@ function _pdColumnHtml(col, depth) {
     var nodes = _pd.tree.nodes;
     var selected = _pd.path[depth];
     var head = _pdColumnHead(col);
-    var secs = (depth === 0 && _pd.tab === 'prep' && _pd.tree.sections && _pd.tree.sections.prep) || null;
-    var rows = secs ? _pdSectionsHtml(secs, depth, selected)
+    var secs = depth === 0 ? _pdSectionsFor(_pd.tab) : null;
+    var rows = secs ? _pdSectionsHtml(secs, depth, selected, _pd.tab)
         : col.ids.length ? col.ids.map(function (id) { return _pdRowHtml(nodes[id], depth, id === selected); }).join('')
-        : '<div class="pd-empty">' + (_pd.tab === 'requests' && depth === 0 ? 'Ingen særlige ønsker i det valgte.' : 'Intet at vise.') + '</div>';
+        : '<div class="pd-empty">' + (_pd.tab === 'requests' && depth === 0 ? 'Ingen særlige ønsker i det valgte.'
+            : _pd.tab === 'raw' && _pd.rawFilter === 'short' ? 'Der mangler ingen råvarer i det valgte.'
+            : _pd.tab === 'raw' && _pd.rawFilter === 'ok' ? 'Ingen af råvarerne er dækket af lager.' : 'Intet at vise.') + '</div>';
     return '<div class="pd-col"><div class="pd-col-head"><span class="pd-col-title">' + _pdEsc(col.title) +
         _pdRecipeLink(col.parent) + '</span>' +
         '<span class="pd-col-sum">' + head + '</span></div><div class="pd-col-rows">' + rows + '</div></div>';
 }
 
-/* Skal laves: tre afsnit. "Dækket af lager" er foldet sammen — det er ikke
-   noget der skal gøres, men det skal kunne findes. */
-function _pdSectionsHtml(secs, depth, selected) {
+/* ── Afsnit der kan foldes ────────────────────────────────
+   Menu (kategorier), Skal laves (tre afsnit), Råvarer (varegrupper) og
+   Tjeklisten (grupper) deler én mekanisme. Et afsnit har en standard —
+   emballage/levering og "Dækket af lager" er foldet sammen fra start — og
+   brugerens valg huskes pr. afsnit på enheden. */
+function _pdLoadFold() {
+    try { return JSON.parse(_pdLoad('planning2_fold', '{}')) || {}; } catch (e) { return {}; }
+}
+function _pdFoldKey(tab, sec) { return tab + ':' + sec.key; }
+function _pdIsFolded(tab, sec) {
+    var k = _pdFoldKey(tab, sec);
+    return Object.prototype.hasOwnProperty.call(_pd.fold, k) ? !!_pd.fold[k] : !!sec.collapsed;
+}
+function _pdToggleFold(key) {
+    var tab = key.slice(0, key.indexOf(':'));
+    var sec = (_pdSectionsFor(tab) || []).filter(function (x) { return _pdFoldKey(tab, x) === key; })[0];
+    var now = sec ? _pdIsFolded(tab, sec) : !!_pd.fold[key];
+    _pd.fold[key] = !now;
+    _pdSave('planning2_fold', JSON.stringify(_pd.fold));
+    _pdRenderDrill();
+}
+function _pdFoldAll(fold) {
+    (_pdSectionsFor(_pd.tab) || []).forEach(function (sec) { _pd.fold[_pdFoldKey(_pd.tab, sec)] = fold; });
+    _pdSave('planning2_fold', JSON.stringify(_pd.fold));
+    _pdRenderDrill();
+}
+function _pdFoldAllHtml() {
+    var secs = _pdSectionsFor(_pd.tab);
+    if (!secs || secs.length < 2) return '';
+    return '<span class="pd-foldall">' +
+        '<button type="button" class="pd-btn" data-foldall="in">Fold alle ind</button>' +
+        '<button type="button" class="pd-btn" data-foldall="out">Fold alle ud</button></span>';
+}
+
+/** Afsnittene på fanens øverste niveau — eller null, hvis fanen er en flad liste. */
+function _pdSectionsFor(tab) {
+    var t = _pd.tree;
+    if (!t) return null;
+    var N = t.nodes;
+    if (tab === 'items') {
+        return (t.levels.categories || []).map(function (cid) {
+            var c = N[cid];
+            return { key: cid, title: c.name, ids: c.children || [], collapsed: !c.counts_as_unit,
+                // Tæller den ikke som enheder, er antallet stadig det man skal have klar
+                // (sodavand, kager) — så vi viser stykker, ikke bare at den ikke tæller.
+                sum: c.counts_as_unit ? c.units + ' enh' : c.qty_display + ' stk · ikke enheder', values: c.values };
+        }).filter(function (x) { return x.ids.length; });
+    }
+    if (tab === 'prep') return (t.sections && t.sections.prep) || [];
+    if (tab === 'raw') {
+        return _pdRawFiltered(t.levels.raw || []).map(function (gid) {
+            var g = N[gid], ids = _pdRawFiltered(g.children || []), all = (g.children || []).length;
+            return { key: gid, title: g.name, ids: ids, badge: g.badge, values: g.values,
+                count: ids.length < all ? ids.length + ' af ' + all : null };
+        });
+    }
+    if (tab === 'check') {
+        var c = _pdCheckState();
+        return _pdCheckGroups().map(function (g) {
+            var done = g.ids.filter(function (id) {
+                var st = c.items[N[id].check.product_id]; return st && (st.state === 'ok' || st.state === 'fixed');
+            }).length;
+            return { key: g.title, title: g.title, ids: g.ids, count: done + ' af ' + g.ids.length, done: done === g.ids.length };
+        });
+    }
+    return null;
+}
+
+function _pdSectionHeadHtml(tab, sec) {
+    var folded = _pdIsFolded(tab, sec);
+    var val = _pd.metric !== 'antal' && sec.values ? _pdMetricLabel(sec.values, false) : '';
+    return '<button type="button" class="pd-sec-head toggle' + (sec.done ? ' done' : '') + '" data-fold="' +
+        _pdEsc(_pdFoldKey(tab, sec)) + '" aria-expanded="' + !folded + '">' +
+        '<span class="pd-sec-arrow">' + (folded ? '▸' : '▾') + '</span> ' +
+        '<span class="pd-sec-title">' + _pdEsc(sec.title) + '</span> <span class="pd-sec-count">' +
+        _pdEsc(sec.count || String(sec.ids.length)) + (sec.done ? ' ✓' : '') + '</span>' +
+        (sec.badge ? ' <span class="pd-badge pd-badge-' + (sec.badge.tone || 'amber') + '">' + _pdEsc(sec.badge.text) + '</span>' : '') +
+        (sec.sum || val ? '<span class="pd-sec-sum">' + _pdEsc(sec.sum || '') + (val ? (sec.sum ? ' · ' : '') + val : '') + '</span>' : '') +
+        (sec.note ? '<span class="pd-sec-note">' + _pdEsc(sec.note) + '</span>' : '') +
+        '</button>';
+}
+
+function _pdSectionsHtml(secs, depth, selected, tab, rowFn) {
     var nodes = _pd.tree.nodes;
-    if (!secs.length) return '<div class="pd-empty">Intet skal laves i det valgte.</div>';
+    if (!secs.length) {
+        return '<div class="pd-empty">' + (tab === 'prep' ? 'Intet skal laves i det valgte.'
+            : tab === 'raw' && _pd.rawFilter === 'short' ? 'Der mangler ingen råvarer i det valgte.'
+            : tab === 'raw' && _pd.rawFilter === 'ok' ? 'Ingen af råvarerne er dækket af lager.' : 'Intet at vise.') + '</div>';
+    }
+    rowFn = rowFn || function (id) { return _pdRowHtml(nodes[id], depth, id === selected); };
     return secs.map(function (sec) {
-        var open = !sec.collapsed || _pd.coveredOpen;
-        var head = '<' + (sec.collapsed ? 'button type="button" data-section-toggle="1"' : 'div') + ' class="pd-sec-head' +
-            (sec.collapsed ? ' toggle' : '') + '">' +
-            (sec.collapsed ? '<span class="pd-sec-arrow">' + (open ? '▾' : '▸') + '</span> ' : '') +
-            '<span class="pd-sec-title">' + _pdEsc(sec.title) + '</span> <span class="pd-sec-count">' + sec.ids.length + '</span>' +
-            (sec.note ? '<span class="pd-sec-note">' + _pdEsc(sec.note) + '</span>' : '') +
-            '</' + (sec.collapsed ? 'button' : 'div') + '>';
-        var rows = open ? sec.ids.map(function (id) { return _pdRowHtml(nodes[id], depth, id === selected); }).join('') : '';
-        return head + rows;
+        return _pdSectionHeadHtml(tab, sec) + (_pdIsFolded(tab, sec) ? '' : sec.ids.map(rowFn).join(''));
     }).join('');
+}
+
+/* Råvarer-filteret: Alle · Mangler · På lager. "Mangler" er serverens egen
+   markering (behov > lager) — samme tal som gruppens "N mangler". En varegruppe
+   uden noget der passer, forsvinder. Gælder kun fane 5. */
+function _pdRawMatch(n) {
+    if (!n || n.kind !== 'raw') return true;
+    if (_pd.rawFilter === 'short') return !!n.short;
+    if (_pd.rawFilter === 'ok') return !n.short;
+    return true;
+}
+function _pdRawFiltered(ids) {
+    if (_pd.tab !== 'raw' || !_pd.rawFilter || _pd.rawFilter === 'all') return ids;
+    var N = _pd.tree.nodes;
+    return ids.filter(function (id) {
+        var n = N[id];
+        if (n && n.kind === 'raw_group') return (n.children || []).some(function (c) { return _pdRawMatch(N[c]); });
+        return _pdRawMatch(n);
+    });
+}
+function _pdRawFilterHtml() {
+    var N = _pd.tree.nodes, total = 0, short = 0;
+    (_pd.tree.levels.raw || []).forEach(function (gid) {
+        (N[gid].children || []).forEach(function (id) { total++; if (N[id] && N[id].short) short++; });
+    });
+    var chip = function (key, label, count) {
+        return '<button type="button" class="pd-rf-chip' + (_pd.rawFilter === key ? ' active' : '') + (key === 'short' && count ? ' warn' : '') +
+            '" data-rawfilter="' + key + '">' + label + ' <span class="pd-rf-count">' + count + '</span></button>';
+    };
+    return '<span class="pd-rf">' + chip('all', 'Alle', total) + chip('short', 'Mangler', short) + chip('ok', 'På lager', total - short) + '</span>';
 }
 
 /* Link til opskriften bag en vare der skal laves. Samme URL-regel som "Lav
@@ -704,7 +844,10 @@ function _pdColumnHead(col) {
                 ss.forEach(function (x) { if (x.key === 'covered') cov += x.ids.length; else todo += x.ids.length; });
                 return todo + ' skal laves' + (cov ? ' · ' + cov + ' dækket' : '');
             }
-            if (!col.parent) return col.ids.length + ' varegrupper';
+            if (!col.parent) {
+                var nr = (_pdSectionsFor('raw') || []).reduce(function (a, x) { return a + x.ids.length; }, 0);
+                return nr + ' råvarer' + (_pd.rawFilter && _pd.rawFilter !== 'all' ? ' vist' : '');
+            }
             return col.parent.kind === 'raw_group' ? col.ids.length + ' råvarer' : '';
         }
         if (_pd.metric === 'salg' || _pd.metric === 'db') return 'findes ikke her';
@@ -890,7 +1033,8 @@ function _pdOpenBon(bonId, bonNr) {
 function _pdOnRowClick(e) {
     var cart = e.target.closest('.pd-cart');
     if (cart) { _pdOnCartClick(cart); return; }
-    if (e.target.closest('[data-section-toggle]')) { _pd.coveredOpen = !_pd.coveredOpen; _pdRenderDrill(); return; }
+    var fold = e.target.closest('[data-fold]');
+    if (fold) { _pdToggleFold(fold.dataset.fold); return; }
     var ck = e.target.closest('[data-ck]');
     if (ck) { _pdCheckAction(ck); return; }
     var r = e.target.closest('.pd-row.clickable');
@@ -975,8 +1119,20 @@ function _pdCheckSave() {
 /** Varerne på listen: forud-producerede først, så råvarerne i deres varegrupper. */
 function _pdCheckGroups() {
     var t = _pd.tree, N = t.nodes, groups = [];
+    // Færdige varer delt op efter varegruppe, som råvarerne. Orden: gruppens navn,
+    // uden varegruppe sidst.
     var made = (t.levels.prep || []).filter(function (id) { return N[id] && N[id].check; });
-    if (made.length) groups.push({ title: 'Færdige varer (laves i forvejen)', ids: made });
+    var byGrp = {}, order = [];
+    made.forEach(function (id) {
+        var g = N[id].group_name || '';
+        if (!byGrp[g]) { byGrp[g] = []; order.push(g); }
+        byGrp[g].push(id);
+    });
+    order.sort(function (a, b) { return (a === '') - (b === '') || a.localeCompare(b, 'da'); });
+    order.forEach(function (g) {
+        groups.push({ title: 'Færdige varer' + (g ? ' · ' + g : (order.length > 1 ? ' · uden varegruppe' : ' (laves i forvejen)')),
+            ids: byGrp[g] });
+    });
     (t.levels.raw || []).forEach(function (gid) {
         var ids = (N[gid].children || []).filter(function (id) { return N[id] && N[id].check; });
         if (ids.length) groups.push({ title: N[gid].name, ids: ids });
@@ -997,10 +1153,7 @@ function _pdCheckHtml() {
         '<span class="pd-col-sum"><strong>' + done + ' af ' + all.length + '</strong> tjekket</span></div>' +
         '<div class="pd-check-bar"><span style="width:' + Math.round(done / all.length * 100) + '%"></span></div>';
 
-    groups.forEach(function (g) {
-        html += '<div class="pd-sec-head"><span class="pd-sec-title">' + _pdEsc(g.title) + '</span> <span class="pd-sec-count">' + g.ids.length + '</span></div>';
-        g.ids.forEach(function (id) { html += _pdCheckRow(N[id], c); });
-    });
+    html += _pdSectionsHtml(_pdSectionsFor('check'), 0, null, 'check', function (id) { return _pdCheckRow(N[id], c); });
 
     html += '<div class="pd-check-foot">' + _pdCheckFoot(c, done, all) + '</div></div>';
     return html;

@@ -9560,6 +9560,14 @@ alle fanget.
 - Fase 3 (25/9): fane 6 Tjekliste — ✓ er der / passer ikke (rigtigt tal → Grocy rettes) gennem
   optællingens egne endpoints (én optælling pr. Grocy-lokation), Råvarer ✓ på bonsene når alt er dækket.
   `PATCH /api/bons/:id/prep` skriver nu historik og sender `bon_updated`.
+- Efter drifttest (26/9): Kategorier og Varer er lagt sammen til fane 1 **Menu** — kategorierne er
+  afsnit der kan foldes (sammenfoldet = kategori-overblikket; også i Pr. dag, med kategoriens dagstal).
+  Samme fold-mekanisme i Skal laves, Råvarer og Tjekliste (`_pdSectionsFor` + `planning2_fold`,
+  "Fold alle ind/ud"); emballage/levering og "Dækket af lager" er foldet fra start.
+  Fanerne er nu Menu · Ønsker · Skal laves · Råvarer · Tjekliste.
+  Tjeklistens færdige varer står under deres varegruppe; Råvarer har filteret
+  **Alle · Mangler · På lager** (serverens `short`, samme tal som gruppens "N mangler").
+  `.pd-row` fik `box-sizing: border-box` — knapper og 🛒 blev klippet i højre kant.
 - Resolverens `shortfall_purchase` havde en flydende-tal-fejl (1,12 → 1,13; 2 sække → 3) — rettet med epsilon.
 
 ## Næste opgave

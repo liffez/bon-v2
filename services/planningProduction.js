@@ -225,6 +225,11 @@ async function buildProductionLevels(input, deps = {}) {
             },
             used_in: usedIn.get(pid) || null,
             check: type === 'to_stock' ? checkInfo(i, productById.get(pid)) : null,
+            // Varegruppen, så tjeklisten kan dele de færdige varer op som råvarerne.
+            group_name: (() => {
+                const gid = Number(productById.get(pid)?.product_group_id) || 0;
+                return gid ? groupLabel(groupById.get(gid)?.name || `Varegruppe ${gid}`) : '';
+            })(),
             days: {},
             values: publicVal(sum, perms),
             children: [],
@@ -292,6 +297,9 @@ async function buildProductionLevels(input, deps = {}) {
             id: rid, kind: 'raw', name: i.product_name,
             qty: round(amounts(i).need, 3), qty_display: fmtQty(amounts(i).need), unit: amounts(i).unit,
             status: i.status,
+            // Mangler = behovet er større end lageret. Samme regel som gruppens
+            // "N mangler" og Råvarer-filteret — ét sted.
+            short,
             stock_display: amounts(i).stock_display,
             check: checkInfo(i, product),
             // Indkøbslisten som i Råvarer-modalen i dag: mængden er oprundet på

@@ -180,6 +180,12 @@ const itemRecipes = new Map([[1, 'Grisen på Rug'], [2, 'Falaflen'], [3, 'Suppe'
         stock_unit: 'kg', physical_unit_name: 'KØL-1' });
     check('forud-produceret vare er på tjeklisten', !!N['prep:125'].check);
     eq('laves ved levering er ikke (laves først når bonen leveres)', N['prep:300'].check, null);
+    // §6d Tjekliste-grupper og Råvarer-filter: varegruppe på færdige varer, mangler-markering på råvarer
+    eq('gris: varegruppe til tjeklisten', N['prep:125'].group_name, N['pgrp:31'].name);
+    eq('bouillon uden varegruppe: tom', N['prep:400'].group_name, '');
+    eq('svinekam mangler', N['raw:200'].short, true);
+    eq('rugbrød dækket: mangler ikke', N['raw:205'].short, false);
+    eq('gruppens "N mangler" = antal short', N['pgrp:31'].children.filter(id => N[id].short).length, N['pgrp:31'].short_count);
 
     // §7 Tomt grundlag
     const empty = await buildProductionLevels({ lines: [], itemRecipes, perms: { cost: true } });
